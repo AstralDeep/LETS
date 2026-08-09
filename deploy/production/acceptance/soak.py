@@ -642,7 +642,12 @@ def _health_sample(
             "storage_capacity": capacity,
             "transfers": metrics.get("transfers"),
         }
-        if audit_error_budget is not None and audit_exporter.get("last_error") is not None:
+        if audit_exporter.get("last_error") is not None:
+            if audit_error_budget is None:
+                raise RuntimeError(
+                    f"{node} sampled an audit exporter error outside the shared "
+                    "workload error budget"
+                )
             audit_error_budget.observe_error(node)
             recovery = _poll_audit_error_recovery(
                 client,

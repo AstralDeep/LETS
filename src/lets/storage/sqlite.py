@@ -59,6 +59,29 @@ _DEFAULT_RECEIPT_TTL_NS = 1_000_000_000
 _DEFAULT_TRANSFER_GAP_WINDOW = 64
 
 
+def _sqlite_error_diagnostic(exc: sqlite3.Error) -> str:
+    """Return bounded SQLite metadata without exposing the raw error text."""
+
+    raw_name = getattr(exc, "sqlite_errorname", None)
+    error_name = "UNKNOWN"
+    if (
+        type(raw_name) is str
+        and raw_name.startswith("SQLITE_")
+        and len(raw_name) <= 64
+        and all(
+            character == "_" or "0" <= character <= "9" or "A" <= character <= "Z"
+            for character in raw_name
+        )
+    ):
+        error_name = raw_name
+
+    raw_code = getattr(exc, "sqlite_errorcode", None)
+    error_code = (
+        str(raw_code) if type(raw_code) is int and 0 <= raw_code <= 0x7FFFFFFF else "UNKNOWN"
+    )
+    return f"sqlite_errorname={error_name}, sqlite_errorcode={error_code}"
+
+
 def _identifier(value: object, name: str) -> str:
     if not isinstance(value, str) or not 1 <= len(value) <= 512:
         raise ValidationError(f"{name} must be a non-empty string of at most 512 characters")
@@ -1864,6 +1887,7 @@ class SQLiteStorage:
 
     def _connect(self, *, set_wal: bool = False) -> sqlite3.Connection:
         connection: sqlite3.Connection | None = None
+        setup_stage = "connect"
         try:
             connection = sqlite3.connect(
                 self._connect_path,
@@ -1872,26 +1896,39 @@ class SQLiteStorage:
                 uri=self._connect_uri,
                 cached_statements=256,
             )
+            setup_stage = "register"
             connection.row_factory = sqlite3.Row
             _register_functions(connection)
+            setup_stage = "foreign_keys"
             connection.execute("PRAGMA foreign_keys = ON")
+            setup_stage = "busy_timeout"
             connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
+            setup_stage = "synchronous"
             connection.execute("PRAGMA synchronous = FULL")
+            setup_stage = "wal_autocheckpoint"
             connection.execute("PRAGMA wal_autocheckpoint = 1000")
             if set_wal:
+                setup_stage = "journal_mode"
                 mode = cast(str, connection.execute("PRAGMA journal_mode = WAL").fetchone()[0])
                 if mode.lower() != "wal":
                     raise StorageError(f"SQLite refused WAL mode (selected {mode!r})")
+            setup_stage = "capacity_limits"
             self._install_capacity_limits(connection)
+            setup_stage = "permissions"
             self._restrict_file_permissions()
             return connection
         except sqlite3.Error as exc:
             if connection is not None:
-                connection.close()
-            raise StorageError(f"could not open SQLite database {self._path!r}") from exc
+                with suppress(sqlite3.Error):
+                    connection.close()
+            diagnostic = _sqlite_error_diagnostic(exc)
+            raise StorageError(
+                f"could not open SQLite database (setup_stage={setup_stage}, {diagnostic})"
+            ) from exc
         except BaseException:
             if connection is not None:
-                connection.close()
+                with suppress(sqlite3.Error):
+                    connection.close()
             raise
 
     def _restrict_file_permissions(self) -> None:
@@ -2681,84 +2718,106 @@ class SQLiteStorage:
         connection: sqlite3.Connection | None = None
         transaction: SQLiteTransaction | None = None
         recovery_baseline: CapacitySnapshot | None = None
+        failed = False
         try:
             # Keep in-process readers, the peer dispatcher, and HTTP handlers behind
             # the post-COMMIT anchor CAS.  Consequently no signed result or outbox row
             # from a losing fork can be observed through this storage instance.
             with self._authority_transaction_lock:
-                connection = self._connect()
-                self._reconcile_authority_anchor(connection)
-                connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
-                if write:
-                    if capacity_recovery:
-                        recovery_baseline = self._require_recovery_capacity(
-                            connection, baseline=None
-                        )
-                    else:
-                        self._require_write_capacity(connection)
-                if not write:
-                    connection.execute("PRAGMA query_only = ON")
-                transaction = SQLiteTransaction(connection, self._metadata, writable=write)
-                yield transaction
-                if write:
-                    # SQLite enforces immediate constraints on each statement and deferred
-                    # constraints at COMMIT because every connection enables foreign_keys.
-                    # A full foreign_key_check is O(database size), so it remains a startup
-                    # and explicit diagnostic instead of running on every write.
-                    try:
-                        self._assert_local_conservation(connection, self._metadata, reconcile=False)
-                    except InvariantError:
-                        # If a malformed internal transaction violates both conservation and
-                        # a deferred FK, preserve the FK failure that COMMIT would report.
-                        # This diagnostic scan is restricted to the already-failing path; it
-                        # never adds database-size work to a valid commit.
-                        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
-                            raise sqlite3.IntegrityError("FOREIGN KEY constraint failed") from None
-                        raise
-                    if capacity_recovery:
-                        self._require_recovery_capacity(
-                            connection,
-                            baseline=recovery_baseline,
-                        )
-                    else:
-                        self._require_write_capacity(connection)
-                connection.commit()
-                if write:
+                try:
+                    connection = self._connect()
                     self._reconcile_authority_anchor(connection)
-                    committed = self._capacity_snapshot(connection)
-                    if (
-                        committed.filesystem_free_bytes is not None
-                        and committed.filesystem_free_bytes < committed.min_free_disk_bytes
-                    ):
+                    connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+                    if write:
+                        if capacity_recovery:
+                            recovery_baseline = self._require_recovery_capacity(
+                                connection, baseline=None
+                            )
+                        else:
+                            self._require_write_capacity(connection)
+                    if not write:
+                        connection.execute("PRAGMA query_only = ON")
+                    transaction = SQLiteTransaction(connection, self._metadata, writable=write)
+                    yield transaction
+                    if write:
+                        # SQLite enforces immediate constraints on each statement and deferred
+                        # constraints at COMMIT because every connection enables foreign_keys.
+                        # A full foreign_key_check is O(database size), so it remains a startup
+                        # and explicit diagnostic instead of running on every write.
+                        try:
+                            self._assert_local_conservation(
+                                connection, self._metadata, reconcile=False
+                            )
+                        except InvariantError:
+                            # If a malformed internal transaction violates both conservation and
+                            # a deferred FK, preserve the FK failure that COMMIT would report.
+                            # This diagnostic scan is restricted to the already-failing path; it
+                            # never adds database-size work to a valid commit.
+                            if (
+                                connection.execute("PRAGMA foreign_key_check").fetchone()
+                                is not None
+                            ):
+                                raise sqlite3.IntegrityError(
+                                    "FOREIGN KEY constraint failed"
+                                ) from None
+                            raise
+                        if capacity_recovery:
+                            self._require_recovery_capacity(
+                                connection,
+                                baseline=recovery_baseline,
+                            )
+                        else:
+                            self._require_write_capacity(connection)
+                    connection.commit()
+                    if write:
+                        self._reconcile_authority_anchor(connection)
+                        committed = self._capacity_snapshot(connection)
+                        if (
+                            committed.filesystem_free_bytes is not None
+                            and committed.filesystem_free_bytes < committed.min_free_disk_bytes
+                        ):
+                            self._capacity_faulted = True
+                            raise CapacityError(
+                                "committed transaction crossed the emergency filesystem floor"
+                            )
+                except sqlite3.IntegrityError:
+                    failed = True
+                    if connection is not None and connection.in_transaction:
+                        with suppress(sqlite3.Error):
+                            connection.rollback()
+                    raise
+                except sqlite3.Error as exc:
+                    failed = True
+                    sqlite_full = (
+                        getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL
+                        or "full" in str(exc).casefold()
+                    )
+                    if sqlite_full:
                         self._capacity_faulted = True
+                    if connection is not None and connection.in_transaction:
+                        with suppress(sqlite3.Error):
+                            connection.rollback()
+                    if sqlite_full:
                         raise CapacityError(
-                            "committed transaction crossed the emergency filesystem floor"
-                        )
-        except sqlite3.IntegrityError:
-            if connection is not None and connection.in_transaction:
-                connection.rollback()
-            raise
-        except sqlite3.Error as exc:
-            if connection is not None and connection.in_transaction:
-                connection.rollback()
-            if (
-                getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL
-                or "full" in str(exc).casefold()
-            ):
-                self._capacity_faulted = True
-                raise CapacityError(
-                    "SQLite reached its configured logical or filesystem capacity limit"
-                ) from exc
-            raise StorageError("SQLite transaction failed") from exc
-        except BaseException:
-            if connection is not None and connection.in_transaction:
-                connection.rollback()
-            raise
+                            "SQLite reached its configured logical or filesystem capacity limit"
+                        ) from exc
+                    raise StorageError("SQLite transaction failed") from exc
+                except BaseException:
+                    failed = True
+                    if connection is not None and connection.in_transaction:
+                        with suppress(sqlite3.Error):
+                            connection.rollback()
+                    raise
+                finally:
+                    if transaction is not None:
+                        transaction._mark_closed()
+                    if connection is not None:
+                        if failed:
+                            with suppress(sqlite3.Error):
+                                connection.close()
+                        else:
+                            connection.close()
         finally:
-            if transaction is not None:
-                transaction._mark_closed()
-            if connection is not None:
-                connection.close()
             self._active.reset(token)
 
     def write(self) -> AbstractContextManager[SQLiteTransaction]:
@@ -2798,29 +2857,38 @@ class SQLiteStorage:
         return True
 
     def capacity_snapshot(self) -> CapacitySnapshot:
-        if self._closed:
-            raise StorageError("storage is closed")
-        connection = self._connect()
-        try:
-            return self._capacity_snapshot(connection)
-        finally:
-            connection.close()
+        with self._authority_transaction_lock:
+            if self._closed:
+                raise StorageError("storage is closed")
+            connection = self._connect()
+            try:
+                return self._capacity_snapshot(connection)
+            finally:
+                connection.close()
 
     def clear_capacity_fault(self) -> CapacitySnapshot:
         """Clear a sticky SQLITE_FULL fault only after headroom is restored."""
 
-        if self._closed:
-            raise StorageError("storage is closed")
-        connection = self._connect()
-        try:
-            self._capacity_faulted = False
-            snapshot = self._capacity_snapshot(connection)
-            if not snapshot.healthy:
+        with self._authority_transaction_lock:
+            if self._closed:
+                raise StorageError("storage is closed")
+            connection = self._connect()
+            try:
+                self._capacity_faulted = False
+                snapshot = self._capacity_snapshot(connection)
+                if not snapshot.healthy:
+                    raise CapacityError("storage capacity headroom has not been restored")
+            except BaseException:
                 self._capacity_faulted = True
-                raise CapacityError("storage capacity headroom has not been restored")
+                with suppress(sqlite3.Error):
+                    connection.close()
+                raise
+            try:
+                connection.close()
+            except BaseException:
+                self._capacity_faulted = True
+                raise
             return snapshot
-        finally:
-            connection.close()
 
     def pragma_integrity_check(self) -> tuple[str, ...]:
         with self.read() as transaction:
@@ -2843,25 +2911,26 @@ class SQLiteStorage:
         return True
 
     def checkpoint(self, *, truncate: bool = False) -> tuple[int, int, int]:
-        if self._closed:
-            raise StorageError("storage is closed")
-        if self._active.get():
-            raise StorageError("cannot checkpoint during a transaction")
-        connection = self._connect()
-        try:
-            mode = "TRUNCATE" if truncate else "PASSIVE"
-            row = connection.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
-            return cast(tuple[int, int, int], tuple(row))
-        except sqlite3.Error as exc:
-            if (
-                getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL
-                or "full" in str(exc).casefold()
-            ):
-                self._capacity_faulted = True
-                raise CapacityError("SQLite checkpoint exhausted filesystem capacity") from exc
-            raise StorageError("SQLite checkpoint failed") from exc
-        finally:
-            connection.close()
+        with self._authority_transaction_lock:
+            if self._closed:
+                raise StorageError("storage is closed")
+            if self._active.get():
+                raise StorageError("cannot checkpoint during a transaction")
+            connection = self._connect()
+            try:
+                mode = "TRUNCATE" if truncate else "PASSIVE"
+                row = connection.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+                return cast(tuple[int, int, int], tuple(row))
+            except sqlite3.Error as exc:
+                if (
+                    getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL
+                    or "full" in str(exc).casefold()
+                ):
+                    self._capacity_faulted = True
+                    raise CapacityError("SQLite checkpoint exhausted filesystem capacity") from exc
+                raise StorageError("SQLite checkpoint failed") from exc
+            finally:
+                connection.close()
 
     def close(self) -> None:
         if self._active.get():

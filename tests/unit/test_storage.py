@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
@@ -87,8 +88,13 @@ def test_open_existing_fails_closed_without_recreating_authority_state(tmp_path:
         "tenant_id": "tenant-a",
         "envelope_id": "envelope-a",
     }
-    with pytest.raises(StorageError, match="could not open"):
+    with pytest.raises(StorageError, match="could not open") as captured:
         SQLiteStorage(missing, "warden-a", (10,), **options)
+    diagnostic = str(captured.value)
+    assert "setup_stage=connect" in diagnostic
+    assert "sqlite_errorname=SQLITE_CANTOPEN" in diagnostic
+    assert f"sqlite_errorcode={sqlite3.SQLITE_CANTOPEN}" in diagnostic
+    assert str(missing) not in diagnostic
     assert not missing.exists()
 
     empty = tmp_path / "empty.db"
@@ -102,6 +108,82 @@ def test_open_existing_fails_closed_without_recreating_authority_state(tmp_path:
     created.close()
     with pytest.raises(StorageError, match="already initialized"):
         SQLiteStorage.initialize(initialized, "warden-a", (10,), **options)
+
+
+def test_connect_setup_failure_closes_handle_and_redacts_adversarial_metadata(
+    store: SQLiteStorage, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    raw_secret = str(tmp_path / "operator-secret.sqlite3")
+    setup_error = sqlite3.OperationalError(f"database is locked at {raw_secret}; token=hunter2")
+    setup_error.sqlite_errorname = f"SQLITE_BUSY:{raw_secret}"
+    setup_error.sqlite_errorcode = 10**100
+
+    class SetupFailureConnection:
+        def __init__(self) -> None:
+            self.row_factory: object | None = None
+            self.close_calls = 0
+
+        def create_function(self, *_args: object, **_kwargs: object) -> None:
+            raise setup_error
+
+        def close(self) -> None:
+            self.close_calls += 1
+            raise sqlite3.OperationalError(f"cleanup failed at {raw_secret}")
+
+    connection = SetupFailureConnection()
+    with monkeypatch.context() as patch:
+        patch.setattr(sqlite3, "connect", lambda *_args, **_kwargs: connection)
+        with pytest.raises(StorageError) as captured:
+            store._connect()
+
+    diagnostic = str(captured.value)
+    assert connection.close_calls == 1
+    assert "setup_stage=register" in diagnostic
+    assert "sqlite_errorname=UNKNOWN" in diagnostic
+    assert "sqlite_errorcode=UNKNOWN" in diagnostic
+    assert raw_secret not in diagnostic
+    assert "hunter2" not in diagnostic
+    assert captured.value.__cause__ is setup_error
+
+
+def test_connect_reports_exclusive_lock_stage_and_recovers(tmp_path: Path) -> None:
+    path = tmp_path / "locked.db"
+    options = {
+        "signing_key_id": _SIGNING_KEY_ID,
+        "signing_public_key": _SIGNING_PUBLIC_KEY,
+        "tenant_id": "tenant-a",
+        "envelope_id": "envelope-a",
+        "busy_timeout_ms": 25,
+    }
+    storage = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
+    blocker = sqlite3.connect(path, isolation_level=None)
+    blocker_closed = False
+    try:
+        assert blocker.execute("PRAGMA journal_mode = DELETE").fetchone()[0] == "delete"
+        assert blocker.execute("PRAGMA locking_mode = EXCLUSIVE").fetchone()[0] == "exclusive"
+        blocker.execute("BEGIN EXCLUSIVE")
+
+        with pytest.raises(StorageError) as captured:
+            storage._connect(set_wal=True)
+
+        diagnostic = str(captured.value)
+        assert "setup_stage=synchronous" in diagnostic
+        assert "sqlite_errorname=SQLITE_BUSY" in diagnostic
+        assert f"sqlite_errorcode={sqlite3.SQLITE_BUSY}" in diagnostic
+        assert str(path) not in diagnostic
+        assert "database is locked" not in diagnostic
+
+        blocker.rollback()
+        blocker.close()
+        blocker_closed = True
+        with closing(storage._connect(set_wal=True)) as recovered:
+            assert recovered.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        if not blocker_closed:
+            if blocker.in_transaction:
+                blocker.rollback()
+            blocker.close()
+        storage.close()
 
 
 def test_schema_v1_requires_explicit_transactional_migration(tmp_path: Path) -> None:
@@ -667,6 +749,160 @@ def test_concurrent_writers_are_serialized(tmp_path: Path) -> None:
     with storage.read() as transaction:
         assert transaction.get_warden_state()["revision"] == 60
     storage.close()
+
+
+def test_capacity_diagnostics_and_checkpoint_serialize_with_active_transaction(
+    store: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer_entered = threading.Event()
+    release_writer = threading.Event()
+    begin_operations = threading.Event()
+    diagnostic_connect_entered = threading.Event()
+    operation_started = [threading.Event() for _ in range(3)]
+    original_connect = store._connect
+
+    def tracked_connect(*, set_wal: bool = False) -> sqlite3.Connection:
+        if writer_entered.is_set() and not release_writer.is_set():
+            diagnostic_connect_entered.set()
+        return original_connect(set_wal=set_wal)
+
+    monkeypatch.setattr(store, "_connect", tracked_connect)
+
+    def hold_writer() -> None:
+        with store.write():
+            writer_entered.set()
+            assert release_writer.wait(timeout=5)
+
+    operations = (store.capacity_snapshot, store.clear_capacity_fault, store.checkpoint)
+
+    def invoke(index: int) -> object:
+        operation_started[index].set()
+        assert begin_operations.wait(timeout=5)
+        return operations[index]()
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        writer = executor.submit(hold_writer)
+        assert writer_entered.wait(timeout=5)
+        diagnostics = [executor.submit(invoke, index) for index in range(3)]
+        try:
+            assert all(started.wait(timeout=5) for started in operation_started)
+            begin_operations.set()
+            assert not diagnostic_connect_entered.wait(timeout=0.25)
+            blocked_behind_transaction = [not future.done() for future in diagnostics]
+        finally:
+            release_writer.set()
+
+        writer.result(timeout=5)
+        results = [future.result(timeout=5) for future in diagnostics]
+
+    assert blocked_behind_transaction == [True, True, True]
+    assert results[0].healthy
+    assert results[1].healthy
+    assert isinstance(results[2], tuple)
+
+
+def test_failed_transaction_holds_authority_lock_through_cleanup_and_full_latch(
+    store: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rollback_entered = threading.Event()
+    release_rollback = threading.Event()
+    close_entered = threading.Event()
+    release_close = threading.Event()
+    observer_started = threading.Event()
+    observer_finished = threading.Event()
+    transaction_holder: list[object] = []
+    original_connect = store._connect
+    wrap_next_connection = True
+
+    class BlockingCleanupConnection:
+        def __init__(self, delegate: sqlite3.Connection) -> None:
+            self._delegate = delegate
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._delegate, name)
+
+        def rollback(self) -> None:
+            rollback_entered.set()
+            release_rollback.wait(timeout=5)
+            raise sqlite3.OperationalError("injected rollback cleanup failure")
+
+        def close(self) -> None:
+            close_entered.set()
+            release_close.wait(timeout=5)
+            self._delegate.close()
+            raise sqlite3.OperationalError("injected close cleanup failure")
+
+    def tracked_connect(*, set_wal: bool = False) -> sqlite3.Connection:
+        nonlocal wrap_next_connection
+        connection = original_connect(set_wal=set_wal)
+        if wrap_next_connection:
+            wrap_next_connection = False
+            return BlockingCleanupConnection(connection)  # type: ignore[return-value]
+        return connection
+
+    monkeypatch.setattr(store, "_connect", tracked_connect)
+    sqlite_full = sqlite3.OperationalError("database or disk is full")
+    sqlite_full.sqlite_errorname = "SQLITE_FULL"
+    sqlite_full.sqlite_errorcode = sqlite3.SQLITE_FULL
+
+    def fail_write() -> CapacityError:
+        try:
+            with store.write() as transaction:
+                transaction_holder.append(transaction)
+                raise sqlite_full
+        except CapacityError as exc:
+            return exc
+        raise AssertionError("SQLITE_FULL did not fail closed")
+
+    def observe_capacity() -> object:
+        observer_started.set()
+        try:
+            return store.capacity_snapshot()
+        finally:
+            observer_finished.set()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        failed_write = executor.submit(fail_write)
+        observer = None
+        try:
+            assert rollback_entered.wait(timeout=5)
+            observer = executor.submit(observe_capacity)
+            assert observer_started.wait(timeout=5)
+            assert not observer_finished.wait(timeout=0.25)
+
+            release_rollback.set()
+            assert close_entered.wait(timeout=5)
+            assert transaction_holder[0].closed
+            assert not observer_finished.wait(timeout=0.25)
+        finally:
+            release_rollback.set()
+            release_close.set()
+
+        failure = failed_write.result(timeout=5)
+        assert observer is not None
+        snapshot = observer.result(timeout=5)
+
+    assert failure.__cause__ is sqlite_full
+    assert snapshot.prior_full_error
+    assert not snapshot.healthy
+
+
+def test_clear_capacity_fault_restores_sticky_fault_after_snapshot_exception(
+    store: SQLiteStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store._capacity_faulted = True
+
+    def fail_snapshot(_connection: sqlite3.Connection) -> None:
+        assert not store._capacity_faulted
+        raise RuntimeError("injected capacity diagnostic failure")
+
+    monkeypatch.setattr(store, "_capacity_snapshot", fail_snapshot)
+    with pytest.raises(RuntimeError, match="injected capacity diagnostic failure"):
+        store.clear_capacity_fault()
+    assert store._capacity_faulted
+
+    monkeypatch.undo()
+    assert store.capacity_snapshot().prior_full_error
 
 
 def test_inconsistent_raw_write_is_rolled_back_at_commit(store: SQLiteStorage) -> None:
