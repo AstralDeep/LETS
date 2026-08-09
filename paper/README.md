@@ -33,12 +33,19 @@ from reproduced commands and retained evidence. The paper distinguishes:
 - design arguments that are not mechanized proofs;
 - future work.
 
-The Docker acceptance record is reproduced with the repository-local Python environment:
+The production-profile acceptance record is reproduced with the repository-local Python
+environment and an exact immutable candidate reference:
 
 ```powershell
 uv sync --all-extras --frozen
-uv run --frozen python deploy/run_acceptance.py
+$imageName = "127.0.0.1:25000/astraldeep/lets"
+$imageDigest = "sha256:2f002bc691685930e07bf5d4e297f2b9ba13617aad222d512afc7b3d59a8e8ad"
+$env:LETS_PRODUCTION_ACCEPTANCE_IMAGE = "$imageName@$imageDigest"
+uv run --frozen python deploy/production/run_acceptance.py
 ```
+
+The supplied production profile is admitted only on Linux/amd64 or Linux/arm64. Docker Desktop is
+useful for smoke testing but is not a claimed production durability or failure boundary.
 
 The executable bounded model uses the same local environment. The TLC runner uses preinstalled
 Java, downloads its pinned JAR only below the ignored repository `tmp/` directory, verifies the

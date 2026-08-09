@@ -71,16 +71,20 @@ short-lived, audience-bound receipt that an independent executor verifies and du
 This paper reports the implemented version \ArtifactVersion{} runtime rather than the earlier
 in-memory research kernel. It includes independent SQLite-backed warden processes, signed cluster
 manifests, authenticated peer HTTP, sequenced exactly-once target credit for rights transfers,
-branch revocation, canonical signed JSON, an authenticated HTTP API and a strict-decoding,
-bounded-retry client, operational tooling, and a host-neutral adapter. We give an inductive
+branch revocation, canonical signed JSON, externally anchored warden and executor authority,
+bounded maintenance, an authenticated HTTP API and a strict-decoding, bounded-retry client,
+operational tooling, and a host-neutral adapter. We give an inductive
 conservation argument and state the availability cost:
 a partitioned site may spend only rights it already owns, so safety and local progress are
 preserved while remote capacity can be stranded. The artifact contains \CoreTestsCollected{}
-collected unit, integration, security, property, recovery, and end-to-end cases. A clean-volume
-Docker acceptance run used three distinct processes, databases, and Ed25519 keys; it exercised a
-bidirectional partition, transfer reordering and replay, abrupt restart, independent executor
-verification, and aggregate conservation. The runtime is production-intent pre-1.0 software, not
-a claim of Byzantine tolerance, arbitrary live migration, or generic exactly-once physical effects.
+collected unit, integration, security, property, recovery, and end-to-end cases. A final one-host
+production-profile acceptance used the exact immutable candidate with three hardened wardens; it
+exercised mTLS and JWT rejection paths, a bidirectional partition, abrupt restart, automatic
+convergence, an externally anchored executor replay store, stale-restore rejection, and aggregate
+conservation. The repository also supplies a separately hardened,
+one-warden-per-host production profile whose admission depends on operator-provided storage,
+identity, key, PKI, and rollback-domain controls. This is not a claim of Byzantine tolerance,
+arbitrary live migration, generic exactly-once physical effects, or independent security audit.
 \end{abstract}
 
 \noindent\fcolorbox{letsblue}{letslight}{\parbox{0.95\linewidth}{
@@ -125,7 +129,8 @@ This artifact makes five concrete contributions.
 
 \begin{enumerate}
   \item \impl{} A real multi-node runtime in which each warden has an independent process,
-  database, signing key, replay store, and initial escrow share.
+  database, signing identity, monotonic authority anchor, audit archive, and initial escrow share
+  in the production profile. Schema~2 makes peer replay part of the same anchored core authority.
   \item \impl{} A durable lifecycle and transition service that provides root issuance, recursive
   attenuating spawn, renewal, quiescence, closure, expiry reclamation, branch revocation, and
   signed executor receipts under atomic local transactions.
@@ -134,8 +139,8 @@ This artifact makes five concrete contributions.
   \item \designed{} An inductive safety argument for local and global vector conservation,
   capability attenuation, nested expiry, and receipt mediation, together with an explicit
   partition-availability trade-off.
-  \item \checked{} Reproducible unit, security, property, crash-recovery, bounded-model, and real
-  three-node fault evidence, with the evidence types kept distinct.
+  \item \checked{} Reproducible unit, security, property, crash-recovery, bounded-model, package,
+  and real three-node fault evidence, with the evidence types kept distinct.
 \end{enumerate}
 
 \LETS{} does not claim that escrow, delegation, state machines, signatures, leases, or
@@ -160,9 +165,11 @@ Area & Artifact status & Evidence class \\
 \midrule
 Local lifecycle & Durable lease, policy, receipt, audit, idempotency, and outbox transactions & \impl, \checked \\
 Multi-node transfer & Signed prepare/accept/finalize/checkpoint protocol over authenticated HTTP & \impl, \checked \\
-Partition behavior & Local transitions at A and B while both directed peer links are disabled & \measured \\
-Restart behavior & Target killed with \code{SIGKILL}, restarted on its persisted volume, replay still denied & \measured \\
+Partition behavior & Both directed A--B peer links disabled with a durable failed transfer record; dispatcher converged after restoration & \measured \\
+Restart behavior & Warden process replaced on its persisted authority unit; anchored state resumed and transfer converged & \measured \\
 Conservation & Inductive argument, SQL commit checks, property traces, bounded abstract checker, aggregate e2e assertion & \designed, \checked \\
+Rollback fencing & Database-instance and append-only history heads compared through external linearizable anchors & \impl, \checked \\
+Production profile & Admission requires one warden per host, mTLS, external providers, independent state/anchor/audit/backup domains, and an immutable image digest; one-host acceptance emulates the controls but not independent failure domains & \impl, \checked{} (one host) \\
 Byzantine wardens & No threshold authorization or replicated-state-machine defense & \future \\
 Active-subtree migration & Free-right transfer followed by target issuance only & \future \\
 \bottomrule
@@ -186,8 +193,10 @@ uncertainty bound, an evidence predicate language, and a transfer gap window. Po
 machines are content addressed.
 
 The trusted computing base consists of each warden process, its policy and configured evidence
-evaluators, database, clock within the configured uncertainty, signing key, manifest trust roots,
-protected executors, and the host isolation that prevents subjects from writing those components.
+evaluators, database, clock within the configured uncertainty, signing provider, manifest trust
+roots, production authority-anchor and audit-archive services, protected executors and their
+claim anchors, the TLS/identity termination boundary, and the host isolation that prevents
+subjects from writing those components.
 Agents, generated code, prompts, memory, discovery documents, request bodies, networks, and other
 tenants are untrusted. Wardens are trusted but may crash. Messages may be lost, duplicated,
 delayed, reordered, replayed, or partitioned.
@@ -214,15 +223,16 @@ delayed, reordered, replayed, or partitioned.
 \draw[peer] (a) -- node[above,font=\scriptsize]{signed peer HTTP} (b);
 \draw[peer] (b) -- node[above,font=\scriptsize]{signed peer HTTP} (c);
 \draw[arr] (a) -- (da); \draw[arr] (b) -- (db); \draw[arr] (c) -- (dc);
-\draw[arr] (a) -- node[right,font=\scriptsize]{receipt} (ea);
-\draw[arr] (b) -- node[right,font=\scriptsize]{receipt} (eb);
-\draw[arr] (c) -- node[right,font=\scriptsize]{receipt} (ec);
+\draw[arr] (a.south east) to[out=-55,in=55] (ea.north east);
+\draw[arr] (b.south east) to[out=-55,in=55] (eb.north east);
+\draw[arr] (c.south east) to[out=-55,in=55] (ec.north east);
 \node[draw=letsgrey,dashed,rounded corners,fit=(a)(b)(c),inner sep=4mm,label={[font=\scriptsize]above:operator-signed manifest and disjoint genesis shares}] {};
 \end{tikzpicture}
-\caption{Reference topology. The Compose acceptance deployment instantiates three independent
-warden processes, stores, and keys; its test exercises one executor with a replay store outside the
-warden database. Protected domains may deploy similarly isolated executors per site. Ephemeral
-subjects call wardens but are not escrow replicas.}
+\caption{Reference topology. The acceptance deployments instantiate three independent warden
+processes, stores, and keys. The production profile additionally separates each warden database,
+monotonic authority anchor, audit archive, and backup domain; its protected executor similarly
+separates schema-5 replay state from the executor anchor. Ephemeral subjects call wardens but are
+not escrow replicas.}
 \label{fig:topology}
 \end{figure}
 
@@ -321,12 +331,28 @@ authorization performs the following stateful checks and mutations in one local 
 
 The protected executor has a separate trust configuration and replay database. It always verifies
 the exact audience, receipt freshness under bounded clock uncertainty, and signature against a
-registered warden/key pair that is currently valid at verification time. When local
-\code{ExecutorPolicy} fields or allowlists are configured, it additionally pins tenant, envelope,
-epoch, policy digest, machine digest, and warden. Its durable claim then requires the lease
-sequence to advance and claims both receipt identifier and nonce. This supplies at-most-once authorization consumption. A generic
-receipt cannot make an arbitrary physical effect exactly once: the executor must bind receipt
-claim and effect in one domain transaction, make the effect idempotent, or use compensation.
+registered warden/key pair that is currently valid at verification time. Local
+\code{ExecutorPolicy} fields and allowlists can further pin tenant, envelope, epoch, policy
+digest, machine digest, and warden.
+
+The production-grade SQLite executor library profile uses schema~5. One immutable replay identity
+binds the exact audience, tenant, envelope, configuration epoch, hash of the complete executor
+policy, and hash of the complete verification-key registry. Each successful claim appends a
+digest-chained history record and advances a database-instance-bound claim head and clock floor. A
+linearizable external compare-and-swap anchor must acknowledge that committed head before the
+claim returns; an older restore, divergent copy, losing concurrent clone, policy widening, or
+verification-key substitution therefore fails closed. Live receipt and lease-watermark rows are
+each pruned in batches of at most 128 (up to 256 rows across the two tables per successful claim),
+but the authority claim chain is append-only and requires capacity planning for a finite executor
+epoch. Schema~4 has no promotable external claim history; transition to schema~5 requires a
+drained, newly initialized authority unit. The repository's production Compose unit runs wardens,
+not an executor service; applications must host the executor, its independent state and anchor,
+and its atomic or idempotent physical-effect integration.
+
+The claim requires the lease sequence to advance and claims both receipt identifier and nonce.
+This supplies at-most-once authorization consumption. A generic receipt cannot make an arbitrary
+physical effect exactly once: the executor must bind receipt claim and effect in one domain
+transaction, make the effect idempotent, or use compensation.
 
 \subsection{Lifecycle and revocation}
 
@@ -368,11 +394,10 @@ numbers. The protocol is a durable handoff, not a distributed transaction spanni
 \node[note,below=17mm of p] (f) {3. Finalize\\verify ack\\advance prefix};
 \node[note,below=17mm of a] (c) {4. Checkpoint\\exchange prefix proof\\compact safely};
 \draw[arr] (s) -- (p);
-\draw[arr] (p.east) -- node[above,font=\scriptsize]{voucher $(seq,digest,amount)$} (a.west);
+\draw[arr] (p.east) -- node[above,font=\scriptsize]{signed voucher} (a.west);
 \draw[arr] (a.west) -- node[below,font=\scriptsize]{signed acknowledgement} (f.east);
-\draw[arr] (f) -- (c);
-\draw[arr,dashed] (c.west) -- node[below,font=\scriptsize]{signed watermark} (f.east);
-\end{tikzpicture}
+\draw[arr] (f.east) -- node[above,font=\scriptsize]{signed checkpoint} (c.west);
+\end{tikzpicture}\par
 \caption{Transfer ownership moves monotonically. A timeout never refunds a prepared source
 voucher; retries recover the acknowledgement without a second target credit.}
 \label{fig:transfer}
@@ -395,6 +420,15 @@ records finalization idempotently, and advances a contiguous acknowledgement wat
 peers agree on a finalized contiguous prefix, a signed checkpoint permits deletion of individual
 rows below that prefix. Gaps, conflicting identifiers, backward watermarks, unknown epochs, and
 untrusted keys fail closed.
+
+Watermark advance and physical history deletion are deliberately incremental: each contiguous-
+prefix or physical-prune maintenance primitive processes at most 64 transfer-history rows per
+invocation; direct record and conflict checks are separate. An exact duplicate acknowledgement,
+voucher, or checkpoint can drive the next bounded watermark or maintenance batch without a second
+credit or new signature. Branch-revocation materialization and expiry reclamation are likewise
+limited to 64 leases per transaction; dispatcher and audit-export work use configured bounded
+batches (64 by default). These limits bound individual WAL/write sets while repeated work
+converges.
 
 \impl{} A running warden's bounded peer dispatcher discovers authoritative transfer, revocation,
 and checkpoint records through durable delivery metadata. It schedules one head per ordered
@@ -433,7 +467,7 @@ Peer partition & Each warden continues only from local rights; transfer stalls &
 \addlinespace
 Signer reaches finite \code{not_after} with pending records & Verification continues to fail closed; prepared rights or revocation/checkpoint delivery can remain stranded & Safe, unavailable \\
 \addlinespace
-Cloned source database and key run concurrently & Outside version \ArtifactVersion{} model; can duplicate authority & Unsafe/non-goal \\
+Concurrent source database/key clones & Production anchor admits one contiguous history branch and faults the loser; unanchored development can duplicate authority & Fail closed \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -456,12 +490,41 @@ aggregate and validate dimensions; a transaction-level pre-commit check rejects 
 conservation violation. Compound foreign keys prevent mixing a policy version with another digest.
 The authoritative tables cover metadata, warden state, immutable policies, leases, receipts,
 idempotency responses, revocations, inbound and outbound transfer streams, checkpoints, signed
-audit, and outbox state.
+audit, and outbox state. Core schema~2 also owns peer-HTTP nonce claims, their monotonic clock
+floor, revision, and history digest. An exact schema-1 migration refuses to proceed while any
+legacy claim remains live. Once all have expired, it binds the legacy artifact digest and clock
+floor into the new history, advances the new floor to at least the migration time, and never opens
+the retired file as live state again. The runtime does not make those retired bytes immutable;
+operators must protect the exact verified backup and migration journal as evidence.
+
+Production opens require an external linearizable authority anchor outside the database rollback
+domain. A checkpoint binds warden/envelope/epoch, schema, signing-key fingerprint, random database
+instance, audit head, state revision/digest, and clock floor. Storage reconciles before every
+transaction and after each committed write; an acknowledged write result is not released ahead of
+the post-commit compare-and-swap.
+The database can recover a committed local extension, but an older or divergent restore and a
+losing clone cannot pass admission against the advanced anchor.
+
+The capacity contract distinguishes logical from physical limits. \code{max_database_bytes}
+installs SQLite \code{max_page_count} on every connection and caps the logical main database; it
+does not cap the live WAL or shared-memory index. Before an authority write, LETS reserves the
+emergency filesystem floor plus all remaining main-file growth, a conservative transaction that
+could write every configured page to WAL, and additional WAL-index growth. It also retains a
+logical page reserve inside the main-file ceiling. Capacity recovery paths remain available only
+within this reserve. \code{SQLITE_FULL}, including when raised by checkpointing, becomes a sticky
+fail-closed fault; other checkpoint failures are surfaced explicitly. Operators must provide an
+exclusive quota or dedicated filesystem for the free-space reading to be meaningful. The contract
+is conservative headroom, not a throughput or retention guarantee.
 
 The storage abstraction admits another backend, but only SQLite has equivalent implementation and
 fault evidence in this release. The release dependency audit selected PyNaCl/libsodium for the
 signed path and removed an unused PostgreSQL extra; version \ArtifactVersion{} exposes neither a
 PostgreSQL dependency nor a validated adapter.
+
+The supplied deployment validator and production server admission reject a SQLite runtime that
+lacks the 2026 WAL-reset safety fix and explicitly reject the withdrawn 3.52 release line. Older
+SQLite measurements in Section~\ref{sec:evaluation} are development-only algorithmic observations,
+not evidence that such a runtime is production-admissible.
 
 \subsection{Canonical signed data and key trust}
 
@@ -492,8 +555,9 @@ require an explicit development override;
 production deployment requires TLS in addition to message signatures.
 
 The warden database never stores the private signing seed. Its immutable bootstrap metadata binds
-the initial warden/key identifier and SHA-256 public-key fingerprint; signer substitution therefore
-fails startup. Manifest-backed service startup reloads strict JSON and re-verifies the manifest
+the initial warden/key identifier and SHA-256 public-key fingerprint; signing-key identity or
+public-key material substitution therefore fails startup. Manifest-backed service startup reloads
+strict JSON and re-verifies the manifest
 digest, operator threshold, local key/configuration, and complete peer trust before serving.
 
 Version 1 resource limits bound adversarial parser and validation work: at most 256 resource
@@ -510,23 +574,65 @@ registration performs targeted semantic checks but does not enforce the complete
 endpoint 2xx response schemas, and \code{application/problem+json} errors. Runtime handlers produce
 those responses, but the bundled client does not validate success bodies against OpenAPI. Identity
 is derived by an injected authenticator, never accepted from body fields. The
-bundled static bearer authenticator is bootstrap tooling and stores only token digests. Production
-deployments should inject an OIDC, mTLS, gateway, or workload-identity verifier.
+bundled static bearer authenticator is development bootstrap tooling and stores only token digests.
+
+Production selects exactly one installed \code{lets.runtime_providers} entry point. The provider
+must return the exact tenant/warden, a signer, authenticator, independent authority anchor,
+independently durable audit sink, and an exact \code{production_capable} declaration. The built-in
+raw-seed/static-bearer provider is forbidden. The bundled vendor-neutral provider calls an
+operator-controlled Ed25519 signer helper without a shell, verifies short-lived EdDSA JWTs, and
+uses separately mounted file anchor and SQLite audit archive. Those local bindings make the
+profile runnable; a cloud KMS, PKCS\#11 device, OIDC/SPIFFE identity plane, remote linearizable
+anchor, and managed archive remain operator-installed integrations, not bundled conformance.
 
 Authentication is enforced at the network boundary. Direct calls to service and administrative
 ports are trusted in-process integration calls, not authenticated remote entry points; an embedding
 host must keep them inside its TCB.
 
 Peer requests carry method, raw target path/query, body digest, timestamp, nonce, warden, key, and
-an Ed25519 signature. A dedicated SQLite replay store atomically prunes expired entries and claims
-new nonces. Peer signatures authenticate content but do not provide confidentiality or hide
-metadata; TLS remains mandatory outside explicit development topology.
+an Ed25519 signature. Schema~2 claims each nonce in an externally anchored core write before
+handler execution, prunes at most 128 expired claims per request, and advances a digest-bound
+replay clock floor. That nonce write is not atomic with the later peer business operation, so a
+valid request can consume its nonce even if the handler subsequently rejects or fails. Peer
+signatures authenticate content but do not provide confidentiality or hide
+metadata. Production serving requires inbound mTLS and HTTPS manifest endpoints; peer-enabled
+nodes additionally require hostname-verifying outbound TLS with a client certificate. Certificate
+issuance, revocation policy, and identity lifecycle are deployment responsibilities. TLS and the
+bundled generic provider's JWT trust are loaded at process startup, so their certificate, key, and
+trust rotation requires controlled process recreation with a configured overlap interval; the
+Python TLS path does not perform online OCSP validation. In the bundled profile, mTLS channel
+admission and JWT or LETS signed-message
+authorization are independent checks: the JWT is not bound to the presented client certificate,
+and tenant/scopes are not derived from its subject or SAN. Certificate-bound workload identity
+requires an operator provider or gateway integration. The generic authenticator requires a
+syntactically valid \code{jti} but does not persist or consume it; the same bearer JWT can therefore
+be replayed until its expiry plus accepted skew. Revocation and one-time-token semantics likewise
+require an operator identity or gateway integration.
 
-The operator surface provides liveness, clock-aware readiness, invariant snapshots, audit
+The operator surface provides liveness, bounded clock-aware readiness, invariant snapshots, audit
 verification, bounded audit pagination, and metrics for pools, consumption, transfer
-watermarks/gaps, and outbox lag. A verified SQLite backup command refuses an existing destination
-and validates the produced snapshot. Restore is operationally safe only after fencing the original
-node.
+watermarks/gaps, capacity, and outbox lag. A background exporter reconciles the core audit chain
+with an independently durable, identity-bound contiguous archive. The exporter waits at most a
+configured deadline for each sink call; a timed-out call may continue in its single daemon worker,
+and later publication attempts fail while that worker remains live. Blocked publication,
+divergence, excess backlog, or stalled progress makes production readiness false. Export
+acknowledgement and outbox pruning are bounded and resumable. The signed core audit chain itself is
+immutable and retained; export is rollback/recovery evidence, not permission to delete history.
+
+Production backup creates an exclusively published recovery bundle only after a durable drain and
+empty peer/audit queues. The bundle contains configuration, the core database, any required legacy
+replay artifact, the signed manifest, and checkpoint metadata. It intentionally excludes the live
+authority anchor, audit archive, signer/provider recovery material, identity keys, and PKI; those
+external dependencies require their own coordinated recovery procedures. Restore begins from a
+separately trusted live configuration and signed manifest and requires the bundled copies to be
+byte-identical; it does not adopt lost configuration or perform an epoch migration. It validates a
+scratch copy, compares it non-mutatingly with the current anchor before publication, moves the old
+core/WAL/SHM sidecars into quarantine across resumable phases, and removes that quarantine after
+successful admission. The restored node remains drained until explicit operator activation. These
+mechanisms fence stale state; they do not make simultaneous copies an endorsed topology. The
+bundled recovery path covers warden core authority only, not schema-5 executor replay state or its
+claim anchor. Executor recovery is application-operated: fence effects, snapshot the replay
+database, retain the anchor separately, and require an anchored reopen.
 
 \subsection{Module decomposition}
 
@@ -541,10 +647,12 @@ Module & Responsibility \\
 \midrule
 \code{policy}, \code{models} & Immutable transition/evidence semantics and strict signed wire records \\
 \code{service} & Lifecycle, transition, revocation, transfer, invariant, and audit transactions \\
-\code{storage.sqlite} & Versioned schema, durability, repositories, and transactional conservation checks \\
+\code{storage.sqlite} & Versioned schema, durability/capacity admission, repositories, conservation checks, and core replay authority \\
 \code{crypto}, \code{canonical} & Ed25519 trust and \code{LETS-CJ/1} bytes/digests \\
 \code{auth}, \code{api}, \code{client}, \code{peer} & Transport identity, signed HTTP/replay defense, durable peer dispatch, and client/CLI contracts \\
-\code{executor} & Independent receipt verification and durable at-most-once claim \\
+\code{executor}, \code{executor_authority} & Independent receipt verification, schema-5 at-most-once claim, and external rollback anchor \\
+\code{authority}, \code{audit}, \code{recovery} & Warden monotonic CAS, independent contiguous audit export, and journaled bundles/restore \\
+\code{runtime}, \code{providers} & Selected signer/identity/anchor/audit provider contract and bundled generic profile \\
 \code{manifest} & Operator-signed cluster bootstrap and exact genesis-share validation \\
 \code{integrations} & Host-neutral lifecycle port and optional AstralDeep scope profile \\
 \bottomrule
@@ -582,8 +690,12 @@ credit. Therefore cumulative inbound never creates an unmatched source debit. Su
 manifest share equation yield Eq.~\ref{eq:global}. Message failures affect whether a prepared term
 moves out of $\vect{X}$, not whether it is duplicated. \hfill$\square$
 
-The theorem excludes a compromised warden signing nonexistent vouchers, a simultaneously running
-database/key clone, manifest trust-root compromise, and direct database modification.
+The theorem excludes a compromised warden signing nonexistent vouchers, manifest trust-root
+compromise, and direct database modification. Production admission adds a linearizable external
+anchor: two database/key clones may race, but only one contiguous history branch can advance and
+the loser faults before returning an acknowledged authorization. This fencing argument depends on
+anchor availability, independence from the database snapshot, and correct compare-and-swap
+semantics; it is not Byzantine replication.
 
 \subsection{Lineage and transition properties}
 
@@ -603,7 +715,9 @@ warden checks.
 
 \textit{Argument.} The debit, state/sequence update, signed receipt, idempotency response, and audit
 record commit atomically. The executor independently verifies all signed bindings and atomically
-claims the receipt. A missing, invalid, stale, or replayed receipt fails closed. \hfill$\square$
+claims the receipt. In production its external claim anchor must acknowledge the append-only head
+before the claim is returned. A missing, invalid, stale, divergent, or replayed receipt/claim state
+fails closed. \hfill$\square$
 
 Lemma~3 says nothing about the semantic adequacy of a configured cost or evidence predicate, nor
 about effects reachable through a bypassable executor.
@@ -631,7 +745,7 @@ Test suite & \CoreTestSummary & Unit, integration, security, property, concurren
 Compatibility/package & \CompatibilitySummary; \PackageSummary & One additional interpreter and isolated artifact/import checks; not a platform certification. \\
 TLA+ TLC & \TLCCheckTableSummary & Scalar three-warden escrow/transfer/receipt kernel; finite and not a source-code refinement. \\
 Bounded checker & \ModelCheckTableSummary & \ModelCheckBounds; abstracts signatures, clocks, SQL, and HSM labels. \\
-Docker acceptance & \DockerScenarioResult & One composite clean-volume fault scenario on one Windows/Docker host; not a throughput or multi-host WAN study. \\
+Production acceptance & \ProductionAcceptanceResult{} in \ProductionAcceptanceDuration & Exact-digest candidate under one-host Linux Compose; mTLS, hardening, partition, restart, convergence, and anchored executor checks, not independent failure domains. \\
 Microbenchmarks & \StorageBenchmarkSummary & Development measurements only; no cross-system baseline unless reported with environment and repetitions. \\
 \bottomrule
 \end{tabularx}
@@ -658,26 +772,29 @@ database after rollback, committed transaction, and abrupt process exit.
 
 The release gate ran the non-e2e suite with \code{ResourceWarning} promoted to an error and
 branch-aware coverage enabled: \CoreTestSummary, against a configured \CoverageFloor{} floor. The
-real Docker e2e case is reported separately below so an unavailable Docker daemon cannot be hidden
+two Docker e2e cases are reported separately so an unavailable Docker daemon cannot be hidden
 inside the core-suite result. A separate exact all-extras environment on Python~3.11.15 produced
-\CompatibilitySummary. The package matrix built and inspected the wheel and source distribution,
-smoke-tested base/client/server imports on Python~3.14, and completed Twine, wheel-content, Bandit,
-and pip-audit checks without a finding; these are bounded tool results, not an external security
+\CompatibilitySummary. Two clean package builds produced byte-identical artifacts; Twine,
+isolated base/server/client imports and CLI startup on Python~3.14, Bandit~1.9.4 at medium/high
+severity, and pip-audit~2.10.1 passed. These are bounded tool results, not an external security
 certification. The wheel was \WheelBytes{} bytes with digest \WheelDigestDisplay; the source
 distribution was \SdistBytes{} bytes with digest \SdistDigestDisplay.
 
-\subsection{Post-optimization storage measurements}
+\subsection{Frozen 1.0.0 storage measurements}
 
 \measured{} The reviewed baseline used \BenchmarkEnvironment{} and the release PyNaCl/libsodium
 backend. Each main path ran 10 warm-up and 100 measured operations with \code{perf_counter_ns} and
 nearest-rank percentiles. Every writing path kept SQLite WAL \code{synchronous=FULL} and one atomic
-transaction per stage; verify-only has no write. The worktree was uncommitted, and the single-host
-in-process measurements exclude HTTP, network, container scheduling, and independent failure
-domains. The reviewed machine-readable baseline is retained under \code{benchmarks/baselines}.
+transaction per stage; verify-only has no write. The source-frozen worktree was not yet committed,
+and the single-host in-process measurements exclude HTTP, network, container scheduling, external
+authority/audit services, and independent failure domains. Its SQLite~3.50.4 runtime is not
+production-admissible under the release gate; these are development-path measurements bound to the
+same source digest as the acceptance evidence. The reviewed machine-readable baseline is retained
+under \code{benchmarks/baselines}.
 
 \begin{table}[ht]
 \centering
-\caption{Post-optimization latency and wall-time rate. The 100-sample p95 values are indicative,
+\caption{Frozen 1.0.0 development-path latency and wall-time rate. The 100-sample p95 values are indicative,
 not capacity guarantees.}
 \label{tab:benchmarks}
 \small
@@ -700,70 +817,62 @@ Four-worker authorize contention & \BenchmarkContention \\
 Authorization includes validation, evidence/policy evaluation, Ed25519 signing, audit, invariant
 maintenance, and durable commit. The transfer round trip is three FULL transactions across two
 stores and excludes HTTP/network time. The four-worker row uses independent leases in one
-single-writer database; latency includes lock wait, and its 80.881-ms p95 shows why the result must
+single-writer database; latency includes lock wait, and its 64.837-ms p95 shows why the result must
 not be generalized to arbitrary write concurrency.
 
 \impl{} The final optimization pass removed an unconditional full
 \texttt{PRAGMA foreign\_key\_check} from every successful write while retaining per-connection foreign
 key enforcement, deferred-constraint rejection at commit, and full startup/explicit diagnostics.
-\measured{} The isolated diagnostic median grew from \FKDiagnosticSmall{} ms at 10 receipt rows to
-\FKDiagnosticLarge{} ms at 1,000 rows (\FKDiagnosticGrowth). A paired 1,000-row authorize result
-fell 17.8\%, but security hardening and the cryptographic-backend change occurred between runs, so
-the paper does not attribute that full delta to the foreign-key optimization.
+\measured{} At 10, 100, 500, and 1,000 receipt rows, the frozen full-durability authorization
+medians were \ScalingAuthorizeMedians. The historical pre-hardening observations are retained for
+engineering context but are not a controlled comparison; authority-anchor, recovery, replay,
+capacity, and audit hardening all changed before the frozen measurements.
 
 \impl{} Frequent invariant snapshots now read a trigger-maintained lease-residual aggregate while
 startup and explicit diagnostics retain full reconciliation. At 10, 100, and 1,000 lease rows, the
-legacy row-scan medians were \SnapshotLegacy; aggregate medians were \SnapshotAggregate. The
-1,000-row observation was \SnapshotLargeReduction{} lower and the aggregate medians were flat over
-this bounded range. The legacy observations were taken immediately before the edit on the same host
-but predate the reusable harness.
+frozen aggregate medians were \InvariantAggregateMedians. Their near-flat values over this bounded
+range are not an asymptotic or capacity guarantee; the historical legacy row-scan observations
+predate the reusable harness and are not treated as a controlled comparison.
 
-A read-only keeper-connection experiment was rejected: four order-alternated trials gave
-\KeeperBaseline{} without the keeper and \KeeperExperiment{} with it, a \KeeperPenalty{} penalty.
+A read-only keeper-connection experiment was rejected: four order-alternated trials produced a
+\KeeperRatio{} experimental-to-baseline median ratio, a \KeeperPenalty{} penalty.
 The release therefore retains per-operation connections. The final profile was dominated by the
 durable SQLite connection/commit lifecycle; no further source change was justified by this bounded
 measurement without weakening transaction or durability semantics. The fresh exact dependency
-graph contains \LockedPackages{} packages in a \LockBytes-byte lockfile; the PyNaCl/libsodium
-backend and its CFFI support occupy \InstalledCryptoBytes{} installed bytes in that environment.
-The lock contains no \code{cryptography} package.
+graph contains \LockedPackages{} packages in a \LockBytes-byte lockfile. The runtime cryptographic
+path is PyNaCl/libsodium with CFFI support; the lock contains no \code{cryptography} package.
 
-\subsection{Real three-node fault acceptance}
+\subsection{Hardened production-profile acceptance}
 
-The clean-volume Compose run used Python \DockerPythonVersion{}, Docker Engine
-\DockerEngineVersion{}, and Docker Compose \DockerComposeVersion{}. It ran three warden containers
-with distinct process IDs, independent SQLite volumes, and three distinct Ed25519 keys from one
-operator-signed manifest. Initial shares $150+100+50$ exactly partitioned a
-\DockerInitialBudget-unit envelope.
+The final runner recorded \ProductionAcceptanceResult{} in \ProductionAcceptanceDuration{} against
+the exact immutable candidate digest \ProductionRuntimeImageDigestDisplay{} (local content ID
+\ProductionRuntimeImageIDDisplay). The \ProductionEvidenceBytes-byte machine-readable record has
+digest \ProductionEvidenceDigestDisplay. The runner recorded an uncommitted but source-frozen
+\ProductionSourceCount-file snapshot with digest \ProductionSourceDigestDisplay; that runtime tree
+was subsequently captured in release commit \ProductionSourceCommit, whose SSH signature was
+verified locally. All three wardens ran SQLite~\ProductionSQLiteVersion{} and agreed on signed
+manifest digest \ProductionManifestDigestDisplay.
 
-The acceptance runner rejected any source change across the run. Its explicit, non-circular
-\DockerRuntimeInputCount-file runtime/acceptance input set had digest
-\DockerRuntimeInputDigestDisplay; the complete \DockerSourceCount-file Git-visible snapshot
-had digest \DockerSourceDigestDisplay. The rebuilt runtime image content identifier was
-\DockerRuntimeImageDigestDisplay. Paper prose and derived evidence are excluded from the
-runtime-input set, so this manuscript rebuild does not invalidate the recorded execution.
+The transport checks required mTLS and rejected a missing client certificate, an untrusted client
+certificate, a missing JWT, and an expired JWT. The \code{generic-production} provider's external
+signer was invoked \ProductionSignerInvocations{} times across wardens A, B, and C. Each warden ran
+nonroot with a read-only root filesystem, read-only configuration/trust/PKI/signer mounts, hardened
+temporary storage, bounded resources and logs, distinct state/anchor/audit domains, and no live
+backup mount. All three core audit chains verified; their independent archives contained
+\ProductionAuditRecordCounts{} records.
 
-The scenario delivered transfer sequence 2 before sequence 1. The target held its contiguous
-watermark at 0 and returned stable acknowledgements for duplicate application delivery. The harness
-disabled both directed A--B proxy links: peer delivery failed while its two vouchers remained
-durable and A and B each committed a local authorization receipt. It then killed warden B with
-\code{SIGKILL}; the restarted process had a new PID and the same persisted key. An identical signed
-HTTP request was rejected with status 409 and code \code{replay_detected} both before and after
-restart. After link restoration, the production dispatcher automatically accepted and finalized both transfers,
-delivered the bilateral checkpoint, advanced both compacted high-water marks to 2, and converged to
-zero pending delivery records and zero prepared transfers.
+The scenario disabled both directed A--B peer links after preparing transfer sequence~1, leaving a
+durable failed delivery record. It replaced warden A's process, restored the links, and observed the
+production dispatcher converge with two delivered records, no pending records, and no prepared
+transfers. Cumulative inbound and outbound transfer were both \ProductionTransferred{} units, and
+the final aggregate conservation check passed. A separate executor profile used independent state
+and anchor domains, advanced anchored claim sequence~1, rejected a duplicate receipt after reopen,
+and rejected a stale database restore.
 
-An executor outside the warden database verified one receipt, claimed it in its own SQLite replay
-store, reopened that store, and rejected the same receipt. At the final consistent cut, cumulative
-inbound and outbound transfers were both \DockerTransferred, the sum of free pool, lease residual,
-and consumed rights across nodes was \DockerInitialBudget, every local invariant reported healthy,
-and all three signed audit chains verified. The pytest result was \DockerScenarioResult; the full
-provenance-bound runner took \DockerEvidenceDuration. The manifest digest and machine-readable
-scenario are retained in the artifact evidence record; the run's manifest digest was
-\DockerManifestDigestDisplay.
-
-This scenario establishes that the hard acceptance path is not an in-process simulation. It does
-not establish geographic independence, behavior under arbitrary schedules, long-duration
-stability, or Byzantine tolerance.
+This scenario establishes that the hardened path exercised the exact candidate rather than an
+in-process simulation. It ran three wardens in one Linux Compose project, so it does not establish
+independent physical failure or rollback domains, geographic independence, behavior under
+arbitrary schedules, long-duration stability, Byzantine tolerance, or external certification.
 
 \section{Interoperability Profiles}
 
@@ -771,11 +880,12 @@ stability, or Byzantine tolerance.
 transport, artifact registry, identity provider, or telemetry backend. Integration therefore uses
 explicit profiles and keeps discovery separate from authority.
 
-\begin{table}[ht]
-\centering
-\caption{Standards and draft composition. ``Profile'' means a mapping boundary, not bundled conformance.}
+\begin{center}
+\refstepcounter{table}
 \label{tab:standards}
 \small
+Table~\thetable: Standards and draft composition. ``Profile'' means a mapping boundary, not bundled conformance.
+\par\smallskip
 \begin{tabularx}{\linewidth}{@{}p{0.22\linewidth}p{0.27\linewidth}X@{}}
 \toprule
 Concern & Existing standards and drafts & LETS relationship \\
@@ -793,7 +903,7 @@ Composition and inventory & SPDX 3.0.1 \citep{spdx2024}, CycloneDX 1.7 \citep{cy
 Provenance and events & W3C PROV-O \citep{w3cprov2013}, CloudEvents 1.0.2 \citep{cloudevents2022} & Export audit/outbox observations for analysis. Exported events are not authority and cannot repair a warden pool. \\
 \bottomrule
 \end{tabularx}
-\end{table}
+\end{center}
 
 The host-neutral \code{ReplicaAuthorizer} accepts lifecycle IDs, resource vectors, capabilities,
 TTLs, evidence, and immutable policy references. It deliberately excludes credentials, process
@@ -820,51 +930,69 @@ uncertainty, wrong receipt audience, and durable nonce/receipt replay. Warden, e
 replay stores persist nondecreasing observed-time floors and reject wall-clock rollback beyond the
 configured tolerance or declared uncertainty, including after reopen. A large forward clock jump
 can instead expire authority early and reduce availability. Concurrency tests exercise one-winner
-behavior for parent debit, command idempotency, and executor claim.
+behavior for parent debit, command idempotency, and executor claim. In production, warden and
+executor anchors additionally reject stale restores, divergent histories, database-instance
+substitution, and the losing side of a concurrent-clone compare-and-swap race. The executor replay
+identity rejects a changed policy or verification-key registry even when its public IDs are reused.
 
 Hash-chained signed audit makes row modification or deletion detectable when the complete chain
-and trusted key are available. It does not provide an external anti-rollback anchor: restoring an
-older database and key together can present an internally valid old prefix. Operators should
-export and anchor checkpoints outside the node when rollback detection matters.
+and trusted key are available. The production warden checkpoint binds the current audit head, and
+the exporter requires an independently stored, contiguous, identity-bound archive head before
+readiness. An older core database behind the warden anchor fails storage admission. Core/archive
+divergence instead faults the exporter and makes readiness false; mutation ingress must therefore
+honor readiness-aware routing because individual handlers do not all gate writes on exporter
+status. The bundled archive is still operator-controlled infrastructure: it is not third-party
+witnessing, public transparency, trusted timestamping, or protection against an attacker who
+rewinds or compromises the database, anchor, and archive together.
 
 \subsection{Residual risks and explicit boundaries}
 
-\begin{table}[ht]
-\centering
-\caption{Version \ArtifactVersion{} boundaries.}
+\begin{center}
+\refstepcounter{table}
 \label{tab:limits}
-\small
+\footnotesize
+Table~\thetable: Version \ArtifactVersion{} boundaries.
+\par\smallskip
 \begin{tabularx}{\linewidth}{@{}p{0.26\linewidth}X@{}}
 \toprule
 Boundary & Consequence and required control \\
 \midrule
 Trusted wardens & A compromised warden can sign invalid authority from its assigned share. Use host isolation and protect keys; threshold/Byzantine designs are future work. \\
 One envelope per SQLite DB & Scale by sharding independent envelopes across processes. A PostgreSQL backend requires its own conformance and fault evidence. \\
-Restore clones & Never run original and restored copies of one database/key concurrently. Fence the original before restore. \\
+Anchor failure domain & Production safety requires a linearizable, durable anchor outside the database snapshot. Co-rollback or compromise of both defeats stale-state fencing. \\
+Restore clones & The anchor admits one contiguous branch, but concurrent copies can race and destroy availability. Fence the original before restore. \\
 Clock dependence & Expiry and key validity rely on bounded uncertainty. Excessive uncertainty fails closed and can reduce availability. \\
-Clock rollback & Durable time floors block ordinary rollback but not a cloned or operator-rewritten database. Large forward jumps can expire authority early. \\
+Clock rollback & Durable floors plus production anchors block stale/forked database rollback, not a dishonest clock declaration or rollback of the anchor too. Large forward jumps can expire authority early. \\
 No live epoch rollover & Drain into a new envelope/epoch; automated in-place membership and key rotation are not present. A finite online-key expiry is a hard drain deadline. \\
 No active-subtree migration & Transfer free rights, then issue at the target. Do not copy a live lease as authority. \\
 No generic effect transaction & Receipt claim is at-most-once. Bind it to an idempotent or transactional domain effect. \\
+Finite executor epoch & Schema-5 claim history is append-only. Provision dedicated capacity and drain into a fresh database/anchor before exhaustion. \\
+Capacity boundary & The SQLite cap is logical main-file size; safe physical admission depends on an exclusive enforced filesystem/quota and conservative WAL/SHM reserve. \\
+External services & KMS/HSM, PKI revocation, identity control plane, remote anchors, and managed audit retention are operator integrations, not bundled service guarantees. \\
 Evidence semantics & A valid signed sensor report can still be false or semantically insufficient. Domain trust anchors and policy review remain necessary. \\
 Privacy & Lease paths and audit records reveal organizational activity. Minimize fields and protect/export them under domain retention policy. \\
 Plaintext state & SQLite contains sensitive authority, lineage, and audit metadata. POSIX mode 0600 is best effort; Windows/container ACLs, volume encryption, and backup protection are operator controls. \\
 Embedding boundary & Direct in-process service/admin calls are trusted ports. Expose only the authenticated API or reproduce its identity/scope checks. \\
 \bottomrule
 \end{tabularx}
-\end{table}
+\end{center}
 
 Finite manifest key intervals are availability boundaries. Version~1 evaluates key validity at
 verification time and does not require lease or receipt expiry, or the open-ended retry horizon of
 peer records, to fit before \code{not_after}. Once the declared clock interval reaches that boundary,
 local readiness and every authority-record signing path fail closed; verifiers also reject
-otherwise-unexpired receipts and undelivered transfer, revocation, or checkpoint records. Active
-version~1 online warden keys should therefore normally omit finite \code{not_after}. If one is
+otherwise-unexpired receipts and undelivered transfer, revocation, or checkpoint records. The
+bundled audit verifier also applies current-time key validity, so full-chain verification becomes
+unavailable after the online key's \code{not_after}; raw archived signatures need separate archival
+verification tooling and retained-key policy. Active version~1 online warden keys should therefore
+normally omit finite \code{not_after}. If one is
 configured, treat it as a hard drain deadline: before it, stop new authority work, close or reclaim
 live leases, wait out outstanding receipts, prove all durable transfer and peer-delivery state
 terminal, and fence the old epoch before starting a separately initialized replacement epoch.
 Automated in-place key rotation is not implemented. The included raw seed-file signer is portable
-bootstrap machinery; production systems should prefer an external or hardware-backed key provider.
+development bootstrap machinery and is rejected by production admission. The generic production
+provider verifies an external helper's response against the manifest key, but helper immutability,
+private-key custody, and any KMS/HSM assurance remain deployment controls.
 
 \section{Related Work and Novelty Boundary}
 
@@ -898,17 +1026,48 @@ WAN evaluation are optimization questions layered above the invariant, not reaso
 \section{Operational Guidance}
 
 A production deployment starts from one operator-reviewed manifest that exactly partitions every
-budget dimension and binds all initial keys, endpoints, policies, and epoch metadata. Each private
-key, database, replay database, configuration, and manifest trust root form one authority unit.
-Production endpoints use TLS; the cleartext Compose topology and public default token are fault-test
-fixtures only.
+budget dimension and binds all initial keys, HTTPS endpoints, policies, and epoch metadata. Run
+one warden per independently provisioned failure domain. Its state database, authority anchor,
+audit archive, backup store, read-only trust/configuration, PKI material, and signing/identity
+provider are distinct named parts of one authority unit, with state, anchor, audit, and backup on
+separate protected mount roots. The live warden cannot mount the backup domain. The root filesystem
+is read-only, the process is unprivileged and capability-free, and request concurrency, accept
+backlog, resources, logging, temporary storage, and shutdown are bounded. These container controls
+are implemented deployment assumptions, not proof that an operator's storage controller, ACLs,
+quota, certificate lifecycle, or failure domains satisfy them.
 
-Operators should monitor readiness, disk and WAL growth, write latency and busy errors, clock
-uncertainty, lease and receipt expiry, transfer gaps and watermarks, outbox lag, invariant status,
-and audit verification. A source voucher is never manually refunded after timeout. Backups are
-offline or coordinated snapshots; restores are reconciled against peer watermarks and audit
-checkpoints before returning to readiness. Idempotency and signed audit history are not deleted by
+The supplied production Compose/storage profile is admitted only on Linux/amd64 and Linux/arm64;
+Docker Desktop on Windows or macOS is suitable for smoke testing, not as a claimed durability or
+failure boundary. Its bundled SQLite/file-anchor/SQLite-archive provider requires dedicated local
+Linux filesystems with POSIX locking, WAL shared-memory locking, atomic rename/link, and durable
+file and directory fsync. NFS, SMB/CIFS, desktop-shared, object, overlay, and RAM-backed mounts are
+outside that profile, and one state directory must never be attached to two hosts.
+
+Operators should monitor readiness, DB/WAL/SHM and archive capacity, write/anchor/signer latency,
+busy errors, clock uncertainty, lease and receipt expiry, transfer gaps and watermarks, peer and
+audit-export lag, executor claim capacity, invariant status, and audit continuity. A source voucher
+is never manually refunded after timeout. Backups are drain-and-stop recovery bundles; restores
+are journaled, checked against the live anchor/archive, and remain drained until explicit
+activation. Idempotency, executor claim history, and signed core audit history are not deleted by
 hand.
+
+Production startup performs full SQLite integrity and foreign-key scans plus anchor admission
+before listener startup. Audit reconciliation begins at startup and gates readiness rather than
+listener creation. The synchronous cold-start work therefore scales with retained state; the
+orchestrator start window must be measured against the deployment's worst case, or an undersized
+window can cause a restart loop.
+
+The repository includes a production validator and an mTLS profile acceptance harness. Validation
+can check exact paths, ownership/mode constraints, immutable image references, provider loading,
+signer-helper placement, Compose hardening, and stated capacity arithmetic. It cannot establish
+the truth of a storage controller's fencing, a filesystem's durability semantics, or organizational
+key/identity procedures. Release automation builds or safely resumes a uniquely addressed
+multi-architecture candidate, resolves
+its immutable digest, runs scans and production acceptance against that candidate, and only then
+promotes release tags and artifacts. This is a provenance-bound project release gate with
+reproducible Python/deployment artifacts, not a claim that the OCI image was independently rebuilt
+and byte-compared, third-party certification, a warranty of every deployment, or permission to
+deploy a mutable tag.
 
 The single-writer SQLite design is appropriate for an independently owned envelope with bounded
 write concurrency, not an assertion that one process should serve arbitrary fleet scale. Scale-out
@@ -920,20 +1079,23 @@ trusted path.
 
 The principal internal-validity threat is the gap between protocol arguments and executable
 refinement. The artifact includes a finite TLA+ kernel and a separately executed abstract checker,
-but there is no machine-checked refinement connecting every SQL transaction and crash point to
-Eq.~\ref{eq:global}. The bounded checker covers only one small finite state space. Independent
-audit and multi-language canonicalization interoperability are still required.
+but there is no machine-checked refinement connecting every SQL transaction, anchor CAS, and crash
+point to Eq.~\ref{eq:global}. The bounded checker covers only one small finite state space.
+Independent third-party security/audit review and multi-language canonicalization interoperability
+are still required.
 
-The reported Docker run is one composite scenario on one host. It verifies independent operating
-system processes and storage volumes, but not independent failure domains, heterogeneous
-architectures, real WAN clocks, sustained partitions, rolling upgrades, or long-duration load.
+The reported Docker runs are composite scenarios on one host. They verify independent operating
+system processes and storage volumes, including the production-profile control paths where
+reported, but not independent failure domains, heterogeneous architectures, real WAN clocks,
+sustained partitions, rolling upgrades, or long-duration load.
 Future evaluation should add repeated seeded fault campaigns, protocol-version skew, disk-full and
 I/O failure, clock excursions, TLS and external identity profiles, and multi-host latency and
 throughput distributions.
 
 Engineering priorities are threshold authorization for compromised-warden tolerance, safe
-configuration-epoch rollover, externally anchored audit/checkpoints, a validated PostgreSQL
-adapter, hardware-backed keys, policy analysis, and workload-informed rights placement. Active
+configuration-epoch rollover, public or third-party audit witnessing beyond the implemented
+operator-controlled anchor/archive, a validated PostgreSQL adapter, hardware-backed provider
+evidence, policy analysis, and workload-informed rights placement. Active
 subtree migration requires a separate handoff protocol that proves a single owner for every live
 lease and outstanding receipt; it must not be approximated by copy-and-delete.
 
@@ -944,13 +1106,17 @@ recursively changing populations under finite effect envelopes. It separates sta
 wardens from ephemeral subjects, partitions rights rather than duplicating them, authorizes
 funded state transitions atomically, and requires independently verifiable receipts at protected
 executors. Cross-warden transfer tolerates retry, duplicate delivery, bounded reordering, restart,
-and partition without double credit under the trusted-warden model.
+and partition without double credit under the trusted-warden model. In the production profile,
+linearizable warden and executor anchors fence stale or forked local authority, while bounded
+maintenance, explicit capacity reserves, mTLS/provider admission, contiguous audit export, and
+journaled recovery turn those safety assumptions into operator-visible fail-closed boundaries.
 
 The central result is deliberately conditional and operational: a site can continue during a
 partition only from authority already escrowed there. Capacity elsewhere may be stranded. That is
 the cost of preserving a hard population-wide bound without consensus on every action. The
 artifact turns the earlier abstract proposal into testable software while retaining honest
-boundaries around Byzantine faults, restores, migration, external effects, and policy correctness.
+boundaries around Byzantine faults, anchor co-failure, deployment-specific services, migration,
+external effects, policy correctness, and the absence of independent third-party certification.
 
 \appendix
 
@@ -989,7 +1155,11 @@ uv run --frozen ruff format --check .
 uv run --frozen mypy src
 uv run --frozen pytest -m "not e2e" `
   -W error::ResourceWarning --cov=lets --cov-report=term-missing
-uv run --frozen python deploy/run_acceptance.py
+$image_name = "127.0.0.1:25000/astraldeep/lets"
+$image_digest = "sha256:" + `
+  "2f002bc691685930e07bf5d4e297f2b9ba13617aad222d512afc7b3d59a8e8ad"
+$env:LETS_PRODUCTION_ACCEPTANCE_IMAGE = "$image_name@$image_digest"
+uv run --frozen python deploy/production/run_acceptance.py
 \end{verbatim}
 
 The bounded checker is reproduced with:
@@ -1006,7 +1176,7 @@ powershell -NoProfile -File formal/run_tlc.ps1
 It downloads the pinned TLA+ v1.8.0 JAR into an ignored repository-local directory, verifies its
 SHA-256 and byte count, and uses the preinstalled Java runtime; it installs no system software.
 
-The post-optimization benchmark suite uses the repository-local Python environment:
+The frozen 1.0.0 benchmark suite uses the repository-local Python environment:
 \begin{verbatim}
 uv run --frozen python -m benchmarks.run
 uv run --frozen python -m benchmarks.profile_scaling
@@ -1024,10 +1194,12 @@ make paper-check
 make paper-render
 \end{verbatim}
 
-The Docker acceptance runner validates the exact five project-owned volumes it may recreate,
-starts from clean state, builds the runtime, waits for all health checks and directed fault
-proxies, writes machine-readable evidence, and stops containers in a \code{finally} path. The
-test-only volumes remain for operator inspection.
+The production acceptance runner requires an exact name-at-digest candidate, materializes
+ephemeral PKI and provider inputs, validates its controlled local targets, starts the hardened
+three-warden topology, waits for health checks and directed fault proxies, exercises mTLS,
+partition, restart, convergence, and executor-anchor cases, writes machine-readable evidence, and
+stops containers in a \code{finally} path. It is a one-host Linux acceptance, not evidence of
+independent physical failure domains.
 
 \section{Receipt Verification Checklist}
 
@@ -1038,11 +1210,16 @@ A protected executor should reject unless all of the following hold:
   \item the Ed25519 signature covers the complete receipt payload;
   \item every tenant, envelope, configuration-epoch, policy-digest, machine-digest, and warden pin
   configured by local executor policy matches;
+  \item the complete executor policy and authenticated verification-key registry match the
+  immutable schema-5 replay identity;
   \item the executor audience is exact and the receipt is fresh;
   \item the lease sequence strictly advances the durable executor watermark; and
-  \item the receipt identifier and nonce are claimed once in a filesystem-backed replay store.
+  \item the receipt identifier and nonce are claimed once, the append-only claim head advances,
+  and an independent external anchor acknowledges the exact committed head.
 \end{enumerate}
 Only after this checklist should the executor enter its application-specific effect transaction.
+The application must still make that effect idempotent or bind claim/effect atomically in its own
+domain.
 
 \bibliographystyle{plainnat}
 \renewcommand{\bibfont}{\footnotesize}
