@@ -8,6 +8,7 @@ reconcile the bundled database against the live provider-owned anchor.
 from __future__ import annotations
 
 import hashlib
+import importlib
 import os
 import shutil
 import sqlite3
@@ -141,7 +142,7 @@ def require_filesystem_headroom(
 
 def _durable_move(source: Path, destination: Path, *, replace: bool) -> None:
     if os.name == "nt":
-        import ctypes
+        ctypes = importlib.import_module("ctypes")
 
         movefile_replace_existing = 0x1
         movefile_write_through = 0x8
@@ -254,7 +255,7 @@ def node_process_lock(path: Path) -> Iterator[None]:
         except OSError as exc:
             raise StorageError(f"could not initialize LETS node process lock: {lock_path}") from exc
         if os.name == "nt":
-            import msvcrt
+            msvcrt = importlib.import_module("msvcrt")
 
             try:
                 msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
@@ -273,8 +274,6 @@ def node_process_lock(path: Path) -> Iterator[None]:
                         f"could not release LETS node process lock: {lock_path}"
                     ) from exc
         else:
-            import importlib
-
             fcntl = importlib.import_module("fcntl")
             try:
                 fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

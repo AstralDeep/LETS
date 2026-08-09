@@ -823,7 +823,11 @@ class AuditExporter:
         except Exception as exc:
             with self._status_lock:
                 self._archive_reconciled = False
-                self._last_error = f"{type(exc).__name__}: {exc}"
+                blocked = self._blocked_sink_call
+                if not (
+                    blocked is not None and blocked.is_alive() and self._last_error is not None
+                ):
+                    self._last_error = f"{type(exc).__name__}: {exc}"
         return exported
 
     def _run(self) -> None:
