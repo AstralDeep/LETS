@@ -1,0 +1,7 @@
+$pdf_mode = 1;
+$out_dir = 'build';
+$aux_dir = 'build';
+$max_repeat = 6;
+$bibtex_use = 2;
+$pdflatex = 'pdflatex -file-line-error -halt-on-error -interaction=nonstopmode %O %S';
+$clean_ext = 'bbl blg run.xml synctex.gz';

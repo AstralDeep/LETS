@@ -1,0 +1,101 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Python environments and packaging
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Dependency and task-runner caches
+.uv-cache/
+.tox/
+.nox/
+.cache/
+
+# Runtime state, secrets, and local configuration
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.pem
+*.key
+*.ed25519
+*.seed
+*.token
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+.lets/
+data/
+state/
+run/
+logs/
+*.log
+
+# Test and benchmark output
+tmp/
+output/
+results/generated/
+benchmarks/results/
+states/
+
+# LaTeX intermediates (source and final PDFs remain trackable)
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.nav
+*.out
+*.run.xml
+*.snm
+*.synctex.gz
+*.toc
+*.vrb
+paper/build/
+
+# Node tooling (used only by optional integrations)
+node_modules/
+.npm/
+.pnpm-store/
+
+# IDE and OS noise
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# Docker/local orchestration overrides
+compose.override.yaml
+docker-compose.override.yml

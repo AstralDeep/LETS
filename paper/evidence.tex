@@ -1,0 +1,62 @@
+% Evidence values are kept in one file so the manuscript cannot silently drift
+% from the final verification record. Update this file only from reproduced runs.
+\newcommand{\shadisplay}[8]{\texttt{sha256:#1}\allowbreak\texttt{#2}\allowbreak\texttt{#3}\allowbreak\texttt{#4}\allowbreak\texttt{#5}\allowbreak\texttt{#6}\allowbreak\texttt{#7}\allowbreak\texttt{#8}}
+\newcommand{\ArtifactVersion}{0.1.0}
+\newcommand{\EvidenceDate}{2026-08-09}
+\newcommand{\CoreSuiteSummary}{Ruff check/format, strict mypy on 24 source files, and uv lock check passed}
+\newcommand{\CoreTestsCollected}{263}
+\newcommand{\CoreTestSummary}{262 passed; 1 e2e deselected; 75.46\% branch-aware coverage; 14.91 seconds}
+\newcommand{\CompatibilitySummary}{Python 3.11.15: 262 passed, 1 deselected, 75.44\% branch coverage; 23.44 seconds}
+\newcommand{\PackageSummary}{wheel/sdist and isolated import checks passed; Bandit and pip-audit clean}
+\newcommand{\WheelBytes}{129,808}
+\newcommand{\WheelDigest}{sha256:38491a30929a2cf81c4c4ec3af75b677f441742aa8a9f8c5c22107a7e0a418e9}
+\newcommand{\WheelDigestDisplay}{\shadisplay{38491a30}{929a2cf8}{1c4c4ec3}{af75b677}{f441742a}{a8a9f8c5}{c22107a7}{e0a418e9}}
+\newcommand{\SdistBytes}{118,026}
+\newcommand{\SdistDigest}{sha256:20fa4c5dab416e0e00f0be77f739ea6cfea3d20b2e2250baddafdb44ec4456b3}
+\newcommand{\SdistDigestDisplay}{\shadisplay{20fa4c5d}{ab416e0e}{00f0be77}{f739ea6c}{fea3d20b}{2e2250ba}{ddafdb44}{ec4456b3}}
+\newcommand{\CoverageFloor}{74\%}
+\newcommand{\DockerScenarioResult}{1 passed in 6.47 seconds}
+\newcommand{\DockerEvidenceDuration}{23.782 seconds}
+\newcommand{\DockerEngineVersion}{29.6.2}
+\newcommand{\DockerComposeVersion}{5.3.1}
+\newcommand{\DockerPythonVersion}{3.14.7}
+\newcommand{\DockerManifestDigest}{sha256:1c3f47302300af39e50b065327d307a46e883c5d1e4f44d3de37c7bda4f3250f}
+\newcommand{\DockerManifestDigestDisplay}{\shadisplay{1c3f4730}{2300af39}{e50b0653}{27d307a4}{6e883c5d}{1e4f44d3}{de37c7bd}{a4f3250f}}
+\newcommand{\DockerRuntimeInputDigest}{sha256:8216a535323863ca1d9ff523adfb29597ac7d02fe2e871985c4851433df13e56}
+\newcommand{\DockerRuntimeInputDigestDisplay}{\shadisplay{8216a535}{323863ca}{1d9ff523}{adfb2959}{7ac7d02f}{e2e87198}{5c485143}{3df13e56}}
+\newcommand{\DockerRuntimeInputCount}{46}
+\newcommand{\DockerSourceDigest}{sha256:b3402e15d92a1b0d0ccec2aac1ff488a6cdd44e944c4a1ef14df8164b434ac5e}
+\newcommand{\DockerSourceDigestDisplay}{\shadisplay{b3402e15}{d92a1b0d}{0ccec2aa}{c1ff488a}{6cdd44e9}{44c4a1ef}{14df8164}{b434ac5e}}
+\newcommand{\DockerSourceCount}{123}
+\newcommand{\DockerRuntimeImageDigest}{sha256:fe174161832f624c01a005fa1253607356a194a78d669eb72aec4eec3af52ef6}
+\newcommand{\DockerRuntimeImageDigestDisplay}{\shadisplay{fe174161}{832f624c}{01a005fa}{12536073}{56a194a7}{8d669eb7}{2aec4eec}{3af52ef6}}
+\newcommand{\DockerInitialBudget}{300}
+\newcommand{\DockerTransferred}{20}
+\newcommand{\ModelCheckBounds}{scalar budget 3; three wardens; at most three leases, two transfers, and two receipts; unit actions; depth 9}
+\newcommand{\ModelCheckSummary}{101,245 states, 318,558 transitions, and 66,072 idempotent self-loops; zero invariant violations}
+\newcommand{\ModelCheckTableSummary}{passed; 101,245 states}
+\newcommand{\TLCCheckSummary}{40,057 generated states, 6,776 distinct states, maximum depth 14, and an empty queue}
+\newcommand{\TLCCheckTableSummary}{passed; 6,776 distinct states}
+\newcommand{\MutationCheckSummary}{a three-action prepare, accept, duplicate-accept counterexample at depth 2}
+\newcommand{\StorageBenchmarkSummary}{100 operations/path; FULL durability}
+\newcommand{\BenchmarkEnvironment}{Windows 10 build 19045; Python 3.14.0; SQLite 3.50.4; AMD64; 32 logical CPUs}
+\newcommand{\BenchmarkAuthorize}{7.728 & 8.588 & 128.73}
+\newcommand{\BenchmarkPrepare}{6.902 & 7.828 & 139.28}
+\newcommand{\BenchmarkAccept}{6.267 & 7.190 & 154.86}
+\newcommand{\BenchmarkFinalize}{5.721 & 6.547 & 173.97}
+\newcommand{\BenchmarkRoundTrip}{18.855 & 21.190 & 51.59}
+\newcommand{\BenchmarkVerify}{0.177 & 0.183 & 5,586.94}
+\newcommand{\BenchmarkClaim}{3.830 & 4.740 & 252.38}
+\newcommand{\BenchmarkContention}{9.795 & 80.881 & 119.69}
+\newcommand{\FKDiagnosticSmall}{0.01410}
+\newcommand{\FKDiagnosticLarge}{1.87145}
+\newcommand{\FKDiagnosticGrowth}{approximately 133-fold}
+\newcommand{\SnapshotLegacy}{1.070, 1.295, and 2.902 ms}
+\newcommand{\SnapshotAggregate}{1.112, 1.090, and 1.085 ms}
+\newcommand{\SnapshotLargeReduction}{62.6\%}
+\newcommand{\KeeperBaseline}{6.0969 ms}
+\newcommand{\KeeperExperiment}{7.2333 ms}
+\newcommand{\KeeperPenalty}{18.64\%}
+\newcommand{\LockedPackages}{48}
+\newcommand{\LockBytes}{356,264}
+\newcommand{\InstalledCryptoBytes}{1,778,149}

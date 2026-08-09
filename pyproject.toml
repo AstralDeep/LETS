@@ -1,0 +1,84 @@
+[build-system]
+requires = ["uv_build==0.11.21"]
+build-backend = "uv_build"
+
+[project]
+name = "lets-agent"
+version = "0.1.0"
+description = "Lineage Escrow Transition Systems for portable, partition-safe agent management"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "AstralDeep" }]
+keywords = ["agents", "capabilities", "escrow", "lineage", "authorization"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Security",
+  "Typing :: Typed",
+]
+dependencies = [
+  "PyNaCl>=1.6.2,<2",
+]
+
+[project.optional-dependencies]
+server = [
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+client = ["httpx>=0.28,<1"]
+dev = [
+  "httpx>=0.28,<1",
+  "hypothesis>=6.135,<7",
+  "jsonschema>=4.25,<5",
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<10",
+  "pytest-cov>=6.2,<8",
+  "ruff>=0.12,<1",
+  "types-jsonschema>=4.25,<5",
+]
+
+[project.scripts]
+lets = "lets.cli:main"
+
+[project.urls]
+Repository = "https://github.com/AstralDeep/LETS"
+
+[tool.uv.build-backend]
+module-name = "lets"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+  "e2e: real Docker multi-node and injected-fault acceptance tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["lets"]
+
+[tool.coverage.report]
+fail_under = 74
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["prototype"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["lets"]

@@ -1,0 +1,24 @@
+{
+  "bounds": {
+    "budget": 3,
+    "initial_shares": [
+      1,
+      1,
+      1
+    ],
+    "max_action_amount": 1,
+    "max_depth": 9,
+    "max_leases": 3,
+    "max_receipts": 2,
+    "max_transfers": 2
+  },
+  "generated_at": "2026-08-09T09:53:32.557840+00:00",
+  "maximum_depth_reached": 9,
+  "model_digest": "sha256:77d48812fa293cf5934496c90a435f8f7792a6f88aef6e4f460bcf0e7ee3b5b8",
+  "passed": true,
+  "schema": "lets.bounded-model-check/v1",
+  "self_loops_checked": 66072,
+  "states_checked": 101245,
+  "transitions_checked": 318558,
+  "violations": []
+}

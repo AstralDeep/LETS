@@ -1,0 +1,8 @@
+{
+  "bytes": 4486015,
+  "release": "v1.8.0",
+  "schema": "lets.formal-tool/v1",
+  "sha256": "e22f8ffb4bacdea0a871f444dd94fe5fb0d8013b3388ae39e82e26f852c735d5",
+  "url": "https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar",
+  "version": "2026.07.31.184830 (rev: 30cc360)"
+}

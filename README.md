@@ -1,128 +1,254 @@
-# LETS Research Artifact
-
-This repository accompanies the extended research draft:
-
-> **LETS: Lineage Escrow Transition Systems for Partition-Safe Autonomous Agent Populations**
-
-LETS is a candidate abstract object and enforcement architecture for constraining the aggregate protected effects of recursively changing autonomous-agent lineages. A bounded set of stable wardens owns distributed escrow state; ephemeral agents receive signed, expiring, capability-attenuated leases and may spawn descendants by partitioning their own residual rights. The reasoner is outside the trusted computing base.
-
-## Status and claim boundary
-
-This is a research package, not a production authorization system. The package deliberately distinguishes:
-
-- **Established mechanisms:** escrow, bounded counters, capabilities, leases, recursive delegation, HSMs, lineage, and lifecycle management.
-- **Proposed contribution:** the lineage-oriented transition-escrow abstraction, stable-warden/ephemeral-agent split, operational semantics under partition, online metadata bound after compaction, and bounded offline branch-revocation exposure.
-- **Preliminary evidence:** an in-memory Python kernel, eight unit tests, a bounded exhaustive checker, analytical metadata model, and laptop-scale simulations.
-- **Unvalidated work:** durable multi-warden networking, crash recovery, executor receipt enforcement, transfer compaction, active-subtree migration, Byzantine wardens, and realistic cyber-physical workloads.
-
-The novelty audit is documented in `research_dossier.md`, `literature_matrix.csv`, and `citation_verification.csv`. It should be rerun before submission because 2026 agent-systems literature is moving rapidly.
-
-## Artifact layout
-
-| Path | Contents |
-|---|---|
-| `paper.tex`, `references.bib` | Editable arXiv-style manuscript and verified bibliography |
-| `paper.pdf` | Compiled 36-page manuscript |
-| `research_dossier.md` | Literature review, collision log, candidate ranking, proposal, reviewer-risk analysis |
-| `engineering_roadmap.md` | Eight-week implementation plan, MVP, effort estimates, and go/no-go gates |
-| `protocol.md`, `openapi.yaml` | Protocol contract and editable API sketch |
-| `prototype/lets.py` | Auditable in-memory LETS reference kernel |
-| `prototype/test_lets.py` | Eight unit tests |
-| `prototype/benchmark.py` | Preliminary simulations and microbenchmark |
-| `prototype/analyze_results.py` | Mann–Whitney tests, Cliff's delta, and Holm correction |
-| `formal/exhaustive_checker.py` | Executed bounded state-space checker |
-| `formal/LineageEscrow.tla`, `formal/MC.cfg` | Finite TLA+ model; included but not claimed as an executed TLC result |
-| `figures/` | Diagram/plot source plus PDF and PNG outputs |
-| `results/` | Raw CSV/JSON outputs and logs |
-
-## Environment
-
-Reference environment used for final artifact validation:
-
-- Python 3.13
-- `cryptography` 46.0.4
-- `matplotlib` 3.10.8
-- `scipy` 1.17.0
-- Graphviz `dot`
-- TeX Live with `latexmk` and `bibtex8`
-
-Create an isolated environment and install Python dependencies:
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-## Reproduce the executable evidence
-
-Run the unit tests:
-
-```bash
-PYTHONPATH=prototype python -m unittest discover -s prototype -p 'test_*.py' -v
-```
-
-Run the bounded exhaustive checker:
-
-```bash
-python formal/exhaustive_checker.py
-```
-
-Regenerate the preliminary datasets, statistics, and plots:
-
-```bash
-PYTHONPATH=prototype python prototype/benchmark.py --output-dir results --seeds 30 --operations 20000
-python prototype/analyze_results.py
-python figures/make_plots.py
-```
-
-Regenerate architecture, lifecycle, sequence, and deployment diagrams:
-
-```bash
-python figures/make_diagrams.py
-```
-
-The diagram script requires Graphviz. The benchmark rewrites the CSV/JSON files in `results/`; microbenchmark throughput will vary by machine. Safety counts and seeded simulation outcomes should remain reproducible under the stated dependency range.
-
-## Build the paper
-
-The `.latexmkrc` file selects `bibtex8`, because a `bibtex` executable was not present in the validation container.
-
-```bash
-make paper
-```
-
-Equivalent command:
-
-```bash
-mkdir -p build
-latexmk -r .latexmkrc -pdf -interaction=nonstopmode -halt-on-error -outdir=build paper.tex
-cp build/paper.pdf paper.pdf
-```
-
-## One-command workflow
-
-```bash
-make all
-```
-
-This runs the tests, checker, simulations, statistical analysis, figures, diagrams, and paper build. It does not execute TLC/Apalache, a distributed deployment, or a real sensor workload.
-
-## Current preliminary results
-
-The checked artifact reports:
-
-- 8/8 unit tests passing.
-- 35,209 unique bounded-model states and 127,480 transitions explored.
-- 8,986 duplicate-transfer acceptance self-loops handled idempotently.
-- No conservation violation found within the finite checker bounds.
-- In the included 30-seed partition simulation, LETS preserves the configured budget and continues local work; the centralized baseline is safe but loses work while disconnected; the deliberately unsafe eventual-accounting baseline exceeds the budget in every run.
-
-These results are feasibility evidence only. The baselines are intentionally diagnostic and do not constitute a publication-grade comparative evaluation.
-
-## Submission-critical next steps
-
-The minimum publishable implementation must add durable transactional wardens, authenticated RPC, replay-safe executor receipts, crash/restart recovery, compact transfer watermarks, partition/fault injection, and one realistic sensor-driven workload. Active-subtree migration should either be implemented with a checked protocol or removed from the main contribution. The go/no-go criterion is whether LETS demonstrates a measurable advantage beyond a conventional bounded counter plus lease layer while retaining a concise, auditable invariant.
-
 # LETS
+
+LETS—Lineage Escrow Transition Systems—is a real distributed runtime for governing recursively
+created agents, replicas, delegates, robots, services, and other autonomous workers.
+
+Stable warden nodes own disjoint shares of a finite, multi-dimensional resource envelope.
+Ephemeral subjects receive signed, expiring, capability-attenuated leases; child replicas can
+receive only rights removed from a parent. Every protected state transition produces a short-lived,
+audience-bound receipt that an independent executor verifies and durably consumes.
+
+LETS is standalone and protocol-neutral. It does not depend on AstralDeep, MCP, A2A, Kubernetes,
+or a particular model/runtime. The included adapter contracts make host integration small without
+moving host authorization or secrets into LETS.
+
+## What is implemented
+
+- independently persisted warden processes with SQLite WAL and `synchronous=FULL` transactions;
+- signed cluster manifests with exact genesis-share conservation and operator trust thresholds;
+- immutable, content-addressed policy and state-machine definitions;
+- root issuance, child replication, capability attenuation, nested TTLs, lifecycle control, and
+  branch revocation;
+- atomic, idempotent transition accounting and signed executor receipts;
+- protected-executor signature, audience, time, policy, sequence, nonce, and replay verification;
+- authenticated peer HTTP messages with Ed25519 signatures and durable nonce replay defense;
+- sequenced cross-warden rights transfer with exactly-once target credit, bounded reordering,
+  acknowledgement finalization, and signed prefix compaction;
+- hash-chained signed audit records, bounded pagination, outbox state, invariants, readiness, and
+  operational metrics;
+- a typed HTTP client, CLI/bootstrap workflow, three-node Docker topology, and fault/e2e tests;
+- a host-neutral replica adapter plus an AstralDeep profile that imports no AstralDeep internals.
+
+The original in-memory research kernel and draft manuscript are retained under `prototype/` and
+`paper/original-draft.pdf`; they are not the production runtime.
+
+## Safety model
+
+For each warden projection of an envelope, LETS enforces:
+
+```text
+initial local share + cumulative accepted transfers
+  = free pool + live lease residuals + consumed rights + cumulative sent transfers
+```
+
+The signed cluster manifest additionally enforces:
+
+```text
+sum(all initial warden shares) = global initial budget
+```
+
+Local transitions require no cross-node round trip. A warden can therefore continue safely during
+a peer/control-plane partition, but only within rights already held locally. Rights stranded at an
+unreachable node are unavailable; LETS chooses bounded authority over magical availability.
+
+## Dependency isolation
+
+All Python work uses the repository-local `.venv`. Nothing is installed into the system Python:
+
+```powershell
+uv sync --all-extras --frozen
+uv run pytest
+uv run lets --help
+```
+
+The package supports Python 3.11–3.14. Containers build their own image-local environment from the
+committed `uv.lock`; the host `.venv` is never copied or mounted.
+
+## One-node development start
+
+Initialize a local node:
+
+```powershell
+uv run lets --config .lets/a/config.json init `
+  --warden-id warden-a `
+  --tenant-id example `
+  --envelope-id agents `
+  --budget 1000000,100000000 `
+  --local-share 1000000,100000000
+```
+
+The command prints a bootstrap token once and stores only its SHA-256 digest. Start the warden on
+loopback:
+
+```powershell
+uv run lets --config .lets/a/config.json serve --host 127.0.0.1 --port 8741
+```
+
+Inspect it:
+
+```powershell
+uv run lets --config .lets/a/config.json info
+curl.exe http://127.0.0.1:8741/health/ready
+```
+
+Non-loopback serving requires TLS unless the explicit development-only
+`--allow-insecure-http` flag is supplied.
+
+## API flow
+
+Register a policy, issue a governed root, spawn a child, and request a receipt with the synchronous
+client:
+
+```python
+from lets.client import LETSClient
+from lets.policy import MachineSpec, PolicySpec, ResourceDimension, TransitionSpec
+
+policy = PolicySpec(
+    policy_id="agents",
+    policy_version="v1",
+    dimensions=(
+        ResourceDimension("actions", "count"),
+        ResourceDimension("tokens", "token"),
+    ),
+    machine=MachineSpec(
+        machine_id="replica",
+        initial_state="ready",
+        transitions=(
+            TransitionSpec(
+                name="run",
+                source="ready",
+                target="ready",
+                cost=(1, 100),
+                capability="agent.run",
+            ),
+        ),
+    ),
+    max_lease_ttl_ns=300_000_000_000,
+    receipt_ttl_ns=1_000_000_000,
+    max_clock_uncertainty_ns=50_000_000,
+    transfer_gap_window=64,
+)
+
+with LETSClient("https://warden-a.example", token=bootstrap_token) as lets:
+    lets.register_policy(policy.to_dict())
+    root = lets.issue_root(
+        {
+            "request_id": "host-operation-0001",
+            "tenant_id": "example",
+            "envelope_id": "agents",
+            "subject_id": "agent-root",
+            "allocation": [1000, 1_000_000],
+            "capabilities": ["agent.run"],
+            "policy_digest": policy.digest,
+            "ttl_ns": 60_000_000_000,
+        }
+    )
+    receipt = lets.authorize(
+        root["lease_id"],
+        {
+            "request_id": "tool-operation-0042",
+            "transition": "run",
+            "executor_audience": "protected-tool-gateway",
+            "nonce": "tool-effect-0042",
+            "expected_sequence": 0,
+        },
+    )
+```
+
+Use the host's durable operation ID as `request_id`; reuse it on retry. A reused ID with changed
+content is rejected.
+
+## Protected execution
+
+Authorization accounting and the physical effect are separate failure domains. Install
+`ReceiptVerifier` at the tool gateway or actuator with a filesystem-backed
+`SQLiteReceiptReplayStore`. It verifies the warden signature, tenant/envelope/epoch, policy and
+machine digests, audience, freshness, and sequence, then durably claims the receipt.
+
+`verify_and_claim()` provides at-most-once authorization. For exactly-once physical effects, bind
+the claim and effect in one domain transaction or make the effect idempotent. LETS does not pretend
+a generic receipt can make an arbitrary external side effect exactly once.
+
+## Three-node deployment
+
+The Compose topology runs three independent warden containers with separate databases, replay
+stores, keys, and persistent volumes. It exercises real HTTP peer transfer rather than several
+logical wardens sharing one process or database.
+
+```powershell
+uv run --frozen python deploy/run_acceptance.py
+```
+
+See `deploy/` and `docs/operations.md` for bootstrap, TLS, partition, recovery, backup, and
+watermark procedures. The test harness records reproducible evidence under `results/generated/`.
+
+## Host integrations
+
+The portable adapter surface is `lets.integrations.ReplicaAuthorizer`. It deliberately accepts
+only lifecycle IDs, rights vectors, capabilities, TTLs, evidence, and policy references—never
+credentials, process memory, owner identity, open sockets, or opaque agent state.
+
+The optional `AstralDeepAuthorizer` maps AstralDeep's six declared tool scopes to explicit LETS
+capabilities/transitions while preserving AstralDeep's Keycloak/RFC 8693, owner, permission, PHI,
+egress, confirmation, and audit gates. Details: `docs/adapters/astraldeep.md`.
+
+Recommended standards composition:
+
+- A2A Agent Cards, OASF, Agent Spec, or ARD for discovery;
+- MCP or A2A for invocation and capability negotiation;
+- OCI, SLSA/in-toto, SPDX, and CycloneDX for artifact provenance;
+- SPIFFE and attestation evidence for workload identity;
+- CloudEvents/OpenTelemetry for non-authoritative event export.
+
+Discovery never grants authority. An operation is enabled only after the host's policy gates, the
+lease's capability/residual/state, evidence rules, and the executor's receipt policy all agree.
+
+## Repository map
+
+| Path | Purpose |
+|---|---|
+| `src/lets/` | domain, policy, crypto, durable storage, warden service, API, clients, executor |
+| `src/lets/integrations/` | standalone host adapter contracts and AstralDeep profile |
+| `protocol/` | cluster-manifest schema and OpenAPI contract |
+| `tests/` | unit, property, security, integration, fault, and real-node e2e tests |
+| `deploy/` | Docker topology and bootstrap assets |
+| `formal/` | bounded model and trace-conformance tooling |
+| `benchmarks/` | reproducible workloads and profiling harnesses |
+| `docs/` | architecture, threat model, operations, ADRs, and integrations |
+| `paper/` | reproducible LaTeX source and rebuilt manuscript |
+| `prototype/` | preserved pre-runtime research kernel; not imported by `lets` |
+
+## Verification
+
+```powershell
+uv run ruff check src tests
+uv run mypy src
+uv run pytest
+uv run pytest --cov=lets --cov-report=term-missing
+```
+
+The committed coverage gate is a measured 74% branch-aware regression floor for the current
+runtime; it is not presented as a substitute for the fault, adversarial, and bounded-state checks.
+
+Paper and artifact reproduction commands are documented in `paper/README.md` and the root
+`Makefile` after the runtime evidence is regenerated.
+
+## Current boundaries
+
+LETS v1 is a production-intent pre-1.0 runtime and has not received an independent external
+security audit. Its explicit boundaries are:
+
+- one envelope per SQLite database;
+- one live warden identity per local-disk database; shared filesystems and concurrent clones are
+  outside the safety model;
+- trusted (non-Byzantine) wardens in the base protocol;
+- no simultaneous use of cloned/restored warden state;
+- no live configuration-epoch rollover;
+- no arbitrary active-subtree migration; v1 transfers free rights and issues at the target;
+- no automatic copying of agent artifacts, workspace state, memory, identities, or secrets;
+- no exactly-once external-effect claim without an executor/domain transaction.
+
+Read `docs/threat-model.md` and `docs/operations.md` before deploying. Security reports belong in
+GitHub's private vulnerability-reporting channel, as described in `SECURITY.md`.
+
+Licensed under Apache-2.0.

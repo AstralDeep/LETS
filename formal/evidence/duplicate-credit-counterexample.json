@@ -1,0 +1,34 @@
+{
+  "bounds": {
+    "budget": 3,
+    "initial_shares": [
+      1,
+      1,
+      1
+    ],
+    "max_action_amount": 1,
+    "max_depth": 4,
+    "max_leases": 1,
+    "max_receipts": 1,
+    "max_transfers": 1
+  },
+  "generated_at": "2026-08-09T06:42:56.155554+00:00",
+  "maximum_depth_reached": 2,
+  "model_digest": "sha256:77d48812fa293cf5934496c90a435f8f7792a6f88aef6e4f460bcf0e7ee3b5b8",
+  "passed": false,
+  "schema": "lets.bounded-model-check/v1",
+  "self_loops_checked": 0,
+  "states_checked": 82,
+  "transitions_checked": 120,
+  "violations": [
+    {
+      "invariant": "global_conservation",
+      "message": "expected 3 rights, observed 4",
+      "trace": [
+        "prepare(source=0,target=1,amount=1)",
+        "accept(transfer=1)",
+        "duplicate_accept(transfer=1)"
+      ]
+    }
+  ]
+}

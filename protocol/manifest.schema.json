@@ -1,0 +1,311 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AstralDeep/LETS/protocol/manifest.schema.json",
+  "title": "LETS cluster manifest v1",
+  "description": "Portable bootstrap contract for one LETS resource envelope and its trusted wardens.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "tenant_id",
+    "envelope_id",
+    "config_epoch",
+    "created_at",
+    "resources",
+    "initial_budget",
+    "wardens",
+    "policies"
+  ],
+  "properties": {
+    "api_version": { "const": "lets.manifest/v1" },
+    "tenant_id": { "$ref": "#/$defs/identifier" },
+    "envelope_id": { "$ref": "#/$defs/identifier" },
+    "config_epoch": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+    "created_at": { "$ref": "#/$defs/rfc3339Timestamp" },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/resourceDimension" }
+    },
+    "initial_budget": { "$ref": "#/$defs/resourceVector" },
+    "wardens": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1024,
+      "items": { "$ref": "#/$defs/warden" }
+    },
+    "policies": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/policy" }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9.-]+/[a-zA-Z0-9._-]+$" },
+      "additionalProperties": true
+    },
+    "signatures": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/manifestSignature" }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!.*[\\u0000-\\u001F\\u007F])\\S(?:[\\s\\S]*\\S)?$"
+    },
+    "wardenId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
+    },
+    "keyId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._~:/+-]{0,511}$"
+    },
+    "endpointOrigin": {
+      "type": "string",
+      "format": "uri",
+      "description": "HTTP is syntactically valid only for explicitly enabled development profiles; normal runtime admission requires HTTPS.",
+      "pattern": "^https?://(?:\\[(?![^\\]]*:::)[0-9A-Fa-f:]+\\]|(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\\.(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}|(?!(?:[0-9.]+)(?=:[0-9]|/|$))[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)(?::(?:[1-9]|[1-9][0-9]{1,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?/?$"
+    },
+    "rfc3339Timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "resourceVector": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9223372036854775807
+      }
+    },
+    "resourceDimension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "unit"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "unit": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "publicKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "algorithm", "public_key"],
+      "properties": {
+        "key_id": { "$ref": "#/$defs/keyId" },
+        "algorithm": { "const": "Ed25519" },
+        "public_key": {
+          "type": "string",
+          "minLength": 43,
+          "maxLength": 43,
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "not_before": { "$ref": "#/$defs/rfc3339Timestamp" },
+        "not_after": { "$ref": "#/$defs/rfc3339Timestamp" }
+      }
+    },
+    "warden": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warden_id", "peer_endpoint", "client_endpoint", "initial_share", "keys"],
+      "properties": {
+        "warden_id": { "$ref": "#/$defs/wardenId" },
+        "peer_endpoint": { "$ref": "#/$defs/endpointOrigin" },
+        "client_endpoint": { "$ref": "#/$defs/endpointOrigin" },
+        "initial_share": { "$ref": "#/$defs/resourceVector" },
+        "keys": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/publicKey" }
+        },
+        "extensions": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9.-]+/[a-zA-Z0-9._-]+$" },
+          "additionalProperties": true
+        }
+      }
+    },
+    "evidenceRule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "rules"],
+          "properties": {
+            "op": { "enum": ["all", "any"] },
+            "rules": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 256,
+              "items": { "$ref": "#/$defs/evidenceRule" }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "rule"],
+          "properties": {
+            "op": { "const": "not" },
+            "rule": { "$ref": "#/$defs/evidenceRule" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "path"],
+          "properties": {
+            "op": { "const": "exists" },
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*$" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "path", "value"],
+          "properties": {
+            "op": { "enum": ["eq", "ne", "lt", "lte", "gt", "gte"] },
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*$" },
+            "value": {}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "path", "values"],
+          "properties": {
+            "op": { "const": "in" },
+            "path": { "type": "string", "pattern": "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*$" },
+            "values": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 256,
+              "items": {}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["op", "observed_at_path", "max_age_ns"],
+          "properties": {
+            "op": { "const": "fresh" },
+            "observed_at_path": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*$"
+            },
+            "max_age_ns": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 }
+          }
+        }
+      ]
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "target", "cost", "capability"],
+      "properties": {
+        "name": { "$ref": "#/$defs/identifier" },
+        "source": { "$ref": "#/$defs/identifier" },
+        "target": { "$ref": "#/$defs/identifier" },
+        "cost": { "$ref": "#/$defs/resourceVector" },
+        "capability": { "$ref": "#/$defs/identifier" },
+        "evidence": { "$ref": "#/$defs/evidenceRule" }
+      }
+    },
+    "machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["machine_id", "initial_state", "transitions", "machine_digest"],
+      "properties": {
+        "machine_id": { "$ref": "#/$defs/identifier" },
+        "initial_state": { "$ref": "#/$defs/identifier" },
+        "transitions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "items": { "$ref": "#/$defs/transition" }
+        },
+        "machine_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_id",
+        "policy_version",
+        "policy_digest",
+        "resources",
+        "machine",
+        "max_lease_ttl_ns",
+        "receipt_ttl_ns",
+        "max_clock_uncertainty_ns",
+        "transfer_gap_window"
+      ],
+      "properties": {
+        "policy_id": { "$ref": "#/$defs/identifier" },
+        "policy_version": { "$ref": "#/$defs/identifier" },
+        "policy_digest": { "$ref": "#/$defs/digest" },
+        "machine_digest": { "$ref": "#/$defs/digest" },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/resourceDimension" }
+        },
+        "machine": { "$ref": "#/$defs/machine" },
+        "max_lease_ttl_ns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "receipt_ttl_ns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "max_clock_uncertainty_ns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "transfer_gap_window": { "type": "integer", "minimum": 1, "maximum": 1048576 }
+      }
+    },
+    "manifestSignature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key_id", "algorithm", "signature"],
+      "properties": {
+        "key_id": { "$ref": "#/$defs/identifier" },
+        "algorithm": { "const": "Ed25519" },
+        "signature": {
+          "type": "string",
+          "minLength": 86,
+          "maxLength": 86,
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      }
+    }
+  }
+}
