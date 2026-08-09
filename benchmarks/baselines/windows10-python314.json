@@ -1,6 +1,6 @@
 {
   "schema": "lets.reviewed-benchmark-baseline/v1",
-  "reviewed_at": "2026-08-09T15:36:39.771604+00:00",
+  "reviewed_at": "2026-08-09T15:40:56.578313+00:00",
   "environment": {
     "platform": "Windows-10-10.0.19045-SP0",
     "machine": "AMD64",
@@ -9,8 +9,8 @@
     "python": "3.14.0 (main, Nov 19 2025, 22:43:52) [MSC v.1944 64 bit (AMD64)]",
     "sqlite": "3.50.4",
     "crypto_backend": "PyNaCl 1.6.2 with bundled libsodium",
-    "git_revision": "8cd4b5e2f50c5d356de249aa93af2aef516e1fa6",
-    "git_worktree_dirty": true,
+    "git_revision": "9f6ba18315c1a1ba854373053f7bd92e18343e9b",
+    "git_worktree_dirty": false,
     "runtime_acceptance_source_tree_digest": "sha256:ba0ede68f6def3244bebe9a051239fc34a28f76f0cfb324d0816cc50714cf06f"
   },
   "method": {
@@ -31,63 +31,63 @@
     {
       "name": "warden.authorize.full_fsync",
       "before": {"median_ns": 7881800, "p95_ns": 8776700, "p99_ns": 9305000, "throughput_ops_per_second": 126.02472277396546},
-      "after": {"median_ns": 8286850, "p95_ns": 9299500, "p99_ns": 9996900, "throughput_ops_per_second": 118.26052486149624}
+      "after": {"median_ns": 8287700, "p95_ns": 9388700, "p99_ns": 9745400, "throughput_ops_per_second": 119.23795973834899}
     },
     {
       "name": "transfer.prepare.full_fsync",
       "before": {"median_ns": 7046650, "p95_ns": 8008700, "p99_ns": 8548500, "throughput_ops_per_second": 141.06688319492793},
-      "after": {"median_ns": 7393700, "p95_ns": 8485400, "p99_ns": 8722300, "throughput_ops_per_second": 132.79808622021986}
+      "after": {"median_ns": 7480850, "p95_ns": 8647500, "p99_ns": 8870000, "throughput_ops_per_second": 130.56771757575964}
     },
     {
       "name": "transfer.accept.full_fsync",
       "before": {"median_ns": 6306200, "p95_ns": 7249100, "p99_ns": 7574500, "throughput_ops_per_second": 156.65735808644916},
-      "after": {"median_ns": 6936500, "p95_ns": 7940400, "p99_ns": 8672600, "throughput_ops_per_second": 140.6791680740445}
+      "after": {"median_ns": 6983800, "p95_ns": 7802500, "p99_ns": 8266400, "throughput_ops_per_second": 137.7408001886498}
     },
     {
       "name": "transfer.finalize.full_fsync",
       "before": {"median_ns": 5935000, "p95_ns": 6670500, "p99_ns": 7590100, "throughput_ops_per_second": 167.92997588693476},
-      "after": {"median_ns": 6394750, "p95_ns": 7412900, "p99_ns": 7739200, "throughput_ops_per_second": 154.0313231937594}
+      "after": {"median_ns": 6484000, "p95_ns": 7615000, "p99_ns": 7946100, "throughput_ops_per_second": 151.56236548840062}
     },
     {
       "name": "transfer.round_trip.full_fsync",
       "before": {"median_ns": 19243850, "p95_ns": 21253500, "p99_ns": 22322500, "throughput_ops_per_second": 51.474600604713316},
-      "after": {"median_ns": 20751400, "p95_ns": 22800100, "p99_ns": 23898600, "throughput_ops_per_second": 47.3243118051253}
+      "after": {"median_ns": 21087450, "p95_ns": 23122100, "p99_ns": 23903700, "throughput_ops_per_second": 46.47527343494749}
     },
     {
       "name": "executor.verify.signature_only",
       "before": {"median_ns": 179800, "p95_ns": 186400, "p99_ns": 196900, "throughput_ops_per_second": 5506.911173522771},
-      "after": {"median_ns": 179350, "p95_ns": 185100, "p99_ns": 195500, "throughput_ops_per_second": 5521.140446770685}
+      "after": {"median_ns": 178050, "p95_ns": 182900, "p99_ns": 190400, "throughput_ops_per_second": 5577.089317085413}
     },
     {
       "name": "executor.verify_and_claim.full_fsync",
       "before": {"median_ns": 3947650, "p95_ns": 4890300, "p99_ns": 5192700, "throughput_ops_per_second": 248.9545155121069},
-      "after": {"median_ns": 4445400, "p95_ns": 5436800, "p99_ns": 5662400, "throughput_ops_per_second": 219.91946988851623}
+      "after": {"median_ns": 4417650, "p95_ns": 5828700, "p99_ns": 5889500, "throughput_ops_per_second": 219.337784135649}
     },
     {
       "name": "warden.authorize.concurrent_contention.full_fsync",
       "before": {"median_ns": 11154950, "p95_ns": 32176900, "p99_ns": 278495000, "throughput_ops_per_second": 102.99577634920347},
-      "after": {"median_ns": 60850700, "p95_ns": 70197900, "p99_ns": 76597300, "throughput_ops_per_second": 46.65789498240997}
+      "after": {"median_ns": 56461900, "p95_ns": 69516700, "p99_ns": 69783600, "throughput_ops_per_second": 49.02172971506561}
     }
   ],
   "receipt_table_scaling": [
-    {"receipt_rows": 10, "before_authorize_median_ns": 5722150, "after_authorize_median_ns": 7249200, "explicit_fk_check_median_ns": 15900},
-    {"receipt_rows": 100, "before_authorize_median_ns": 6292800, "after_authorize_median_ns": 7587400, "explicit_fk_check_median_ns": 58250},
-    {"receipt_rows": 500, "before_authorize_median_ns": 7957500, "after_authorize_median_ns": 9072150, "explicit_fk_check_median_ns": 288150},
-    {"receipt_rows": 1000, "before_authorize_median_ns": 11283000, "after_authorize_median_ns": 11249850, "explicit_fk_check_median_ns": 1949950}
+    {"receipt_rows": 10, "before_authorize_median_ns": 5722150, "after_authorize_median_ns": 6966350, "explicit_fk_check_median_ns": 16550},
+    {"receipt_rows": 100, "before_authorize_median_ns": 6292800, "after_authorize_median_ns": 7174250, "explicit_fk_check_median_ns": 59650},
+    {"receipt_rows": 500, "before_authorize_median_ns": 7957500, "after_authorize_median_ns": 8485150, "explicit_fk_check_median_ns": 279150},
+    {"receipt_rows": 1000, "before_authorize_median_ns": 11283000, "after_authorize_median_ns": 10526450, "explicit_fk_check_median_ns": 1920200}
   ],
   "invariant_snapshot_scaling": [
-    {"lease_rows": 10, "legacy_row_scan_median_ns": 1069550, "aggregate_median_ns": 1275950, "aggregate_p95_ns": 1443500},
-    {"lease_rows": 100, "legacy_row_scan_median_ns": 1295000, "aggregate_median_ns": 1269600, "aggregate_p95_ns": 1372100},
-    {"lease_rows": 1000, "legacy_row_scan_median_ns": 2902250, "aggregate_median_ns": 1278550, "aggregate_p95_ns": 1352100}
+    {"lease_rows": 10, "legacy_row_scan_median_ns": 1069550, "aggregate_median_ns": 1312100, "aggregate_p95_ns": 1683100},
+    {"lease_rows": 100, "legacy_row_scan_median_ns": 1295000, "aggregate_median_ns": 1292350, "aggregate_p95_ns": 1655000},
+    {"lease_rows": 1000, "legacy_row_scan_median_ns": 2902250, "aggregate_median_ns": 1249400, "aggregate_p95_ns": 1610300}
   ],
   "keeper_connection_experiment": {
     "decision": "reject_keeper_connection",
     "trials": 4,
     "operations_per_case": 100,
     "warmup_per_case": 10,
-    "baseline_median_of_trial_medians_ns": 7677625,
-    "keeper_median_of_trial_medians_ns": 8830450,
-    "keeper_to_baseline_latency_ratio": 1.15015385617297,
+    "baseline_median_of_trial_medians_ns": 7626375,
+    "keeper_median_of_trial_medians_ns": 8688250,
+    "keeper_to_baseline_latency_ratio": 1.1392371867368178,
     "durability": "SQLite WAL synchronous=FULL in both cases"
   },
   "dependency_footprint": {
@@ -103,7 +103,7 @@
   "limitations": [
     "Single-host in-process microbenchmarks; HTTP, network, peer failure, and container scheduling latency are excluded.",
     "Each main result contains 100 measured operations after 10 warm-up operations, so tail estimates are indicative rather than capacity guarantees.",
-    "The measurements are bound to the committed 1.0.0 Git revision above; the raw harness recorded a dirty worktree because the tracked sanitized production-acceptance summary was refreshed concurrently.",
+    "The measurements are bound to the clean committed 1.0.0 Git revision above; all raw harnesses recorded git_worktree_dirty=false.",
     "The historical before column predates the authority-anchor, recovery, replay, capacity, and audit hardening in the final after column, so the delta is not attributable to one optimization.",
     "The legacy invariant row-scan observations were captured immediately before the source edit with the same host and 100 samples but predate the reusable profile_invariants harness.",
     "Raw FULL batching and synchronous=NORMAL diagnostics are omitted from this reviewed production comparison because they bypass LETS semantics and are not runtime defaults."
