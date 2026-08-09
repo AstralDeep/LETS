@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import textwrap
 from collections import deque
 from collections.abc import Iterator
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,11 +13,16 @@ import deploy.production.acceptance.soak as soak_scenario
 import deploy.production.run_soak as soak_runner
 from deploy.production.acceptance.materialize import _nodes, acceptance_policy
 from deploy.production.acceptance.soak import (
+    AUDIT_ERROR_MAX_BYTES,
+    AUDIT_ERROR_SAMPLE_BUDGET,
     NODES,
     TRANSFER_PAIRS,
+    AuditErrorBudget,
+    _audit_progress_summary,
     _bounded_audit_exporter,
     _health_sample,
     _is_converged,
+    _poll_audit_error_recovery,
     operation_plan,
     scheduled_transfer_pair,
 )
@@ -46,6 +53,27 @@ from deploy.production.run_soak import (
 )
 
 EXACT_IMAGE = "ghcr.io/astraldeep/lets@sha256:" + "a" * 64
+TRANSIENT_BUSY_ERROR = (
+    "StorageError: could not connect to the audit archive "
+    "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=5)"
+)
+
+
+def test_release_soak_evidence_verifier_compiles_with_regex_dependency() -> None:
+    workflow = (Path(__file__).parents[2] / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+    step = workflow.split(
+        "      - name: Require sustained evidence to bind the exact candidate and source\n",
+        maxsplit=1,
+    )[1].split("      - name: Archive failed production-profile soak diagnostics\n", maxsplit=1)[0]
+    embedded = step.split("          python - <<'PY'\n", maxsplit=1)[1].split(
+        "\n          PY", maxsplit=1
+    )[0]
+    source = textwrap.dedent(embedded)
+    assert "\nimport math\n" in f"\n{source}"
+    assert "\nimport re\n" in f"\n{source}"
+    compile(source, "release-soak-evidence.py", "exec")
 
 
 def _configuration() -> SoakConfiguration:
@@ -218,8 +246,19 @@ def test_workload_evaluation_enforces_exact_load_and_executor_relationships() ->
         "audit_progress": {
             "bounded_progress": True,
             "catchup_sample_count": 1,
+            "error_evidence_complete": True,
+            "error_recovery_passed": True,
+            "error_sample_budget": 1,
+            "error_sample_count": 0,
+            "error_samples_by_node": {node: 0 for node in NODES},
             "maximum_pending_by_node": {node: 5 for node in NODES},
+            "recorded_error_sample_count": 0,
+            "recorded_error_samples_by_node": {node: 0 for node in NODES},
+            "recorded_recovered_error_sample_count": 0,
+            "recorded_unresolved_error_nodes": [],
+            "recovered_error_sample_count": 0,
             "sample_count": 4,
+            "unresolved_error_nodes": [],
         },
         "counters": {
             "authorizations": 6,
@@ -252,6 +291,16 @@ def test_workload_evaluation_enforces_exact_load_and_executor_relationships() ->
     assert evaluation["metrics"]["required_cycles"] == 3
     assert evaluation["metrics"]["required_health_samples"] == 4
     assert evaluation["metrics"]["health_cadence"]["maximum_gap_seconds"] == 10.0
+
+    valid_audit_progress = dict(result["audit_progress"])
+    result["audit_progress"] = {
+        **valid_audit_progress,
+        "error_sample_count": 1,
+    }
+    error_evidence_failed = evaluate_workload_result(result, configuration)
+    assert error_evidence_failed["passed"] is False
+    assert "audit_error_recovery" in error_evidence_failed["violations"]
+    result["audit_progress"] = valid_audit_progress
 
     result["health_samples"] = [{**sample, "elapsed_seconds": 0.0} for sample in health_samples]
     cadence_failed = evaluate_workload_result(result, configuration)
@@ -628,6 +677,7 @@ def test_convergence_rejects_in_flight_transfers_and_inbound_gaps() -> None:
                     "archive_reconciled": True,
                     "catching_up": False,
                     "healthy": True,
+                    "last_error": None,
                     "pending": 0,
                     "running": True,
                 },
@@ -659,6 +709,9 @@ def test_convergence_rejects_in_flight_transfers_and_inbound_gaps() -> None:
     sample["nodes"]["warden-c"]["peer_dispatcher"]["failed_records"] = 0
     sample["nodes"]["warden-c"]["peer_dispatcher"]["last_error"] = "checkpoint failed"
     assert _is_converged(sample) is False
+    sample["nodes"]["warden-c"]["peer_dispatcher"]["last_error"] = None
+    sample["nodes"]["warden-a"]["audit_exporter"]["last_error"] = "archive failed"
+    assert _is_converged(sample) is False
 
 
 def _audit_status(**overrides: object) -> dict[str, object]:
@@ -678,6 +731,491 @@ def _audit_status(**overrides: object) -> dict[str, object]:
     }
     status.update(overrides)
     return status
+
+
+def _clean_audit_status() -> dict[str, object]:
+    return _audit_status(
+        archive_reconciled=True,
+        catching_up=False,
+        healthy=True,
+        last_error=None,
+        oldest_pending_age_s=None,
+        pending=0,
+        stalled_for_s=0.1,
+    )
+
+
+def _audit_document(status: dict[str, object]) -> dict[str, object]:
+    return {
+        "audit_exporter": status,
+        "audit_outbox": {"unpublished_count": 0 if status["pending"] == 0 else status["pending"]},
+        "ready": status["healthy"],
+        "service_ready": True,
+    }
+
+
+def _audit_health_sample(
+    elapsed: float,
+    *,
+    error_nodes: tuple[str, ...] = (),
+    recovered_nodes: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    nodes: dict[str, Any] = {}
+    recoveries: list[dict[str, Any]] = []
+    for node in NODES:
+        if node in error_nodes:
+            status = _audit_status(
+                last_error=TRANSIENT_BUSY_ERROR,
+                oldest_pending_age_s=None,
+                pending=0,
+                stalled_for_s=5.0,
+            )
+        else:
+            status = _clean_audit_status()
+        nodes[node] = _audit_document(status)
+        if node in recovered_nodes:
+            recoveries.append(
+                {
+                    **_audit_document(_clean_audit_status()),
+                    "elapsed_seconds": elapsed + 1.0,
+                    "node": node,
+                    "remaining_stall_window_seconds": 10.0,
+                }
+            )
+    return {
+        "audit_catchup_nodes": list(error_nodes),
+        "audit_error_recoveries": recoveries,
+        "elapsed_seconds": elapsed,
+        "nodes": nodes,
+    }
+
+
+@pytest.mark.parametrize(
+    "last_error",
+    (
+        TRANSIENT_BUSY_ERROR,
+        (
+            "StorageError: could not connect to the audit archive "
+            "(sqlite_errorname=SQLITE_BUSY_RECOVERY, sqlite_errorcode=261)"
+        ),
+        (
+            "StorageError: could not connect to the audit archive "
+            "(sqlite_errorname=SQLITE_BUSY_SNAPSHOT, sqlite_errorcode=517)"
+        ),
+        (
+            "StorageError: could not connect to the audit archive "
+            "(sqlite_errorname=SQLITE_BUSY_TIMEOUT, sqlite_errorcode=773)"
+        ),
+    ),
+)
+def test_bounded_audit_exporter_accepts_exact_isolated_transient_status(
+    last_error: str,
+) -> None:
+    result = _bounded_audit_exporter(
+        _audit_status(
+            last_error=last_error,
+            oldest_pending_age_s=None,
+            pending=0,
+            stalled_for_s=5.114,
+        ),
+        node="warden-c",
+    )
+    assert result["catching_up"] is True
+    assert result["last_success_ns"] == 123
+    assert result["last_error"] == last_error
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    (
+        ({"last_error": ""}, "malformed bounded"),
+        ({"last_error": " "}, "malformed bounded"),
+        ({"last_error": 7}, "malformed bounded"),
+        ({"last_error": "x" * (AUDIT_ERROR_MAX_BYTES + 1)}, "malformed bounded"),
+        ({"last_error": "archive unavailable"}, "non-tolerable"),
+        (
+            {
+                "last_error": (
+                    "StorageError: could not connect to the audit archive "
+                    "(sqlite_errorname=SQLITE_IOERR, sqlite_errorcode=10)"
+                )
+            },
+            "non-tolerable",
+        ),
+        (
+            {
+                "last_error": (
+                    "StorageError: audit archive write failed "
+                    "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=5)"
+                )
+            },
+            "non-tolerable",
+        ),
+        (
+            {
+                "last_error": (
+                    "StorageError: could not connect to the audit archive "
+                    "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=6)"
+                )
+            },
+            "non-tolerable",
+        ),
+        (
+            {
+                "last_error": (
+                    "StorageError: could not connect to the audit archive "
+                    f"(sqlite_errorname=SQLITE_BUSY_{'A' * 53}, sqlite_errorcode=5)"
+                )
+            },
+            "non-tolerable",
+        ),
+        ({"last_error": TRANSIENT_BUSY_ERROR, "last_success_ns": None}, "prior success"),
+        (
+            {"archive_reconciled": True, "last_error": TRANSIENT_BUSY_ERROR},
+            "reconciled audit exporter error",
+        ),
+        ({"healthy": True, "last_error": TRANSIENT_BUSY_ERROR}, "inconsistent"),
+    ),
+)
+def test_bounded_audit_exporter_rejects_malformed_or_inconsistent_errors(
+    overrides: dict[str, object], match: str
+) -> None:
+    with pytest.raises(RuntimeError, match=match):
+        _bounded_audit_exporter(_audit_status(**overrides), node="warden-a")
+
+
+@pytest.mark.parametrize(
+    ("recover_first", "second_node"),
+    ((False, "warden-a"), (True, "warden-a"), (True, "warden-b")),
+)
+def test_audit_error_budget_rejects_repeated_or_cross_node_samples_live(
+    recover_first: bool, second_node: str
+) -> None:
+    budget = AuditErrorBudget()
+    budget.observe_error("warden-a")
+    if recover_first:
+        budget.mark_recovered("warden-a")
+    with pytest.raises(RuntimeError, match="transient error budget exceeded"):
+        budget.observe_error(second_node)
+
+
+def test_health_sample_recovers_one_error_inside_only_the_remaining_stall_window(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.metrics_calls = {node: 0 for node in NODES}
+            self.recovery_windows: list[float] = []
+
+        def request(
+            self,
+            _method: str,
+            node: str,
+            path: str,
+            *,
+            retry_timeout_s: float | None = None,
+        ) -> dict[str, Any]:
+            if retry_timeout_s is not None:
+                self.recovery_windows.append(retry_timeout_s)
+            if path == "/v1/invariants":
+                return {
+                    "consumed": [1],
+                    "free_pool": [9],
+                    "healthy": True,
+                    "lease_residual": [0],
+                    "transferred_in": [0],
+                    "transferred_out": [0],
+                }
+            if path == "/v1/audit/verify":
+                return {"valid": True}
+            self.metrics_calls[node] += 1
+            if node == "warden-a" and self.metrics_calls[node] == 1:
+                status = _audit_status(
+                    last_error=TRANSIENT_BUSY_ERROR,
+                    oldest_pending_age_s=None,
+                    pending=0,
+                    stalled_for_s=5.0,
+                )
+            else:
+                status = _clean_audit_status()
+            return {
+                **_audit_document(status),
+                "peer_dispatcher": {},
+                "receipts": {"total": 1},
+                "storage_capacity": {"healthy": True},
+                "transfers": {},
+            }
+
+    current = 100.0
+
+    def monotonic() -> float:
+        nonlocal current
+        current += 0.1
+        return current
+
+    monkeypatch.setattr(soak_scenario.time, "monotonic", monotonic)
+    client = FakeClient()
+    budget = AuditErrorBudget()
+    sample = _health_sample(
+        client,  # type: ignore[arg-type]
+        elapsed_s=20.0,
+        audit_error_budget=budget,
+    )
+    assert budget.error_sample_count == AUDIT_ERROR_SAMPLE_BUDGET
+    assert budget.recovered_error_sample_count == 1
+    assert budget.unresolved_error_nodes == set()
+    assert len(sample["audit_error_recoveries"]) == 1
+    recovery = sample["audit_error_recoveries"][0]
+    assert recovery["node"] == "warden-a"
+    assert recovery["elapsed_seconds"] > sample["elapsed_seconds"]
+    assert recovery["remaining_stall_window_seconds"] == 10.0
+    assert client.recovery_windows and 0 < max(client.recovery_windows) <= 10.0
+    summary = _audit_progress_summary([sample], audit_error_budget=budget)
+    assert summary["bounded_progress"] is True
+    assert summary["error_evidence_complete"] is True
+    assert summary["error_sample_count"] == 1
+    assert summary["recorded_error_sample_count"] == 1
+    assert summary["recovered_error_sample_count"] == 1
+    assert summary["unresolved_error_nodes"] == []
+
+
+def test_audit_recovery_deadline_is_anchored_to_initial_metrics_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RecoveryClient:
+        def __init__(self) -> None:
+            self.retry_windows: list[float] = []
+
+        def request(
+            self,
+            _method: str,
+            _node: str,
+            _path: str,
+            *,
+            retry_timeout_s: float | None = None,
+        ) -> dict[str, Any]:
+            assert retry_timeout_s is not None
+            self.retry_windows.append(retry_timeout_s)
+            return _audit_document(_clean_audit_status())
+
+    current = 105.9
+
+    def monotonic() -> float:
+        nonlocal current
+        current += 0.1
+        return current
+
+    monkeypatch.setattr(soak_scenario.time, "monotonic", monotonic)
+    client = RecoveryClient()
+    recovery = _poll_audit_error_recovery(
+        client,  # type: ignore[arg-type]
+        node="warden-a",
+        initial_exporter=_audit_status(
+            last_error=TRANSIENT_BUSY_ERROR,
+            oldest_pending_age_s=None,
+            pending=0,
+            stalled_for_s=5.0,
+        ),
+        initial_elapsed_s=20.0,
+        initial_observed_monotonic=100.0,
+    )
+    assert client.retry_windows == [pytest.approx(3.9)]
+    assert recovery["elapsed_seconds"] == pytest.approx(26.2)
+    assert recovery["remaining_stall_window_seconds"] == 10.0
+
+
+def test_audit_recovery_rejects_clean_status_observed_after_original_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LateRecoveryClient:
+        @staticmethod
+        def request(
+            _method: str,
+            _node: str,
+            _path: str,
+            *,
+            retry_timeout_s: float | None = None,
+        ) -> dict[str, Any]:
+            assert retry_timeout_s is not None
+            return _audit_document(_clean_audit_status())
+
+    current = 109.8
+
+    def monotonic() -> float:
+        nonlocal current
+        current += 0.1
+        return current
+
+    monkeypatch.setattr(soak_scenario.time, "monotonic", monotonic)
+    monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
+    with pytest.raises(RuntimeError, match=r"did not recover within its remaining 10\.000s"):
+        _poll_audit_error_recovery(
+            LateRecoveryClient(),  # type: ignore[arg-type]
+            node="warden-a",
+            initial_exporter=_audit_status(
+                last_error=TRANSIENT_BUSY_ERROR,
+                oldest_pending_age_s=None,
+                pending=0,
+                stalled_for_s=5.0,
+            ),
+            initial_elapsed_s=20.0,
+            initial_observed_monotonic=100.0,
+        )
+
+
+def test_audit_recovery_rejects_persistent_busy_status_at_original_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PersistentErrorClient:
+        calls = 0
+
+        @classmethod
+        def request(
+            cls,
+            _method: str,
+            _node: str,
+            _path: str,
+            *,
+            retry_timeout_s: float | None = None,
+        ) -> dict[str, Any]:
+            assert retry_timeout_s is not None
+            cls.calls += 1
+            return _audit_document(
+                _audit_status(
+                    last_error=TRANSIENT_BUSY_ERROR,
+                    oldest_pending_age_s=None,
+                    pending=0,
+                    stalled_for_s=5.0,
+                )
+            )
+
+    current = 100.0
+
+    def monotonic() -> float:
+        nonlocal current
+        current += 1.0
+        return current
+
+    monkeypatch.setattr(soak_scenario.time, "monotonic", monotonic)
+    monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
+    with pytest.raises(RuntimeError, match=r"did not recover within its remaining 10\.000s"):
+        _poll_audit_error_recovery(
+            PersistentErrorClient(),  # type: ignore[arg-type]
+            node="warden-b",
+            initial_exporter=_audit_status(
+                last_error=TRANSIENT_BUSY_ERROR,
+                oldest_pending_age_s=None,
+                pending=0,
+                stalled_for_s=5.0,
+            ),
+            initial_elapsed_s=20.0,
+            initial_observed_monotonic=100.0,
+        )
+    assert PersistentErrorClient.calls > 1
+
+
+def test_audit_recovery_rejects_malformed_followup_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MalformedRecoveryClient:
+        @staticmethod
+        def request(
+            _method: str,
+            _node: str,
+            _path: str,
+            *,
+            retry_timeout_s: float | None = None,
+        ) -> dict[str, Any]:
+            assert retry_timeout_s is not None
+            return _audit_document(_audit_status(last_error="archive unavailable"))
+
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 101.0)
+    with pytest.raises(RuntimeError, match="non-tolerable audit exporter error"):
+        _poll_audit_error_recovery(
+            MalformedRecoveryClient(),  # type: ignore[arg-type]
+            node="warden-c",
+            initial_exporter=_audit_status(
+                last_error=TRANSIENT_BUSY_ERROR,
+                oldest_pending_age_s=None,
+                pending=0,
+                stalled_for_s=5.0,
+            ),
+            initial_elapsed_s=20.0,
+            initial_observed_monotonic=100.0,
+        )
+
+
+@pytest.mark.parametrize(
+    "samples",
+    (
+        [_audit_health_sample(0.0, error_nodes=("warden-a",))],
+        [
+            _audit_health_sample(
+                0.0,
+                error_nodes=("warden-a",),
+                recovered_nodes=("warden-a",),
+            ),
+            _audit_health_sample(
+                10.0,
+                error_nodes=("warden-a",),
+                recovered_nodes=("warden-a",),
+            ),
+        ],
+        [
+            _audit_health_sample(
+                0.0,
+                error_nodes=("warden-a",),
+                recovered_nodes=("warden-a",),
+            ),
+            _audit_health_sample(
+                10.0,
+                error_nodes=("warden-b",),
+                recovered_nodes=("warden-b",),
+            ),
+        ],
+        [
+            _audit_health_sample(
+                0.0,
+                error_nodes=("warden-a",),
+                recovered_nodes=("warden-a",),
+            ),
+            _audit_health_sample(10.0),
+            _audit_health_sample(
+                20.0,
+                error_nodes=("warden-a",),
+                recovered_nodes=("warden-a",),
+            ),
+        ],
+    ),
+)
+def test_audit_progress_summary_rejects_unresolved_repeated_and_cross_node_errors(
+    samples: list[dict[str, Any]],
+) -> None:
+    summary = _audit_progress_summary(samples)
+    assert summary["bounded_progress"] is False
+    assert summary["error_recovery_passed"] is False
+
+
+def test_audit_progress_summary_fails_when_retained_deque_erases_live_error() -> None:
+    budget = AuditErrorBudget()
+    budget.observe_error("warden-c")
+    budget.mark_recovered("warden-c")
+    summary = _audit_progress_summary([_audit_health_sample(20.0)], audit_error_budget=budget)
+    assert summary["error_sample_count"] == 1
+    assert summary["recorded_error_sample_count"] == 0
+    assert summary["error_evidence_complete"] is False
+    assert summary["bounded_progress"] is False
+
+
+def test_audit_progress_summary_rejects_recovery_beyond_remaining_stall_window() -> None:
+    sample = _audit_health_sample(
+        0.0,
+        error_nodes=("warden-b",),
+        recovered_nodes=("warden-b",),
+    )
+    sample["audit_error_recoveries"][0]["elapsed_seconds"] = 10.01
+    with pytest.raises(RuntimeError, match="invalid bounded warden-b audit recovery"):
+        _audit_progress_summary([sample])
 
 
 def test_health_sample_accepts_only_bounded_audit_catchup() -> None:
@@ -743,7 +1281,6 @@ def test_health_sample_does_not_mask_core_or_aggregate_readiness_failures(
 @pytest.mark.parametrize(
     ("overrides", "match"),
     (
-        ({"last_error": "archive unavailable"}, "bounded progress"),
         ({"publish_blocked": True, "sink_call_blocked": True}, "bounded progress"),
         ({"pending": 4_097}, "bounded progress"),
         ({"stalled_for_s": 15.001}, "bounded progress"),
@@ -781,7 +1318,7 @@ def test_workload_pause_acknowledges_and_preserves_health_cadence(
     monkeypatch.setattr(
         soak_scenario,
         "_health_sample",
-        lambda _client, *, elapsed_s: {"elapsed_seconds": elapsed_s},
+        lambda _client, *, elapsed_s, audit_error_budget=None: {"elapsed_seconds": elapsed_s},
     )
     monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: pause.unlink())
     samples: deque[dict[str, Any]] = deque(maxlen=512)

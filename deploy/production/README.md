@@ -296,6 +296,20 @@ requires that exact source stream's acknowledged/compacted watermarks and target
 contiguous/compacted watermarks to cover the probe sequence, then requires every peer, transfer,
 and audit queue to converge to zero.
 
+The sustained workload permits at most one sampled, bounded, subsequently recovered transient
+exporter error across the entire three-node run. The only admissible class is the sanitized
+archive-connect `SQLITE_BUSY` family; I/O, corruption, archive-write, schema, and undiagnosed errors
+fail immediately. The exporter must still be running, have a prior successful export, be unblocked,
+and remain within its backlog, oldest-record, and stall bounds. A second observation on the same or
+another node fails live. On the first observation the workload immediately polls only that node for
+the unused portion of its configured stall window (`max_stall_s - stalled_for_s`); it does not
+restart or extend the 15-second window. The recovery probe must show the node fully ready,
+reconciled, error-free, and empty, and both the original observation and bounded recovery are
+retained. An unrecovered final sample fails, final convergence independently requires `last_error`
+to be null on every node, and the authoritative live count must equal the retained-sample count so
+deque truncation cannot erase the incident. This is explicitly a sampled-observation claim, not a
+count of errors that arise and recover wholly between health samples.
+
 Host-side probes record the actual LETS child process's RSS and file-descriptor count (not the PID 1
 init shim), core DB/WAL/SHM, audit DB/WAL/SHM, signer log, anchor, Docker restart count, OOM state,
 and process identity. The acceptance wardens use the shipped 1 GiB memory ceiling with

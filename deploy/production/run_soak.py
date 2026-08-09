@@ -538,7 +538,43 @@ def evaluate_workload_result(
         duration_seconds=float(result.get("duration_seconds", -1.0)),
     )
     maximum_pending = typed_audit_progress.get("maximum_pending_by_node")
+    error_sample_budget = typed_audit_progress.get("error_sample_budget")
+    error_sample_count = typed_audit_progress.get("error_sample_count")
+    error_samples_by_node = typed_audit_progress.get("error_samples_by_node")
+    recorded_error_sample_count = typed_audit_progress.get("recorded_error_sample_count")
+    recorded_error_samples_by_node = typed_audit_progress.get("recorded_error_samples_by_node")
+    recorded_recovered_error_sample_count = typed_audit_progress.get(
+        "recorded_recovered_error_sample_count"
+    )
+    recorded_unresolved_error_nodes = typed_audit_progress.get("recorded_unresolved_error_nodes")
+    recovered_error_sample_count = typed_audit_progress.get("recovered_error_sample_count")
+    unresolved_error_nodes = typed_audit_progress.get("unresolved_error_nodes")
+    audit_error_recovery = (
+        error_sample_budget == 1
+        and not isinstance(error_sample_budget, bool)
+        and isinstance(error_sample_count, int)
+        and not isinstance(error_sample_count, bool)
+        and 0 <= error_sample_count <= error_sample_budget
+        and isinstance(recovered_error_sample_count, int)
+        and not isinstance(recovered_error_sample_count, bool)
+        and recovered_error_sample_count == error_sample_count
+        and unresolved_error_nodes == []
+        and isinstance(error_samples_by_node, dict)
+        and set(error_samples_by_node) == set(WARDENS)
+        and all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in cast(dict[str, Any], error_samples_by_node).values()
+        )
+        and sum(cast(dict[str, int], error_samples_by_node).values()) == error_sample_count
+        and recorded_error_sample_count == error_sample_count
+        and recorded_error_samples_by_node == error_samples_by_node
+        and recorded_recovered_error_sample_count == recovered_error_sample_count
+        and recorded_unresolved_error_nodes == unresolved_error_nodes
+        and typed_audit_progress.get("error_evidence_complete") is True
+        and typed_audit_progress.get("error_recovery_passed") is True
+    )
     checks = {
+        "audit_error_recovery": audit_error_recovery,
         "audit_progress": (
             typed_audit_progress.get("bounded_progress") is True
             and int(typed_audit_progress.get("catchup_sample_count", -1)) >= 0
@@ -581,6 +617,17 @@ def evaluate_workload_result(
             "actual_cycles": cycles,
             "actual_health_samples": actual_health_samples,
             "actual_request_retries": actual_retries,
+            "audit_error_recovery": {
+                "error_sample_budget": error_sample_budget,
+                "error_sample_count": error_sample_count,
+                "error_samples_by_node": error_samples_by_node,
+                "recorded_error_sample_count": recorded_error_sample_count,
+                "recorded_error_samples_by_node": recorded_error_samples_by_node,
+                "recorded_recovered_error_sample_count": recorded_recovered_error_sample_count,
+                "recorded_unresolved_error_nodes": recorded_unresolved_error_nodes,
+                "recovered_error_sample_count": recovered_error_sample_count,
+                "unresolved_error_nodes": unresolved_error_nodes,
+            },
             "maximum_cycle_latency_ms": maximum_cycle_latency_ms,
             "maximum_request_retries": maximum_retries,
             "required_cycles": required_cycles,

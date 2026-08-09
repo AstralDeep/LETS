@@ -110,6 +110,100 @@ def test_sink_replay_is_idempotent_but_conflicting_sequence_fails(tmp_path: Path
         sink.publish(conflicting)
 
 
+@pytest.mark.parametrize("failure_point", ["create_function", "pragma"])
+def test_sink_connect_setup_failure_closes_connection_and_sanitizes_diagnostic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_point: str
+) -> None:
+    sink = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+    raw_secret = str(tmp_path / "operator-secret.sqlite3")
+
+    class SetupFailureConnection:
+        def __init__(self) -> None:
+            self.row_factory: object | None = None
+            self.closed = False
+            self.error = sqlite3.OperationalError(f"I/O failure at {raw_secret}: token=hunter2")
+            self.error.sqlite_errorname = "SQLITE_IOERR"
+            self.error.sqlite_errorcode = sqlite3.SQLITE_IOERR
+
+        def create_function(
+            self,
+            _name: str,
+            _narg: int,
+            _function: object,
+            *,
+            deterministic: bool = False,
+        ) -> None:
+            del deterministic
+            if failure_point == "create_function":
+                raise self.error
+
+        def execute(self, _statement: str) -> None:
+            assert failure_point == "pragma"
+            raise self.error
+
+        def close(self) -> None:
+            self.closed = True
+
+    connection = SetupFailureConnection()
+    monkeypatch.setattr(sqlite3, "connect", lambda *_args, **_kwargs: connection)
+
+    with pytest.raises(StorageError) as captured:
+        sink.count()
+
+    message = str(captured.value)
+    assert connection.closed
+    assert "sqlite_errorname=SQLITE_IOERR" in message
+    assert f"sqlite_errorcode={sqlite3.SQLITE_IOERR}" in message
+    assert raw_secret not in message
+    assert "hunter2" not in message
+    assert captured.value.__cause__ is connection.error
+
+
+def test_exporter_reports_sqlite_busy_without_raw_text_and_recovers_after_retry(
+    tmp_path: Path,
+) -> None:
+    class FastBusySink(SQLiteAuditSink):
+        def _connect(self) -> sqlite3.Connection:
+            connection = super()._connect()
+            connection.execute("PRAGMA busy_timeout=1")
+            return connection
+
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
+    archive_path = tmp_path / "archive.sqlite3"
+    SQLiteAuditSink.initialize(archive_path)
+    archive = FastBusySink(archive_path)
+    lock = sqlite3.connect(archive_path, isolation_level=None)
+    try:
+        _events(store, 1)
+        lock.execute("BEGIN IMMEDIATE")
+        exporter = AuditExporter(store, archive, retain_published=0)
+
+        assert exporter.run_once() == 0
+        diagnostic = str(exporter.status()["last_error"])
+        assert "sqlite_errorname=SQLITE_BUSY" in diagnostic
+        assert f"sqlite_errorcode={sqlite3.SQLITE_BUSY}" in diagnostic
+        assert str(archive_path) not in diagnostic
+        assert "database is locked" not in diagnostic
+        with store.read() as transaction:
+            assert (
+                transaction.connection.execute(
+                    "SELECT COUNT(*) FROM audit_outbox WHERE published_at_ns IS NULL"
+                ).fetchone()[0]
+                == 1
+            )
+
+        lock.rollback()
+        assert exporter.run_once() == 1
+        assert exporter.status()["last_error"] is None
+        assert archive.count() == 1
+        assert SQLiteAuditSink(archive_path).count() == 1
+    finally:
+        if lock.in_transaction:
+            lock.rollback()
+        lock.close()
+        store.close()
+
+
 def test_export_failure_leaves_outbox_pending_for_retry(tmp_path: Path) -> None:
     class FailOnceSink:
         def __init__(self, delegate: SQLiteAuditSink) -> None:
