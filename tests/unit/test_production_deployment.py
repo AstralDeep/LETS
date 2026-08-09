@@ -862,12 +862,13 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert "uv pip sync --python .release-smoke/bin/python requirements-release.txt" in workflow
     assert 'uv pip install --python .release-smoke/bin/python --no-deps "$wheel"' in workflow
     assert "uv pip check --python .release-smoke/bin/python" in workflow
-    assert 'sysconfig.get_paths()["purelib"]' in workflow
-    assert '--path "$site_packages"' in workflow
+    assert "--requirement requirements-release.txt" in workflow
+    assert 'sysconfig.get_paths()["purelib"]' not in workflow
+    assert '--path "$site_packages"' not in workflow
     assert workflow.index("uv pip sync --python") < workflow.index("uv pip install --python")
     assert workflow.index("uv pip install --python") < workflow.index("uv pip check --python")
-    assert workflow.index("uv pip check --python") < workflow.index('site_packages="$(')
-    assert workflow.index('site_packages="$(') < workflow.index("cyclonedx-py environment")
+    assert workflow.index("uv pip check --python") < workflow.index("pip-audit --strict")
+    assert workflow.index("pip-audit --strict") < workflow.index("cyclonedx-py environment")
     assert "sqlite-runtime-versions.txt" in workflow
     assert workflow.count("_require_production_sqlite") >= 1
     assert "outputs: type=registry,rewrite-timestamp=true" in workflow
@@ -888,8 +889,8 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
         "moby/buildkit:buildx-stable-1@sha256:2f5adac4ecd194d9f8c10b7b5d7bceb5186853db1b26e5abd3a657af0b7e26ec"
         in workflow
     )
-    assert "needs: [verify, image-candidate]" in workflow
-    assert "needs: [verify, image-candidate, production-acceptance]" in workflow
+    assert "needs: [verify, package, image-candidate]" in workflow
+    assert "needs: [verify, package, image-candidate, production-acceptance]" in workflow
     assert "needs: [verify, package, production-acceptance, image]" in workflow
     assert "candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" in workflow
     assert "LETS_PRODUCTION_ACCEPTANCE_IMAGE" in workflow
@@ -924,6 +925,16 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert "syft-version: v1.50.0" in workflow
     assert "--from registry" in workflow
     assert '--platform "$platform"' in workflow
+    assert workflow.index("Verify both candidate architectures are present") < workflow.index(
+        "Require patched SQLite in both exact published architectures"
+    )
+    sqlite_step = workflow.split(
+        "- name: Require patched SQLite in both exact published architectures", maxsplit=1
+    )[1].split("- name: Scan the exact published amd64 candidate", maxsplit=1)[0]
+    assert "steps.manifest.outputs.amd64_digest" in sqlite_step
+    assert "steps.manifest.outputs.arm64_digest" in sqlite_step
+    assert '"$IMAGE_NAME@$child_digest"' in sqlite_step
+    assert "needs.image-candidate.outputs.digest" not in sqlite_step
     assert '"schema": "lets.container-sbom-index/v1"' in workflow
     assert 'metadata.get("manifestDigest") != child_digest' in workflow
     assert 'image_ref not in (metadata.get("repoDigests") or [])' in workflow

@@ -66,16 +66,20 @@ production profile against that exact candidate digest with the generic external
 partition and process restart. After acceptance, it scans both candidate architectures by digest,
 requires the upstream WAL-reset fix in the SQLite library loaded by both, signs and inspects the
 image digest, and promotes only that verified digest to the full-version and commit tags.
+The package build, isolated smoke, locked dependency audit, and package SBOM must all pass before
+the production-profile acceptance or image-promotion jobs can start.
 
 The Python wheel smoke test runs in an isolated environment synchronized from the server/client
 closure exported from the frozen `uv.lock`; the wheel is then installed with `--no-deps`. Dependency
-checking, vulnerability audit, and the CycloneDX environment SBOM all inspect that same installed
-environment, so they cannot silently resolve three different dependency sets. For the container,
-the workflow runs pinned Syft once for `linux/amd64` and once for `linux/arm64`. It verifies each
-result's index digest, child-manifest digest, platform metadata, exact repository digest, generator
-version, and nonempty package set. Each SPDX document is attested to its platform child manifest.
-`lets-container-sbom-index.json` binds both SPDX filenames and hashes to the multi-architecture
-candidate digest and its two child-manifest digests.
+checking and the CycloneDX environment SBOM inspect that installed environment, while strict
+`pip-audit` checks the exact exported third-party requirement closure used to create it. This keeps
+the intentionally unpublished first-party wheel out of registry resolution without allowing the
+three dependency views to drift. For the container, the workflow runs pinned Syft once for
+`linux/amd64` and once for `linux/arm64`. It verifies each result's index digest, child-manifest
+digest, platform metadata, exact repository digest, generator version, and nonempty package set.
+Each SPDX document is attested to its platform child manifest. `lets-container-sbom-index.json`
+binds both SPDX filenames and hashes to the multi-architecture candidate digest and its two
+child-manifest digests.
 
 Promotion is retry-safe for a partial release only when every already-present release tag resolves
 to one digest. Before building on a retry, the workflow checks both intended immutable tags. If
