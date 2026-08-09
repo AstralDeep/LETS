@@ -777,20 +777,23 @@ inside the core-suite result. A separate exact all-extras environment on Python~
 \CompatibilitySummary. Two clean package builds produced byte-identical artifacts; Twine,
 isolated base/server/client imports and CLI startup on Python~3.14, Bandit~1.9.4 at medium/high
 severity, and pip-audit~2.10.1 passed. These are bounded tool results, not an external security
-certification. The wheel was \WheelBytes{} bytes with digest \WheelDigestDisplay; the source
-distribution was \SdistBytes{} bytes with digest \SdistDigestDisplay.
+certification. Hosted CI for acceptance source commit \ProductionSourceCommit{} completed green;
+each Ubuntu non-e2e lane recorded the same Windows-only crash-harness skip. The wheel was
+\WheelBytes{} bytes with digest \WheelDigestDisplay; the source distribution was \SdistBytes{} bytes
+with digest \SdistDigestDisplay.
 
 \subsection{Frozen 1.0.0 storage measurements}
 
 \measured{} The reviewed baseline used \BenchmarkEnvironment{} and the release PyNaCl/libsodium
 backend. Each main path ran 10 warm-up and 100 measured operations with \code{perf_counter_ns} and
 nearest-rank percentiles. Every writing path kept SQLite WAL \code{synchronous=FULL} and one atomic
-transaction per stage; verify-only has no write. The source-frozen worktree was not yet committed,
-and the single-host in-process measurements exclude HTTP, network, container scheduling, external
-authority/audit services, and independent failure domains. Its SQLite~3.50.4 runtime is not
-production-admissible under the release gate; these are development-path measurements bound to the
-same source digest as the acceptance evidence. The reviewed machine-readable baseline is retained
-under \code{benchmarks/baselines}.
+transaction per stage; verify-only has no write. The clean committed benchmark worktree recorded
+\code{git_worktree_dirty=false} at \BenchmarkSourceCommit; its metadata cross-references the clean
+acceptance source-tree digest. That commit differs from the accepted source commit only in retained
+evidence files. The single-host in-process measurements exclude HTTP, network, container
+scheduling, external authority/audit services, and independent failure domains. Its
+SQLite~3.50.4 runtime is not production-admissible under the release gate. The reviewed
+machine-readable baseline is retained under \code{benchmarks/baselines}.
 
 \begin{table}[ht]
 \centering
@@ -817,8 +820,8 @@ Four-worker authorize contention & \BenchmarkContention \\
 Authorization includes validation, evidence/policy evaluation, Ed25519 signing, audit, invariant
 maintenance, and durable commit. The transfer round trip is three FULL transactions across two
 stores and excludes HTTP/network time. The four-worker row uses independent leases in one
-single-writer database; latency includes lock wait, and its 64.837-ms p95 shows why the result must
-not be generalized to arbitrary write concurrency.
+single-writer database; latency includes lock wait, and its \BenchmarkContentionPninetyfive-ms p95 shows why
+the result must not be generalized to arbitrary write concurrency.
 
 \impl{} The final optimization pass removed an unconditional full
 \texttt{PRAGMA foreign\_key\_check} from every successful write while retaining per-connection foreign
@@ -847,11 +850,11 @@ path is PyNaCl/libsodium with CFFI support; the lock contains no \code{cryptogra
 The final runner recorded \ProductionAcceptanceResult{} in \ProductionAcceptanceDuration{} against
 the exact immutable candidate digest \ProductionRuntimeImageDigestDisplay{} (local content ID
 \ProductionRuntimeImageIDDisplay). The \ProductionEvidenceBytes-byte machine-readable record has
-digest \ProductionEvidenceDigestDisplay. The runner recorded an uncommitted but source-frozen
-\ProductionSourceCount-file snapshot with digest \ProductionSourceDigestDisplay; that runtime tree
-was subsequently captured in release commit \ProductionSourceCommit, whose SSH signature was
-verified locally. All three wardens ran SQLite~\ProductionSQLiteVersion{} and agreed on signed
-manifest digest \ProductionManifestDigestDisplay.
+digest \ProductionEvidenceDigestDisplay. The runner recorded a clean
+\ProductionSourceCount-file snapshot with digest \ProductionSourceDigestDisplay{} at acceptance
+source commit \ProductionSourceCommit (\code{dirty=false}). All three wardens ran
+SQLite~\ProductionSQLiteVersion{} and agreed on signed manifest digest
+\ProductionManifestDigestDisplay.
 
 The transport checks required mTLS and rejected a missing client certificate, an untrusted client
 certificate, a missing JWT, and an expired JWT. The \code{generic-production} provider's external
@@ -1155,9 +1158,9 @@ uv run --frozen ruff format --check .
 uv run --frozen mypy src
 uv run --frozen pytest -m "not e2e" `
   -W error::ResourceWarning --cov=lets --cov-report=term-missing
-$image_name = "127.0.0.1:25000/astraldeep/lets"
+$image_name = "127.0.0.1:25001/astraldeep/lets"
 $image_digest = "sha256:" + `
-  "2f002bc691685930e07bf5d4e297f2b9ba13617aad222d512afc7b3d59a8e8ad"
+  "336feda3da169ecffea8ab3f0b68858c5de304cafe2208ee696d714c6dab64c4"
 $env:LETS_PRODUCTION_ACCEPTANCE_IMAGE = "$image_name@$image_digest"
 uv run --frozen python deploy/production/run_acceptance.py
 \end{verbatim}
