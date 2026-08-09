@@ -1,0 +1,109 @@
+{
+  "schema": "lets.reviewed-benchmark-baseline/v1",
+  "reviewed_at": "2026-08-09T09:59:09+00:00",
+  "environment": {
+    "platform": "Windows-10-10.0.19045-SP0",
+    "machine": "AMD64",
+    "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "logical_cpu_count": 32,
+    "python": "3.14.0 (main, Nov 19 2025, 22:43:52) [MSC v.1944 64 bit (AMD64)]",
+    "sqlite": "3.50.4",
+    "crypto_backend": "PyNaCl 1.6.2 with bundled libsodium",
+    "git_revision": "149c1fe3c748d1f13ae2b9d4845a1fb1a17d2f8d",
+    "git_worktree_dirty": true
+  },
+  "method": {
+    "clock": "time.perf_counter_ns",
+    "latency_percentile": "nearest rank",
+    "production_storage": "SQLite WAL synchronous=FULL; one atomic transaction per stage",
+    "main_iterations": 100,
+    "main_warmup": 10,
+    "contention_workers": 4,
+    "commands": [
+      ".venv\\Scripts\\python.exe -m benchmarks.run --iterations 100 --warmup 10 --workers 4 --output benchmarks\\results\\after-pynacl.json --profile benchmarks\\results\\after-pynacl.pstats",
+      ".venv\\Scripts\\python.exe -m benchmarks.profile_scaling --counts 10 100 500 1000 --output benchmarks\\results\\scaling-after-pynacl.json",
+      ".venv\\Scripts\\python.exe -m benchmarks.profile_invariants --counts 10 100 1000 --samples 100 --output benchmarks\\results\\invariants-after-pynacl.json",
+      ".venv\\Scripts\\python.exe -m benchmarks.profile_anchor --trials 4 --iterations 100 --warmup 10 --output benchmarks\\results\\anchor-after-pynacl.json"
+    ]
+  },
+  "production_comparison": [
+    {
+      "name": "warden.authorize.full_fsync",
+      "before": {"median_ns": 7881800, "p95_ns": 8776700, "p99_ns": 9305000, "throughput_ops_per_second": 126.02472277396546},
+      "after": {"median_ns": 7728250, "p95_ns": 8588000, "p99_ns": 9043600, "throughput_ops_per_second": 128.7315743279375}
+    },
+    {
+      "name": "transfer.prepare.full_fsync",
+      "before": {"median_ns": 7046650, "p95_ns": 8008700, "p99_ns": 8548500, "throughput_ops_per_second": 141.06688319492793},
+      "after": {"median_ns": 6901750, "p95_ns": 7828300, "p99_ns": 8616900, "throughput_ops_per_second": 139.28329274618181}
+    },
+    {
+      "name": "transfer.accept.full_fsync",
+      "before": {"median_ns": 6306200, "p95_ns": 7249100, "p99_ns": 7574500, "throughput_ops_per_second": 156.65735808644916},
+      "after": {"median_ns": 6266600, "p95_ns": 7189500, "p99_ns": 8095300, "throughput_ops_per_second": 154.86279234030044}
+    },
+    {
+      "name": "transfer.finalize.full_fsync",
+      "before": {"median_ns": 5935000, "p95_ns": 6670500, "p99_ns": 7590100, "throughput_ops_per_second": 167.92997588693476},
+      "after": {"median_ns": 5720900, "p95_ns": 6547300, "p99_ns": 7355100, "throughput_ops_per_second": 173.97216375791007}
+    },
+    {
+      "name": "transfer.round_trip.full_fsync",
+      "before": {"median_ns": 19243850, "p95_ns": 21253500, "p99_ns": 22322500, "throughput_ops_per_second": 51.474600604713316},
+      "after": {"median_ns": 18854850, "p95_ns": 21190000, "p99_ns": 21844000, "throughput_ops_per_second": 51.58631264493497}
+    },
+    {
+      "name": "executor.verify.signature_only",
+      "before": {"median_ns": 179800, "p95_ns": 186400, "p99_ns": 196900, "throughput_ops_per_second": 5506.911173522771},
+      "after": {"median_ns": 177300, "p95_ns": 182900, "p99_ns": 203800, "throughput_ops_per_second": 5586.935510003408}
+    },
+    {
+      "name": "executor.verify_and_claim.full_fsync",
+      "before": {"median_ns": 3947650, "p95_ns": 4890300, "p99_ns": 5192700, "throughput_ops_per_second": 248.9545155121069},
+      "after": {"median_ns": 3829950, "p95_ns": 4740000, "p99_ns": 5181400, "throughput_ops_per_second": 252.3807072111225}
+    },
+    {
+      "name": "warden.authorize.concurrent_contention.full_fsync",
+      "before": {"median_ns": 11154950, "p95_ns": 32176900, "p99_ns": 278495000, "throughput_ops_per_second": 102.99577634920347},
+      "after": {"median_ns": 9794700, "p95_ns": 80881100, "p99_ns": 121127700, "throughput_ops_per_second": 119.68701844676171}
+    }
+  ],
+  "receipt_table_scaling": [
+    {"receipt_rows": 10, "before_authorize_median_ns": 5722150, "after_authorize_median_ns": 5781750, "explicit_fk_check_median_ns": 14100},
+    {"receipt_rows": 100, "before_authorize_median_ns": 6292800, "after_authorize_median_ns": 6293600, "explicit_fk_check_median_ns": 55050},
+    {"receipt_rows": 500, "before_authorize_median_ns": 7957500, "after_authorize_median_ns": 7482100, "explicit_fk_check_median_ns": 277000},
+    {"receipt_rows": 1000, "before_authorize_median_ns": 11283000, "after_authorize_median_ns": 9274750, "explicit_fk_check_median_ns": 1871450}
+  ],
+  "invariant_snapshot_scaling": [
+    {"lease_rows": 10, "legacy_row_scan_median_ns": 1069550, "aggregate_median_ns": 1112250, "aggregate_p95_ns": 1365800},
+    {"lease_rows": 100, "legacy_row_scan_median_ns": 1295000, "aggregate_median_ns": 1089600, "aggregate_p95_ns": 1367700},
+    {"lease_rows": 1000, "legacy_row_scan_median_ns": 2902250, "aggregate_median_ns": 1085100, "aggregate_p95_ns": 1392100}
+  ],
+  "keeper_connection_experiment": {
+    "decision": "reject_keeper_connection",
+    "trials": 4,
+    "operations_per_case": 100,
+    "warmup_per_case": 10,
+    "baseline_median_of_trial_medians_ns": 6096925,
+    "keeper_median_of_trial_medians_ns": 7233250,
+    "keeper_to_baseline_latency_ratio": 1.1863767390938875,
+    "durability": "SQLite WAL synchronous=FULL in both cases"
+  },
+  "dependency_footprint": {
+    "runtime_crypto_backend": "PyNaCl 1.6.2 with bundled libsodium",
+    "crypto_support_packages": {"cffi": "2.1.1", "pycparser": "3.0"},
+    "cryptography_locked": false,
+    "unimplemented_postgres_extra_removed": true,
+    "locked_packages": 48,
+    "lock_bytes": 356264,
+    "installed_crypto_backend_bytes": 1778149,
+    "note": "Installed bytes include PyNaCl, its bundled native binding, cffi, and pycparser in the fresh exact project environment."
+  },
+  "limitations": [
+    "Single-host in-process microbenchmarks; HTTP, network, peer failure, and container scheduling latency are excluded.",
+    "Each main result contains 100 measured operations after 10 warm-up operations, so tail estimates are indicative rather than capacity guarantees.",
+    "The worktree was uncommitted and core security hardening landed between the before and after runs; the full before/after delta is not attributable solely to foreign-key-scan removal.",
+    "The legacy invariant row-scan observations were captured immediately before the source edit with the same host and 100 samples but predate the reusable profile_invariants harness.",
+    "Raw FULL batching and synchronous=NORMAL diagnostics are omitted from this reviewed production comparison because they bypass LETS semantics and are not runtime defaults."
+  ]
+}

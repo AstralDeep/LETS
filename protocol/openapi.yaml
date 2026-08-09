@@ -1,0 +1,2619 @@
+{
+  "components": {
+    "schemas": {
+      "AuditPage": {
+        "additionalProperties": false,
+        "properties": {
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/AuditRecord"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "records"
+        ],
+        "type": "object"
+      },
+      "AuditRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          },
+          "entity_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "event_hash": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "occurred_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "previous_hash": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "event_type",
+          "tenant_id",
+          "envelope_id",
+          "entity_id",
+          "actor_id",
+          "occurred_at_ns",
+          "details",
+          "previous_hash",
+          "event_hash",
+          "key_id",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "AuditVerification": {
+        "additionalProperties": false,
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid"
+        ],
+        "type": "object"
+      },
+      "BranchRevocation": {
+        "additionalProperties": false,
+        "properties": {
+          "branch_lease_id": {
+            "type": "string"
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "issued_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "issuer_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "lineage_id": {
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "type": {
+            "const": "lets.branch-revocation/v1"
+          }
+        },
+        "required": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "branch_lease_id",
+          "lineage_id",
+          "epoch",
+          "issuer_warden",
+          "issued_at_ns",
+          "reason",
+          "key_id",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "CheckpointRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "through_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "EnvelopeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "config": {
+            "type": "object"
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "dimension_metadata": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "local_share": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "max_clock_uncertainty_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "receipt_ttl_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "transfer_gap_window": {
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "budget",
+          "local_share"
+        ],
+        "type": "object"
+      },
+      "EvidenceRule": {
+        "additionalProperties": false,
+        "properties": {
+          "max_age_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "observed_at_path": {
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "all",
+              "any",
+              "not",
+              "exists",
+              "eq",
+              "ne",
+              "lt",
+              "lte",
+              "gt",
+              "gte",
+              "in",
+              "fresh"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "rule": {
+            "$ref": "#/components/schemas/EvidenceRule"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRule"
+            },
+            "type": "array"
+          },
+          "value": {},
+          "values": {
+            "items": {},
+            "type": "array"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "type": "object"
+      },
+      "IdempotentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "InfoDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "const": "v1"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "protocol": {
+            "const": "lets/1"
+          },
+          "warden_id": {
+            "$ref": "#/components/schemas/WardenId"
+          }
+        },
+        "required": [
+          "api_version",
+          "protocol",
+          "warden_id"
+        ],
+        "type": "object"
+      },
+      "InvariantSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "consumed": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "free_pool": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "initial_share": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "lease_residual": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "transferred_in": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "transferred_out": {
+            "$ref": "#/components/schemas/ResourceVector"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "initial_share",
+          "transferred_in",
+          "transferred_out",
+          "free_pool",
+          "lease_residual",
+          "consumed",
+          "checked_at_ns",
+          "healthy"
+        ],
+        "type": "object"
+      },
+      "IssueRootRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allocation": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "lineage_id": {
+            "type": "string"
+          },
+          "policy_digest": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "ttl_ns": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id",
+          "envelope_id",
+          "subject_id",
+          "allocation",
+          "capabilities",
+          "policy_digest",
+          "ttl_ns"
+        ],
+        "type": "object"
+      },
+      "KeyDocument": {
+        "additionalProperties": false,
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/PublicKey"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "warden_id": {
+            "$ref": "#/components/schemas/WardenId"
+          }
+        },
+        "required": [
+          "warden_id",
+          "keys"
+        ],
+        "type": "object"
+      },
+      "KeyId": {
+        "description": "ASCII HTTP-header-safe cryptographic key identifier.",
+        "maxLength": 512,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._~:/+-]{0,511}$",
+        "type": "string"
+      },
+      "LeaseGrant": {
+        "additionalProperties": false,
+        "properties": {
+          "allocation": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "ancestor_path": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "branch_epoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "expires_at_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "issued_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "lease_id": {
+            "type": "string"
+          },
+          "lineage_id": {
+            "type": "string"
+          },
+          "machine_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "type": {
+            "const": "lets.lease-grant/v1"
+          },
+          "warden_id": {
+            "$ref": "#/components/schemas/WardenId"
+          }
+        },
+        "required": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "lease_id",
+          "lineage_id",
+          "parent_id",
+          "subject_id",
+          "warden_id",
+          "allocation",
+          "capabilities",
+          "policy_id",
+          "policy_version",
+          "policy_digest",
+          "machine_digest",
+          "ancestor_path",
+          "branch_epoch",
+          "issued_at_ns",
+          "expires_at_ns",
+          "key_id",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "LeaseSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "current_state": {
+            "type": "string"
+          },
+          "grant": {
+            "$ref": "#/components/schemas/LeaseGrant"
+          },
+          "residual": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "PROVISIONED",
+              "ACTIVE",
+              "QUIESCENT",
+              "REVOKED",
+              "EXPIRED",
+              "CLOSED"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "const": "lets.lease-snapshot/v1"
+          },
+          "updated_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "grant",
+          "residual",
+          "current_state",
+          "status",
+          "sequence",
+          "updated_at_ns"
+        ],
+        "type": "object"
+      },
+      "MachineSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "initial_state": {
+            "type": "string"
+          },
+          "machine_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "machine_id": {
+            "type": "string"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionSpec"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "machine_id",
+          "initial_state",
+          "transitions"
+        ],
+        "type": "object"
+      },
+      "MetricsSnapshot": {
+        "additionalProperties": true,
+        "description": "Implementation-defined node metrics snapshot.",
+        "type": "object"
+      },
+      "Policy": {
+        "additionalProperties": false,
+        "properties": {
+          "machine": {
+            "$ref": "#/components/schemas/MachineSpec"
+          },
+          "machine_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "max_clock_uncertainty_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_lease_ttl_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "policy_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "receipt_ttl_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceDimension"
+            },
+            "maxItems": 256,
+            "minItems": 1,
+            "type": "array"
+          },
+          "transfer_gap_window": {
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "policy_id",
+          "policy_version",
+          "resources",
+          "machine",
+          "max_lease_ttl_ns",
+          "receipt_ttl_ns",
+          "max_clock_uncertainty_ns",
+          "transfer_gap_window"
+        ],
+        "type": "object"
+      },
+      "PolicyRegistration": {
+        "additionalProperties": false,
+        "properties": {
+          "policy_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_digest"
+        ],
+        "type": "object"
+      },
+      "PrepareTransferRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "policy_digest": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "target_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "tenant_id",
+          "envelope_id",
+          "target_warden",
+          "amount"
+        ],
+        "type": "object"
+      },
+      "Problem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "status": {
+            "maximum": 599,
+            "minimum": 400,
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "code",
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "PublicKey": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm": {
+            "const": "Ed25519"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "public_key": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_id",
+          "algorithm",
+          "public_key"
+        ],
+        "type": "object"
+      },
+      "Receipt": {
+        "additionalProperties": false,
+        "properties": {
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "evidence_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "executor_audience": {
+            "type": "string"
+          },
+          "expires_at_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "issued_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "lease_id": {
+            "type": "string"
+          },
+          "lineage_id": {
+            "type": "string"
+          },
+          "machine_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "policy_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "receipt_id": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "resulting_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "source_state": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "target_state": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "transition": {
+            "type": "string"
+          },
+          "type": {
+            "const": "lets.receipt/v1"
+          },
+          "warden_id": {
+            "$ref": "#/components/schemas/WardenId"
+          }
+        },
+        "required": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "receipt_id",
+          "request_id",
+          "warden_id",
+          "key_id",
+          "policy_id",
+          "policy_version",
+          "policy_digest",
+          "machine_digest",
+          "lease_id",
+          "lineage_id",
+          "subject_id",
+          "executor_audience",
+          "transition",
+          "source_state",
+          "target_state",
+          "cost",
+          "resulting_sequence",
+          "evidence_digest",
+          "nonce",
+          "issued_at_ns",
+          "expires_at_ns",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "ReclaimRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "envelope_id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ReclaimResult": {
+        "additionalProperties": false,
+        "properties": {
+          "reclaimed": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reclaimed"
+        ],
+        "type": "object"
+      },
+      "RenewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "cascade": {
+            "type": "boolean"
+          },
+          "expected_sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "ttl_ns": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "ttl_ns"
+        ],
+        "type": "object"
+      },
+      "ResourceDimension": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "unit": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "unit"
+        ],
+        "type": "object"
+      },
+      "ResourceVector": {
+        "items": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxItems": 256,
+        "minItems": 1,
+        "type": "array"
+      },
+      "RevocationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_epoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "SpawnRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allocation": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_digest": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "ttl_ns": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "subject_id",
+          "allocation",
+          "capabilities",
+          "ttl_ns"
+        ],
+        "type": "object"
+      },
+      "TransferAck": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "contiguous_watermark": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "source_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "target_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "transfer_id": {
+            "type": "string"
+          },
+          "type": {
+            "const": "lets.transfer-ack/v1"
+          },
+          "voucher_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "transfer_id",
+          "source_warden",
+          "target_warden",
+          "sequence",
+          "voucher_digest",
+          "accepted_at_ns",
+          "contiguous_watermark",
+          "key_id",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "TransferCheckpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "issued_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "source_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "target_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "through_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": {
+            "const": "lets.transfer-checkpoint/v1"
+          }
+        },
+        "required": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "source_warden",
+          "target_warden",
+          "through_sequence",
+          "issued_at_ns",
+          "key_id",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "TransferVoucher": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "issued_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "policy_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          },
+          "sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "source_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "target_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "transfer_id": {
+            "type": "string"
+          },
+          "type": {
+            "const": "lets.transfer-voucher/v1"
+          }
+        },
+        "required": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "transfer_id",
+          "source_warden",
+          "target_warden",
+          "policy_id",
+          "policy_version",
+          "policy_digest",
+          "sequence",
+          "amount",
+          "issued_at_ns",
+          "key_id",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "TransitionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "type": "object"
+          },
+          "executor_audience": {
+            "type": "string"
+          },
+          "expected_sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "expected_state": {
+            "type": "string"
+          },
+          "nonce": {
+            "minLength": 16,
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "transition": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "transition",
+          "executor_audience",
+          "nonce"
+        ],
+        "type": "object"
+      },
+      "TransitionSpec": {
+        "additionalProperties": false,
+        "properties": {
+          "capability": {
+            "type": "string"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/EvidenceRule"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "target",
+          "cost",
+          "capability"
+        ],
+        "type": "object"
+      },
+      "WardenId": {
+        "description": "ASCII URI-segment and HTTP-header-safe stable warden identifier.",
+        "maxLength": 128,
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+        "type": "string"
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "scheme": "bearer",
+        "type": "http"
+      },
+      "peerContentSha256": {
+        "description": "Canonical sha256:<64 lowercase hex> digest of the exact request body.",
+        "in": "header",
+        "name": "X-LETS-Content-SHA256",
+        "type": "apiKey"
+      },
+      "peerKeyId": {
+        "description": "Signer key ID matching the KeyId schema.",
+        "in": "header",
+        "name": "X-LETS-Key-ID",
+        "type": "apiKey"
+      },
+      "peerNonce": {
+        "description": "Unique 16..256 character replay nonce.",
+        "in": "header",
+        "name": "X-LETS-Nonce",
+        "type": "apiKey"
+      },
+      "peerSignature": {
+        "description": "Unpadded base64url Ed25519 signature over the peer request envelope.",
+        "in": "header",
+        "name": "X-LETS-Signature",
+        "type": "apiKey"
+      },
+      "peerTimestamp": {
+        "description": "Unsigned decimal Unix timestamp in seconds.",
+        "in": "header",
+        "name": "X-LETS-Timestamp",
+        "type": "apiKey"
+      },
+      "peerWardenId": {
+        "description": "Signer warden ID matching the WardenId schema.",
+        "in": "header",
+        "name": "X-LETS-Warden-ID",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "LETS Warden API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/audit": {
+      "get": {
+        "operationId": "audit_v1_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "after_sequence",
+            "required": false,
+            "schema": {
+              "default": -1,
+              "minimum": -1,
+              "title": "After Sequence",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Audit"
+      }
+    },
+    "/v1/audit/verify": {
+      "get": {
+        "operationId": "verify_audit_v1_audit_verify_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerification"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Verify Audit"
+      }
+    },
+    "/v1/branches/{lease_id}/revoke": {
+      "post": {
+        "operationId": "revoke_v1_branches__lease_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchRevocation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Revoke"
+      }
+    },
+    "/v1/envelopes": {
+      "post": {
+        "operationId": "create_envelope_v1_envelopes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnvelopeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvariantSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create Envelope"
+      }
+    },
+    "/v1/info": {
+      "get": {
+        "operationId": "info_v1_info_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InfoDocument"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [],
+        "summary": "Info"
+      }
+    },
+    "/v1/invariants": {
+      "get": {
+        "operationId": "invariants_v1_invariants_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvariantSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Invariants"
+      }
+    },
+    "/v1/keys": {
+      "get": {
+        "operationId": "key_document_v1_keys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyDocument"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [],
+        "summary": "Key Document"
+      }
+    },
+    "/v1/leases/{lease_id}": {
+      "get": {
+        "operationId": "lease_snapshot_v1_leases__lease_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Lease Snapshot"
+      }
+    },
+    "/v1/leases/{lease_id}/close": {
+      "post": {
+        "operationId": "close_v1_leases__lease_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdempotentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Close"
+      }
+    },
+    "/v1/leases/{lease_id}/quiesce": {
+      "post": {
+        "operationId": "quiesce_v1_leases__lease_id__quiesce_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdempotentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Quiesce"
+      }
+    },
+    "/v1/leases/{lease_id}/renew": {
+      "post": {
+        "operationId": "renew_v1_leases__lease_id__renew_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Renew"
+      }
+    },
+    "/v1/leases/{lease_id}/resume": {
+      "post": {
+        "operationId": "resume_v1_leases__lease_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdempotentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Resume"
+      }
+    },
+    "/v1/leases/{lease_id}/transitions": {
+      "post": {
+        "operationId": "authorize_transition_v1_leases__lease_id__transitions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "lease_id",
+            "required": true,
+            "schema": {
+              "title": "Lease Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Authorize Transition"
+      }
+    },
+    "/v1/leases/{parent_id}/children": {
+      "post": {
+        "operationId": "spawn_child_v1_leases__parent_id__children_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "parent_id",
+            "required": true,
+            "schema": {
+              "title": "Parent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpawnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseGrant"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Spawn Child"
+      }
+    },
+    "/v1/maintenance/reclaim": {
+      "post": {
+        "operationId": "reclaim_v1_maintenance_reclaim_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReclaimRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReclaimResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Reclaim"
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "operationId": "metrics_v1_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Metrics"
+      }
+    },
+    "/v1/peer/revocations": {
+      "post": {
+        "operationId": "ingest_revocation_v1_peer_revocations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchRevocation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchRevocation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "peerContentSha256": [],
+            "peerKeyId": [],
+            "peerNonce": [],
+            "peerSignature": [],
+            "peerTimestamp": [],
+            "peerWardenId": []
+          }
+        ],
+        "summary": "Ingest Revocation"
+      }
+    },
+    "/v1/peer/transfer-checkpoints": {
+      "post": {
+        "operationId": "ingest_checkpoint_v1_peer_transfer_checkpoints_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferCheckpoint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferCheckpoint"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "peerContentSha256": [],
+            "peerKeyId": [],
+            "peerNonce": [],
+            "peerSignature": [],
+            "peerTimestamp": [],
+            "peerWardenId": []
+          }
+        ],
+        "summary": "Ingest Checkpoint"
+      }
+    },
+    "/v1/policies": {
+      "post": {
+        "operationId": "register_policy_v1_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Policy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyRegistration"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Register Policy"
+      }
+    },
+    "/v1/roots": {
+      "post": {
+        "operationId": "issue_root_v1_roots_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueRootRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseGrant"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Issue Root"
+      }
+    },
+    "/v1/transfers/prepare": {
+      "post": {
+        "operationId": "prepare_transfer_v1_transfers_prepare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareTransferRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferVoucher"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Prepare Transfer"
+      }
+    },
+    "/v1/transfers/{source_warden}/{sequence}/accept": {
+      "post": {
+        "operationId": "accept_transfer_v1_transfers__source_warden___sequence__accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_warden",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WardenId"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sequence",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferVoucher"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "peerContentSha256": [],
+            "peerKeyId": [],
+            "peerNonce": [],
+            "peerSignature": [],
+            "peerTimestamp": [],
+            "peerWardenId": []
+          }
+        ],
+        "summary": "Accept Transfer"
+      }
+    },
+    "/v1/transfers/{target_warden}/checkpoints": {
+      "post": {
+        "operationId": "create_checkpoint_v1_transfers__target_warden__checkpoints_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_warden",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WardenId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckpointRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferCheckpoint"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create Checkpoint"
+      }
+    },
+    "/v1/transfers/{target_warden}/{sequence}/finalize": {
+      "post": {
+        "operationId": "finalize_transfer_v1_transfers__target_warden___sequence__finalize_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "target_warden",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/WardenId"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sequence",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransferAck"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferAck"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "peerContentSha256": [],
+            "peerKeyId": [],
+            "peerNonce": [],
+            "peerSignature": [],
+            "peerTimestamp": [],
+            "peerWardenId": []
+          }
+        ],
+        "summary": "Finalize Transfer"
+      }
+    }
+  }
+}

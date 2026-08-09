@@ -1,0 +1,60 @@
+{
+  "version": "LETS-CJ/1",
+  "valid": [
+    {
+      "name": "ordering-and-unicode",
+      "input": {
+        "😀": "astral",
+        "": "private",
+        "é": "composed",
+        "control": "\u0000\n\t",
+        "max": 9223372036854775807,
+        "min": -9223372036854775808
+      },
+      "canonical": "{\"control\":\"\\u0000\\n\\t\",\"max\":9223372036854775807,\"min\":-9223372036854775808,\"é\":\"composed\",\"\":\"private\",\"😀\":\"astral\"}",
+      "sha256": "66731658049c68f1aa21351a9ebeb414ba2e900f55adbe83703c9da5ed59f8f8"
+    },
+    {
+      "name": "no-normalization-composed",
+      "input": { "é": 1 },
+      "canonical": "{\"é\":1}",
+      "sha256": "ddcfcf4765da163969972bb20660092ca2787782d9352d1d8a38e93f70acf3bf"
+    },
+    {
+      "name": "no-normalization-decomposed",
+      "input": { "é": 1 },
+      "canonical": "{\"é\":1}",
+      "sha256": "e5bb0b455cae8a4f7c6b6d839a50c4e7d0cf32dded3bcb83f6a9bd122d16c559"
+    },
+    {
+      "name": "peer-message",
+      "input": {
+        "type": "lets.peer-http-signature/v1",
+        "method": "POST",
+        "path": "/v1/peer/revocations",
+        "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "timestamp_s": 1786248000,
+        "nonce": "abcdefghijklmnop",
+        "warden_id": "warden-a",
+        "key_id": "warden-a/key-1"
+      },
+      "canonical": "{\"content_digest\":\"sha256:0000000000000000000000000000000000000000000000000000000000000000\",\"key_id\":\"warden-a/key-1\",\"method\":\"POST\",\"nonce\":\"abcdefghijklmnop\",\"path\":\"/v1/peer/revocations\",\"timestamp_s\":1786248000,\"type\":\"lets.peer-http-signature/v1\",\"warden_id\":\"warden-a\"}",
+      "sha256": "db0c96a06a80c0a57921ea393a9fee60bf9992d79fe2ff465ab8e80e29edde83"
+    }
+  ],
+  "invalid_json": [
+    "{\"signed\":1,\"signed\":2}",
+    "{\"nested\":{\"key\":1,\"key\":2}}",
+    "{\"value\":1.5}",
+    "{\"value\":NaN}",
+    "{\"value\":9223372036854775808}",
+    "{\"value\":\"\\ud800\"}"
+  ],
+  "base64url": [
+    {
+      "bytes_hex": "7369676e6564206279746573",
+      "encoded": "c2lnbmVkIGJ5dGVz"
+    }
+  ],
+  "invalid_base64url": ["c2lnbmVkIGJ5dGVz=", "c2lnbmVkIGJ5dGVz!", "é", "A"]
+}
