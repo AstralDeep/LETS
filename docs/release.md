@@ -6,16 +6,19 @@ PyPI. Never create a release from a workstation build or move an existing tag.
 
 ## Repository prerequisites
 
-Before the first release, an owner must enable GitHub Actions read/write access to Packages,
-artifact attestations, and OIDC, and allow the immutable action commits in `release.yml`. The
-repository or organization plan must support GitHub artifact attestations for private repositories.
-Those capabilities are mandatory: attestation, GHCR push, or signing failure stops the workflow
-before the GitHub release is created. There is no `continue-on-error` or private-repository bypass.
+Before the first release, an owner must enable GitHub Actions read/write access to Packages and
+Releases, permit OIDC token issuance, and allow the immutable action commits in `release.yml`. GHCR
+must retain OCI signatures, attestations, and referrers. The workflow uses Sigstore/Cosign keyless
+signing through GitHub Actions OIDC, so a private repository does not depend on GitHub's separate
+artifact-attestation service or its plan availability. OIDC, Cosign attestation/verification, GHCR
+push, or signing failure stops the workflow before the GitHub release is created. There is no
+`continue-on-error` or private-repository bypass.
 
 Protect `main` and the `v*` tag namespace. Require CI and security workflows, reviewed changes,
-linear history, no force pushes, and signed annotated tags. Restrict package deletion and tag/release
-administration to release operators. Retain Actions logs and attestation records for the system's
-audit lifetime.
+linear history, no force pushes, and signed annotated tags. Restrict package deletion and
+tag/release administration to release operators. Retain Actions logs, release signature bundles,
+registry signatures and attestations, and their transparency-log records for the system's audit
+lifetime.
 
 ## Prepare a release
 
@@ -47,20 +50,22 @@ audit lifetime.
 
 The release workflow verifies that the tag is annotated, GitHub reports its signature as verified,
 the tag resolves to the current `main` commit, the tag/version/changelog agree, and two clean
-package builds have the same hashes. It first publishes a uniquely run-addressed image candidate and
-records its GitHub build-provenance attestation in that same build job. The image creation time and
-`SOURCE_DATE_EPOCH` come from the release commit timestamp instead of workflow wall-clock time. This
-stabilizes build timestamps, and the registry exporter rewrites new layer timestamps to that epoch.
-Volatile inline BuildKit provenance and SBOM manifests are disabled so their invocation identifiers
-and timestamps cannot perturb the candidate index. GitHub provenance is attached to the exact
-published digest immediately afterward, and the independently generated per-platform SPDX
-attestations are attached after acceptance. These controls improve reproducibility but are not a
-claim that arbitrary independent BuildKit invocations must produce the same index digest. The
-workflow then runs the three-node mTLS production profile against that exact digest with the generic
-external provider through a partition and process restart. After acceptance, it scans both candidate
-architectures by digest, requires the upstream WAL-reset fix in the SQLite library loaded by both,
-signs and inspects the image digest, and promotes only that verified digest to the full-version and
-commit tags.
+package builds have the same hashes. It first publishes a uniquely run-addressed image candidate. In
+that same build job it generates a SLSA/in-toto provenance predicate binding the repository, release
+workflow, source tag and commit, and build metadata to the exact candidate digest. Cosign attaches a
+keyless attestation to that digest and immediately verifies the expected workflow identity and
+GitHub Actions OIDC issuer. The image creation time and `SOURCE_DATE_EPOCH` come from the release
+commit timestamp instead of workflow wall-clock time. This stabilizes build timestamps, and the
+registry exporter rewrites new layer timestamps to that epoch. Volatile inline BuildKit provenance
+and SBOM manifests are disabled so their invocation identifiers and timestamps cannot perturb the
+candidate index. The independently generated per-platform SPDX documents are attached with keyless
+Cosign attestations to their exact child-manifest digests after acceptance, then verified before
+promotion. These controls improve reproducibility but are not a claim that arbitrary independent
+BuildKit invocations must produce the same index digest. The workflow runs the three-node mTLS
+production profile against that exact candidate digest with the generic external provider through a
+partition and process restart. After acceptance, it scans both candidate architectures by digest,
+requires the upstream WAL-reset fix in the SQLite library loaded by both, signs and inspects the
+image digest, and promotes only that verified digest to the full-version and commit tags.
 
 The Python wheel smoke test runs in an isolated environment synchronized from the server/client
 closure exported from the frozen `uv.lock`; the wheel is then installed with `--no-deps`. Dependency
@@ -75,10 +80,11 @@ candidate digest and its two child-manifest digests.
 Promotion is retry-safe for a partial release only when every already-present release tag resolves
 to one digest. Before building on a retry, the workflow checks both intended immutable tags. If
 either exists, it requires all existing tags to agree, verifies the two platform configurations'
-revision, version, and commit-derived creation labels, verifies GitHub provenance from this release
-workflow and source ref, and reuses that digest for every acceptance and scan gate. It never assumes
-that rebuilding will reproduce the digest. A mismatched existing tag stops the workflow; a
-successful create is read back and compared with the candidate before the next tag is attempted.
+revision, version, and commit-derived creation labels, verifies the keyless SLSA attestation and its
+exact repository/workflow/source bindings, and reuses that digest for every acceptance and scan
+gate. It never assumes that rebuilding will reproduce the digest. A mismatched existing tag stops
+the workflow; a successful create is read back and compared with the candidate before the next tag
+is attempted.
 Registry tag creation is not a transactional compare-and-set, so release operators must prevent
 concurrent writers to the protected release namespace for the duration of this job. A failed job can
 leave the uniquely addressed candidate or a same-digest release tag. GitHub publication is also
@@ -92,48 +98,80 @@ version; investigate it as a release-integrity incident and fix forward with a n
 
 ## Verify before deployment
 
-Download the release assets and verify their recorded hashes and GitHub attestations:
+Download every release asset and use a verified Cosign v3.1.3 binary, matching the workflow pin.
+Authenticate the checksum manifest with the release workflow's keyless Sigstore bundle before
+trusting any recorded payload hash, then check all payloads:
 
 ```sh
+RELEASE_IDENTITY="https://github.com/AstralDeep/LETS/.github/workflows/release.yml@refs/tags/vX.Y.Z"
+OIDC_ISSUER="https://token.actions.githubusercontent.com"
+cosign verify-blob \
+  --bundle RELEASE_SHA256SUMS.sigstore.json \
+  --certificate-identity "$RELEASE_IDENTITY" \
+  --certificate-oidc-issuer "$OIDC_ISSUER" \
+  RELEASE_SHA256SUMS
 sha256sum --check RELEASE_SHA256SUMS
-gh attestation verify lets_agent-X.Y.Z-py3-none-any.whl --repo AstralDeep/LETS
-gh attestation verify lets_agent-X.Y.Z.tar.gz --repo AstralDeep/LETS
-gh attestation verify lets-deployment-X.Y.Z.tar.gz --repo AstralDeep/LETS
-gh attestation verify production-profile-acceptance.json --repo AstralDeep/LETS
 ```
 
-`SHA256SUMS` is the attested package-build manifest. `RELEASE_SHA256SUMS` is generated only after
-the independently gated package, production-acceptance, and image jobs have completed. Before
-constructing it, the workflow requires the exact versioned asset allowlist, rejects missing, extra,
-empty, nested, or colliding inputs, and rechecks the package hashes. The resulting manifest covers
-every release asset and is itself the input to a final GitHub provenance attestation.
+`SHA256SUMS` is the package-build manifest and is itself one of the payloads authenticated through
+the final manifest. `RELEASE_SHA256SUMS` is generated only after the independently gated package,
+production-acceptance, and image jobs have completed. Before constructing it, the workflow requires
+the exact versioned payload allowlist, rejects missing, extra, empty, nested, or colliding inputs,
+and rechecks the package hashes. It covers all fourteen payload assets. The published release then
+adds `RELEASE_SHA256SUMS` and its `RELEASE_SHA256SUMS.sigstore.json` verification bundle for an
+exact sixteen-asset set. The bundle cannot be listed in the manifest it authenticates;
+`cosign verify-blob` instead verifies the manifest's certificate identity, OIDC issuer, signature,
+and transparency-log evidence directly from that bundle. Publication still downloads and
+byte-compares the complete sixteen-asset set before making the draft public.
 
-The image asset group contains `lets-container-amd64.spdx.json`,
+The SBOM portion of the image asset group contains `lets-container-amd64.spdx.json`,
 `lets-container-arm64.spdx.json`, and `lets-container-sbom-index.json`. Verify the hashes in the
 binding index before using either architecture-specific SBOM for admission or incident response;
 the final `RELEASE_SHA256SUMS` also covers all three files.
 
-The `lets-deployment-X.Y.Z.tar.gz` asset is the reproducible, attested operator bundle. It contains
-the production/provisioning Compose files, environment template, config validator/stager, and the
-matching operations, provider, recovery, and release runbooks. Deploy from that bundle and the
-verified OCI digest; do not copy deployment files from a mutable branch checkout.
+The `lets-deployment-X.Y.Z.tar.gz` asset is the reproducible, signed-manifest-bound operator bundle.
+It contains the production/provisioning Compose files, environment template, config
+validator/stager, and the matching operations, provider, recovery, and release runbooks. Deploy
+from that bundle and the verified OCI digest; do not copy deployment files from a mutable branch
+checkout.
 
-Read `image-digest.txt`, then verify the immutable image and its keyless signature. The certificate
-identity is restricted to this repository's release workflow and the GitHub Actions OIDC issuer:
+Read `image-digest.txt`, then verify the immutable image, its keyless signature, and the
+SLSA/in-toto candidate provenance attached to that same digest. The certificate identity is
+restricted to this repository's release workflow at the signed tag and the GitHub Actions OIDC
+issuer:
 
 ```sh
+IMAGE_REF="$(cat image-digest.txt)"
+RELEASE_IDENTITY="https://github.com/AstralDeep/LETS/.github/workflows/release.yml@refs/tags/vX.Y.Z"
+OIDC_ISSUER="https://token.actions.githubusercontent.com"
 cosign verify \
-  --certificate-identity "https://github.com/AstralDeep/LETS/.github/workflows/release.yml@refs/tags/vX.Y.Z" \
-  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  ghcr.io/astraldeep/lets@sha256:RELEASE_DIGEST
-gh attestation verify \
-  oci://ghcr.io/astraldeep/lets@sha256:RELEASE_DIGEST \
-  --repo AstralDeep/LETS
+  --certificate-identity "$RELEASE_IDENTITY" \
+  --certificate-oidc-issuer "$OIDC_ISSUER" \
+  "$IMAGE_REF"
+cosign verify-attestation \
+  --type slsaprovenance1 \
+  --certificate-identity "$RELEASE_IDENTITY" \
+  --certificate-oidc-issuer "$OIDC_ISSUER" \
+  "$IMAGE_REF"
 ```
 
-Archive the release assets, digest, signer identity, verification output, signed manifest/config
-epoch, and deployment approval together. A tag is convenient metadata; the digest is the deployment
-identity.
+Inspect the verified provenance predicate for the expected repository, workflow, tag, commit, and
+candidate digest. Then read the `linux/amd64` and `linux/arm64` child digests from
+`lets-container-sbom-index.json` and verify each child-manifest SBOM attestation with the same
+identity and issuer, substituting the corresponding digest:
+
+```sh
+cosign verify-attestation \
+  --type spdxjson \
+  --certificate-identity "$RELEASE_IDENTITY" \
+  --certificate-oidc-issuer "$OIDC_ISSUER" \
+  ghcr.io/astraldeep/lets@sha256:CHILD_MANIFEST_DIGEST
+```
+
+Compare the verified predicates with the downloaded architecture-specific SPDX documents and the
+hashes recorded by `lets-container-sbom-index.json`. Archive the complete release assets, immutable
+digest, signer identity, verification output, Sigstore bundle, signed manifest/config epoch, and
+deployment approval together. A tag is convenient metadata; the digest is the deployment identity.
 
 ## Recovery backup and restore
 

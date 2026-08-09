@@ -25,8 +25,8 @@ image together; the Git tag is the package version prefixed with `v`.
   operation.
 - Pinned security and release workflows covering SAST, dependency audit, reproducible Python and
   deployment artifacts, package smoke tests, CycloneDX/SPDX SBOMs, per-architecture container
-  scanning, hashes, attestations, exact-candidate acceptance, keyless image signing, and immutable
-  retry-safe publication.
+  scanning, hashes, keyless provenance/SBOM attestations, exact-candidate acceptance, keyless image
+  and release-manifest signing, and immutable retry-safe publication.
 
 ### Changed
 
@@ -38,8 +38,8 @@ image together; the Git tag is the package version prefixed with `v`.
   executor policy and operator-authenticated manifest key registry; production acceptance now
   rejects duplicate receipts and a pre-claim stale database restore.
 - Reworked release publication so the hardened three-node profile runs against the exact published
-  candidate digest before per-architecture scanning/SBOMs, signing, retry-safe immutable tag
-  promotion, and explicit release-asset attestation.
+  candidate digest before per-architecture scanning/SBOMs, keyless provenance and SBOM attestations,
+  signing, retry-safe immutable tag promotion, and a signed release-asset manifest.
 
 ### Security
 

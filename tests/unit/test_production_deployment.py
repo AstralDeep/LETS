@@ -810,9 +810,10 @@ def test_security_workflow_has_fatal_scans_sboms_and_package_smoke() -> None:
     assert workflow.count("--constraint requirements-audit.txt") == 2
 
 
-def test_release_workflow_verifies_and_attests_before_release() -> None:
+def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     workflow = (REPOSITORY / ".github/workflows/release.yml").read_text(encoding="utf-8")
 
+    assert "if: github.event.deleted == false" in workflow
     assert "Require a GitHub-verified annotated tag" in workflow
     assert "Perform two clean reproducible builds" in workflow
     assert "Record deterministic image metadata" in workflow
@@ -824,18 +825,39 @@ def test_release_workflow_verifies_and_attests_before_release() -> None:
     assert "existing immutable release tags resolve to different digests" in workflow
     assert 'manifest.get("digest") != expected_digest' in workflow
     assert '"org.opencontainers.image.revision": os.environ["GITHUB_SHA"]' in workflow
-    assert 'gh attestation verify "oci://$IMAGE_NAME@$digest"' in workflow
-    assert '--signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"' in workflow
-    assert '--source-digest "$GITHUB_SHA"' in workflow
-    assert '--source-ref "$GITHUB_REF"' in workflow
+    assert "actions/attest" not in workflow
+    assert "gh attestation verify" not in workflow
+    assert "attestations: write" not in workflow
+    assert workflow.count("id-token: write") == 3
+    assert workflow.count("cosign-release: v3.1.3") == 3
+    assert workflow.count("--type slsaprovenance1") == 3
+    assert workflow.count('--certificate-identity "$workflow_identity"') >= 6
+    assert (
+        workflow.count("--certificate-oidc-issuer https://token.actions.githubusercontent.com") >= 6
+    )
+    assert workflow.count('--certificate-github-workflow-sha "$GITHUB_SHA"') >= 6
+    assert workflow.count('"_type": "https://in-toto.io/Statement/v0.1"') == 3
+    assert '"predicateType": "https://slsa.dev/provenance/v1"' in workflow
+    assert (
+        '"buildType": "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1"'
+        in workflow
+    )
+    assert '"candidate": f"{os.environ[\'IMAGE_NAME\']}@' in workflow
+    assert '"gitCommit": os.environ["GITHUB_SHA"]' in workflow
+    assert '"created": os.environ["EXPECTED_CREATED"]' in workflow
+    assert '"version": os.environ["EXPECTED_VERSION"]' in workflow
+    assert "resumed image lacks the exact signed candidate provenance" in workflow
+    assert "new image lacks the exact signed candidate provenance" in workflow
     assert workflow.count("if: steps.resume.outputs.build_required == 'true'") == 2
     assert 'digest="${RESUMED_DIGEST:-$BUILT_DIGEST}"' in workflow
     assert "lets-deployment-$version.tar.gz" in workflow
     assert "deploy/production/maintenance-compose.yaml" in workflow
     assert "git archive --format=tar" in workflow
     assert "gzip -n" in workflow
-    assert "subject-checksums: dist/SHA256SUMS" in workflow
-    assert "subject-checksums: release-assets/RELEASE_SHA256SUMS" in workflow
+    assert 'archive_contents="$(mktemp)"' in workflow
+    assert '> "$archive_contents"' in workflow
+    assert "grep -q '/deploy/production/compose.yaml$' \"$archive_contents\"" in workflow
+    assert "| grep -q '/deploy/production/compose.yaml$'" not in workflow
     assert "sha256sum --check RELEASE_SHA256SUMS" in workflow
     assert "uv pip sync --python .release-smoke/bin/python requirements-release.txt" in workflow
     assert 'uv pip install --python .release-smoke/bin/python --no-deps "$wheel"' in workflow
@@ -851,12 +873,12 @@ def test_release_workflow_verifies_and_attests_before_release() -> None:
     assert "outputs: type=registry,rewrite-timestamp=true" in workflow
     assert "provenance: false" in workflow
     assert "sbom: false" in workflow
-    assert "push-to-registry: true" in workflow
-    assert "Attest candidate build provenance in the build job" in workflow
-    assert "subject-digest: ${{ steps.push.outputs.digest }}" in workflow
+    assert "Keyless-attest and verify exact candidate build provenance" in workflow
+    assert "cosign attest --yes" in workflow
+    assert "--predicate candidate-provenance.json" in workflow
     assert "cosign sign --yes" in workflow
+    assert "cosign verify \\" in workflow
     assert "Run the mTLS production-profile acceptance" in workflow
-    assert "subject-path: results/generated/production-profile-acceptance.json" in workflow
     assert "release-production-acceptance-${{ needs.verify.outputs.version }}" in workflow
     assert (
         "tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
@@ -895,7 +917,9 @@ def test_release_workflow_verifies_and_attests_before_release() -> None:
     assert "release asset name collision" in workflow
     assert "release asset is empty" in workflow
     assert "if len(artifacts) != 14:" in workflow
-    assert 'test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 15' in workflow
+    assert 'signature_name = f"{checksum_name}.sigstore.json"' in workflow
+    assert "path.name not in {checksum_name, signature_name}" in workflow
+    assert 'test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 16' in workflow
     assert "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610" in workflow
     assert "syft-version: v1.50.0" in workflow
     assert "--from registry" in workflow
@@ -903,11 +927,35 @@ def test_release_workflow_verifies_and_attests_before_release() -> None:
     assert '"schema": "lets.container-sbom-index/v1"' in workflow
     assert 'metadata.get("manifestDigest") != child_digest' in workflow
     assert 'image_ref not in (metadata.get("repoDigests") or [])' in workflow
-    assert "subject-digest: ${{ steps.manifest.outputs.amd64_digest }}" in workflow
-    assert "subject-digest: ${{ steps.manifest.outputs.arm64_digest }}" in workflow
-    assert "sbom-path: lets-container-amd64.spdx.json" in workflow
-    assert "sbom-path: lets-container-arm64.spdx.json" in workflow
+    assert "Keyless-attest and verify each SPDX SBOM against its child manifest" in workflow
+    assert "AMD64_DIGEST: ${{ steps.manifest.outputs.amd64_digest }}" in workflow
+    assert "ARM64_DIGEST: ${{ steps.manifest.outputs.arm64_digest }}" in workflow
+    assert workflow.count("--type spdxjson") == 2
+    assert '"predicateType": "https://spdx.dev/Document"' in workflow
+    assert "child manifest lacks its exact signed SPDX SBOM" in workflow
     assert "lets-container.spdx.json" not in workflow
+    assert "Keyless-sign and verify the complete release checksum manifest" in workflow
+    assert "cosign sign-blob --yes" in workflow
+    assert '--bundle "$bundle"' in workflow
+    assert "cosign verify-blob" in workflow
+    assert workflow.count('"RELEASE_SHA256SUMS.sigstore.json"') >= 2
+    assert "existing GitHub release has duplicate Sigstore bundles" in workflow
+    assert "existing GitHub release has an invalid draft state" in workflow
+    assert 'is_draft = state.get("draft")' in workflow
+    assert 'is_draft = state.get("isDraft")' not in workflow
+    assert '"reuse" if is_draft is False and matching else "retain"' in workflow
+    assert "reused the existing release's verified Sigstore bundle" in workflow
+    assert "retained the freshly signed bundle for a draft or bundle-free release" in workflow
+    assert "could not prove that an existing release bundle is absent" in workflow
+    assert 'mv "$remote_bundle" "$bundle"' in workflow
+    assert "final release asset allowlist mismatch" in workflow
+    assert workflow.index("cosign sign-blob --yes") < workflow.index('release_state="$(mktemp)"')
+    assert workflow.index('test -s "$remote_bundle"') < workflow.index(
+        'mv "$remote_bundle" "$bundle"'
+    )
+    assert workflow.index('--bundle "$remote_bundle"') < workflow.index(
+        'mv "$remote_bundle" "$bundle"'
+    )
     assert "Publish or safely resume the immutable GitHub release" in workflow
     assert 'gh release create "$GITHUB_REF_NAME"' in workflow
     assert "--draft" in workflow
@@ -922,6 +970,8 @@ def test_release_workflow_verifies_and_attests_before_release() -> None:
         'f"lets-deployment-{version}.tar.gz"',
         'f"lets_agent-{version}-py3-none-any.whl"',
         'f"lets_agent-{version}.tar.gz"',
+        '"RELEASE_SHA256SUMS"',
+        '"RELEASE_SHA256SUMS.sigstore.json"',
         '"production-profile-acceptance.json"',
         '"image-digest.txt"',
         '"image-manifest.json"',
@@ -935,14 +985,14 @@ def test_release_workflow_verifies_and_attests_before_release() -> None:
         assert required_asset in workflow
     assert "Promote the verified digest to immutable release tags" in workflow
     assert workflow.index("Publish the multi-architecture release candidate") < workflow.index(
-        "Attest candidate build provenance in the build job"
+        "Keyless-attest and verify exact candidate build provenance"
     )
     assert workflow.index(
         "Resume an already promoted candidate without rebuilding"
     ) < workflow.index("Publish the multi-architecture release candidate")
-    assert workflow.index("Attest candidate build provenance in the build job") < workflow.index(
-        "Run the mTLS production-profile acceptance against the exact candidate"
-    )
+    assert workflow.index(
+        "Keyless-attest and verify exact candidate build provenance"
+    ) < workflow.index("Run the mTLS production-profile acceptance against the exact candidate")
     assert workflow.index(
         "Run the mTLS production-profile acceptance against the exact candidate"
     ) < workflow.index("Scan the exact published amd64 candidate with Trivy")
@@ -951,10 +1001,16 @@ def test_release_workflow_verifies_and_attests_before_release() -> None:
     )
     assert workflow.index(
         "Generate and validate one SPDX SBOM per published architecture"
+    ) < workflow.index("Keyless-attest and verify each SPDX SBOM against its child manifest")
+    assert workflow.index(
+        "Keyless-attest and verify each SPDX SBOM against its child manifest"
     ) < workflow.index("Promote the verified digest to immutable release tags")
-    assert workflow.index("Keyless-sign the exact image digest") < workflow.index(
+    assert workflow.index("Keyless-sign and verify the exact image digest") < workflow.index(
         "Promote the verified digest to immutable release tags"
     )
     assert workflow.index("Promote the verified digest to immutable release tags") < workflow.index(
         "Publish or safely resume the immutable GitHub release"
     )
+    assert workflow.index(
+        "Keyless-sign and verify the complete release checksum manifest"
+    ) < workflow.index("Publish or safely resume the immutable GitHub release")
