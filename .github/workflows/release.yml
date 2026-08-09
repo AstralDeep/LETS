@@ -784,8 +784,81 @@ jobs:
               )
           ):
               failures.append("soak SIGKILL or per-warden lifetime evidence is incomplete")
-          if evidence.get("resources", {}).get("evaluation", {}).get("passed") is not True:
+          resources = evidence.get("resources", {})
+          resource_evaluation = resources.get("evaluation", {})
+          if resource_evaluation.get("passed") is not True:
               failures.append("soak resource bounds did not pass")
+          expected_resource_bounds = {
+              "cgroup_memory_max_bytes": 1024 * 1024 * 1024,
+              "cgroup_pids_max": 256,
+              "cgroup_swap_max_bytes": 0,
+              "max_cgroup_memory_peak_bytes": 768 * 1024 * 1024,
+              "max_cgroup_pids_peak": 192,
+              "max_rss_bytes": 256 * 1024 * 1024,
+              "max_rss_growth_bytes": 128 * 1024 * 1024,
+          }
+          actual_resource_bounds = resource_evaluation.get("bounds", {})
+          if any(
+              actual_resource_bounds.get(name) != value
+              for name, value in expected_resource_bounds.items()
+          ):
+              failures.append("soak used the wrong process or cgroup resource bounds")
+          required_resource_checks = {
+              "cgroup_memory_events",
+              "cgroup_memory_limit",
+              "cgroup_memory_peak",
+              "cgroup_pids_events",
+              "cgroup_pids_limit",
+              "cgroup_pids_peak",
+              "cgroup_probe",
+              "cgroup_swap_events",
+              "cgroup_swap_limit",
+              "cgroup_swap_usage",
+              "rss",
+              "rss_growth",
+          }
+          resource_measurements = resource_evaluation.get("measurements", {})
+          if not isinstance(resource_measurements, dict) or set(resource_measurements) != {
+              "warden-a",
+              "warden-b",
+              "warden-c",
+          } or any(
+              not isinstance(item, dict)
+              or not isinstance(item.get("checks"), dict)
+              or not required_resource_checks.issubset(item["checks"])
+              or any(item["checks"].get(name) is not True for name in required_resource_checks)
+              for item in (
+                  resource_measurements.values()
+                  if isinstance(resource_measurements, dict)
+                  else ()
+              )
+          ):
+              failures.append("soak cgroup v2 or LETS-child resource checks are incomplete")
+          resource_samples = resources.get("samples", [])
+          if not isinstance(resource_samples, list) or int(
+              resources.get("sample_count", -1)
+          ) != len(resource_samples):
+              failures.append("soak resource sample count is inconsistent")
+              resource_samples = []
+          for restart in chaos.get("restarts", []):
+              checkpoint = restart.get("resource_checkpoint", {})
+              sample_index = checkpoint.get("sample_index")
+              if (
+                  checkpoint.get("evaluation_passed") is not True
+                  or checkpoint.get("sample_reason") != "pre_sigkill"
+                  or checkpoint.get("service") != restart.get("service")
+                  or isinstance(sample_index, bool)
+                  or not isinstance(sample_index, int)
+                  or not 0 <= sample_index < len(resource_samples)
+              ):
+                  failures.append("planned SIGKILL lacks an evaluated resource checkpoint")
+                  continue
+              sample = resource_samples[sample_index]
+              if (
+                  sample.get("reason") != "pre_sigkill"
+                  or sample.get("planned_sigkill_service") != restart.get("service")
+              ):
+                  failures.append("planned SIGKILL resource checkpoint is not bound to its sample")
           if evidence.get("package", {}).get("identity", {}).get("passed") is not True:
               failures.append("soak package/OCI identity checks did not pass")
           cleanup = evidence.get("cleanup", {})
@@ -804,7 +877,16 @@ jobs:
           if failures:
               raise SystemExit("; ".join(failures))
           PY
-      - name: Archive production-profile soak evidence
+      - name: Archive failed production-profile soak diagnostics
+        if: ${{ always() && (failure() || cancelled()) }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: >-
+            diagnostic-production-soak-${{ needs.verify.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/generated/production-profile-soak.json
+          if-no-files-found: error
+          retention-days: 90
+      - name: Archive verified production-profile soak release evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-production-soak-${{ needs.verify.outputs.version }}

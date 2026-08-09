@@ -5,7 +5,39 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
-## [1.0.1] - 2026-08-09
+## [1.0.2] - 2026-08-09
+
+### Fixed
+
+- Strengthened the mandatory production soak's resource proof after the public 1.0.1 candidate
+  failed closed under transient allocation pressure. The hardened profile now matches the shipped
+  1 GiB cgroup while retaining 25 percent operational headroom, independently bounds the LETS
+  process, records cgroup memory/PID peaks and limit events across every process lifetime, prohibits
+  swap and OOM/limit hits, captures failure-time resource evidence before cleanup, and atomically
+  preserves the complete structured diagnostic afterward.
+- Made workload coordination surface an exited workload immediately, with bounded diagnostics,
+  instead of replacing its root cause with a later pause-acknowledgement timeout.
+
+### Changed
+
+- Carries forward every 1.0.1 candidate change: the bounded pre-authentication request-body
+  deadline and quiet disconnect handling, separate service/exporter readiness evidence, the
+  mandatory exact-candidate one-hour soak, and the strengthened release-governance checks.
+- The signed `v1.0.1` tag is retained as an unpromoted candidate whose release workflow failed the
+  new soak gate; no `1.0.1` package, final OCI tag, or GitHub release was published. Version 1.0.2
+  supersedes it without weakening any gate or rewriting the public tag.
+
+### Compatibility, migration, and rollback
+
+- LETS v1 wire/API compatibility, warden schema 2, executor schema 5, manifest semantics, and
+  authority/replay formats remain unchanged from 1.0.0 and 1.0.1. No database or executor migration
+  is required.
+- Apply the same stop-the-world procedure documented for 1.0.1: drain peer and audit queues, verify
+  an authority-safe recovery bundle, stop all old processes, and deploy the exact 1.0.2 artifacts.
+- A binary/configuration rollback remains schema-compatible, but never restore older database,
+  audit, replay, or anchor bytes. Preserve the live monotonic state or recover forward.
+
+## [1.0.1] - 2026-08-09 (unreleased candidate)
 
 ### Fixed
 
@@ -95,6 +127,7 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.1...HEAD
-[1.0.1]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.1
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.2
+[1.0.1]: https://github.com/AstralDeep/LETS/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.0

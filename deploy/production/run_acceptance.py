@@ -276,7 +276,8 @@ def _hardening_evidence() -> dict[str, Any]:
         log_config = host.get("LogConfig") or {}
         log_options = log_config.get("Config") or {}
         if (
-            host.get("Memory") != 768 * 1024 * 1024
+            host.get("Memory") != 1024 * 1024 * 1024
+            or host.get("MemorySwap") != 1024 * 1024 * 1024
             or host.get("NanoCpus") != 1_500_000_000
             or host.get("PidsLimit") != 256
             or host.get("Init") is not True

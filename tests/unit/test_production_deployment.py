@@ -109,6 +109,8 @@ def test_opt_in_production_acceptance_requires_real_mtls_and_external_provider()
     assert "--backlog" in compose
     assert "max-size: 10m" in compose
     assert "nofile:" in compose
+    assert compose.count("mem_limit: 1g") == 1
+    assert compose.count("memswap_limit: 1g") == 1
     assert "generic-production" in scenario
     assert "_sqlite_wal_reset_safe" in scenario
     assert "ProcessFileExecutorAuthorityAnchor" in scenario
@@ -124,6 +126,8 @@ def test_opt_in_production_acceptance_requires_real_mtls_and_external_provider()
     assert "configured_images != {candidate_image}" in runner
     assert 'executor = _scenario("executor")' in runner
     assert '"executor": executor' in runner
+    assert 'host.get("Memory") != 1024 * 1024 * 1024' in runner
+    assert 'host.get("MemorySwap") != 1024 * 1024 * 1024' in runner
 
 
 def test_build_context_policy_rejects_secret_like_tracked_paths() -> None:
@@ -163,6 +167,8 @@ def test_production_compose_is_fail_closed_and_hardened() -> None:
     assert "--timeout-graceful-shutdown" in compose
     assert "stop_grace_period: 75s" in compose
     assert "${LETS_HEALTH_START_PERIOD_SECONDS:-600}s" in compose
+    assert 'mem_limit: "${LETS_MEMORY_LIMIT:-1g}"' in compose
+    assert 'memswap_limit: "${LETS_MEMORY_LIMIT:-1g}"' in compose
     assert "allow-insecure" not in compose
     assert "read_only: true" in compose
     assert "cap_drop: [ALL]" in compose
@@ -903,6 +909,19 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert "len(pair_counts) != 6" in workflow
     assert 'get("durably_pending_observed") is not True' in workflow
     assert 'get("all_wardens_sigkilled") is not True' in workflow
+    assert '"cgroup_memory_max_bytes": 1024 * 1024 * 1024' in workflow
+    assert '"cgroup_swap_max_bytes": 0' in workflow
+    assert '"max_cgroup_memory_peak_bytes": 768 * 1024 * 1024' in workflow
+    assert '"max_rss_bytes": 256 * 1024 * 1024' in workflow
+    assert '"max_rss_growth_bytes": 128 * 1024 * 1024' in workflow
+    assert 'checkpoint.get("evaluation_passed") is not True' in workflow
+    assert 'sample.get("reason") != "pre_sigkill"' in workflow
+    assert "if: ${{ always() && (failure() || cancelled()) }}" in workflow
+    assert (
+        "diagnostic-production-soak-${{ needs.verify.outputs.version }}-"
+        "${{ github.run_id }}-${{ github.run_attempt }}" in workflow
+    )
+    assert workflow.count("release-production-soak-${{ needs.verify.outputs.version }}") == 1
     assert 'get("identity", {}).get("passed") is not True' in workflow
     assert 'cleanup.get("remaining_containers") != 0' in workflow
     assert (

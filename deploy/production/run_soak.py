@@ -39,6 +39,12 @@ MINIMUM_RETRY_ALLOWANCE = 24
 MAXIMUM_RETRIES_PER_CYCLE = 4
 MAXIMUM_CYCLE_LATENCY_SECONDS = 120.0
 CHAOS_START_SHUTDOWN_MARGIN_SECONDS = 10.0
+FAILED_EVIDENCE_MAX_CHAOS_EVENTS = 256
+FAILED_EVIDENCE_MAX_RESOURCE_SAMPLES = 2_048
+FAILED_EVIDENCE_MAX_TEXT_BYTES = 16_384
+FAILURE_COMMAND_TIMEOUT_SECONDS = 5.0
+FAILURE_DOWN_TIMEOUT_SECONDS = 30.0
+FAILURE_LOG_TIMEOUT_SECONDS = 10.0
 VOLUME_KEYS = {
     "trust",
     "client",
@@ -54,6 +60,38 @@ VOLUME_KEYS = {
 RESOURCE_PROBE = """
 import json
 from pathlib import Path
+
+CGROUP = Path("/sys/fs/cgroup")
+
+def required_scalar(name):
+    path = CGROUP / name
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise RuntimeError(f"required cgroup v2 scalar is unavailable: {name}: {exc}") from exc
+    if not raw.isdecimal():
+        raise RuntimeError(f"required cgroup v2 scalar is malformed: {name}={raw!r}")
+    value = int(raw)
+    if value < 0:
+        raise RuntimeError(f"required cgroup v2 scalar is negative: {name}={value}")
+    return value
+
+def required_events(name, expected):
+    path = CGROUP / name
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise RuntimeError(f"required cgroup v2 events are unavailable: {name}: {exc}") from exc
+    events = {}
+    for line in lines:
+        fields = line.split()
+        if len(fields) != 2 or not fields[1].isdecimal() or fields[0] in events:
+            raise RuntimeError(f"required cgroup v2 events are malformed: {name}={lines!r}")
+        events[fields[0]] = int(fields[1])
+    missing = sorted(set(expected) - events.keys())
+    if missing:
+        raise RuntimeError(f"required cgroup v2 event counters are missing: {name}: {missing!r}")
+    return events
 
 def sizes(path):
     target = Path(path)
@@ -72,6 +110,8 @@ init_command = tuple(
 )
 if not init_command or Path(init_command[0]).name not in {"tini", "docker-init"}:
     raise RuntimeError(f"container PID 1 is not the configured init shim: {init_command!r}")
+if not (CGROUP / "cgroup.controllers").is_file():
+    raise RuntimeError("the runtime does not expose a cgroup v2 unified hierarchy")
 runtime_processes = []
 for proc in Path("/proc").iterdir():
     if not proc.name.isdigit():
@@ -108,6 +148,32 @@ document = {
     "audit": sizes("/var/lib/lets-audit/audit.sqlite3"),
     "authority_anchor_bytes": Path("/var/lib/lets-authority/anchor.json").stat().st_size,
     "core": sizes("/var/lib/lets/warden.sqlite3"),
+    "cgroup": {
+        "memory": {
+            "current_bytes": required_scalar("memory.current"),
+            "events": required_events(
+                "memory.events",
+                ("low", "high", "max", "oom", "oom_kill", "oom_group_kill"),
+            ),
+            "max_bytes": required_scalar("memory.max"),
+            "peak_bytes": required_scalar("memory.peak"),
+        },
+        "pids": {
+            "current": required_scalar("pids.current"),
+            "events": required_events("pids.events", ("max",)),
+            "max": required_scalar("pids.max"),
+            "peak": required_scalar("pids.peak"),
+        },
+        "swap": {
+            "current_bytes": required_scalar("memory.swap.current"),
+            "events": required_events(
+                "memory.swap.events", ("high", "max", "fail")
+            ),
+            "max_bytes": required_scalar("memory.swap.max"),
+            "peak_bytes": required_scalar("memory.swap.peak"),
+        },
+        "version": 2,
+    },
     "fd_count": len(tuple(Path(f"/proc/{runtime_pid}/fd").iterdir())),
     "init": {"cmdline": list(init_command), "pid": 1},
     "process": {
@@ -193,8 +259,13 @@ print(json.dumps(None if row is None else dict(row), sort_keys=True))
 
 @dataclass(frozen=True, slots=True)
 class ResourceBounds:
-    max_rss_bytes: int = 768 * 1024 * 1024
-    max_rss_growth_bytes: int = 256 * 1024 * 1024
+    max_rss_bytes: int = 256 * 1024 * 1024
+    max_rss_growth_bytes: int = 128 * 1024 * 1024
+    max_cgroup_memory_peak_bytes: int = 768 * 1024 * 1024
+    cgroup_memory_max_bytes: int = 1024 * 1024 * 1024
+    cgroup_swap_max_bytes: int = 0
+    max_cgroup_pids_peak: int = 192
+    cgroup_pids_max: int = 256
     max_fd_count: int = 512
     max_fd_growth: int = 128
     max_core_database_bytes: int = 100 * 1024 * 1024
@@ -257,6 +328,45 @@ class SoakConfiguration:
             raise ValueError("duration must permit a SIGKILL episode for every warden")
         if self.retry_timeout_seconds > 90:
             raise ValueError("retry timeout must be at most 90 seconds")
+
+
+class WorkloadExitedError(RuntimeError):
+    """Carry a prematurely exited workload's diagnostics into failure evidence."""
+
+    def __init__(self, *, context: str, returncode: int, stdout: str, stderr: str) -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        super().__init__(
+            f"soak workload exited {context} ({returncode}); "
+            f"stdout={_bounded_text(stdout)!r}; stderr={_bounded_text(stderr)!r}"
+        )
+
+
+def _bounded_text(value: str, *, maximum_bytes: int = FAILED_EVIDENCE_MAX_TEXT_BYTES) -> str:
+    if maximum_bytes <= 0:
+        return ""
+    encoded = value.encode("utf-8", errors="replace")
+    if len(encoded) <= maximum_bytes:
+        return value
+    marker = b"...[truncated to bounded tail]...\n"
+    if maximum_bytes <= len(marker):
+        return marker[:maximum_bytes].decode("ascii")
+    retained = encoded[-(maximum_bytes - len(marker)) :].decode("utf-8", errors="ignore")
+    return marker.decode("ascii") + retained
+
+
+def _require_workload_running(workload: subprocess.Popen[str], *, context: str) -> None:
+    returncode = workload.poll()
+    if returncode is None:
+        return
+    stdout, stderr = workload.communicate(timeout=1)
+    raise WorkloadExitedError(
+        context=context,
+        returncode=returncode,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 def minimum_cycle_count(configuration: SoakConfiguration) -> int:
@@ -559,34 +669,42 @@ class Harness:
             [*self.compose_command, *arguments], check=check, timeout=timeout
         ).stdout.strip()
 
-    def container(self, service: str) -> str:
-        value = self.compose("ps", "-q", service)
+    def container(self, service: str, *, timeout: float = 600) -> str:
+        value = self.compose("ps", "-q", service, timeout=timeout)
         if not value:
             raise RuntimeError(f"Compose service {service} has no container")
         return value
 
-    def state(self, service: str) -> dict[str, Any]:
-        return self.container_state(self.container(service))
+    def state(self, service: str, *, timeout: float = 600) -> dict[str, Any]:
+        return self.container_state(
+            self.container(service, timeout=timeout),
+            timeout=timeout,
+        )
 
-    def container_state(self, container: str) -> dict[str, Any]:
+    def container_state(self, container: str, *, timeout: float = 600) -> dict[str, Any]:
         value = json.loads(
-            self.run(["docker", "inspect", "--format", "{{json .State}}", container]).stdout
+            self.run(
+                ["docker", "inspect", "--format", "{{json .State}}", container],
+                timeout=timeout,
+            ).stdout
         )
         if not isinstance(value, dict):
             raise RuntimeError(f"Docker returned invalid state for {container}")
         return cast(dict[str, Any], value)
 
-    def container_restart_count(self, container: str) -> int:
+    def container_restart_count(self, container: str, *, timeout: float = 600) -> int:
         return int(
             json.loads(
                 self.run(
-                    ["docker", "inspect", "--format", "{{json .RestartCount}}", container]
+                    ["docker", "inspect", "--format", "{{json .RestartCount}}", container],
+                    timeout=timeout,
                 ).stdout
             )
         )
 
-    def restart_count(self, service: str) -> int:
-        return self.container_restart_count(self.container(service))
+    def restart_count(self, service: str, *, timeout: float = 600) -> int:
+        container = self.container(service, timeout=timeout)
+        return self.container_restart_count(container, timeout=timeout)
 
     def wait_healthy(self, service: str, *, timeout_s: float = 180) -> None:
         deadline = time.monotonic() + timeout_s
@@ -602,7 +720,7 @@ class Harness:
         raise RuntimeError(f"{service} did not become healthy: {last}")
 
 
-def _project_volumes(harness: Harness) -> set[str]:
+def _project_volumes(harness: Harness, *, timeout: float = 600) -> set[str]:
     output = harness.run(
         [
             "docker",
@@ -612,12 +730,13 @@ def _project_volumes(harness: Harness) -> set[str]:
             f"label=com.docker.compose.project={harness.project}",
             "--format",
             "{{.Name}}",
-        ]
+        ],
+        timeout=timeout,
     ).stdout
     return {line.strip() for line in output.splitlines() if line.strip()}
 
 
-def _project_containers(harness: Harness) -> set[str]:
+def _project_containers(harness: Harness, *, timeout: float = 600) -> set[str]:
     output = harness.run(
         [
             "docker",
@@ -627,12 +746,13 @@ def _project_containers(harness: Harness) -> set[str]:
             f"label=com.docker.compose.project={harness.project}",
             "--format",
             "{{.ID}}",
-        ]
+        ],
+        timeout=timeout,
     ).stdout
     return {line.strip() for line in output.splitlines() if line.strip()}
 
 
-def _project_networks(harness: Harness) -> set[str]:
+def _project_networks(harness: Harness, *, timeout: float = 600) -> set[str]:
     output = harness.run(
         [
             "docker",
@@ -642,20 +762,26 @@ def _project_networks(harness: Harness) -> set[str]:
             f"label=com.docker.compose.project={harness.project}",
             "--format",
             "{{.ID}}",
-        ]
+        ],
+        timeout=timeout,
     ).stdout
     return {line.strip() for line in output.splitlines() if line.strip()}
 
 
-def _checked_down(harness: Harness) -> dict[str, Any]:
-    unexpected = _project_volumes(harness) - harness.allowed_volumes
+def _checked_down(
+    harness: Harness,
+    *,
+    probe_timeout: float = 600,
+    down_timeout: float = 180,
+) -> dict[str, Any]:
+    unexpected = _project_volumes(harness, timeout=probe_timeout) - harness.allowed_volumes
     if unexpected:
         raise RuntimeError(f"refusing to remove unexpected project volumes: {sorted(unexpected)}")
-    harness.compose("down", "--volumes", "--remove-orphans", timeout=180)
+    harness.compose("down", "--volumes", "--remove-orphans", timeout=down_timeout)
     residual = {
-        "containers": sorted(_project_containers(harness)),
-        "networks": sorted(_project_networks(harness)),
-        "volumes": sorted(_project_volumes(harness)),
+        "containers": sorted(_project_containers(harness, timeout=probe_timeout)),
+        "networks": sorted(_project_networks(harness, timeout=probe_timeout)),
+        "volumes": sorted(_project_volumes(harness, timeout=probe_timeout)),
     }
     if any(residual.values()):
         raise RuntimeError(f"production soak cleanup left project resources: {residual!r}")
@@ -910,33 +1036,125 @@ def _runtime_packages(harness: Harness) -> dict[str, Any]:
     return result
 
 
-def _resource_sample(harness: Harness, *, elapsed_s: float) -> dict[str, Any]:
+def _resource_sample(
+    harness: Harness,
+    *,
+    elapsed_s: float,
+    reason: str,
+    planned_sigkill_service: str | None = None,
+    command_timeout: float | None = None,
+) -> dict[str, Any]:
     nodes: dict[str, Any] = {}
+    helper_timeout = 600 if command_timeout is None else command_timeout
+    probe_timeout = 30 if command_timeout is None else command_timeout
     for service in WARDENS:
+        container = harness.container(service, timeout=helper_timeout)
         resource = json.loads(
             harness.run(
                 [
                     "docker",
                     "exec",
-                    harness.container(service),
+                    container,
                     "python",
                     "-c",
                     RESOURCE_PROBE,
-                ]
+                ],
+                timeout=probe_timeout,
             ).stdout
         )
         if not isinstance(resource, dict):
             raise RuntimeError(f"{service} returned malformed resource evidence")
-        state = harness.state(service)
+        state = harness.container_state(container, timeout=helper_timeout)
         resource["container_init_pid"] = state.get("Pid")
         resource["container_state"] = {
             "exit_code": state.get("ExitCode"),
             "oom_killed": state.get("OOMKilled"),
             "status": state.get("Status"),
         }
-        resource["restart_count"] = harness.restart_count(service)
+        resource["restart_count"] = harness.container_restart_count(
+            container,
+            timeout=helper_timeout,
+        )
         nodes[service] = resource
-    return {"elapsed_seconds": round(elapsed_s, 3), "nodes": nodes}
+    sample: dict[str, Any] = {
+        "elapsed_seconds": round(elapsed_s, 3),
+        "nodes": nodes,
+        "reason": reason,
+    }
+    if planned_sigkill_service is not None:
+        if planned_sigkill_service not in WARDENS:
+            raise ValueError(f"unknown planned SIGKILL service: {planned_sigkill_service}")
+        sample["planned_sigkill_service"] = planned_sigkill_service
+    return sample
+
+
+def _capture_failure_resource_sample(
+    harness: Harness,
+    *,
+    elapsed_s: float,
+    samples: list[dict[str, Any]],
+) -> dict[str, Any]:
+    try:
+        samples.append(
+            _resource_sample(
+                harness,
+                elapsed_s=elapsed_s,
+                reason="failure",
+                command_timeout=FAILURE_COMMAND_TIMEOUT_SECONDS,
+            )
+        )
+    except Exception as exc:
+        return {
+            "attempted": True,
+            "captured": False,
+            "error": _bounded_text(str(exc)),
+        }
+    return {
+        "attempted": True,
+        "captured": True,
+        "sample_index": len(samples) - 1,
+    }
+
+
+def _cgroup_integer_values(
+    documents: list[dict[str, Any]],
+    *,
+    shapes_valid: bool,
+    controller: str,
+    field: str,
+) -> list[int]:
+    values: list[int] = []
+    if not shapes_valid:
+        return values
+    for cgroup in documents:
+        value = cast(dict[str, Any], cgroup[controller]).get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            return []
+        values.append(value)
+    return values
+
+
+def _cgroup_event_sets(
+    documents: list[dict[str, Any]],
+    *,
+    shapes_valid: bool,
+    controller: str,
+    required: set[str],
+) -> list[dict[str, int]]:
+    values: list[dict[str, int]] = []
+    if not shapes_valid:
+        return values
+    for cgroup in documents:
+        events = cast(dict[str, Any], cgroup[controller]).get("events")
+        if not isinstance(events, dict) or not required.issubset(events):
+            return []
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in events.values()
+        ):
+            return []
+        values.append(cast(dict[str, int], events))
+    return values
 
 
 def evaluate_resource_bounds(
@@ -952,6 +1170,106 @@ def evaluate_resource_bounds(
     for node in WARDENS:
         node_samples = [cast(dict[str, Any], sample["nodes"][node]) for sample in samples]
         baseline = node_samples[0]
+        cgroup_samples = [cast(dict[str, Any], item.get("cgroup")) for item in node_samples]
+        cgroup_shapes_valid = all(
+            isinstance(cgroup, dict)
+            and cgroup.get("version") == 2
+            and all(
+                isinstance(cgroup.get(controller), dict)
+                for controller in ("memory", "pids", "swap")
+            )
+            for cgroup in cgroup_samples
+        )
+
+        memory_current = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="memory",
+            field="current_bytes",
+        )
+        memory_peak = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="memory",
+            field="peak_bytes",
+        )
+        memory_max = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="memory",
+            field="max_bytes",
+        )
+        memory_events = _cgroup_event_sets(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="memory",
+            required={"high", "max", "oom", "oom_group_kill", "oom_kill"},
+        )
+        swap_current = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="swap",
+            field="current_bytes",
+        )
+        swap_peak = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="swap",
+            field="peak_bytes",
+        )
+        swap_max = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="swap",
+            field="max_bytes",
+        )
+        swap_events = _cgroup_event_sets(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="swap",
+            required={"fail", "high", "max"},
+        )
+        pids_current = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="pids",
+            field="current",
+        )
+        pids_peak = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="pids",
+            field="peak",
+        )
+        pids_max = _cgroup_integer_values(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="pids",
+            field="max",
+        )
+        pids_events = _cgroup_event_sets(
+            cgroup_samples,
+            shapes_valid=cgroup_shapes_valid,
+            controller="pids",
+            required={"max"},
+        )
+        cgroup_probe_valid = all(
+            len(values) == len(node_samples)
+            for values in (
+                memory_current,
+                memory_peak,
+                memory_max,
+                memory_events,
+                swap_current,
+                swap_peak,
+                swap_max,
+                swap_events,
+                pids_current,
+                pids_peak,
+                pids_max,
+                pids_events,
+            )
+        )
         peak_rss = max(int(item["rss_bytes"]) for item in node_samples)
         peak_fd = max(int(item["fd_count"]) for item in node_samples)
         peak_core_database = max(int(item["core"]["database_bytes"]) for item in node_samples)
@@ -976,6 +1294,50 @@ def evaluate_resource_bounds(
         )
         checks = {
             "audit_growth": peak_audit_total - baseline_audit <= allowed_audit_growth,
+            "cgroup_memory_events": (
+                cgroup_probe_valid
+                and all(value == 0 for events in memory_events for value in events.values())
+            ),
+            "cgroup_memory_limit": (
+                cgroup_probe_valid
+                and all(value == bounds.cgroup_memory_max_bytes for value in memory_max)
+            ),
+            "cgroup_memory_peak": (
+                cgroup_probe_valid
+                and all(
+                    current <= peak
+                    for current, peak in zip(memory_current, memory_peak, strict=True)
+                )
+                and max(memory_peak, default=bounds.max_cgroup_memory_peak_bytes + 1)
+                <= bounds.max_cgroup_memory_peak_bytes
+            ),
+            "cgroup_pids_events": (
+                cgroup_probe_valid
+                and all(value == 0 for events in pids_events for value in events.values())
+            ),
+            "cgroup_pids_limit": (
+                cgroup_probe_valid and all(value == bounds.cgroup_pids_max for value in pids_max)
+            ),
+            "cgroup_pids_peak": (
+                cgroup_probe_valid
+                and all(
+                    current <= peak for current, peak in zip(pids_current, pids_peak, strict=True)
+                )
+                and max(pids_peak, default=bounds.max_cgroup_pids_peak + 1)
+                <= bounds.max_cgroup_pids_peak
+            ),
+            "cgroup_probe": cgroup_probe_valid,
+            "cgroup_swap_events": (
+                cgroup_probe_valid
+                and all(value == 0 for events in swap_events for value in events.values())
+            ),
+            "cgroup_swap_limit": (
+                cgroup_probe_valid
+                and all(value == bounds.cgroup_swap_max_bytes for value in swap_max)
+            ),
+            "cgroup_swap_usage": (
+                cgroup_probe_valid and all(value == 0 for value in (*swap_current, *swap_peak))
+            ),
             "container_integrity": all(
                 item.get("restart_count") == 0
                 and item.get("container_state")
@@ -1018,6 +1380,9 @@ def evaluate_resource_bounds(
             "final": node_samples[-1],
             "peak": {
                 "audit_total_bytes": peak_audit_total,
+                "cgroup_memory_bytes": max(memory_peak, default=None),
+                "cgroup_pids": max(pids_peak, default=None),
+                "cgroup_swap_bytes": max(swap_peak, default=None),
                 "core_database_bytes": peak_core_database,
                 "core_total_bytes": peak_core_total,
                 "core_wal_bytes": peak_core_wal,
@@ -1031,6 +1396,38 @@ def evaluate_resource_bounds(
         "measurements": measurements,
         "passed": not violations,
         "violations": violations,
+    }
+
+
+def _pre_sigkill_resource_checkpoint(
+    harness: Harness,
+    *,
+    service: str,
+    elapsed_s: float,
+    samples: list[dict[str, Any]],
+    configuration: SoakConfiguration,
+    bounds: ResourceBounds,
+) -> dict[str, Any]:
+    samples.append(
+        _resource_sample(
+            harness,
+            elapsed_s=elapsed_s,
+            reason="pre_sigkill",
+            planned_sigkill_service=service,
+        )
+    )
+    evaluation = evaluate_resource_bounds(
+        samples,
+        cycles=minimum_cycle_count(configuration),
+        bounds=bounds,
+    )
+    if not evaluation["passed"]:
+        raise RuntimeError(f"pre-SIGKILL resource bounds failed: {evaluation['violations']!r}")
+    return {
+        "evaluation_passed": True,
+        "sample_index": len(samples) - 1,
+        "sample_reason": "pre_sigkill",
+        "service": service,
     }
 
 
@@ -1083,25 +1480,34 @@ def _container_json(
         raise RuntimeError(f"{service} returned malformed SQLite probe output: {output}") from exc
 
 
-def _pause_workload(harness: Harness, episode: int) -> dict[str, Any]:
+def _pause_workload(
+    harness: Harness,
+    episode: int,
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
     write_script = (
         "import json,sys; from pathlib import Path; "
         f"target=Path({WORKLOAD_PAUSE_PATH!r}); temporary=target.with_suffix('.tmp'); "
         "temporary.write_text(json.dumps({'episode':int(sys.argv[1])},sort_keys=True)+'\\n'); "
         "temporary.replace(target)"
     )
-    harness.run(
-        [
-            "docker",
-            "exec",
-            harness.workload_container,
-            "python",
-            "-c",
-            write_script,
-            str(episode),
-        ],
-        timeout=30,
-    )
+    _require_workload_running(workload, context=f"before partition pause {episode}")
+    try:
+        harness.run(
+            [
+                "docker",
+                "exec",
+                harness.workload_container,
+                "python",
+                "-c",
+                write_script,
+                str(episode),
+            ],
+            timeout=30,
+        )
+    except Exception:
+        _require_workload_running(workload, context=f"during partition pause {episode}")
+        raise
     read_script = (
         "import sys; from pathlib import Path; "
         f"path=Path({WORKLOAD_PAUSE_ACK_PATH!r}); "
@@ -1110,6 +1516,7 @@ def _pause_workload(harness: Harness, episode: int) -> dict[str, Any]:
     deadline = time.monotonic() + harness.configuration.retry_timeout_seconds + 30
     last = ""
     while time.monotonic() < deadline:
+        _require_workload_running(workload, context=f"during partition pause {episode}")
         process = harness.run(
             [
                 "docker",
@@ -1131,10 +1538,11 @@ def _pause_workload(harness: Harness, episode: int) -> dict[str, Any]:
             if acknowledgement == {"episode": episode, "paused": True}:
                 return cast(dict[str, Any], acknowledgement)
         time.sleep(0.1)
+    _require_workload_running(workload, context=f"during partition pause {episode}")
     raise RuntimeError(f"workload did not acknowledge partition pause {episode}: {last}")
 
 
-def _resume_workload(harness: Harness) -> None:
+def _resume_workload(harness: Harness, *, timeout: float = 30) -> None:
     script = (
         "from pathlib import Path; "
         f"Path({WORKLOAD_PAUSE_PATH!r}).unlink(missing_ok=True); "
@@ -1142,7 +1550,7 @@ def _resume_workload(harness: Harness) -> None:
     )
     harness.run(
         ["docker", "exec", harness.workload_container, "python", "-c", script],
-        timeout=30,
+        timeout=timeout,
     )
 
 
@@ -1307,6 +1715,112 @@ def _canonical_digest(value: dict[str, Any]) -> str:
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
+def _write_evidence_atomic(output: Path, evidence: dict[str, Any]) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(evidence, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(output)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _bounded_records(records: list[dict[str, Any]], *, maximum: int) -> list[dict[str, Any]]:
+    if len(records) <= maximum:
+        return list(records)
+    leading = maximum // 2
+    return [*records[:leading], *records[-(maximum - leading) :]]
+
+
+def _partial_resource_evidence(
+    samples: list[dict[str, Any]],
+    *,
+    bounds: ResourceBounds,
+    cycles: int,
+    evaluation: dict[str, Any] | None,
+) -> dict[str, Any]:
+    retained = _bounded_records(samples, maximum=FAILED_EVIDENCE_MAX_RESOURCE_SAMPLES)
+    if evaluation is None:
+        if len(samples) < 2:
+            evaluation = {
+                "bounds": asdict(bounds),
+                "passed": False,
+                "reason": "fewer than two resource samples were captured",
+                "violations": ["incomplete_resource_sampling"],
+            }
+        else:
+            try:
+                evaluation = evaluate_resource_bounds(
+                    samples,
+                    cycles=max(0, cycles),
+                    bounds=bounds,
+                )
+            except Exception as exc:
+                evaluation = {
+                    "bounds": asdict(bounds),
+                    "passed": False,
+                    "reason": _bounded_text(str(exc)),
+                    "violations": ["resource_evaluation_error"],
+                }
+    return {
+        "evaluation": evaluation,
+        "sample_count": len(samples),
+        "samples": retained,
+        "samples_retained": len(retained),
+        "samples_truncated": len(samples) - len(retained),
+    }
+
+
+def _failed_workload_status(
+    workload: subprocess.Popen[str] | None,
+    *,
+    stdout: str,
+    stderr: str,
+    error: Exception,
+) -> dict[str, Any]:
+    if isinstance(error, WorkloadExitedError):
+        stdout = error.stdout
+        stderr = error.stderr
+    if workload is None:
+        return {
+            "return_code": None,
+            "started": False,
+            "state": "not_started",
+            "stderr": _bounded_text(stderr),
+            "stdout": _bounded_text(stdout),
+        }
+    state = "exited"
+    collection_error: str | None = None
+    try:
+        if workload.poll() is None:
+            state = "terminated_after_orchestration_failure"
+            workload.terminate()
+        try:
+            collected_stdout, collected_stderr = workload.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            state = "killed_after_orchestration_failure"
+            workload.kill()
+            collected_stdout, collected_stderr = workload.communicate(timeout=10)
+        stdout = stdout or collected_stdout
+        stderr = stderr or collected_stderr
+    except Exception as exc:
+        collection_error = _bounded_text(str(exc))
+    result: dict[str, Any] = {
+        "pid": workload.pid,
+        "return_code": workload.poll(),
+        "started": True,
+        "state": state,
+        "stderr": _bounded_text(stderr),
+        "stdout": _bounded_text(stdout),
+    }
+    if collection_error is not None:
+        result["collection_error"] = collection_error
+    return result
+
+
 def _restart(harness: Harness, service: str, *, elapsed_s: float) -> dict[str, Any]:
     operation_started = time.monotonic()
     prior_container = harness.container(service)
@@ -1440,26 +1954,45 @@ def run_soak(
     keep: bool = False,
     bounds: ResourceBounds | None = None,
 ) -> dict[str, Any]:
-    configuration.validate()
     resource_bounds = ResourceBounds() if bounds is None else bounds
     harness = Harness(configuration)
     started_at = datetime.now(UTC)
     started_monotonic = time.monotonic()
-    source_before = _source_tree_digest(harness.environment)
+    source_before: dict[str, Any] = {"status": "not_captured"}
+    image: dict[str, Any] = {
+        "configured_digest": configuration.image,
+        "status": "not_inspected",
+    }
     partitions: list[dict[str, Any]] = []
     restarts: list[dict[str, Any]] = []
     resource_samples: list[dict[str, Any]] = []
+    resource_evaluation: dict[str, Any] | None = None
+    partition_recovery: list[dict[str, Any]] = []
+    restart_integrity: dict[str, Any] | None = None
+    workload_result: dict[str, Any] = {}
+    workload_evaluation: dict[str, Any] | None = None
+    workload: subprocess.Popen[str] | None = None
     workload_stdout = ""
     workload_stderr = ""
     partitioned = False
     workload_paused = False
     failure_logs = ""
     started_cluster = False
-    preflight: dict[str, Any] = {}
+    cleanup_attempted = False
+    cleanup: dict[str, Any] = {"performed": False, "reason": "not yet attempted"}
+    preflight: dict[str, Any] = {"status": "not_run"}
+    chaos_started: float | None = None
+    phase = "configuration"
     try:
+        output.unlink(missing_ok=True)
+        configuration.validate()
+        phase = "source_identity"
+        source_before = _source_tree_digest(harness.environment)
+        phase = "preflight"
         preflight = _preflight_zero(harness)
         harness.run(["docker", "pull", configuration.image], timeout=900)
         started_cluster = True
+        phase = "cluster_startup"
         harness.compose("up", "-d", "--build", timeout=900)
         _wait_toxiproxy()
         _configure_proxies()
@@ -1472,8 +2005,9 @@ def run_soak(
             expected_revision=str(source_before["git_commit"]),
             expected_version=package_version,
         )
-        resource_samples.append(_resource_sample(harness, elapsed_s=0.0))
+        resource_samples.append(_resource_sample(harness, elapsed_s=0.0, reason="baseline"))
 
+        phase = "mixed_workload_and_chaos"
         workload_command = [
             *harness.compose_command,
             "run",
@@ -1526,7 +2060,7 @@ def run_soak(
             ):
                 episode = len(partitions)
                 workload_paused = True
-                pause_acknowledgement = _pause_workload(harness, episode)
+                pause_acknowledgement = _pause_workload(harness, episode, workload)
                 settled = _settle_cluster(harness, episode)
                 _set_partition(enabled=False)
                 partitioned = True
@@ -1564,7 +2098,22 @@ def run_soak(
             if now >= next_restart and may_start_chaos_episode(configuration, elapsed_s=elapsed):
                 prior_restart_deadline = next_restart
                 service = WARDENS[restart_index % len(WARDENS)]
-                restarts.append(_restart(harness, service, elapsed_s=elapsed))
+                checkpoint_elapsed = time.monotonic() - chaos_started
+                resource_checkpoint = _pre_sigkill_resource_checkpoint(
+                    harness,
+                    service=service,
+                    elapsed_s=checkpoint_elapsed,
+                    samples=resource_samples,
+                    configuration=configuration,
+                    bounds=resource_bounds,
+                )
+                _require_workload_running(
+                    workload,
+                    context=f"before planned SIGKILL of {service}",
+                )
+                restart = _restart(harness, service, elapsed_s=checkpoint_elapsed)
+                restart["resource_checkpoint"] = resource_checkpoint
+                restarts.append(restart)
                 restart_index += 1
                 next_restart = _next_restart_deadline(
                     prior_deadline=prior_restart_deadline,
@@ -1572,7 +2121,9 @@ def run_soak(
                     completed_at=time.monotonic(),
                 )
             if now >= next_resource:
-                resource_samples.append(_resource_sample(harness, elapsed_s=elapsed))
+                resource_samples.append(
+                    _resource_sample(harness, elapsed_s=elapsed, reason="interval")
+                )
                 next_resource = time.monotonic() + configuration.resource_interval_seconds
             time.sleep(0.2)
 
@@ -1598,6 +2149,7 @@ def run_soak(
             )
         for service in WARDENS:
             harness.wait_healthy(service)
+        phase = "recovery_and_verification"
         partition_recovery = _wait_partition_recovery(harness, partitions)
         verification = _final_verify(harness)
         workload_result = _scenario_result(harness, "/scenario/soak-workload.json")
@@ -1614,8 +2166,13 @@ def run_soak(
             verification=verification,
         )
         resource_samples.append(
-            _resource_sample(harness, elapsed_s=time.monotonic() - chaos_started)
+            _resource_sample(
+                harness,
+                elapsed_s=time.monotonic() - chaos_started,
+                reason="final",
+            )
         )
+        phase = "resource_evaluation"
         resource_evaluation = evaluate_resource_bounds(
             resource_samples,
             cycles=int(workload_result["cycles"]),
@@ -1642,13 +2199,24 @@ def run_soak(
         if source_after != source_before:
             raise RuntimeError("source tree changed while the production soak was running")
         completed_at = datetime.now(UTC)
-        cleanup: dict[str, Any] = {
+        phase = "cleanup"
+        cleanup = {
             "performed": False,
             "reason": "--keep requested for investigation",
         }
         if not keep:
-            cleanup = _checked_down(harness)
+            cleanup_attempted = True
+            try:
+                cleanup = _checked_down(harness)
+            except Exception as cleanup_error:
+                cleanup = {
+                    "error": _bounded_text(str(cleanup_error)),
+                    "performed": False,
+                    "reason": "cleanup failed",
+                }
+                raise
             started_cluster = False
+        phase = "evidence_publication"
         evidence: dict[str, Any] = {
             "chaos": {
                 "partition_recovery": partition_recovery,
@@ -1663,6 +2231,7 @@ def run_soak(
             "image": image,
             "orchestration": {
                 "compose_project": harness.project,
+                "phase": "completed",
                 "preflight": preflight,
             },
             "package": {
@@ -1684,8 +2253,7 @@ def run_soak(
             "workload_evaluation": workload_evaluation,
         }
         evidence["evidence_payload_sha256"] = _canonical_digest(evidence)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        _write_evidence_atomic(output, evidence)
         print(
             json.dumps(
                 {
@@ -1700,23 +2268,147 @@ def run_soak(
             )
         )
         return evidence
-    except Exception:
+    except Exception as error:
+        failure_resource_capture: dict[str, Any] = {
+            "attempted": False,
+            "captured": False,
+            "reason": "cluster was not started",
+        }
         if started_cluster:
-            failure_logs = harness.compose(
-                "logs", "--no-color", "--tail", "200", check=False, timeout=120
+            failure_elapsed = time.monotonic() - (
+                chaos_started if chaos_started is not None else started_monotonic
             )
-        raise
-    finally:
-        if partitioned:
+            failure_resource_capture = _capture_failure_resource_sample(
+                harness,
+                elapsed_s=max(0.0, failure_elapsed),
+                samples=resource_samples,
+            )
+        workload_status = _failed_workload_status(
+            workload,
+            stdout=workload_stdout,
+            stderr=workload_stderr,
+            error=error,
+        )
+        if started_cluster:
+            if partitioned:
+                with suppress(Exception):
+                    _set_partition(enabled=True)
+                partitioned = False
+            if workload_paused:
+                with suppress(Exception):
+                    _resume_workload(
+                        harness,
+                        timeout=FAILURE_COMMAND_TIMEOUT_SECONDS,
+                    )
+                workload_paused = False
             with suppress(Exception):
-                _set_partition(enabled=True)
-        if workload_paused:
-            with suppress(Exception):
-                _resume_workload(harness)
+                failure_logs = harness.compose(
+                    "logs",
+                    "--no-color",
+                    "--tail",
+                    "200",
+                    check=False,
+                    timeout=FAILURE_LOG_TIMEOUT_SECONDS,
+                )
+        if started_cluster and not keep and not cleanup_attempted:
+            cleanup_attempted = True
+            try:
+                cleanup = _checked_down(
+                    harness,
+                    probe_timeout=FAILURE_COMMAND_TIMEOUT_SECONDS,
+                    down_timeout=FAILURE_DOWN_TIMEOUT_SECONDS,
+                )
+                started_cluster = False
+            except Exception as cleanup_error:
+                cleanup = {
+                    "error": _bounded_text(str(cleanup_error)),
+                    "performed": False,
+                    "reason": "cleanup failed",
+                }
+        elif keep:
+            cleanup = {
+                "performed": False,
+                "reason": "--keep requested for failure investigation",
+            }
+        elif not started_cluster and not cleanup_attempted:
+            cleanup = {
+                "performed": False,
+                "reason": "cluster was not started",
+            }
+
+        raw_cycles = workload_result.get("cycles", 0)
+        cycles = (
+            raw_cycles if isinstance(raw_cycles, int) and not isinstance(raw_cycles, bool) else 0
+        )
+        partial_resources = _partial_resource_evidence(
+            resource_samples,
+            bounds=resource_bounds,
+            cycles=cycles,
+            evaluation=resource_evaluation,
+        )
+        partial_resources["failure_capture"] = failure_resource_capture
+        failed_evidence: dict[str, Any] = {
+            "chaos": {
+                "partition_count": len(partitions),
+                "partition_recovery": _bounded_records(
+                    partition_recovery,
+                    maximum=FAILED_EVIDENCE_MAX_CHAOS_EVENTS,
+                ),
+                "partitions": _bounded_records(
+                    partitions,
+                    maximum=FAILED_EVIDENCE_MAX_CHAOS_EVENTS,
+                ),
+                "restart_count": len(restarts),
+                "restart_integrity": restart_integrity,
+                "restarts": _bounded_records(
+                    restarts,
+                    maximum=FAILED_EVIDENCE_MAX_CHAOS_EVENTS,
+                ),
+            },
+            "cleanup": cleanup,
+            "completed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+            "configuration": asdict(configuration),
+            "duration_seconds": round(time.monotonic() - started_monotonic, 3),
+            "error": {
+                "docker_logs_tail": _bounded_text(failure_logs),
+                "message": _bounded_text(str(error)),
+                "type": f"{type(error).__module__}.{type(error).__qualname__}",
+            },
+            "image": image,
+            "orchestration": {
+                "compose_project": harness.project,
+                "phase": phase,
+                "preflight": preflight,
+            },
+            "passed": False,
+            "resources": partial_resources,
+            "schema": "lets.production-profile-soak/v1",
+            "source": source_before,
+            "started_at": started_at.isoformat().replace("+00:00", "Z"),
+            "workload": workload_result,
+            "workload_evaluation": workload_evaluation,
+            "workload_status": workload_status,
+        }
+        failed_evidence["evidence_payload_sha256"] = _canonical_digest(failed_evidence)
+        evidence_write_error: str | None = None
+        try:
+            _write_evidence_atomic(output, failed_evidence)
+        except Exception as write_error:
+            evidence_write_error = _bounded_text(str(write_error))
+        print(
+            json.dumps(
+                {
+                    "evidence": str(output),
+                    "evidence_payload_sha256": failed_evidence["evidence_payload_sha256"],
+                    "evidence_write_error": evidence_write_error,
+                    "status": "failed",
+                },
+                sort_keys=True,
+            )
+        )
         if failure_logs:
-            print(failure_logs)
-        if started_cluster and not keep:
-            _checked_down(harness)
+            print(_bounded_text(failure_logs))
+        raise
 
 
 def _positive_float(value: str) -> float:
