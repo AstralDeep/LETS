@@ -1,0 +1,305 @@
+name: lets-production-acceptance
+
+x-build: &build
+  context: .
+  dockerfile: Dockerfile
+  target: production-acceptance
+
+x-node: &node
+  image: lets-runtime:production-acceptance
+  pull_policy: never
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"]
+  pids_limit: 256
+  mem_limit: 768m
+  cpus: 1.5
+  ulimits:
+    nofile:
+      soft: 4096
+      hard: 4096
+  init: true
+  restart: unless-stopped
+  stop_signal: SIGTERM
+  stop_grace_period: 75s
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+  networks: [cluster]
+
+x-node-command: &node-command
+  - lets
+  - --config
+  - /var/lib/lets/config.json
+  - serve
+  - --host
+  - 0.0.0.0
+  - --port
+  - "8443"
+  - --production
+  - --tls-cert
+  - /run/lets-pki/server-cert.pem
+  - --tls-key
+  - /run/lets-pki/server-key.pem
+  - --client-ca
+  - /run/lets-pki/client-ca.pem
+  - --peer-ca
+  - /run/lets-pki/server-ca.pem
+  - --peer-cert
+  - /run/lets-pki/peer-cert.pem
+  - --peer-key
+  - /run/lets-pki/peer-key.pem
+  - --log-level
+  - warning
+  - --limit-concurrency
+  - "64"
+  - --backlog
+  - "128"
+  - --timeout-keep-alive
+  - "5"
+  - --timeout-graceful-shutdown
+  - "30"
+
+services:
+  materials:
+    build: *build
+    image: lets-runtime:production-acceptance
+    user: "0:0"
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"]
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    network_mode: none
+    command: [python, /app/deploy/production/acceptance/materialize.py]
+    volumes:
+      - trust:/materials/trust
+      - client:/materials/client
+      - scenario:/materials/scenario
+      - executor-state:/materials/executor/state
+      - executor-authority:/materials/executor/authority
+      - warden-a-pki:/materials/pki/warden-a
+      - warden-b-pki:/materials/pki/warden-b
+      - warden-c-pki:/materials/pki/warden-c
+      - warden-a-signer:/materials/signers/warden-a
+      - warden-b-signer:/materials/signers/warden-b
+      - warden-c-signer:/materials/signers/warden-c
+      - warden-a-state:/materials/state/warden-a
+      - warden-b-state:/materials/state/warden-b
+      - warden-c-state:/materials/state/warden-c
+      - warden-a-config:/materials/config/warden-a
+      - warden-b-config:/materials/config/warden-b
+      - warden-c-config:/materials/config/warden-c
+      - warden-a-authority:/materials/authority/warden-a
+      - warden-b-authority:/materials/authority/warden-b
+      - warden-c-authority:/materials/authority/warden-c
+      - warden-a-audit:/materials/audit/warden-a
+      - warden-b-audit:/materials/audit/warden-b
+      - warden-c-audit:/materials/audit/warden-c
+    restart: "no"
+
+  init-a:
+    <<: *node
+    image: lets-runtime:production-acceptance
+    command: [python, /app/deploy/production/acceptance/init_node.py]
+    environment: {LETS_ACCEPTANCE_WARDEN_ID: warden-a}
+    depends_on:
+      materials: {condition: service_completed_successfully}
+    volumes:
+      - trust:/etc/lets/trust:ro
+      - warden-a-state:/var/lib/lets
+      - warden-a-config:/var/lib/lets-config
+      - warden-a-authority:/var/lib/lets-authority
+      - warden-a-audit:/var/lib/lets-audit
+      - warden-a-signer:/run/lets-signer:ro
+    networks: [cluster]
+    restart: "no"
+
+  init-b:
+    <<: *node
+    read_only: true
+    command: [python, /app/deploy/production/acceptance/init_node.py]
+    environment: {LETS_ACCEPTANCE_WARDEN_ID: warden-b}
+    depends_on:
+      materials: {condition: service_completed_successfully}
+    volumes:
+      - trust:/etc/lets/trust:ro
+      - warden-b-state:/var/lib/lets
+      - warden-b-config:/var/lib/lets-config
+      - warden-b-authority:/var/lib/lets-authority
+      - warden-b-audit:/var/lib/lets-audit
+      - warden-b-signer:/run/lets-signer:ro
+    restart: "no"
+
+  init-c:
+    <<: *node
+    read_only: true
+    command: [python, /app/deploy/production/acceptance/init_node.py]
+    environment: {LETS_ACCEPTANCE_WARDEN_ID: warden-c}
+    depends_on:
+      materials: {condition: service_completed_successfully}
+    volumes:
+      - trust:/etc/lets/trust:ro
+      - warden-c-state:/var/lib/lets
+      - warden-c-config:/var/lib/lets-config
+      - warden-c-authority:/var/lib/lets-authority
+      - warden-c-audit:/var/lib/lets-audit
+      - warden-c-signer:/run/lets-signer:ro
+    restart: "no"
+
+  warden-a:
+    <<: *node
+    image: "${LETS_PRODUCTION_ACCEPTANCE_IMAGE:-lets-runtime:production-acceptance}"
+    command: *node-command
+    environment:
+      LETS_HEALTHCHECK_HOST: 127.0.0.1
+      LETS_HEALTHCHECK_PORT: "8443"
+      LETS_HEALTHCHECK_SERVER_NAME: warden-a
+      LETS_HEALTHCHECK_CA: /run/lets-pki/server-ca.pem
+      LETS_HEALTHCHECK_CERT: /run/lets-pki/peer-cert.pem
+      LETS_HEALTHCHECK_KEY: /run/lets-pki/peer-key.pem
+    depends_on:
+      init-a: {condition: service_completed_successfully}
+    volumes:
+      - trust:/etc/lets/trust:ro
+      - warden-a-state:/var/lib/lets
+      - type: volume
+        source: warden-a-config
+        target: /var/lib/lets/config.json
+        read_only: true
+        volume:
+          subpath: config.json
+      - warden-a-authority:/var/lib/lets-authority
+      - warden-a-audit:/var/lib/lets-audit
+      - warden-a-pki:/run/lets-pki:ro
+      - warden-a-signer:/run/lets-signer:ro
+    healthcheck:
+      test: [CMD, python, /app/deploy/production/healthcheck.py]
+      interval: 2s
+      timeout: 4s
+      retries: 40
+      start_period: 5s
+
+  warden-b:
+    <<: *node
+    image: "${LETS_PRODUCTION_ACCEPTANCE_IMAGE:-lets-runtime:production-acceptance}"
+    command: *node-command
+    environment:
+      LETS_HEALTHCHECK_HOST: 127.0.0.1
+      LETS_HEALTHCHECK_PORT: "8443"
+      LETS_HEALTHCHECK_SERVER_NAME: warden-b
+      LETS_HEALTHCHECK_CA: /run/lets-pki/server-ca.pem
+      LETS_HEALTHCHECK_CERT: /run/lets-pki/peer-cert.pem
+      LETS_HEALTHCHECK_KEY: /run/lets-pki/peer-key.pem
+    depends_on:
+      init-b: {condition: service_completed_successfully}
+    volumes:
+      - trust:/etc/lets/trust:ro
+      - warden-b-state:/var/lib/lets
+      - type: volume
+        source: warden-b-config
+        target: /var/lib/lets/config.json
+        read_only: true
+        volume:
+          subpath: config.json
+      - warden-b-authority:/var/lib/lets-authority
+      - warden-b-audit:/var/lib/lets-audit
+      - warden-b-pki:/run/lets-pki:ro
+      - warden-b-signer:/run/lets-signer:ro
+    healthcheck:
+      test: [CMD, python, /app/deploy/production/healthcheck.py]
+      interval: 2s
+      timeout: 4s
+      retries: 40
+      start_period: 5s
+
+  warden-c:
+    <<: *node
+    image: "${LETS_PRODUCTION_ACCEPTANCE_IMAGE:-lets-runtime:production-acceptance}"
+    command: *node-command
+    environment:
+      LETS_HEALTHCHECK_HOST: 127.0.0.1
+      LETS_HEALTHCHECK_PORT: "8443"
+      LETS_HEALTHCHECK_SERVER_NAME: warden-c
+      LETS_HEALTHCHECK_CA: /run/lets-pki/server-ca.pem
+      LETS_HEALTHCHECK_CERT: /run/lets-pki/peer-cert.pem
+      LETS_HEALTHCHECK_KEY: /run/lets-pki/peer-key.pem
+    depends_on:
+      init-c: {condition: service_completed_successfully}
+    volumes:
+      - trust:/etc/lets/trust:ro
+      - warden-c-state:/var/lib/lets
+      - type: volume
+        source: warden-c-config
+        target: /var/lib/lets/config.json
+        read_only: true
+        volume:
+          subpath: config.json
+      - warden-c-authority:/var/lib/lets-authority
+      - warden-c-audit:/var/lib/lets-audit
+      - warden-c-pki:/run/lets-pki:ro
+      - warden-c-signer:/run/lets-signer:ro
+    healthcheck:
+      test: [CMD, python, /app/deploy/production/healthcheck.py]
+      interval: 2s
+      timeout: 4s
+      retries: 40
+      start_period: 5s
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e
+    command: [-host=0.0.0.0]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=8m"]
+    ports: [127.0.0.1:28474:8474]
+    networks: [cluster]
+    restart: unless-stopped
+
+  scenario:
+    <<: *node
+    command: [python, /app/deploy/production/acceptance/scenario.py]
+    profiles: [tools]
+    volumes:
+      - trust:/etc/lets/trust:ro
+      - client:/test-client:ro
+      - scenario:/scenario
+      - executor-state:/var/lib/lets-executor
+      - executor-authority:/var/lib/lets-executor-authority
+
+networks:
+  cluster:
+    driver: bridge
+
+volumes:
+  trust:
+  client:
+  scenario:
+  executor-state:
+  executor-authority:
+  warden-a-state:
+  warden-a-config:
+  warden-a-authority:
+  warden-a-audit:
+  warden-a-pki:
+  warden-a-signer:
+  warden-b-state:
+  warden-b-config:
+  warden-b-authority:
+  warden-b-audit:
+  warden-b-pki:
+  warden-b-signer:
+  warden-c-state:
+  warden-c-config:
+  warden-c-authority:
+  warden-c-audit:
+  warden-c-pki:
+  warden-c-signer:

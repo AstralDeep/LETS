@@ -74,7 +74,7 @@ def _verifier(
     factory = SQLiteReceiptReplayStore.initialize if initialize else SQLiteReceiptReplayStore
     return ReceiptVerifier(
         registry,
-        factory(path),
+        factory(path, allow_unanchored=True),
         ExecutorPolicy(
             audience="executor",
             tenant_id="tenant",

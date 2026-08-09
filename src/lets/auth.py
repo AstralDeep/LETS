@@ -8,6 +8,7 @@ wardens.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import inspect
 import os
@@ -41,6 +42,8 @@ PEER_TIMESTAMP_HEADER = "x-lets-timestamp"
 PEER_NONCE_HEADER = "x-lets-nonce"
 PEER_CONTENT_DIGEST_HEADER = "x-lets-content-sha256"
 PEER_SIGNATURE_HEADER = "x-lets-signature"
+
+_LEGACY_REPLAY_GC_BATCH = 128
 
 
 class AuthenticationError(PolicyError):
@@ -226,6 +229,61 @@ class ReplayStore(Protocol):
     ) -> bool: ...
 
 
+class CoreReplayAuthority(Protocol):
+    """Core service boundary that burns transport nonces under the authority anchor."""
+
+    def claim_peer_request(
+        self,
+        *,
+        warden_id: str,
+        key_id: str,
+        nonce: str,
+        timestamp_s: int,
+        expires_at_s: int,
+        now_s: int,
+        clock_tolerance_s: int = 0,
+    ) -> bool: ...
+
+
+class CorePeerReplayStore:
+    """ReplayStore adapter for the externally anchored core authority service."""
+
+    def __init__(self, authority: CoreReplayAuthority) -> None:
+        if not callable(getattr(authority, "claim_peer_request", None)):
+            raise TypeError("core replay authority must implement claim_peer_request")
+        self._authority = authority
+
+    def claim(
+        self,
+        *,
+        warden_id: str,
+        key_id: str,
+        nonce: str,
+        timestamp_s: int,
+        expires_at_s: int,
+        now_s: int,
+        clock_tolerance_s: int = 0,
+    ) -> bool:
+        return self._authority.claim_peer_request(
+            warden_id=warden_id,
+            key_id=key_id,
+            nonce=nonce,
+            timestamp_s=timestamp_s,
+            expires_at_s=expires_at_s,
+            now_s=now_s,
+            clock_tolerance_s=clock_tolerance_s,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyPeerReplaySnapshot:
+    """Bounded logical snapshot imported once from the schema-1 replay database."""
+
+    clock_floor_s: int | None
+    active_claim_count: int
+    digest: bytes
+
+
 class SQLitePeerReplayStore:
     """Process-safe and crash-durable replay store backed by SQLite."""
 
@@ -237,6 +295,8 @@ class SQLitePeerReplayStore:
         path: str | Path,
         *,
         busy_timeout_ms: int = 5000,
+        read_only: bool = False,
+        immutable: bool = False,
         _create: bool = False,
     ) -> None:
         if str(path) == ":memory:":
@@ -245,6 +305,14 @@ class SQLitePeerReplayStore:
         if busy_timeout_ms <= 0:
             raise ValidationError("busy_timeout_ms must be positive")
         self._busy_timeout_ms = busy_timeout_ms
+        if type(read_only) is not bool:
+            raise ValidationError("peer replay read_only must be a boolean")
+        if _create and read_only:
+            raise ValidationError("peer replay initialization cannot be read-only")
+        if type(immutable) is not bool or (immutable and not read_only):
+            raise ValidationError("peer replay immutable mode requires read_only=True")
+        self._read_only = read_only
+        self._immutable = immutable
         self._connect_path = self._path
         self._connect_uri = False
         reserved = False
@@ -258,7 +326,9 @@ class SQLitePeerReplayStore:
                 os.close(descriptor)
                 reserved = True
         else:
-            self._connect_path = f"{Path(self._path).as_uri()}?mode=rw"
+            mode = "ro" if read_only else "rw"
+            immutable_query = "&immutable=1" if immutable else ""
+            self._connect_path = f"{Path(self._path).as_uri()}?mode={mode}{immutable_query}"
             self._connect_uri = True
         try:
             if _create:
@@ -367,8 +437,10 @@ class SQLitePeerReplayStore:
             ):
                 raise StorageError("peer replay database metadata is missing")
             journal_mode = str(connection.execute("PRAGMA journal_mode").fetchone()[0])
-            if journal_mode.casefold() != "wal":
+            if not self._immutable and journal_mode.casefold() != "wal":
                 raise StorageError("peer replay database must already use WAL journal mode")
+            if self._immutable and journal_mode.casefold() not in {"delete", "wal"}:
+                raise StorageError("frozen peer replay snapshot has an invalid journal mode")
 
     @property
     def path(self) -> str:
@@ -383,7 +455,8 @@ class SQLitePeerReplayStore:
                 uri=self._connect_uri,
             )
             connection.execute(f"PRAGMA busy_timeout={self._busy_timeout_ms}")
-            connection.execute("PRAGMA synchronous=FULL")
+            if not self._read_only:
+                connection.execute("PRAGMA synchronous=FULL")
             return connection
         except sqlite3.Error as exc:
             raise StorageError("could not open the durable peer replay database") from exc
@@ -394,6 +467,99 @@ class SQLitePeerReplayStore:
                 return tuple(str(row[0]) for row in connection.execute("PRAGMA integrity_check"))
         except sqlite3.Error as exc:
             raise StorageError("could not verify the peer replay database integrity") from exc
+
+    def active_claim_count(self, *, now_s: int) -> int:
+        """Count still-valid schema-1 claims without materializing them."""
+
+        if not self._read_only:
+            raise ValidationError("legacy peer replay inspection requires a read-only store")
+        if (
+            isinstance(now_s, bool)
+            or not isinstance(now_s, int)
+            or now_s < 0
+            or now_s > MAX_RESOURCE
+        ):
+            raise ValidationError("legacy peer replay inspection time is invalid")
+        try:
+            with closing(self._connect()) as connection:
+                floor_row = connection.execute(
+                    "SELECT clock_floor_s FROM peer_http_metadata WHERE singleton=1"
+                ).fetchone()
+                if floor_row is None:
+                    raise StorageError("legacy peer replay clock metadata is missing")
+                floor = None if floor_row[0] is None else int(floor_row[0])
+                if floor is not None and now_s < floor:
+                    raise ClockUncertainError(
+                        "migration clock moved behind the legacy peer replay floor"
+                    )
+                count = connection.execute(
+                    "SELECT COUNT(*) FROM peer_http_replay WHERE expires_at_s >= ?",
+                    (now_s,),
+                ).fetchone()
+        except sqlite3.Error as exc:
+            raise StorageError("could not inspect legacy peer replay claims") from exc
+        return 0 if count is None else int(count[0])
+
+    def snapshot(self, *, now_s: int, expected_digest: bytes) -> LegacyPeerReplaySnapshot:
+        """Read frozen legacy metadata after binding the exact backup artifact.
+
+        Migration deliberately refuses live legacy claims.  Operators stop the
+        schema-1 node and wait out the peer signature validity window first, so
+        the one-time import is O(1) in memory and WAL rather than an unbounded
+        authority transaction.
+        """
+
+        if not self._read_only:
+            raise ValidationError("legacy peer replay snapshots require a read-only store")
+        if not isinstance(expected_digest, bytes) or len(expected_digest) != 32:
+            raise ValidationError("legacy peer replay artifact digest must contain 32 bytes")
+        if (
+            isinstance(now_s, bool)
+            or not isinstance(now_s, int)
+            or now_s < 0
+            or now_s > MAX_RESOURCE
+        ):
+            raise ValidationError("legacy peer replay snapshot time is invalid")
+        before = self._artifact_digest()
+        if before != expected_digest:
+            raise ValidationError("legacy peer replay artifact digest changed before import")
+        try:
+            with closing(self._connect()) as connection:
+                floor_row = connection.execute(
+                    "SELECT clock_floor_s FROM peer_http_metadata WHERE singleton=1"
+                ).fetchone()
+                if floor_row is None:
+                    raise StorageError("legacy peer replay clock metadata is missing")
+                floor = None if floor_row[0] is None else int(floor_row[0])
+                if floor is not None and now_s < floor:
+                    raise ClockUncertainError(
+                        "migration clock moved behind the legacy peer replay floor"
+                    )
+                count_row = connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM peer_http_replay
+                    WHERE expires_at_s >= ?
+                    """,
+                    (now_s,),
+                ).fetchone()
+        except sqlite3.Error as exc:
+            raise StorageError("could not snapshot the legacy peer replay database") from exc
+        after = self._artifact_digest()
+        if after != expected_digest:
+            raise ValidationError("legacy peer replay artifact digest changed during import")
+        active_claim_count = 0 if count_row is None else int(count_row[0])
+        return LegacyPeerReplaySnapshot(floor, active_claim_count, expected_digest)
+
+    def _artifact_digest(self) -> bytes:
+        digest = sha256()
+        try:
+            with Path(self._path).open("rb") as stream:
+                while block := stream.read(1024 * 1024):
+                    digest.update(block)
+        except OSError as exc:
+            raise StorageError("could not hash the legacy peer replay artifact") from exc
+        return digest.digest()
 
     def claim(
         self,
@@ -449,7 +615,17 @@ class SQLitePeerReplayStore:
                             (now_s,),
                         )
                     connection.execute(
-                        "DELETE FROM peer_http_replay WHERE expires_at_s < ?", (now_s,)
+                        """
+                        DELETE FROM peer_http_replay
+                        WHERE (warden_id, key_id, nonce) IN (
+                            SELECT warden_id, key_id, nonce
+                            FROM peer_http_replay
+                            WHERE expires_at_s < ?
+                            ORDER BY expires_at_s, warden_id, key_id, nonce
+                            LIMIT ?
+                        )
+                        """,
+                        (now_s, _LEGACY_REPLAY_GC_BATCH),
                     )
                     connection.execute(
                         """
@@ -500,7 +676,17 @@ class SQLitePeerReplayStore:
                         (cutoff,),
                     )
                 cursor = connection.execute(
-                    "DELETE FROM peer_http_replay WHERE expires_at_s < ?", (cutoff,)
+                    """
+                    DELETE FROM peer_http_replay
+                    WHERE (warden_id, key_id, nonce) IN (
+                        SELECT warden_id, key_id, nonce
+                        FROM peer_http_replay
+                        WHERE expires_at_s < ?
+                        ORDER BY expires_at_s, warden_id, key_id, nonce
+                        LIMIT ?
+                    )
+                    """,
+                    (cutoff, _LEGACY_REPLAY_GC_BATCH),
                 )
                 connection.commit()
                 return cursor.rowcount
@@ -666,7 +852,12 @@ class PeerMessageAuthenticator:
             raise SignatureError("peer request signature could not be verified") from exc
         if valid is not True:
             raise SignatureError("peer request signature is invalid or untrusted")
-        if not self._replay_store.claim(
+        # The production replay boundary performs an anchored SQLite commit.  Keep
+        # that bounded blocking operation off the ASGI event loop so liveness and
+        # unrelated request parsing continue while the single authority writer is
+        # serialized in its worker thread.
+        claimed = await asyncio.to_thread(
+            self._replay_store.claim,
             warden_id=warden_id,
             key_id=key_id,
             nonce=nonce,
@@ -674,7 +865,8 @@ class PeerMessageAuthenticator:
             expires_at_s=max(now_s, timestamp_s) + self._max_skew_s,
             now_s=now_s,
             clock_tolerance_s=self._max_skew_s,
-        ):
+        )
+        if not claimed:
             raise ReplayError("peer request nonce was already accepted")
         return PeerIdentity(warden_id=warden_id, key_id=key_id)
 

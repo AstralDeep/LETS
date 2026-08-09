@@ -1,7 +1,8 @@
 # Operating a LETS cluster
 
 This guide describes the standalone SQLite warden deployment. Each warden owns one independent
-database, stable signing identity, durable peer-replay database, and a disjoint genesis share.
+core database, stable signing identity, externally monotonic authority anchor, and a disjoint
+genesis share. The core database is also the sole peer HTTP replay authority in schema 2.
 
 ## Bootstrap requirements
 
@@ -54,6 +55,36 @@ seed; the seed file or external signer must therefore be backed up separately. F
 use the checked manifest/bootstrap workflow and Docker example rather than giving every node the
 full budget.
 
+## Provider-backed production provisioning
+
+Production initialization never writes a raw signing seed or static bootstrap identity. Initialize
+the provider's independent audit archive, then admit the signed manifest and select the provider in
+the one authorized genesis operation:
+
+```powershell
+uv run lets --config C:\lets\node\config.json init `
+  --production --warden-id warden-a `
+  --manifest C:\lets\trust\cluster.json `
+  --operator-key operator-a=BASE64URL_PUBLIC_KEY `
+  --runtime-provider generic-production `
+  --runtime-option signer_command_json='["C:\lets\bin\hsm-sign.exe"]' `
+  --runtime-option signer_key_id=warden-a/ed25519-managed `
+  --runtime-option signer_public_key=BASE64URL_PUBLIC_KEY `
+  --runtime-option identity_keys_file=C:\lets\trust\identity-keys.json `
+  --runtime-option identity_issuer=https://identity.example `
+  --runtime-option identity_audience=lets `
+  --runtime-option authority_anchor_path=C:\lets-authority\warden-a.json `
+  --runtime-option audit_archive_path=C:\lets-audit\warden-a.sqlite3 `
+  --min-free-disk-bytes 1073741824 `
+  --max-database-bytes 10737418240 --reserve-pages 1024
+```
+
+Runtime options are persisted and may contain only non-secret handles, paths, public material,
+issuers, and timeouts; never put a token, PIN, credential, or private key in an option. Provider
+admission and a live signing proof happen before any local node artifact is created. The managed
+key must match the local warden key in the operator-signed manifest. The independent monotonic
+anchor and audit archive must not share the node snapshot or each other's failure domain.
+
 ## Serving
 
 Loopback development:
@@ -78,20 +109,31 @@ Every outbound target must also have at least one currently valid trusted verifi
 startup rejects an endpoint/key mismatch, and transfer preparation rechecks the target immediately
 before any local rights are debited.
 
-Startup admission performs full warden-database integrity, foreign-key, and conservation scans and
-verifies the peer replay database's application identity, exact critical schema, WAL mode, and
-integrity once.
+Startup admission performs full core-database integrity, foreign-key, conservation, signed-audit,
+and peer-replay-authority checks. A peer nonce claim, replay clock-floor advance, replay history
+digest, signed audit row, and audit-outbox row commit in one core transaction; the existing
+post-COMMIT external-anchor comparison is its linearization point. A crash before that comparison
+faults the process, and restart admits only a provable contiguous extension. New schema-2 nodes do
+not create or open a separate replay database.
 `/health/live` reports process liveness. The unauthenticated `/health/ready` path is deliberately
 bounded: it performs a cheap database read and checks the durable clock floor and current signing
 key, rather than repeating database-size scans on every probe. Use `lets info` for explicit deep
 diagnostics. Route traffic only to ready nodes. A locally ready warden can continue spending only
 its local escrow share during a peer partition.
 
+`serve --production` requires inbound mTLS (`--tls-cert`, `--tls-key`, and `--client-ca`). When
+peers are configured it also requires outbound `--peer-ca`, `--peer-cert`, and `--peer-key`.
+`--limit-concurrency`, `--timeout-keep-alive`, and `--timeout-graceful-shutdown` bound overload and
+termination. Give the process at least its graceful-shutdown interval before a hard kill. The
+server owns the node process lock for its entire lifetime, so recovery and schema migration cannot
+run concurrently with it. Production readiness also requires a healthy, bounded audit exporter;
+a blocked sink, excessive backlog, or stalled export makes readiness false.
+
 `max_clock_uncertainty_ns` is an operator-attested upper bound, not a measured guarantee. Monitor
-the actual source and configure a conservative bound. Warden, executor, and peer-replay databases
-persist monotonic clock floors and fail closed after a restart if wall time rolls back beyond the
-declared tolerance. A forward jump can expire authority early and reduce availability, but cannot
-revive it.
+the actual source and configure a conservative bound. Core warden authority and executor replay
+stores persist monotonic clock floors and fail closed after a restart if wall time rolls back beyond
+the declared tolerance. A forward jump can expire authority early and reduce availability, but
+cannot revive it.
 
 ## Policy rollout
 
@@ -126,31 +168,109 @@ During a partition:
 
 ## Backup and restore
 
-The database, separately provisioned signing seed, peer replay database, configuration, signed
-manifest, and operator trust roots form one authority unit. Fence command and peer traffic first,
-then create the database portion with SQLite's consistent backup API:
+The database-only `lets backup` command remains for development compatibility. Production uses an
+exclusive, exact recovery bundle:
 
 ```powershell
-uv run lets --config .lets/a/config.json backup --output .lets/backups/warden-a.sqlite3
+uv run lets --config C:\lets\node\config.json drain --reason "scheduled recovery point"
+# Wait for peer-delivery and audit-export queues to reach zero, then stop the server.
+uv run lets --config C:\lets\node\config.json recovery backup --production `
+  --output D:\lets-backups\warden-a-20260809T120000Z
+uv run lets --config C:\lets\node\config.json recovery verify --production `
+  --bundle D:\lets-backups\warden-a-20260809T120000Z
 ```
 
-The command refuses to overwrite a destination and verifies the produced database. It backs up
-only the warden database. To form a complete recovery bundle, snapshot the resulting database,
-signing seed or external-signer recovery material, peer replay database, configuration, manifest,
-and operator trust roots while the node remains fenced. Preserve ACLs, encrypt the bundle, and
-record its checksum, manifest digest, configuration epoch, last audit hash/sequence, and transfer
-watermarks. Do not treat a copied main database file without its WAL as a backup, and do not
-manually copy live `-wal` or `-shm` files as a substitute for the backup API.
+Backup proves DRAINING state, empty peer/audit queues, core integrity/schema/replay authority,
+conservation, signed audit continuity, healthy capacity, manifest/current-key trust, and agreement
+with the independent authority anchor. SQLite's backup API snapshots the sole authoritative core
+database. LETS fsyncs every file and publishes the directory with a durable rename. `bundle.json`
+binds exact paths, lengths, SHA-256 digests, identity, schema, and a checkpoint summary. A schema-2
+bundle containing the retired schema-1 replay artifact is rejected as mixed authority.
 
-Operational opens use SQLite `mode=rw`: `serve`, `info`, and `backup` refuse missing or empty
-warden/replay databases and never initialize authority implicitly. Only `lets init` may create the
-genesis share and replay store. Losing either database is a fail-closed recovery event, not a reason
-to rerun initialization; restore the complete fenced authority unit.
+Every production recovery or migration command also requires the live operator-signed manifest,
+its persisted trust inputs, no static bootstrap identity, and explicit positive storage reserves.
+The bundle contains byte-exact copies of the live config and signed manifest, never provider
+secrets.
 
-After restore, run `lets info`, database integrity/foreign-key checks, audit verification, and peer
-watermark reconciliation before restoring readiness. Restoring an old clone while the original
-continues running duplicates authority and is outside the v1 safety model. Fence the old instance
-with infrastructure controls first.
+The independent authority anchor is deliberately never copied into the bundle. Managed-key
+recovery material and identity credentials also remain provider-owned. Encrypt and protect the
+bundle, but keep the anchor on its independent non-rollback service or volume. Snapshotting the
+anchor beside the database defeats stale-restore fencing.
+
+For the production Compose profile, record the actual state, authority, audit, and backup
+controller/volume identities in the four `LETS_*_ROLLBACK_DOMAIN` values. They must be distinct;
+the authority and backup boundary kinds must also declare `fenced-filesystem` and
+`dedicated-filesystem`, respectively. These declarations are operator attestations because host
+paths and device numbers cannot reveal storage-controller snapshot grouping. The validator does
+require four distinct mounted-filesystem device identities, and a quota does not waive that
+minimum. It also requires each directory to be the exact Linux mountpoint with no nested mount and
+rejects network, overlay, RAM, and desktop-share filesystems; the shipped Compose binds use private
+mount propagation. Docker Desktop paths are not a production storage boundary. Commissioning
+evidence must additionally exercise independent restore permissions and prove that no snapshot job
+can include both the database and either monotonic anchor.
+
+The bundle parent is also the explicit recovery scratch/quarantine domain. In production it must
+already exist outside the node state directory on the independent backup volume. Candidate and
+migration verification copy there, never to the runtime's small default temporary filesystem.
+LETS checks exact artifact bytes plus 1 MiB metadata headroom before copying. Restore separately
+admits the peak atomic-replacement bytes on state storage and the live core/sidecar preservation
+bytes on backup storage before it writes its journal.
+
+Restore is explicitly destructive and requires the trusted live config, production provider, node
+lock, exact warden confirmation, and current external anchor:
+
+```powershell
+uv run lets --config C:\lets\node\config.json recovery restore `
+  --bundle D:\lets-backups\warden-a-20260809T120000Z `
+  --confirm-warden-id warden-a
+```
+
+LETS validates a temporary copy unanchored before replacing any live file. An old, ahead, or forked
+database is rejected by a non-mutating exact read of the current anchor before audit-archive repair
+or publication; standalone verification does not mutate the archive. A durable restore journal
+fences serving through `PREPARED` and `CORE_INSTALLED` and lets the exact command resume after a
+crash. Exact pre-restore core/sidecar copies remain in the backup-domain quarantine only while the
+journal is incomplete; after the second anchored admission, LETS records `COMPLETE` and removes
+only that exact allow-listed quarantine. These copies are never authority rollback points. A
+restored node remains DRAINING.
+Run `lets info --production`, reconcile peers and the incident, then use
+`lets activate --reason ...` only after every check is green.
+
+Operational opens use SQLite `mode=rw` and never initialize missing authority implicitly. Losing a
+database is not permission to rerun genesis. See [upgrade and recovery](upgrade-recovery.md) for
+the resumable schema-transition and fault procedure.
+
+## Protected-executor authority
+
+Every production protected executor uses its own schema-5 replay database and monotonic executor
+anchor. Keep their directories on independent failure/rollback domains with separate credentials;
+never include the anchor in a database snapshot or restore. Build the replay identity with
+`executor_replay_identity(policy, registry)` after loading the exact key bytes and validity bounds
+from the authenticated signed manifest. Runtime key discovery is diagnostic and must not replace
+that trust root. Reopen requires the same complete policy and registry digest, so policy widening
+or same-warden key substitution is a deliberate new authority epoch rather than a live config
+edit.
+
+`verify_and_claim()` returns only after the local claim commit and external CAS acknowledgement.
+If the anchor times out after commit, the caller receives an error, the store remains faulted, and
+the protected effect must not run. Restart with the same database and anchor; reopen advances a
+committed-ahead local head only when its append-only history extends the anchored digest. An older
+or divergent database remains fenced. Do not delete or rewrite the anchor to restore availability.
+
+Before copying an executor database, quiesce claim callers and require
+`SQLiteReceiptReplayStore.checkpoint_wal()` to report `busy == 0`. Copy only the main database; do
+not combine WAL/SHM from a different instant, and do not copy the anchor. After a restore, exact
+open against the live anchor is the admission test. Monitor `store.status()` for rollback
+protection, authority health, claim sequence, clock floor, database/WAL/SHM bytes, live replay rows,
+and filesystem free bytes.
+
+Expired replay rows and watermarks are deleted in batches of at most 128 per accepted receipt, but
+the authority claim chain never shrinks. Allocate a dedicated quota for a finite executor epoch and
+alert before exhaustion; `SQLITE_FULL` disables effects. Schema 4 cannot be promoted because it has
+no externally provable claim history. Drain for the maximum receipt lifetime plus clock
+uncertainty, prove no effects are in flight, archive the old database, then initialize a fresh
+schema-5 database and unused anchor path. Use the same drain-and-new-anchor procedure for capacity
+rotation. `allow_unanchored=True` is restricted to disposable development/test executors.
 
 ## Key rotation
 
@@ -174,9 +294,10 @@ keys for receipt/audit verification, and rehearse the cutover and rollback proce
 ## Audit and incident response
 
 Audit rows are append-only, hash chained, and signed. Query them through `/v1/audit` with bounded
-pagination and verify the complete chain through `/v1/audit/verify`. Export outbox events to a
-separate retention system; the local log is authoritative for detection but is not an external
-anti-rollback anchor.
+pagination and verify the complete chain through `/v1/audit/verify`. Full verification streams the
+ordered cursor row by row, so audit history and payload size do not require an equivalent in-memory
+copy. Export outbox events to a separate retention system; the local log is authoritative for
+detection but is not an external anti-rollback anchor.
 
 On suspected compromise:
 

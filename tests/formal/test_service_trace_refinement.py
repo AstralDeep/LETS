@@ -176,7 +176,9 @@ def test_service_transfer_and_executor_trace_refines_bounded_model(tmp_path: Pat
 
         verifier = ReceiptVerifier(
             registry,
-            SQLiteReceiptReplayStore.initialize(tmp_path / "executor.sqlite3"),
+            SQLiteReceiptReplayStore.initialize(
+                tmp_path / "executor.sqlite3", allow_unanchored=True
+            ),
             ExecutorPolicy(
                 audience="executor",
                 tenant_id="tenant",

@@ -1,6 +1,6 @@
 # LETS Protocol Contract v1 (Implementation Draft)
 
-This document specifies the interoperable contract implemented by the LETS v0.1 runtime. It is
+This document specifies the interoperable contract implemented by the LETS 1.0 runtime. It is
 not yet a frozen standards-track specification. Normative terms **MUST**, **SHOULD**, and **MAY**
 apply to v1 implementations unless a passage is explicitly marked as future work.
 
@@ -77,10 +77,13 @@ Every peer mutation carries these six singleton headers:
 The signed LETS-CJ/1 object has exactly `type=lets.peer-http-signature/v1`, uppercase `method`, the
 exact ASGI request target (`path` plus query string when present), `content_digest`, `timestamp_s`,
 `nonce`, `warden_id`, and `key_id`. Receivers verify the body digest and manifest key, then durably
-claim `(warden_id, key_id, nonce)` before dispatch. Duplicate headers, stale timestamps, repeated
-nonces, unknown keys, and target/body changes MUST fail closed. TLS is required for non-loopback
-production endpoints; deployments MAY additionally require mTLS. Message signatures do not
-replace transport confidentiality or endpoint authentication.
+claim `(warden_id, key_id, nonce)` before dispatch. In schema 2 that claim, replay clock floor,
+history digest, signed audit/outbox event, and core authority checkpoint advance are one serialized
+transaction followed by the external monotonic-anchor CAS. Commit-before-CAS faults the process;
+restart may admit only a proven contiguous audit extension. Duplicate headers, stale timestamps,
+repeated nonces, unknown keys, and target/body changes MUST fail closed. TLS is required for
+non-loopback production endpoints; deployments MAY additionally require mTLS. Message signatures
+do not replace transport confidentiality or endpoint authentication.
 
 Manifest endpoint origins use lowercase `http` or `https`, an ASCII DNS name (including explicit
 IDNA A-labels) or IP literal, and an optional TCP port in `1..65535`. IPv6 literals use hexadecimal
@@ -230,7 +233,15 @@ On success, the same local durable transaction MUST debit residual, update HSM s
 }
 ```
 
-A protected executor MUST verify the signature, key epoch, audience, freshness, machine/policy version, and nonce/sequence replay rules before performing the effect. Receipt acceptance SHOULD be durably recorded before or atomically with the application-specific effect when possible.
+A protected executor MUST verify the signature, key epoch, audience, freshness, machine/policy
+version, and nonce/sequence replay rules before performing the effect. In the production SQLite
+profile, the executor MUST bind its exact policy and verification-key material, database instance,
+clock floor, and append-only claim head to a linearizable external anchor outside the database
+rollback domain. It MUST NOT perform the effect until the claim commit and anchor CAS both succeed.
+A stale or divergent restore, losing cloned branch, policy widening, or verification-key
+substitution fails admission. Receipt acceptance SHOULD be recorded atomically with the
+application-specific effect when the effect domain permits; otherwise this is at-most-once
+authorization, not exactly-once physical execution.
 
 For each `(warden_id, lease_id, executor_audience)`, receipt expiry MUST be nondecreasing with
 `resulting_sequence`. A warden that shortens a lease beneath an earlier outstanding receipt horizon
@@ -253,7 +264,16 @@ The child grant inherits the lineage, receives an ancestor-membership proof, and
 
 `POST /v1/branches/{lease_id}/revoke` increments a branch epoch and records a revocation prefix/proof. Connected wardens reject matching leases immediately and reject renewal. Disconnected descendants can continue only until their nested leases expire or their residual rights are exhausted. Revocation does not reclaim rights merely because a message was sent; reclamation requires authoritative closure, expiry under policy, or migration completion.
 
-Expiry reclamation MUST be idempotent. A lease with nonzero residual may enter `EXPIRED_PENDING_RECLAIM`; one atomic operation returns residual to the authoritative warden and marks it reclaimed. Duplicate reclaim requests are no-ops.
+The durable revocation record is the immediate authorization fence; per-lease `REVOKED` status is a
+query materialization. One transaction materializes and audits at most 64 leases, and an identical
+signed delivery or request may advance the next batch without changing the revocation epoch or
+response. A renewal that would atomically shorten more than 64 live descendants fails before any
+lease mutation; operators must shorten smaller descendant branches first.
+
+Expiry reclamation MUST be idempotent. A lease with nonzero residual may enter
+`EXPIRED_PENDING_RECLAIM`; each operation returns residual for at most 64 eligible leases to the
+authoritative warden and marks them reclaimed. Repeated requests converge; a call with no eligible
+rows is a no-op.
 
 ## 9. Free-rights transfer
 
@@ -285,6 +305,11 @@ already compacted, again without adding rights. The source retains the in-flight
 valid acknowledgement is recorded. Administrative cancellation cannot restore source rights unless
 non-acceptance is proved by a protocol stronger than timeout alone.
 
+Target contiguous-watermark maintenance consumes at most 64 durable gap rows per acceptance. An
+exact voucher retry returns the originally signed acknowledgement without crediting or signing
+again, but may advance the next 64-row maintenance batch. Consequently the acknowledgement's
+historical watermark can lag the stream's newer durable watermark without conflicting with it.
+
 ### 9.3 Compaction
 
 For each peer stream, the target stores:
@@ -298,7 +323,15 @@ source signs a contiguous-prefix checkpoint only after every transfer delivery t
 watermark is itself durably confirmed, persists the checkpoint in the peer outbox, and then removes
 the covered voucher rows. The target verifies and stores that checkpoint before removing covered
 acknowledgement rows. Duplicate checkpoints are idempotent; backward or content-conflicting
-checkpoints fail closed. This bilateral compaction protocol is implemented in the v0.1 runtime.
+checkpoints fail closed. Source vouchers and target acknowledgements are physically pruned in
+deterministic batches of at most 64 rows; replaying the identical checkpoint advances the next
+batch without moving or re-signing its authority watermark. This bilateral compaction protocol is
+implemented in the 1.0 runtime.
+
+Source acknowledgement-watermark maintenance examines at most 64 consecutive transfer rows per
+finalization. An exact acknowledgement retry returns the original signed object while advancing
+another batch. A checkpoint request is bounded by the stream's actually advanced durable watermark,
+not by a higher acknowledgement claim or the highest terminal row present in storage.
 
 ### 9.4 Durable delivery
 
@@ -343,7 +376,7 @@ Policy and machine digests are immutable within a receipt. A warden MUST reject 
 
 ## 14. Implementation status and deployment boundary
 
-The v0.1 runtime implements durable serializable warden transactions, authenticated client and peer
+The 1.0 runtime implements durable serializable warden transactions, authenticated client and peer
 identity adapters, independent receipt-enforcing executors, durable replay stores, crash recovery,
 bilateral transfer compaction, bounded clock monitoring, owner-signed branch revocation, a durable
 peer dispatcher, fault-injected multi-node acceptance, and invariant telemetry. Operators still

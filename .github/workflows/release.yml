@@ -1,0 +1,981 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/astraldeep/lets
+
+jobs:
+  verify:
+    name: Verify signed version tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Match tag, package version, changelog, and main
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          python - "$version" "$GITHUB_REF_NAME" <<'PY'
+          import re
+          import sys
+          import ast
+          from pathlib import Path
+
+          version, tag = sys.argv[1:]
+          if re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?", version) is None:
+              raise SystemExit(f"package version is not semantic: {version}")
+          if tag != f"v{version}":
+              raise SystemExit(f"tag {tag!r} does not match package version {version!r}")
+          module = ast.parse(Path("src/lets/__init__.py").read_text(encoding="utf-8"))
+          exported = [
+              node.value.value
+              for node in module.body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+              and isinstance(node.value, ast.Constant)
+              and isinstance(node.value.value, str)
+          ]
+          if exported != [version]:
+              raise SystemExit(f"lets.__version__ does not match package version: {exported!r}")
+          PY
+          grep -Eq "^## \[$version\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" CHANGELOG.md
+          test "$GITHUB_SHA" = "$(git rev-parse origin/main)" || {
+            echo "release tag must resolve to the current main commit" >&2
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Require a GitHub-verified annotated tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}"
+          object_type="$(gh api "$ref" --jq '.object.type')"
+          object_sha="$(gh api "$ref" --jq '.object.sha')"
+          test "$object_type" = "tag" || { echo "release tag must be annotated" >&2; exit 1; }
+          tag="repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}"
+          test "$(gh api "$tag" --jq '.verification.verified')" = "true" || {
+            gh api "$tag" --jq '.verification.reason' >&2
+            echo "GitHub did not verify the annotated tag signature" >&2
+            exit 1
+          }
+          test "$(gh api "$tag" --jq '.object.type')" = "commit"
+          test "$(gh api "$tag" --jq '.object.sha')" = "$GITHUB_SHA"
+
+  package:
+    name: Rebuild, smoke, hash, and attest Python artifacts
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Re-run frozen quality and unit gates
+        run: |
+          uv lock --check
+          uv sync --all-extras --frozen
+          uv run --frozen ruff check .
+          uv run --frozen ruff format --check .
+          uv run --frozen mypy src
+          uv run --frozen pytest -m "not e2e"
+          python deploy/production/check_build_context.py
+      - name: Perform two clean reproducible builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export SOURCE_DATE_EPOCH
+          uv build --out-dir dist-first
+          uv build --out-dir dist
+          uvx --from twine==7.0.0 twine check dist/lets_agent-*
+          version="${{ needs.verify.outputs.version }}"
+          for directory in dist-first dist; do
+            git archive --format=tar --prefix="lets-deployment-$version/" HEAD -- \
+              CHANGELOG.md LICENSE NOTICE \
+              deploy/production/.env.example \
+              deploy/production/README.md \
+              deploy/production/compose.yaml \
+              deploy/production/healthcheck.py \
+              deploy/production/maintenance-compose.yaml \
+              deploy/production/provision-compose.yaml \
+              deploy/production/stage_config.py \
+              deploy/production/validate.py \
+              docs/operations.md \
+              docs/release.md \
+              docs/runtime-providers.md \
+              docs/upgrade-recovery.md \
+              | gzip -n > "$directory/lets-deployment-$version.tar.gz"
+          done
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          def hashes(directory: str) -> dict[str, str]:
+              return {
+                  path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in Path(directory).iterdir()
+                  if path.is_file() and path.name.endswith((".whl", ".tar.gz"))
+              }
+
+          first = hashes("dist-first")
+          second = hashes("dist")
+          if first != second:
+              raise SystemExit(f"release build is not reproducible: {first!r} != {second!r}")
+          PY
+      - name: Smoke-test the release wheel in isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          test -f "dist/lets-deployment-${{ needs.verify.outputs.version }}.tar.gz"
+          tar -tzf "dist/lets-deployment-${{ needs.verify.outputs.version }}.tar.gz" \
+            | grep -q '/deploy/production/compose.yaml$'
+          uv export --frozen --no-dev --extra server --extra client \
+            --no-emit-project --output-file requirements-release.txt
+          uv venv --python 3.14 .release-smoke
+          uv pip sync --python .release-smoke/bin/python requirements-release.txt
+          uv pip install --python .release-smoke/bin/python --no-deps "$wheel"
+          uv pip check --python .release-smoke/bin/python
+          test "$(.release-smoke/bin/python -c 'import lets; print(lets.__version__)')" = \
+            "${{ needs.verify.outputs.version }}"
+          .release-smoke/bin/lets --help
+          .release-smoke/bin/python -c "import fastapi, httpx, lets, uvicorn"
+      - name: Generate the release SBOM and hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          site_packages="$(
+            .release-smoke/bin/python -c \
+              'import sysconfig; print(sysconfig.get_paths()["purelib"])'
+          )"
+          uvx --from pip-audit==2.10.1 pip-audit --strict \
+            --path "$site_packages"
+          uvx --from cyclonedx-bom==7.3.1 cyclonedx-py environment \
+            .release-smoke/bin/python --pyproject pyproject.toml \
+            --mc-type application --output-reproducible --output-format JSON \
+            --output-file dist/lets-python.cdx.json
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          directory = Path("dist")
+          sbom = json.loads((directory / "lets-python.cdx.json").read_text(encoding="utf-8"))
+          assert sbom.get("bomFormat") == "CycloneDX" and sbom.get("components")
+          assert (sbom.get("metadata") or {}).get("component", {}).get("name") == "lets-agent"
+          artifacts = sorted(
+              path
+              for path in directory.iterdir()
+              if path.is_file()
+              and path.name.endswith((".whl", ".tar.gz", ".json"))
+          )
+          lines = [f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}" for path in artifacts]
+          (directory / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+      - name: Attest Python build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Archive release package assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-package-${{ needs.verify.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 90
+
+  image-candidate:
+    name: Build and publish the uniquely addressed OCI candidate
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    outputs:
+      digest: ${{ steps.candidate.outputs.digest }}
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:2f5adac4ecd194d9f8c10b7b5d7bceb5186853db1b26e5abd3a657af0b7e26ec
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Record deterministic image metadata
+        id: build-metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          created="$(date --utc --date="@$epoch" +%Y-%m-%dT%H:%M:%SZ)"
+          printf 'epoch=%s\ncreated=%s\n' "$epoch" "$created" >> "$GITHUB_OUTPUT"
+      - name: Compute immutable OCI labels and tags
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.created=${{ steps.build-metadata.outputs.created }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.verify.outputs.version }}
+      - name: Resume an already promoted candidate without rebuilding
+        id: resume
+        env:
+          EXPECTED_CREATED: ${{ steps.build-metadata.outputs.created }}
+          EXPECTED_VERSION: ${{ needs.verify.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAGS: ${{ steps.metadata.outputs.tags }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          inspect_error="$(mktemp)"
+          trap 'rm -f "$inspect_error"' EXIT
+          existing_digests=()
+          release_tags=()
+          while IFS= read -r tag; do
+            test -n "$tag" || continue
+            release_tags+=("$tag")
+            if digest="$(
+              docker buildx imagetools inspect "$tag" \
+                --format '{{.Manifest.Digest}}' 2>"$inspect_error"
+            )"; then
+              existing_digests+=("$digest")
+              continue
+            fi
+            if ! grep -Eiq 'manifest unknown|not found|404' "$inspect_error"; then
+              cat "$inspect_error" >&2
+              echo "could not prove that release image tag is absent: $tag" >&2
+              exit 1
+            fi
+          done <<< "$RELEASE_TAGS"
+          if [ "${#release_tags[@]}" -ne 2 ]; then
+            echo "release metadata did not produce exactly two immutable tags" >&2
+            exit 1
+          fi
+          if [ "${#existing_digests[@]}" -eq 0 ]; then
+            echo "build_required=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          digest="${existing_digests[0]}"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "existing release tag has an invalid digest: $digest" >&2
+            exit 1
+          fi
+          for existing in "${existing_digests[@]}"; do
+            if [ "$existing" != "$digest" ]; then
+              echo "existing immutable release tags resolve to different digests" >&2
+              exit 1
+            fi
+          done
+
+          docker buildx imagetools inspect "$IMAGE_NAME@$digest" \
+            --format '{{json .}}' > resumed-image.json
+          EXPECTED_DIGEST="$digest" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          document = json.loads(Path("resumed-image.json").read_text(encoding="utf-8"))
+          expected_digest = os.environ["EXPECTED_DIGEST"]
+          manifest = document.get("manifest") or {}
+          if manifest.get("digest") != expected_digest:
+              raise SystemExit("resumed image inspection returned the wrong index digest")
+
+          images = document.get("image") or {}
+          expected_labels = {
+              "org.opencontainers.image.created": os.environ["EXPECTED_CREATED"],
+              "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
+              "org.opencontainers.image.version": os.environ["EXPECTED_VERSION"],
+          }
+          for platform, architecture in (
+              ("linux/amd64", "amd64"),
+              ("linux/arm64", "arm64"),
+          ):
+              image = images.get(platform) or {}
+              if image.get("os") != "linux" or image.get("architecture") != architecture:
+                  raise SystemExit(f"resumed image is missing exact {platform} configuration")
+              labels = (image.get("config") or {}).get("Labels") or {}
+              for name, expected in expected_labels.items():
+                  if labels.get(name) != expected:
+                      raise SystemExit(
+                          f"resumed {platform} image label {name!r} is "
+                          f"{labels.get(name)!r}, expected {expected!r}"
+                      )
+          PY
+          gh attestation verify "oci://$IMAGE_NAME@$digest" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+            --source-digest "$GITHUB_SHA" \
+            --source-ref "$GITHUB_REF"
+          printf 'build_required=false\ndigest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Publish the multi-architecture release candidate
+        id: push
+        if: steps.resume.outputs.build_required == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        env:
+          SOURCE_DATE_EPOCH: ${{ steps.build-metadata.outputs.epoch }}
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          platforms: linux/amd64,linux/arm64
+          outputs: type=registry,rewrite-timestamp=true
+          tags: >-
+            ${{ env.IMAGE_NAME }}:candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: false
+          sbom: false
+          build-args: |
+            BUILD_DATE=${{ steps.build-metadata.outputs.created }}
+            SOURCE_DATE_EPOCH=${{ steps.build-metadata.outputs.epoch }}
+            VERSION=${{ needs.verify.outputs.version }}
+            VCS_REF=${{ github.sha }}
+      - name: Attest candidate build provenance in the build job
+        if: steps.resume.outputs.build_required == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Select the exact new or resumed candidate digest
+        id: candidate
+        env:
+          BUILT_DIGEST: ${{ steps.push.outputs.digest }}
+          RESUMED_DIGEST: ${{ steps.resume.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="${RESUMED_DIGEST:-$BUILT_DIGEST}"
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "candidate digest is missing or invalid: $digest" >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+  production-acceptance:
+    name: Exercise the exact published candidate in the hardened three-node profile
+    needs: [verify, image-candidate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Log in to GHCR for the exact candidate
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Synchronize the frozen repository environment
+        run: uv sync --all-extras --frozen
+      - name: Run the mTLS production-profile acceptance against the exact candidate
+        env:
+          LETS_PRODUCTION_ACCEPTANCE_IMAGE: >-
+            ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+        run: uv run --frozen python deploy/production/run_acceptance.py
+      - name: Require acceptance evidence to bind the exact candidate digest
+        env:
+          EXPECTED_IMAGE: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path("results/generated/production-profile-acceptance.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          actual = evidence.get("runtime_image_digest")
+          if actual != os.environ["EXPECTED_IMAGE"]:
+              raise SystemExit(
+                  f"production acceptance used {actual!r}, expected {os.environ['EXPECTED_IMAGE']!r}"
+              )
+          PY
+      - name: Attest production-profile evidence
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: results/generated/production-profile-acceptance.json
+      - name: Archive production-profile evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-production-acceptance-${{ needs.verify.outputs.version }}
+          path: results/generated/production-profile-acceptance.json
+          if-no-files-found: error
+          retention-days: 90
+
+  image:
+    name: Scan, attest, sign, and promote the accepted OCI candidate
+    needs: [verify, image-candidate, production-acceptance]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+        with:
+          image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:2f5adac4ecd194d9f8c10b7b5d7bceb5186853db1b26e5abd3a657af0b7e26ec
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute immutable release tags
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=sha,format=long
+      - name: Require patched SQLite in both exact published architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > sqlite-runtime-versions.txt
+          for platform in linux/amd64 linux/arm64; do
+            version="$(docker run --rm --pull always --platform "$platform" \
+              --user 10001:10001 --read-only --network none --cap-drop ALL \
+              --security-opt no-new-privileges --entrypoint python \
+              "$IMAGE_NAME@${{ needs.image-candidate.outputs.digest }}" \
+              -c 'import sqlite3; from lets.cli import _require_production_sqlite; _require_production_sqlite(); print(sqlite3.sqlite_version)')"
+            printf '%s %s\n' "$platform" "$version" | tee -a sqlite-runtime-versions.txt
+          done
+      - name: Scan the exact published amd64 candidate with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: table
+          output: trivy-amd64.txt
+          exit-code: 1
+          version: v0.73.0
+      - name: Scan the exact published arm64 candidate with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: table
+          output: trivy-arm64.txt
+          exit-code: 1
+          version: v0.73.0
+      - name: Verify both candidate architectures are present
+        id: manifest
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "$IMAGE_REF" \
+            --format '{{json .Manifest}}' > image-manifest.json
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          digest_pattern = re.compile(r"sha256:[0-9a-f]{64}")
+          image_ref = os.environ["IMAGE_REF"]
+          index_digest = image_ref.rsplit("@", 1)[-1]
+          if digest_pattern.fullmatch(index_digest) is None:
+              raise SystemExit(f"candidate has an invalid index digest: {index_digest!r}")
+
+          manifest = json.loads(Path("image-manifest.json").read_text(encoding="utf-8"))
+          required = {"linux/amd64", "linux/arm64"}
+          descriptors: dict[str, str] = {}
+          for entry in manifest.get("manifests", []):
+              platform = entry.get("platform") or {}
+              name = f'{platform.get("os", "")}/{platform.get("architecture", "")}'
+              if name not in required:
+                  continue
+              digest = entry.get("digest", "")
+              if digest_pattern.fullmatch(digest) is None:
+                  raise SystemExit(f"published {name} manifest has an invalid digest: {digest!r}")
+              if name in descriptors:
+                  raise SystemExit(f"published image has duplicate {name} manifests")
+              descriptors[name] = digest
+          missing = required - descriptors.keys()
+          if missing:
+              raise SystemExit(f"published image is missing platforms: {sorted(missing)}")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as stream:
+              stream.write(f'amd64_digest={descriptors["linux/amd64"]}\n')
+              stream.write(f'arm64_digest={descriptors["linux/arm64"]}\n')
+          PY
+      - name: Install pinned Syft
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          syft-version: v1.50.0
+      - name: Generate and validate one SPDX SBOM per published architecture
+        env:
+          IMAGE_REF: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for platform in linux/amd64 linux/arm64; do
+            arch="${platform#linux/}"
+            "${{ steps.syft.outputs.cmd }}" scan "$IMAGE_REF" \
+              --from registry \
+              --platform "$platform" \
+              --output "spdx-json=lets-container-$arch.spdx.json" \
+              --output "syft-json=lets-container-$arch.syft.json"
+          done
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          digest_pattern = re.compile(r"sha256:[0-9a-f]{64}")
+          image_ref = os.environ["IMAGE_REF"]
+          index_digest = image_ref.rsplit("@", 1)[-1]
+          if digest_pattern.fullmatch(index_digest) is None:
+              raise SystemExit(f"candidate has an invalid index digest: {index_digest!r}")
+
+          manifest = json.loads(Path("image-manifest.json").read_text(encoding="utf-8"))
+          child_digests: dict[str, str] = {}
+          for entry in manifest.get("manifests", []):
+              platform = entry.get("platform") or {}
+              name = f'{platform.get("os", "")}/{platform.get("architecture", "")}'
+              if name in {"linux/amd64", "linux/arm64"}:
+                  digest = entry.get("digest", "")
+                  if name in child_digests or digest_pattern.fullmatch(digest) is None:
+                      raise SystemExit(f"invalid or duplicate {name} manifest descriptor")
+                  child_digests[name] = digest
+          if child_digests.keys() != {"linux/amd64", "linux/arm64"}:
+              raise SystemExit("candidate manifest does not contain exactly the required platforms")
+
+          bindings: dict[str, object] = {
+              "schema": "lets.container-sbom-index/v1",
+              "image": image_ref,
+              "index_digest": index_digest,
+              "generator": {"name": "syft", "version": "1.50.0"},
+              "platforms": {},
+          }
+          platform_bindings = bindings["platforms"]
+          assert isinstance(platform_bindings, dict)
+          for platform in ("linux/amd64", "linux/arm64"):
+              arch = platform.removeprefix("linux/")
+              native_path = Path(f"lets-container-{arch}.syft.json")
+              spdx_path = Path(f"lets-container-{arch}.spdx.json")
+              native = json.loads(native_path.read_text(encoding="utf-8"))
+              spdx = json.loads(spdx_path.read_text(encoding="utf-8"))
+
+              descriptor = native.get("descriptor") or {}
+              source = native.get("source") or {}
+              metadata = source.get("metadata") or {}
+              if descriptor.get("name") != "syft" or descriptor.get("version") != "1.50.0":
+                  raise SystemExit(f"{platform} SBOM was not generated by pinned Syft 1.50.0")
+              if source.get("type") != "image" or source.get("version") != index_digest:
+                  raise SystemExit(f"{platform} SBOM is not bound to candidate index {index_digest}")
+              if metadata.get("os") != "linux" or metadata.get("architecture") != arch:
+                  raise SystemExit(f"{platform} SBOM source metadata names the wrong platform")
+              child_digest = child_digests[platform]
+              if metadata.get("manifestDigest") != child_digest:
+                  raise SystemExit(f"{platform} SBOM names the wrong child manifest")
+              if image_ref not in (metadata.get("repoDigests") or []):
+                  raise SystemExit(f"{platform} SBOM does not name the exact candidate reference")
+              if not native.get("artifacts"):
+                  raise SystemExit(f"{platform} native Syft result has no packages")
+
+              creators = (spdx.get("creationInfo") or {}).get("creators") or []
+              if not spdx.get("spdxVersion", "").startswith("SPDX-"):
+                  raise SystemExit(f"{platform} output is not an SPDX document")
+              if not spdx.get("documentNamespace") or not spdx.get("packages"):
+                  raise SystemExit(f"{platform} SPDX document is incomplete")
+              if "Tool: syft-1.50.0" not in creators:
+                  raise SystemExit(f"{platform} SPDX document does not name pinned Syft 1.50.0")
+
+              platform_bindings[platform] = {
+                  "manifest_digest": child_digest,
+                  "spdx_file": spdx_path.name,
+                  "spdx_sha256": hashlib.sha256(spdx_path.read_bytes()).hexdigest(),
+                  "package_count": len(spdx["packages"]),
+              }
+
+          Path("lets-container-sbom-index.json").write_text(
+              json.dumps(bindings, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          printf '%s\n' "$IMAGE_REF" > image-digest.txt
+      - name: Attest the amd64 image SBOM to its child manifest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.manifest.outputs.amd64_digest }}
+          sbom-path: lets-container-amd64.spdx.json
+          push-to-registry: true
+      - name: Attest the arm64 image SBOM to its child manifest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.manifest.outputs.arm64_digest }}
+          sbom-path: lets-container-arm64.spdx.json
+          push-to-registry: true
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Keyless-sign the exact image digest
+        shell: bash
+        run: cosign sign --yes "$IMAGE_NAME@${{ needs.image-candidate.outputs.digest }}"
+      - name: Promote the verified digest to immutable release tags
+        shell: bash
+        env:
+          RELEASE_TAGS: ${{ steps.metadata.outputs.tags }}
+        run: |
+          set -euo pipefail
+          candidate_digest="${{ needs.image-candidate.outputs.digest }}"
+          while IFS= read -r tag; do
+            test -n "$tag" || continue
+            existing_digest=""
+            inspect_error="$(mktemp)"
+            if existing_digest="$(
+              docker buildx imagetools inspect "$tag" \
+                --format '{{.Manifest.Digest}}' 2>"$inspect_error"
+            )"; then
+              rm -f "$inspect_error"
+              if [ "$existing_digest" != "$candidate_digest" ]; then
+                echo "refusing to move existing release image tag: $tag" >&2
+                echo "existing=$existing_digest candidate=$candidate_digest" >&2
+                exit 1
+              fi
+              echo "$tag already resolves to the verified candidate digest"
+            else
+              if ! grep -Eiq 'manifest unknown|not found|404' "$inspect_error"; then
+                cat "$inspect_error" >&2
+                rm -f "$inspect_error"
+                echo "could not prove that release image tag is absent: $tag" >&2
+                exit 1
+              fi
+              rm -f "$inspect_error"
+              docker buildx imagetools create \
+                --tag "$tag" \
+                "$IMAGE_NAME@$candidate_digest"
+            fi
+            promoted_digest="$(
+              docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}'
+            )"
+            if [ "$promoted_digest" != "$candidate_digest" ]; then
+              echo "release tag did not resolve to the verified candidate: $tag" >&2
+              echo "resolved=$promoted_digest candidate=$candidate_digest" >&2
+              exit 1
+            fi
+          done <<< "$RELEASE_TAGS"
+      - name: Archive release image assets
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-image-${{ needs.verify.outputs.version }}
+          path: |
+            image-digest.txt
+            image-manifest.json
+            lets-container-amd64.spdx.json
+            lets-container-arm64.spdx.json
+            lets-container-sbom-index.json
+            sqlite-runtime-versions.txt
+            trivy-amd64.txt
+            trivy-arm64.txt
+          if-no-files-found: error
+          retention-days: 90
+
+  github-release:
+    name: Publish GitHub release after every gate succeeds
+    needs: [verify, package, production-acceptance, image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          path: release-inputs
+      - name: Require the exact nonempty, collision-free release asset set
+        env:
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import shutil
+          from pathlib import Path
+
+          version = os.environ["RELEASE_VERSION"]
+          source = Path("release-inputs")
+          destination = Path("release-assets")
+          expected = {
+              f"release-package-{version}": {
+                  "SHA256SUMS",
+                  f"lets-deployment-{version}.tar.gz",
+                  f"lets_agent-{version}-py3-none-any.whl",
+                  f"lets_agent-{version}.tar.gz",
+                  "lets-python.cdx.json",
+              },
+              f"release-production-acceptance-{version}": {
+                  "production-profile-acceptance.json",
+              },
+              f"release-image-{version}": {
+                  "image-digest.txt",
+                  "image-manifest.json",
+                  "lets-container-amd64.spdx.json",
+                  "lets-container-arm64.spdx.json",
+                  "lets-container-sbom-index.json",
+                  "sqlite-runtime-versions.txt",
+                  "trivy-amd64.txt",
+                  "trivy-arm64.txt",
+              },
+          }
+          actual_groups = {path.name for path in source.iterdir() if path.is_dir()}
+          unexpected_entries = {path.name for path in source.iterdir() if not path.is_dir()}
+          if actual_groups != expected.keys() or unexpected_entries:
+              raise SystemExit(
+                  "release artifact groups are incomplete or unexpected: "
+                  f"groups={sorted(actual_groups)!r}, entries={sorted(unexpected_entries)!r}"
+              )
+
+          destination.mkdir(exist_ok=False)
+          seen: set[str] = set()
+          for group_name, expected_files in expected.items():
+              group = source / group_name
+              actual_files = {path.name for path in group.iterdir() if path.is_file()}
+              nested = {path.name for path in group.iterdir() if not path.is_file()}
+              if actual_files != expected_files or nested:
+                  raise SystemExit(
+                      f"release artifact {group_name!r} has the wrong files: "
+                      f"files={sorted(actual_files)!r}, entries={sorted(nested)!r}"
+                  )
+              collisions = seen & actual_files
+              if collisions:
+                  raise SystemExit(f"release asset name collision: {sorted(collisions)!r}")
+              for name in sorted(actual_files):
+                  artifact = group / name
+                  if artifact.stat().st_size <= 0:
+                      raise SystemExit(f"release asset is empty: {group_name}/{name}")
+                  shutil.copy2(artifact, destination / name)
+              seen.update(actual_files)
+          PY
+      - name: Verify package hashes and construct the complete release checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          sha256sum --check SHA256SUMS
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+
+          directory = Path(".")
+          checksum_name = "RELEASE_SHA256SUMS"
+          artifacts = sorted(
+              path
+              for path in directory.iterdir()
+              if path.is_file() and path.name != checksum_name
+          )
+          if len(artifacts) != 14:
+              raise SystemExit("release asset set is incomplete")
+          lines = [
+              f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+              for path in artifacts
+          ]
+          (directory / checksum_name).write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
+          sha256sum --check RELEASE_SHA256SUMS
+      - name: Attest the complete release asset set
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: release-assets/RELEASE_SHA256SUMS
+      - name: Publish or safely resume the immutable GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TITLE: LETS ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 15
+          state_file="$(mktemp)"
+          view_error="$(mktemp)"
+          if ! gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,assets \
+            >"$state_file" 2>"$view_error"; then
+            if ! grep -Eiq 'release not found|HTTP 404|not found' "$view_error"; then
+              cat "$view_error" >&2
+              echo "could not prove that the GitHub release is absent" >&2
+              exit 1
+            fi
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --draft \
+              --title "$RELEASE_TITLE" \
+              --generate-notes
+            gh release view "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json tagName,name,isDraft,isPrerelease,assets \
+              >"$state_file"
+          fi
+
+          release_mode="$(RELEASE_STATE="$state_file" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state = json.loads(Path(os.environ["RELEASE_STATE"]).read_text(encoding="utf-8"))
+          expected = {path.name for path in Path("release-assets").iterdir() if path.is_file()}
+          assets = state.get("assets") or []
+          names = [asset.get("name") for asset in assets]
+          if state.get("tagName") != os.environ["GITHUB_REF_NAME"]:
+              raise SystemExit("existing GitHub release names the wrong tag")
+          if state.get("name") != os.environ["RELEASE_TITLE"]:
+              raise SystemExit("existing GitHub release has the wrong title")
+          if state.get("isPrerelease") is not False:
+              raise SystemExit("existing GitHub release is unexpectedly a prerelease")
+          if any(not isinstance(name, str) for name in names) or len(names) != len(set(names)):
+              raise SystemExit("existing GitHub release has invalid or duplicate assets")
+          unexpected = set(names) - expected
+          if unexpected:
+              raise SystemExit(
+                  f"existing GitHub release has unexpected assets: {sorted(unexpected)!r}"
+              )
+          print("draft" if state.get("isDraft") is True else "published")
+          PY
+          )"
+
+          verify_remote_assets() {
+            remote_dir="$(mktemp -d)"
+            gh release download "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir "$remote_dir"
+            LOCAL_ASSETS="release-assets" REMOTE_ASSETS="$remote_dir" python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          local = Path(os.environ["LOCAL_ASSETS"])
+          remote = Path(os.environ["REMOTE_ASSETS"])
+          local_files = {path.name: path for path in local.iterdir() if path.is_file()}
+          remote_files = {path.name: path for path in remote.iterdir() if path.is_file()}
+          if local_files.keys() != remote_files.keys():
+              raise SystemExit(
+                  "GitHub release asset set mismatch: "
+                  f"local={sorted(local_files)!r}, remote={sorted(remote_files)!r}"
+              )
+          for name, local_path in local_files.items():
+              local_digest = hashlib.sha256(local_path.read_bytes()).digest()
+              remote_digest = hashlib.sha256(remote_files[name].read_bytes()).digest()
+              if local_digest != remote_digest:
+                  raise SystemExit(f"GitHub release asset digest mismatch: {name}")
+          PY
+          }
+
+          if [ "$release_mode" = "published" ]; then
+            verify_remote_assets
+            echo "published GitHub release already has the exact verified asset set"
+            exit 0
+          fi
+
+          gh release upload "$GITHUB_REF_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+          verify_remote_assets
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft=false
+          gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease \
+            >"$state_file"
+          RELEASE_STATE="$state_file" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state = json.loads(Path(os.environ["RELEASE_STATE"]).read_text(encoding="utf-8"))
+          if (
+              state.get("tagName") != os.environ["GITHUB_REF_NAME"]
+              or state.get("isDraft") is not False
+              or state.get("isPrerelease") is not False
+          ):
+              raise SystemExit("GitHub release did not become the expected published release")
+          PY
+          verify_remote_assets

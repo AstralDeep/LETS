@@ -472,7 +472,11 @@ def create_app(
             ),
             optional=frozenset({"machine_digest", "policy_digest"}),
         )
-        digest = await _invoke(_method(service, "register_policy"), policy=policy)
+        digest = await _invoke(
+            _method(service, "register_policy"),
+            policy=policy,
+            identity=identity,
+        )
         return _json_response({"policy_digest": digest}, status_code=201)
 
     async def issue_root(request: Request) -> JSONResponse:

@@ -15,7 +15,7 @@ managed = "my_lets_runtime.provider:open_runtime"
 The callable receives a frozen `lets.runtime.RuntimeProviderContext` and returns
 `RuntimeBindings`. The context contains the expected warden, tenant, envelope,
 configuration epoch, optional manifest digest, production flag, resolved config
-path, and at most 32 bounded string options. Treat options as identifiers or
+and database paths, and at most 32 bounded string options. Treat options as identifiers or
 references to a provider's own secret store, not as secret values.
 
 Bindings must provide:
@@ -62,12 +62,29 @@ Or select it explicitly for `serve`, `key`, `info`, or `backup` with
 options are errors; changing providers on the command line does not inherit the
 configured provider's options.
 
-`lets serve --production` additionally requires server TLS, HTTPS-only manifest
+Provider-backed genesis is explicit: pass `--runtime-provider` and non-secret
+`--runtime-option` values to `lets init`. With `init --production`, LETS admits
+the provider and proves its signer before it creates the node directory, binds
+the new database to that managed public key and independent anchor, persists no
+seed file, and writes an empty `bootstrap_identities` list. A production init
+requires the operator-signed manifest and rejects `--signing-seed-file`,
+`--bootstrap-token`, and `--bootstrap-subject`. Provider failure before
+admission leaves no partial local node artifacts.
+
+`lets serve --production` additionally requires inbound mTLS, HTTPS-only manifest
 admission, an operator-signed manifest, no static bootstrap identities, and an
 external provider that declares `production_capable=True` and supplies an
 independent authority anchor and audit sink. It also requires explicit positive
 `min_free_disk_bytes`, `max_database_bytes`, and `reserve_pages` settings so
-authority writes retain bounded storage headroom. The `builtin`
+authority writes retain bounded storage headroom. `max_database_bytes` is the
+logical main-database ceiling and is installed as `max_page_count` on every
+SQLite connection. Before every mutation LETS additionally reserves a
+conservative whole-database WAL transaction above `min_free_disk_bytes`; the
+capacity document reports that reserve and the DB, WAL, and SHM lengths
+separately. Production must place node state on an exclusive, quota-owned or
+dedicated filesystem whose reported free space is meaningful for that mount.
+Unrelated writers on a shared filesystem are outside this local admission
+mechanism. The `builtin`
 file-seed/static-bearer provider remains the compatible development default and
 is explicitly forbidden in production mode.
 

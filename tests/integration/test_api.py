@@ -54,8 +54,8 @@ class StubService:
         identity = arguments["identity"]
         return {"authenticated_subject": identity.subject_id, "lease_id": "lease-1"}
 
-    def register_policy(self, policy: object) -> str:
-        self.calls.append(("register_policy", {"policy": policy}))
+    def register_policy(self, policy: object, *, identity: IdentityContext) -> str:
+        self.calls.append(("register_policy", {"policy": policy, "identity": identity}))
         return "sha256:" + "1" * 64
 
     def accept_transfer(self, **arguments: Any) -> Mapping[str, Any]:

@@ -121,6 +121,11 @@ def test_schema_v1_requires_explicit_transactional_migration(tmp_path: Path) -> 
         connection.execute("DROP TRIGGER runtime_control_generation_monotonic")
         connection.execute("DROP TRIGGER runtime_control_no_delete")
         connection.execute("DROP TABLE runtime_control")
+        connection.execute("DROP TRIGGER peer_http_replay_immutable_update")
+        connection.execute("DROP TRIGGER peer_http_authority_monotonic")
+        connection.execute("DROP TRIGGER peer_http_authority_no_delete")
+        connection.execute("DROP TABLE peer_http_replay")
+        connection.execute("DROP TABLE peer_http_authority")
         connection.execute("DROP TRIGGER database_instance_immutable")
         connection.execute("DROP TRIGGER database_instance_no_delete")
         connection.execute("DROP TABLE database_instance")
@@ -151,21 +156,26 @@ def test_capacity_reserve_fails_closed_before_sqlite_full(tmp_path: Path) -> Non
         "envelope_id": "envelope-a",
     }
     initialized = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
+    baseline = initialized.capacity_snapshot()
     initialized.close()
+
+    limit = baseline.page_count * baseline.page_size
+    reserve_pages = baseline.free_pages + 1
 
     limited = SQLiteStorage(
         path,
         "warden-a",
         (10,),
-        max_database_bytes=1,
-        reserve_pages=8,
+        max_database_bytes=limit,
+        reserve_pages=reserve_pages,
         **options,
     )
     try:
         snapshot = limited.capacity_snapshot()
         assert not snapshot.healthy
-        assert snapshot.max_database_bytes == 1
-        assert snapshot.database_bytes > snapshot.max_database_bytes
+        assert snapshot.max_database_bytes == limit
+        assert snapshot.max_page_count == baseline.page_count
+        assert snapshot.logical_live_bytes <= snapshot.max_database_bytes
         with pytest.raises(CapacityError, match="reserve is exhausted"), limited.write():
             pass
         assert limited.pragma_integrity_check() == ("ok",)
@@ -452,6 +462,28 @@ def test_policy_lease_receipt_audit_and_replay_repositories(store: SQLiteStorage
         assert receipt is not None and receipt["cost"] == (1, 1)
         assert transaction.audit_sequence() == 0
         assert len(transaction.pending_outbox()) == 1
+
+
+def test_core_executor_replay_prune_is_bounded(store: SQLiteStorage) -> None:
+    with store.write() as transaction:
+        for index in range(300):
+            assert transaction.claim_executor_receipt(
+                executor_audience="executor-a",
+                receipt_id=f"receipt-{index}",
+                receipt_digest=f"sha256:{index:064x}",
+                nonce=f"nonce-{index}",
+                consumed_at_ns=1,
+                expires_at_ns=2,
+            )
+
+    with store.write() as transaction:
+        assert transaction.prune_executor_replay(3) == 128
+    with store.write() as transaction:
+        assert transaction.prune_executor_replay(3) == 128
+    with store.write() as transaction:
+        assert transaction.prune_executor_replay(3) == 44
+    with store.write() as transaction:
+        assert transaction.prune_executor_replay(3) == 0
 
 
 def test_revocations_are_strictly_monotonic(store: SQLiteStorage) -> None:

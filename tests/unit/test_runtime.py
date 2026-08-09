@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import lets.runtime as runtime_module
-from lets.audit import AuditExportRecord
+from lets.audit import AuditArchiveHead, AuditExportRecord
 from lets.auth import AuthenticationError
 from lets.authority import AuthorityCheckpoint
 from lets.cli import _backup, _info, _key, _metrics_provider
@@ -46,9 +46,15 @@ class AuthorityAnchor:
     ) -> None:
         del audit_hash_at, initialize, allow_schema_upgrade
 
+    def read_current(self) -> AuthorityCheckpoint:
+        raise NotImplementedError
+
 
 class AuditSink:
     def publish(self, _record: AuditExportRecord) -> None:
+        return None
+
+    def head(self, **_identity: object) -> AuditArchiveHead | None:
         return None
 
 
@@ -67,6 +73,7 @@ class FakeEntryPoint:
 def _context(*, production: bool = False) -> RuntimeProviderContext:
     return RuntimeProviderContext(
         config_path=Path("config.json"),
+        database_path=Path("warden.sqlite3"),
         warden_id="warden-a",
         tenant_id="tenant-a",
         envelope_id="envelope-a",
@@ -414,6 +421,7 @@ def test_metrics_include_capacity_and_fail_readiness_on_audit_export_error(
             _identity(),
             audit_status=lambda: {
                 "running": True,
+                "healthy": True,
                 "last_success_ns": None,
                 "last_error": None,
             },
@@ -422,12 +430,27 @@ def test_metrics_include_capacity_and_fail_readiness_on_audit_export_error(
         assert healthy["storage_capacity"]["healthy"] is True
         assert healthy["audit_exporter"]["running"] is True
 
+        stalled = _metrics_provider(
+            service,
+            store,
+            _identity(),
+            audit_status=lambda: {
+                "running": True,
+                "healthy": False,
+                "pending": 1,
+                "stalled_for_s": 60.0,
+                "last_error": None,
+            },
+        )
+        assert stalled["ready"] is False
+
         failed = _metrics_provider(
             service,
             store,
             _identity(),
             audit_status=lambda: {
                 "running": True,
+                "healthy": False,
                 "last_success_ns": None,
                 "last_error": "sink unavailable",
             },

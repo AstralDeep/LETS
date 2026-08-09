@@ -14,9 +14,12 @@ LETS v1 is designed to preserve these properties for every envelope:
 ## Trusted computing base
 
 - each warden process, its loaded policy code, local durable database, and signing key;
+- the production warden authority anchor's independent rollback domain and linearizable CAS
+  semantics, plus the independently durable audit archive used for recovery admission;
 - the configured wall-clock source and truthful operator-declared uncertainty bound;
 - bootstrap manifest and peer/public-key trust roots;
-- protected executors and their durable replay/effect boundary;
+- protected executors, their durable replay/effect boundary, and the production executor anchor's
+  independent rollback domain and linearizable CAS semantics;
 - explicitly configured evidence verifiers and their trust anchors;
 - host/container isolation that prevents agents from directly modifying warden state.
 
@@ -45,15 +48,19 @@ LETS v1 is designed to preserve these properties for every envelope:
 - operator-threshold and cross-warden public-key aliasing;
 - database reopen/no-create admission, SQLite WAL recovery, exact critical replay-schema and core
   required-object checks, full integrity diagnostics, and immutable metadata mismatch;
+- executor database stale restore, concurrent cloned-branch CAS, committed-before-anchor recovery,
+  full policy widening, and same-identity public-key substitution;
 - wall-clock rollback across warden, executor, or peer-replay process restarts.
 
 ## Explicit non-goals in v1
 
 - Byzantine or compromised wardens. One compromised warden can sign invalid authority for rights
   assigned to it. Threshold wardens are future work.
-- Safe simultaneous use of cloned/restored copies of the same warden database and key. Operators
-  must fence the old instance before restore. Backup rollback detection is diagnostic, not a
-  distributed consensus protocol.
+- Multi-writer operation or automatic merging of cloned warden databases. Production anchors
+  permit only one hash-chain branch to advance; a stale restore or losing clone fails closed, but
+  operators must still fence the old instance to restore availability and prevent an avoidable
+  CAS race. Development mode without an independent anchor offers restart durability only and
+  treats backup rollback detection as diagnostic.
 - Instant revocation of an unreachable descendant. Exposure is bounded by residual rights and
   nested expiry; availability and instantaneous offline revocation cannot both be guaranteed.
 - Exactly-once physical effects from a receipt alone. The executor must atomically consume the
@@ -65,9 +72,11 @@ LETS v1 is designed to preserve these properties for every envelope:
 
 Each authority boundary persists a monotonic clock floor. A request whose current time plus its
 declared uncertainty falls behind that floor fails closed, including after process restart. This
-prevents ordinary wall-clock rollback from reviving expired authority; it does not defend against
-an operator who lies about uncertainty, rewrites the durable floor, or activates an old cloned
-database. Large forward jumps can reduce availability by expiring authority early.
+prevents ordinary wall-clock rollback from reviving expired authority. Production warden and
+executor stores also bind the floor and committed hash-chain head to independent monotonic
+anchors, so an old database or losing concurrent clone fails admission. This does not defend
+against an operator who lies about uncertainty or rolls back/compromises both the database and its
+independent anchor. Large forward jumps can reduce availability by expiring authority early.
 
 ## Security invariants for adapters
 

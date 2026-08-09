@@ -1,0 +1,154 @@
+name: lets-production
+
+services:
+  warden:
+    image: "${LETS_IMAGE:?LETS_IMAGE must be an immutable image digest}"
+    pull_policy: always
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - lets
+      - --config
+      - /var/lib/lets/config.json
+      - serve
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8443"
+      - --production
+      - --runtime-provider
+      - "${LETS_RUNTIME_PROVIDER:?LETS_RUNTIME_PROVIDER must name an installed provider}"
+      - --tls-cert
+      - /run/secrets/lets_tls_cert.pem
+      - --tls-key
+      - /run/secrets/lets_tls_key.pem
+      - --client-ca
+      - /run/secrets/lets_client_ca.pem
+      - --peer-ca
+      - /run/secrets/lets_peer_ca.pem
+      - --peer-cert
+      - /run/secrets/lets_peer_cert.pem
+      - --peer-key
+      - /run/secrets/lets_peer_key.pem
+      - --limit-concurrency
+      - "${LETS_LIMIT_CONCURRENCY:-64}"
+      - --backlog
+      - "${LETS_BACKLOG:-128}"
+      - --timeout-keep-alive
+      - "${LETS_TIMEOUT_KEEP_ALIVE:-5}"
+      - --timeout-graceful-shutdown
+      - "${LETS_TIMEOUT_GRACEFUL_SHUTDOWN:-30}"
+    environment:
+      LETS_HEALTHCHECK_HOST: 127.0.0.1
+      LETS_HEALTHCHECK_PORT: "8443"
+      LETS_HEALTHCHECK_SERVER_NAME: "${LETS_SERVER_NAME:?LETS_SERVER_NAME must match the TLS certificate}"
+    secrets:
+      - source: lets_tls_cert
+        target: lets_tls_cert.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0444
+      - source: lets_tls_key
+        target: lets_tls_key.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: lets_client_ca
+        target: lets_client_ca.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0444
+      - source: lets_peer_ca
+        target: lets_peer_ca.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0444
+      - source: lets_peer_cert
+        target: lets_peer_cert.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0444
+      - source: lets_peer_key
+        target: lets_peer_key.pem
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    volumes:
+      - type: bind
+        source: "${LETS_STATE_DIR:?LETS_STATE_DIR must name a pre-provisioned state directory}"
+        target: /var/lib/lets
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: "${LETS_CONFIG_FILE:?LETS_CONFIG_FILE must name the staged immutable config}"
+        target: /var/lib/lets/config.json
+        read_only: true
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: "${LETS_AUTHORITY_DIR:?LETS_AUTHORITY_DIR must name an independent authority directory}"
+        target: /var/lib/lets-authority
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: "${LETS_AUDIT_DIR:?LETS_AUDIT_DIR must name an independent audit directory}"
+        target: /var/lib/lets-audit
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: "${LETS_TRUST_DIR:?LETS_TRUST_DIR must name a signed trust directory}"
+        target: /etc/lets/trust
+        read_only: true
+        bind:
+          create_host_path: false
+          propagation: rprivate
+    ports:
+      - target: 8443
+        published: "${LETS_PORT:-8443}"
+        host_ip: "${LETS_BIND_ADDRESS:-127.0.0.1}"
+        protocol: tcp
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    pids_limit: 256
+    cpus: "${LETS_CPUS:-2.0}"
+    mem_limit: "${LETS_MEMORY_LIMIT:-1g}"
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 4096
+    healthcheck:
+      test: [CMD, python, /app/deploy/production/healthcheck.py]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: "${LETS_HEALTH_START_PERIOD_SECONDS:-600}s"
+    stop_signal: SIGTERM
+    stop_grace_period: 75s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+secrets:
+  lets_tls_cert:
+    file: "${LETS_TLS_CERT_FILE:?LETS_TLS_CERT_FILE is required}"
+  lets_tls_key:
+    file: "${LETS_TLS_KEY_FILE:?LETS_TLS_KEY_FILE is required}"
+  lets_client_ca:
+    file: "${LETS_CLIENT_CA_FILE:?LETS_CLIENT_CA_FILE is required}"
+  lets_peer_ca:
+    file: "${LETS_PEER_CA_FILE:?LETS_PEER_CA_FILE is required}"
+  lets_peer_cert:
+    file: "${LETS_PEER_CERT_FILE:?LETS_PEER_CERT_FILE is required}"
+  lets_peer_key:
+    file: "${LETS_PEER_KEY_FILE:?LETS_PEER_KEY_FILE is required}"

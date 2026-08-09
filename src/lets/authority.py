@@ -14,12 +14,16 @@ protocol with a hardware monotonic counter or conditional remote record.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import tempfile
+import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
+from queue import Empty, Queue
 from typing import Any, Protocol, Self, cast
 
 from lets.canonical import b64url_decode, b64url_encode, canonical_json, strict_json_loads
@@ -29,6 +33,38 @@ from lets.vector import MAX_RESOURCE
 
 ANCHOR_FORMAT = "LETS-AUTHORITY-ANCHOR/1"
 _ZERO_HASH = bytes(32)
+_MOVEFILE_REPLACE_EXISTING = 0x1
+_MOVEFILE_WRITE_THROUGH = 0x8
+
+
+def _durable_move(source: str, target: Path, *, exclusive: bool) -> None:
+    """Publish one already-fsynced file with durable directory-entry semantics."""
+
+    if os.name == "nt":
+        import ctypes
+
+        flags = _MOVEFILE_WRITE_THROUGH
+        if not exclusive:
+            flags |= _MOVEFILE_REPLACE_EXISTING
+        move = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+        move.argtypes = (ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32)
+        move.restype = ctypes.c_int
+        if move(source, str(target), flags) == 0:
+            error = ctypes.get_last_error()
+            if exclusive and error in {80, 183}:
+                raise FileExistsError(error, "authority anchor already exists", str(target))
+            raise OSError(error, "durable authority anchor move failed", str(target))
+        return
+    if exclusive:
+        os.link(source, target)
+        os.unlink(source)
+    else:
+        os.replace(source, target)
+    directory_fd = os.open(target.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _integer(value: object, field: str, *, minimum: int = 0) -> int:
@@ -67,6 +103,7 @@ class AuthorityCheckpoint:
     audit_hash: bytes
     state_revision: int
     state_digest: bytes
+    clock_floor_ns: int | None
 
     def __post_init__(self) -> None:
         require_warden_id(self.warden_id, field="authority checkpoint warden_id")
@@ -77,6 +114,8 @@ class AuthorityCheckpoint:
         _integer(self.schema_version, "authority checkpoint schema_version", minimum=1)
         _integer(self.audit_sequence, "authority checkpoint audit_sequence", minimum=-1)
         _integer(self.state_revision, "authority checkpoint state_revision")
+        if self.clock_floor_ns is not None:
+            _integer(self.clock_floor_ns, "authority checkpoint clock_floor_ns")
         if not isinstance(self.audit_hash, bytes) or len(self.audit_hash) != 32:
             raise ValidationError("authority checkpoint audit_hash must contain 32 bytes")
         if not isinstance(self.state_digest, bytes) or len(self.state_digest) != 32:
@@ -120,6 +159,7 @@ class AuthorityCheckpoint:
             "audit_hash": b64url_encode(self.audit_hash),
             "state_revision": self.state_revision,
             "state_digest": b64url_encode(self.state_digest),
+            "clock_floor_ns": self.clock_floor_ns,
         }
 
     @classmethod
@@ -138,6 +178,7 @@ class AuthorityCheckpoint:
             "audit_hash",
             "state_revision",
             "state_digest",
+            "clock_floor_ns",
         }
         if set(value) != expected:
             raise ValidationError("authority anchor fields do not match LETS-AUTHORITY-ANCHOR/1")
@@ -175,6 +216,11 @@ class AuthorityCheckpoint:
             audit_hash=_digest(value.get("audit_hash"), "authority anchor audit_hash"),
             state_revision=_integer(value.get("state_revision"), "authority anchor state_revision"),
             state_digest=_digest(value.get("state_digest"), "authority anchor state_digest"),
+            clock_floor_ns=(
+                None
+                if value.get("clock_floor_ns") is None
+                else _integer(value.get("clock_floor_ns"), "authority anchor clock_floor_ns")
+            ),
         )
 
 
@@ -196,6 +242,64 @@ class AuthorityAnchor(Protocol):
         initialize: bool = False,
         allow_schema_upgrade: bool = False,
     ) -> None: ...
+
+    def read_current(self) -> AuthorityCheckpoint:
+        """Return the durable head without advancing it, within the same timeout."""
+        ...
+
+
+def _require_identity(anchored: AuthorityCheckpoint, current: AuthorityCheckpoint) -> None:
+    if anchored.stable_identity != current.stable_identity:
+        raise StorageError("authority anchor identity does not match this warden database")
+
+
+def _requires_advance(
+    anchored: AuthorityCheckpoint,
+    checkpoint: AuthorityCheckpoint,
+    *,
+    audit_hash_at: Callable[[int], bytes | None],
+    allow_schema_upgrade: bool,
+) -> bool:
+    """Validate an anchored head and report whether its CAS record must advance."""
+
+    _require_identity(anchored, checkpoint)
+    schema_upgrade = checkpoint.schema_version != anchored.schema_version
+    if checkpoint.schema_version < anchored.schema_version:
+        raise StorageError("warden schema is older than its authority anchor")
+    if schema_upgrade and not allow_schema_upgrade:
+        raise StorageError(
+            "authority anchor schema transition requires explicit migration admission"
+        )
+    if checkpoint.audit_sequence < anchored.audit_sequence:
+        raise StorageError("warden database is older than its monotonic authority anchor")
+    if checkpoint.audit_sequence == anchored.audit_sequence:
+        if checkpoint.audit_hash != anchored.audit_hash:
+            raise StorageError("warden database audit head diverges from its authority anchor")
+        if (
+            checkpoint.state_revision != anchored.state_revision
+            or checkpoint.state_digest != anchored.state_digest
+        ):
+            raise StorageError(
+                "warden database authority state diverges at the anchored audit head"
+            )
+        if anchored.clock_floor_ns is not None and (
+            checkpoint.clock_floor_ns is None or checkpoint.clock_floor_ns < anchored.clock_floor_ns
+        ):
+            raise StorageError("warden clock floor moved behind its authority anchor")
+        return schema_upgrade or checkpoint.clock_floor_ns != anchored.clock_floor_ns
+
+    historical = (
+        _ZERO_HASH if anchored.audit_sequence == -1 else audit_hash_at(anchored.audit_sequence)
+    )
+    if historical != anchored.audit_hash:
+        raise StorageError("warden database does not extend the anchored audit history")
+    if checkpoint.state_revision < anchored.state_revision:
+        raise StorageError("warden database state revision moved behind its authority anchor")
+    if anchored.clock_floor_ns is not None and (
+        checkpoint.clock_floor_ns is None or checkpoint.clock_floor_ns < anchored.clock_floor_ns
+    ):
+        raise StorageError("warden clock floor moved behind its authority anchor")
+    return True
 
 
 class FileAuthorityAnchor:
@@ -300,22 +404,11 @@ class FileAuthorityAnchor:
                 os.fsync(stream.fileno())
             if os.name != "nt":
                 os.chmod(temporary, 0o600)
-            if exclusive:
-                try:
-                    os.link(temporary, self._path)
-                except FileExistsError as exc:
-                    raise StorageError(f"authority anchor already exists: {self._path}") from exc
-                os.unlink(temporary)
-                temporary = ""
-            else:
-                os.replace(temporary, self._path)
-                temporary = ""
-            if os.name != "nt":
-                directory_fd = os.open(self._path.parent, os.O_RDONLY)
-                try:
-                    os.fsync(directory_fd)
-                finally:
-                    os.close(directory_fd)
+            try:
+                _durable_move(temporary, self._path, exclusive=exclusive)
+            except FileExistsError as exc:
+                raise StorageError(f"authority anchor already exists: {self._path}") from exc
+            temporary = ""
         except OSError as exc:
             raise StorageError(f"could not persist authority anchor: {self._path}") from exc
         finally:
@@ -324,11 +417,6 @@ class FileAuthorityAnchor:
             if temporary:
                 with suppress(FileNotFoundError):
                     os.unlink(temporary)
-
-    @staticmethod
-    def _require_identity(anchored: AuthorityCheckpoint, current: AuthorityCheckpoint) -> None:
-        if anchored.stable_identity != current.stable_identity:
-            raise StorageError("authority anchor identity does not match this warden database")
 
     def reconcile(
         self,
@@ -348,44 +436,237 @@ class FileAuthorityAnchor:
                 return
 
             anchored = self._read()
-            self._require_identity(anchored, checkpoint)
-            schema_upgrade = checkpoint.schema_version != anchored.schema_version
-            if checkpoint.schema_version < anchored.schema_version:
-                raise StorageError("warden schema is older than its authority anchor")
-            if schema_upgrade and not allow_schema_upgrade:
-                raise StorageError(
-                    "authority anchor schema transition requires explicit migration admission"
-                )
-            if checkpoint.audit_sequence < anchored.audit_sequence:
-                raise StorageError("warden database is older than its monotonic authority anchor")
-            if checkpoint.audit_sequence == anchored.audit_sequence:
-                if checkpoint.audit_hash != anchored.audit_hash:
-                    raise StorageError(
-                        "warden database audit head diverges from its authority anchor"
-                    )
-                if (
-                    checkpoint.state_revision != anchored.state_revision
-                    or checkpoint.state_digest != anchored.state_digest
-                ):
-                    raise StorageError(
-                        "warden database authority state diverges at the anchored audit head"
-                    )
-                if schema_upgrade:
-                    self._write(checkpoint, exclusive=False)
-                return
+            if _requires_advance(
+                anchored,
+                checkpoint,
+                audit_hash_at=audit_hash_at,
+                allow_schema_upgrade=allow_schema_upgrade,
+            ):
+                self._write(checkpoint, exclusive=False)
 
-            historical = (
-                _ZERO_HASH
-                if anchored.audit_sequence == -1
-                else audit_hash_at(anchored.audit_sequence)
+    def read_current(self) -> AuthorityCheckpoint:
+        with self._locked():
+            return self._read()
+
+
+class ProcessFileAuthorityAnchor:
+    """File anchor whose blocking I/O is isolated behind a killable helper.
+
+    Ordinary file APIs cannot cancel a stuck read or ``fsync``.  Production
+    callers therefore execute each lock/read/CAS operation in a short-lived
+    helper process and enforce one total reconciliation deadline in the parent.
+    The helper uses the same atomic file format as :class:`FileAuthorityAnchor`.
+    """
+
+    def __init__(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        timeout_s: float = 5.0,
+        helper_command: Sequence[str] | None = None,
+    ) -> None:
+        self._path = Path(path).resolve()
+        if self._path == self._path.parent:
+            raise ValidationError("authority anchor path must name a file")
+        if (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or timeout_s <= 0
+            or timeout_s > 60
+        ):
+            raise ValidationError("authority anchor timeout_s must be in (0, 60]")
+        command = (
+            (sys.executable, "-m", "lets.authority_helper")
+            if helper_command is None
+            else tuple(helper_command)
+        )
+        if not command or any(
+            not isinstance(item, str) or not item or "\x00" in item for item in command
+        ):
+            raise ValidationError("authority anchor helper command must contain non-empty strings")
+        self._timeout_s = float(timeout_s)
+        self._helper_command = tuple(command)
+        self._process_lock = threading.Lock()
+        self._process: subprocess.Popen[bytes] | None = None
+        self._responses: Queue[bytes | None] | None = None
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def _stop_helper(self) -> None:
+        process = self._process
+        self._process = None
+        self._responses = None
+        if process is None:
+            return
+        with suppress(OSError):
+            if process.stdin is not None:
+                process.stdin.close()
+        if process.poll() is None:
+            try:
+                process.wait(timeout=0.25)
+            except subprocess.TimeoutExpired:
+                with suppress(OSError):
+                    process.terminate()
+                try:
+                    process.wait(timeout=0.25)
+                except subprocess.TimeoutExpired:
+                    with suppress(OSError):
+                        process.kill()
+                    with suppress(subprocess.TimeoutExpired):
+                        process.wait(timeout=0.25)
+        if process.stdout is not None:
+            process.stdout.close()
+
+    def close(self) -> None:
+        """Stop the isolated I/O helper; safe to call more than once."""
+
+        with self._process_lock:
+            self._stop_helper()
+
+    def _start_helper(self) -> tuple[subprocess.Popen[bytes], Queue[bytes | None]]:
+        command = (*self._helper_command, "--path", str(self._path))
+        try:
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=0,
             )
-            if historical != anchored.audit_hash:
-                raise StorageError("warden database does not extend the anchored audit history")
-            if checkpoint.state_revision < anchored.state_revision:
-                raise StorageError(
-                    "warden database state revision moved behind its authority anchor"
+        except OSError as exc:
+            raise StorageError("authority anchor helper could not be started") from exc
+        if process.stdin is None or process.stdout is None:  # pragma: no cover - Popen contract
+            process.kill()
+            raise StorageError("authority anchor helper pipes are unavailable")
+        responses: Queue[bytes | None] = Queue()
+        output = process.stdout
+
+        def read_responses() -> None:
+            try:
+                while line := output.readline(1024 * 1024 + 1):
+                    responses.put(line)
+            finally:
+                responses.put(None)
+
+        threading.Thread(
+            target=read_responses,
+            name="lets-authority-anchor-reader",
+            daemon=True,
+        ).start()
+        self._process = process
+        self._responses = responses
+        return process, responses
+
+    def _invoke(self, request: Mapping[str, object], *, deadline: float) -> Mapping[str, Any]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise StorageError("authority anchor reconciliation exceeded its deadline")
+        with self._process_lock:
+            process = self._process
+            responses = self._responses
+            if process is None or responses is None or process.poll() is not None:
+                self._stop_helper()
+                process, responses = self._start_helper()
+            try:
+                assert process.stdin is not None
+                process.stdin.write(canonical_json(dict(request)) + b"\n")
+                process.stdin.flush()
+                response = responses.get(timeout=max(0.0, deadline - time.monotonic()))
+            except (BrokenPipeError, OSError) as exc:
+                self._stop_helper()
+                raise StorageError("authority anchor helper terminated unexpectedly") from exc
+            except Empty as exc:
+                self._stop_helper()
+                raise StorageError("authority anchor reconciliation exceeded its deadline") from exc
+            if response is None:
+                self._stop_helper()
+                raise StorageError("authority anchor helper terminated unexpectedly")
+        if len(response) > 1024 * 1024:
+            raise StorageError("authority anchor helper returned an oversized response")
+        try:
+            decoded = strict_json_loads(response)
+        except (UnicodeError, ValueError) as exc:
+            raise StorageError("authority anchor helper returned malformed JSON") from exc
+        if not isinstance(decoded, Mapping):
+            raise StorageError("authority anchor helper response must be an object")
+        status = decoded.get("status")
+        if status == "error":
+            detail = decoded.get("error")
+            message = detail if isinstance(detail, str) and detail else "helper operation failed"
+            raise StorageError(f"authority anchor {message}")
+        if status not in {"ok", "missing", "conflict"}:
+            raise StorageError("authority anchor helper returned an unknown status")
+        return decoded
+
+    @staticmethod
+    def _checkpoint(response: Mapping[str, Any]) -> AuthorityCheckpoint:
+        value = response.get("checkpoint")
+        if not isinstance(value, Mapping):
+            raise StorageError("authority anchor helper omitted its checkpoint")
+        try:
+            return AuthorityCheckpoint.from_dict(value)
+        except ValidationError as exc:
+            raise StorageError("authority anchor helper returned an invalid checkpoint") from exc
+
+    def reconcile(
+        self,
+        checkpoint: AuthorityCheckpoint,
+        *,
+        audit_hash_at: Callable[[int], bytes | None],
+        initialize: bool = False,
+        allow_schema_upgrade: bool = False,
+    ) -> None:
+        deadline = time.monotonic() + self._timeout_s
+        while True:
+            response = self._invoke({"operation": "read"}, deadline=deadline)
+            if response["status"] == "missing":
+                if not initialize:
+                    raise StorageError(
+                        "authority anchor is missing; refusing to open rollback-sensitive state"
+                    )
+                result = self._invoke(
+                    {"operation": "initialize", "checkpoint": checkpoint.to_dict()},
+                    deadline=deadline,
                 )
-            self._write(checkpoint, exclusive=False)
+                if result["status"] == "ok":
+                    return
+                if result["status"] == "conflict":
+                    continue
+                raise StorageError("authority anchor initialization failed")
+
+            anchored = self._checkpoint(response)
+            if not _requires_advance(
+                anchored,
+                checkpoint,
+                audit_hash_at=audit_hash_at,
+                allow_schema_upgrade=allow_schema_upgrade,
+            ):
+                return
+            result = self._invoke(
+                {
+                    "operation": "compare-and-set",
+                    "expected": anchored.to_dict(),
+                    "checkpoint": checkpoint.to_dict(),
+                },
+                deadline=deadline,
+            )
+            if result["status"] == "ok":
+                return
+            if result["status"] != "conflict":
+                raise StorageError("authority anchor compare-and-set failed")
+
+    def read_current(self) -> AuthorityCheckpoint:
+        response = self._invoke(
+            {"operation": "read"},
+            deadline=time.monotonic() + self._timeout_s,
+        )
+        if response["status"] == "missing":
+            raise StorageError(
+                "authority anchor is missing; refusing to open rollback-sensitive state"
+            )
+        return self._checkpoint(response)
 
 
 __all__ = [
@@ -393,4 +674,5 @@ __all__ = [
     "AuthorityAnchor",
     "AuthorityCheckpoint",
     "FileAuthorityAnchor",
+    "ProcessFileAuthorityAnchor",
 ]

@@ -11,9 +11,9 @@ Do not include real secrets or sensitive tenant data.
 
 ## Supported line
 
-Until the first stable release, security fixes are made on `main`; there is no supported older
-release branch. Deploy an immutable commit digest and review the threat model and release evidence
-for that commit.
+The latest 1.x release and `main` receive security fixes; pre-1.0 snapshots are unsupported. Deploy
+an immutable release digest and review the threat model, signed release assets, and acceptance
+evidence for that exact version.
 
 ## Scope assumptions
 

@@ -4,16 +4,16 @@ build-backend = "uv_build"
 
 [project]
 name = "lets-agent"
-version = "0.1.0"
+version = "1.0.0"
 description = "Lineage Escrow Transition Systems for portable, partition-safe agent management"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "AstralDeep" }]
 keywords = ["agents", "capabilities", "escrow", "lineage", "authorization"]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 5 - Production/Stable",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -46,6 +46,10 @@ dev = [
 
 [project.scripts]
 lets = "lets.cli:main"
+lets-provider = "lets.providers.generic:main"
+
+[project.entry-points."lets.runtime_providers"]
+generic-production = "lets.providers.generic:open_runtime"
 
 [project.urls]
 Repository = "https://github.com/AstralDeep/LETS"
@@ -64,6 +68,7 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["lets"]
+patch = ["subprocess", "_exit"]
 
 [tool.coverage.report]
 fail_under = 74
