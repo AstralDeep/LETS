@@ -8,11 +8,13 @@ future multi-envelope backend can retain the same transaction/repository API.
 from __future__ import annotations
 
 APPLICATION_ID = 0x4C455453  # ASCII "LETS"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 REQUIRED_TABLES = frozenset(
     {
         "database_metadata",
+        "database_instance",
+        "runtime_control",
         "envelopes",
         "warden_state",
         "policies",
@@ -68,6 +70,10 @@ REQUIRED_TRIGGERS = frozenset(
         "audit_log_monotonic",
         "database_metadata_immutable",
         "database_metadata_no_delete",
+        "database_instance_immutable",
+        "database_instance_no_delete",
+        "runtime_control_generation_monotonic",
+        "runtime_control_no_delete",
         "envelopes_immutable",
         "envelopes_no_delete",
         "inbound_acks_binding_insert",
@@ -968,11 +974,73 @@ SCHEMA_STATEMENTS = (
 )
 
 
-MIGRATIONS = {1: SCHEMA_STATEMENTS}
+MIGRATION_2 = (
+    """
+    CREATE TABLE database_instance (
+        singleton   INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+        instance_id BLOB NOT NULL CHECK (
+            typeof(instance_id) = 'blob' AND length(instance_id) = 32
+        )
+    ) STRICT
+    """,
+    """
+    INSERT INTO database_instance(singleton, instance_id) VALUES (1, randomblob(32))
+    """,
+    """
+    CREATE TRIGGER database_instance_immutable
+    BEFORE UPDATE ON database_instance
+    BEGIN
+        SELECT RAISE(ABORT, 'database instance identity is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER database_instance_no_delete
+    BEFORE DELETE ON database_instance
+    BEGIN
+        SELECT RAISE(ABORT, 'database instance identity cannot be deleted');
+    END
+    """,
+    """
+    CREATE TABLE runtime_control (
+        singleton       INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+        mode            TEXT NOT NULL CHECK (mode IN ('ACTIVE', 'DRAINING')),
+        generation      INTEGER NOT NULL CHECK (generation >= 0),
+        reason          TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 2000),
+        changed_at_ns   INTEGER NOT NULL CHECK (changed_at_ns >= 0),
+        changed_by      TEXT NOT NULL CHECK (length(changed_by) BETWEEN 1 AND 512)
+    ) STRICT
+    """,
+    """
+    INSERT INTO runtime_control(
+        singleton, mode, generation, reason, changed_at_ns, changed_by
+    ) VALUES (1, 'ACTIVE', 0, 'schema initialization', 0, 'lets-migration')
+    """,
+    """
+    CREATE TRIGGER runtime_control_generation_monotonic
+    BEFORE UPDATE ON runtime_control
+    BEGIN
+        SELECT CASE WHEN NEW.generation != OLD.generation + 1
+            THEN RAISE(ABORT, 'runtime control generation must increase by one') END;
+        SELECT CASE WHEN NEW.changed_at_ns < OLD.changed_at_ns
+            THEN RAISE(ABORT, 'runtime control timestamp cannot move backward') END;
+    END
+    """,
+    """
+    CREATE TRIGGER runtime_control_no_delete
+    BEFORE DELETE ON runtime_control
+    BEGIN
+        SELECT RAISE(ABORT, 'runtime control cannot be deleted');
+    END
+    """,
+)
+
+
+MIGRATIONS = {1: SCHEMA_STATEMENTS, 2: MIGRATION_2}
 
 __all__ = [
     "APPLICATION_ID",
     "MIGRATIONS",
+    "MIGRATION_2",
     "REQUIRED_INDEXES",
     "REQUIRED_TABLES",
     "REQUIRED_TRIGGERS",

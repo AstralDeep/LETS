@@ -9,6 +9,7 @@ wardens.
 from __future__ import annotations
 
 import hmac
+import inspect
 import os
 import secrets
 import sqlite3
@@ -150,6 +151,33 @@ class StaticBearerAuthenticator:
         if matched is None:
             raise AuthenticationError("the bearer credential was not accepted")
         return matched
+
+
+class TenantBoundAuthenticator:
+    """Validate identities returned by an external authenticator.
+
+    Runtime providers are selected by the operator, but their request results
+    still cross an authorization boundary.  This wrapper prevents malformed or
+    cross-tenant results from reaching the application service.
+    """
+
+    def __init__(self, authenticator: IdentityAuthenticator, tenant_id: str) -> None:
+        if not isinstance(authenticator, IdentityAuthenticator):
+            raise TypeError("authenticator must implement IdentityAuthenticator")
+        if not isinstance(tenant_id, str) or not tenant_id:
+            raise ValidationError("bound authenticator tenant_id must be non-empty")
+        self._authenticator = authenticator
+        self._tenant_id = tenant_id
+
+    async def authenticate(self, request: object) -> IdentityContext:
+        result = self._authenticator.authenticate(request)
+        if inspect.isawaitable(result):
+            result = await result
+        if not isinstance(result, IdentityContext):
+            raise AuthenticationError("the identity provider returned no valid identity")
+        if result.tenant_id != self._tenant_id:
+            raise AuthenticationError("the identity provider returned a cross-tenant identity")
+        return result
 
 
 @dataclass(frozen=True, slots=True)

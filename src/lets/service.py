@@ -26,6 +26,7 @@ from lets.clock import Clock, SystemClock
 from lets.errors import (
     ClockUncertainError,
     ConflictError,
+    DrainingError,
     ExpiredError,
     InvariantError,
     NotFoundError,
@@ -47,6 +48,8 @@ from lets.models import (
     LeaseSnapshot,
     LeaseStatus,
     Receipt,
+    RuntimeMode,
+    RuntimeStatus,
     TransferAck,
     TransferVoucher,
 )
@@ -313,6 +316,35 @@ class WardenService:
             raise PolicyError("warden administration scope is required")
         return actor
 
+    @staticmethod
+    def _runtime_status(connection: sqlite3.Connection) -> RuntimeStatus:
+        row = connection.execute(
+            """
+            SELECT mode, generation, reason, changed_at_ns, changed_by
+            FROM runtime_control WHERE singleton = 1
+            """
+        ).fetchone()
+        if row is None:
+            raise StorageError("runtime control state is missing")
+        try:
+            return RuntimeStatus(
+                mode=RuntimeMode(str(_row_value(row, "mode"))),
+                generation=int(_row_value(row, "generation")),
+                reason=str(_row_value(row, "reason")),
+                changed_at_ns=int(_row_value(row, "changed_at_ns")),
+                changed_by=str(_row_value(row, "changed_by")),
+            )
+        except (TypeError, ValueError, ValidationError) as exc:
+            raise StorageError("runtime control state is malformed") from exc
+
+    @classmethod
+    def _require_runtime_active(cls, connection: sqlite3.Connection) -> None:
+        status = cls._runtime_status(connection)
+        if status.mode is not RuntimeMode.ACTIVE:
+            raise DrainingError(
+                f"warden is draining at generation {status.generation}: {status.reason}"
+            )
+
     def _envelope(
         self,
         connection: sqlite3.Connection,
@@ -441,6 +473,11 @@ class WardenService:
         """Return whether the durable database and declared clock are safe for authority."""
 
         try:
+            capacity_provider = getattr(self._store, "capacity_snapshot", None)
+            if callable(capacity_provider):
+                capacity = capacity_provider()
+                if not bool(getattr(capacity, "healthy", False)):
+                    return False
             self._require_signing_key_current()
             now_ns = self._clock.now_ns()
             with self._store.read() as transaction:
@@ -453,6 +490,8 @@ class WardenService:
                     now_ns=now_ns,
                     advance_floor=False,
                 )
+                if self._runtime_status(connection).mode is not RuntimeMode.ACTIVE:
+                    return False
                 if not self._invariant_snapshot(connection, envelope, now_ns).healthy:
                     return False
         except (
@@ -919,6 +958,112 @@ class WardenService:
         if self._lease_revoked(connection, lease):
             raise PolicyError("lease is beneath a revoked branch")
 
+    def runtime_status(self, *, identity: IdentityContext) -> RuntimeStatus:
+        """Return the durable maintenance mode to an authorized operator."""
+
+        with self._store.read() as transaction:
+            connection = self._connection(transaction)
+            self._verify_database_identity(connection)
+            envelope = self._singleton_envelope(connection)
+            self._require_admin(identity, cast(str, _row_value(envelope, "tenant_id")))
+            return self._runtime_status(connection)
+
+    def set_runtime_mode(
+        self,
+        *,
+        request_id: str,
+        identity: IdentityContext,
+        mode: RuntimeMode | str,
+        reason: str,
+    ) -> RuntimeStatus:
+        """Idempotently activate or drain this warden under admin authority."""
+
+        require_identifier(request_id, field="request_id")
+        try:
+            requested_mode = mode if isinstance(mode, RuntimeMode) else RuntimeMode(mode)
+        except ValueError as exc:
+            raise ValidationError("runtime mode must be ACTIVE or DRAINING") from exc
+        if not isinstance(reason, str) or not 1 <= len(reason) <= 2000:
+            raise ValidationError("runtime mode reason must contain 1..2000 characters")
+        now_ns = self._clock.now_ns()
+        with self._store.write() as transaction:
+            connection = self._connection(transaction)
+            self._verify_database_identity(connection)
+            envelope = self._singleton_envelope(connection)
+            tenant_id = cast(str, _row_value(envelope, "tenant_id"))
+            envelope_id = cast(str, _row_value(envelope, "envelope_id"))
+            actor = self._require_admin(identity, tenant_id)
+            self._clock_is_safe(connection, envelope, now_ns=now_ns)
+            fingerprint = self._fingerprint(
+                "set_runtime_mode",
+                {"actor": actor, "mode": requested_mode.value, "reason": reason},
+            )
+            prior = self._idempotent_response(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                scope="set_runtime_mode",
+                request_id=request_id,
+                fingerprint=fingerprint,
+            )
+            if prior is not None:
+                return RuntimeStatus.from_dict(prior)
+            current = self._runtime_status(connection)
+            if current.mode is requested_mode and current.reason == reason:
+                updated = current
+            else:
+                updated = RuntimeStatus(
+                    mode=requested_mode,
+                    generation=current.generation + 1,
+                    reason=reason,
+                    changed_at_ns=now_ns,
+                    changed_by=actor,
+                )
+                cursor = connection.execute(
+                    """
+                    UPDATE runtime_control
+                    SET mode = ?, generation = ?, reason = ?, changed_at_ns = ?, changed_by = ?
+                    WHERE singleton = 1 AND generation = ?
+                    """,
+                    (
+                        updated.mode.value,
+                        updated.generation,
+                        updated.reason,
+                        updated.changed_at_ns,
+                        updated.changed_by,
+                        current.generation,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ConflictError("runtime control changed concurrently")
+                self._append_audit(
+                    connection,
+                    tenant_id=tenant_id,
+                    envelope_id=envelope_id,
+                    event_type="warden.runtime-mode-changed",
+                    entity_type="warden",
+                    entity_id=self.warden_id,
+                    actor_id=actor,
+                    details={
+                        "previous_mode": current.mode.value,
+                        "mode": updated.mode.value,
+                        "generation": updated.generation,
+                        "reason": updated.reason,
+                    },
+                    now_ns=now_ns,
+                )
+            self._remember_response(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                scope="set_runtime_mode",
+                request_id=request_id,
+                fingerprint=fingerprint,
+                response=updated.to_dict(),
+                now_ns=now_ns,
+            )
+            return updated
+
     def create_envelope(
         self,
         *,
@@ -1003,6 +1148,7 @@ class WardenService:
                 if existing_config != configuration:
                     raise ConflictError("this database already contains a different envelope")
                 return self._invariant_snapshot(connection, cast(sqlite3.Row, existing), now_ns)
+            self._require_runtime_active(connection)
             connection.execute(
                 """
                 INSERT INTO envelopes(
@@ -1196,6 +1342,7 @@ class WardenService:
                 ):
                     raise ConflictError("policy_version is already bound to different content")
                 return cast(str, policy_digest)
+            self._require_runtime_active(connection)
             active = (
                 1
                 if connection.execute(
@@ -1417,6 +1564,7 @@ class WardenService:
             )
             if prior is not None:
                 return LeaseGrant.from_dict(prior)
+            self._require_runtime_active(connection)
             policy_row, policy = self._policy(
                 connection,
                 tenant_id,
@@ -1608,6 +1756,7 @@ class WardenService:
             )
             if prior is not None:
                 return LeaseGrant.from_dict(prior)
+            self._require_runtime_active(connection)
             self._require_actionable(connection, parent, envelope, now_ns=now_ns)
             parent_sequence = int(_row_value(parent, "sequence"))
             if expected_sequence is not None and parent_sequence != expected_sequence:
@@ -1791,6 +1940,7 @@ class WardenService:
             )
             if prior is not None:
                 return Receipt.from_dict(prior)
+            self._require_runtime_active(connection)
             self._require_actionable(connection, lease, envelope, now_ns=now_ns)
             current_state = str(_row_value(lease, "state"))
             current_sequence = int(_row_value(lease, "sequence"))
@@ -2096,6 +2246,7 @@ class WardenService:
             )
             if prior is not None:
                 return LeaseSnapshot.from_dict(prior)
+            self._require_runtime_active(connection)
             status = str(_row_value(lease, "status"))
             if status not in {LeaseStatus.ACTIVE.value, LeaseStatus.QUIESCENT.value}:
                 raise PolicyError(f"lease status {status!r} cannot be renewed")
@@ -2323,6 +2474,8 @@ class WardenService:
             )
             if prior is not None:
                 return LeaseSnapshot.from_dict(prior)
+            if operation == "resume":
+                self._require_runtime_active(connection)
             sequence = int(_row_value(lease, "sequence"))
             if expected_sequence is not None and sequence != expected_sequence:
                 raise ConflictError(f"lease sequence is {sequence}, expected {expected_sequence}")
@@ -3112,6 +3265,7 @@ class WardenService:
             )
             if prior is not None:
                 return TransferVoucher.from_dict(prior)
+            self._require_runtime_active(connection)
             if self._trust_registry is None:
                 raise SignatureError(
                     "transfer preparation requires current target verification material"
@@ -3332,6 +3486,7 @@ class WardenService:
                 if _row_value(existing, "transfer_digest") != digest:
                     raise ConflictError("transfer sequence is bound to another voucher digest")
                 return TransferAck.from_dict(_json_object(_row_value(existing, "ack_payload")))
+            self._require_runtime_active(connection)
             duplicate_id = connection.execute(
                 """
                 SELECT sequence, transfer_digest FROM inbound_transfer_acks

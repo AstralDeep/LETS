@@ -495,6 +495,19 @@ class LETSClient:
             ),
         )
 
+    def runtime_status(self) -> Mapping[str, Any]:
+        return cast(
+            Mapping[str, Any],
+            self._request("GET", "/v1/maintenance/runtime", idempotent=True),
+        )
+
+    def set_runtime_mode(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        self._idempotent_payload(payload)
+        return cast(
+            Mapping[str, Any],
+            self._request("POST", "/v1/maintenance/runtime", payload=payload, idempotent=True),
+        )
+
     def invariants(self) -> Mapping[str, Any]:
         return cast(Mapping[str, Any], self._request("GET", "/v1/invariants", idempotent=True))
 

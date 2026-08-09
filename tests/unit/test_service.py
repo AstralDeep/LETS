@@ -9,8 +9,21 @@ import pytest
 from lets.canonical import b64url_encode, canonical_digest, canonical_json
 from lets.clock import ManualClock
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
-from lets.errors import ConflictError, PolicyError, ReplayError, SignatureError
-from lets.models import IdentityContext, LeaseStatus, TransferAck, TransferVoucher
+from lets.errors import (
+    CapacityError,
+    ConflictError,
+    DrainingError,
+    PolicyError,
+    ReplayError,
+    SignatureError,
+)
+from lets.models import (
+    IdentityContext,
+    LeaseStatus,
+    RuntimeMode,
+    TransferAck,
+    TransferVoucher,
+)
 from lets.policy import MachineSpec, PolicySpec, ResourceDimension, TransitionSpec
 from lets.service import WardenService
 from lets.storage import SQLiteStorage
@@ -154,6 +167,191 @@ def test_authorization_is_atomic_signed_and_idempotent(
             audience="executor-a",
             nonce="nonce-0000000001",
         )
+
+
+def test_drain_fences_new_authority_but_preserves_retries_and_safety(
+    warden: tuple[SQLiteStorage, WardenService, ManualClock],
+) -> None:
+    store, service, _ = warden
+    agent = _identity("agent-a", "lets.lease.issue", "lets.lease.manage")
+    admin = _identity("operator", "lets.admin")
+    grant = service.issue_root(
+        request_id="drain-root",
+        identity=agent,
+        tenant_id="tenant",
+        envelope_id="envelope",
+        subject_id="agent-a",
+        allocation=(10,),
+        capabilities={"worker.act"},
+        policy_digest=_policy().digest,
+        ttl_ns=1_000,
+    )
+    receipt = service.authorize(
+        request_id="drain-authorize",
+        identity=agent,
+        lease_id=grant.lease_id,
+        transition="act",
+        audience="executor-a",
+        nonce="drain-nonce-0000001",
+    )
+
+    draining = service.set_runtime_mode(
+        request_id="mode-draining",
+        identity=admin,
+        mode=RuntimeMode.DRAINING,
+        reason="planned schema migration",
+    )
+    assert draining.mode is RuntimeMode.DRAINING
+    assert draining.generation == 1
+    assert service.runtime_status(identity=admin) == draining
+    assert not service.ready()
+
+    # Retries committed before the fence remain exactly idempotent.
+    assert (
+        service.issue_root(
+            request_id="drain-root",
+            identity=agent,
+            tenant_id="tenant",
+            envelope_id="envelope",
+            subject_id="agent-a",
+            allocation=(10,),
+            capabilities={"worker.act"},
+            policy_digest=_policy().digest,
+            ttl_ns=1_000,
+        )
+        == grant
+    )
+    assert (
+        service.authorize(
+            request_id="drain-authorize",
+            identity=agent,
+            lease_id=grant.lease_id,
+            transition="act",
+            audience="executor-a",
+            nonce="drain-nonce-0000001",
+        )
+        == receipt
+    )
+
+    with pytest.raises(DrainingError):
+        service.issue_root(
+            request_id="new-root-while-draining",
+            identity=agent,
+            tenant_id="tenant",
+            envelope_id="envelope",
+            subject_id="agent-a",
+            allocation=(1,),
+            capabilities={"worker.act"},
+            policy_digest=_policy().digest,
+            ttl_ns=1_000,
+        )
+    with pytest.raises(DrainingError):
+        service.authorize(
+            request_id="new-effect-while-draining",
+            identity=agent,
+            lease_id=grant.lease_id,
+            transition="act",
+            audience="executor-a",
+            nonce="drain-nonce-0000002",
+        )
+
+    quiescent = service.quiesce(
+        request_id="quiesce-while-draining",
+        identity=agent,
+        lease_id=grant.lease_id,
+    )
+    assert quiescent.status is LeaseStatus.QUIESCENT
+    with pytest.raises(DrainingError):
+        service.resume(
+            request_id="resume-while-draining",
+            identity=agent,
+            lease_id=grant.lease_id,
+        )
+    closed = service.close(
+        request_id="close-while-draining",
+        identity=agent,
+        lease_id=grant.lease_id,
+    )
+    assert closed.status is LeaseStatus.CLOSED
+
+    active = service.set_runtime_mode(
+        request_id="mode-active",
+        identity=admin,
+        mode="ACTIVE",
+        reason="migration completed and diagnostics passed",
+    )
+    assert active.mode is RuntimeMode.ACTIVE
+    assert active.generation == 2
+    assert service.ready()
+    with store.read() as transaction:
+        events = {
+            str(row[0])
+            for row in transaction.connection.execute(
+                "SELECT event_type FROM audit_log WHERE event_type LIKE 'warden.runtime-%'"
+            )
+        }
+    assert events == {"warden.runtime-mode-changed"}
+
+
+def test_readiness_fails_before_the_configured_database_capacity_limit(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "capacity-warden.db"
+    signer = Ed25519Signer.generate("warden-a")
+    registry = PublicKeyRegistry()
+    registry.register_signer(signer)
+    options = {
+        "signing_key_id": signer.key_id,
+        "signing_public_key": signer.public_key_bytes,
+        "tenant_id": "tenant",
+        "envelope_id": "envelope",
+        "initial_local_share": (100,),
+        "receipt_ttl_ns": 100,
+        "max_clock_uncertainty_ns": 5,
+        "transfer_gap_window": 4,
+    }
+    initial = SQLiteStorage.initialize(path, "warden-a", (100,), **options)
+    service = WardenService(
+        initial,
+        signer=signer,
+        clock=ManualClock(1_000_000, 5),
+        trust_registry=registry,
+    )
+    service.register_policy(_policy())
+    initial.close()
+
+    limited = SQLiteStorage(
+        path,
+        "warden-a",
+        (100,),
+        max_database_bytes=1,
+        **options,
+    )
+    limited_service = WardenService(
+        limited,
+        signer=signer,
+        clock=ManualClock(1_000_000, 5),
+        trust_registry=registry,
+    )
+    try:
+        assert not limited_service.ready()
+        with pytest.raises(CapacityError):
+            limited_service.issue_root(
+                request_id="capacity-root",
+                identity=_identity("agent", "lets.lease.issue"),
+                tenant_id="tenant",
+                envelope_id="envelope",
+                subject_id="agent",
+                allocation=(1,),
+                capabilities={"worker.act"},
+                policy_digest=_policy().digest,
+                ttl_ns=1_000,
+            )
+        assert limited_service.invariant_snapshot(
+            identity=_identity("operator", "lets.admin")
+        ).healthy
+    finally:
+        limited.close()
 
 
 def test_spawn_attenuation_renewal_cascade_and_identity_binding(

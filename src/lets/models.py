@@ -67,6 +67,11 @@ class TransferStatus(StrEnum):
     FINALIZED = "FINALIZED"
 
 
+class RuntimeMode(StrEnum):
+    ACTIVE = "ACTIVE"
+    DRAINING = "DRAINING"
+
+
 @dataclass(frozen=True, slots=True)
 class IdentityContext:
     """Identity resolved by a transport authenticator, never from request JSON."""
@@ -644,3 +649,39 @@ class InvariantSnapshot:
                 vector(getattr(self, field), dimensions=dimensions),
             )
         _positive(self.checked_at_ns, "checked_at_ns", allow_zero=True)
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeStatus:
+    mode: RuntimeMode
+    generation: int
+    reason: str
+    changed_at_ns: int
+    changed_by: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mode, RuntimeMode):
+            object.__setattr__(self, "mode", RuntimeMode(self.mode))
+        _positive(self.generation, "runtime generation", allow_zero=True)
+        _positive(self.changed_at_ns, "runtime changed_at_ns", allow_zero=True)
+        require_identifier(self.changed_by, field="runtime changed_by")
+        if not isinstance(self.reason, str) or not 1 <= len(self.reason) <= 2000:
+            raise ValidationError("runtime reason must contain 1..2000 characters")
+
+    def to_dict(self) -> WireDict:
+        return {
+            "mode": self.mode.value,
+            "generation": self.generation,
+            "reason": self.reason,
+            "changed_at_ns": self.changed_at_ns,
+            "changed_by": self.changed_by,
+        }
+
+    @classmethod
+    def from_dict(cls, value: WireDict) -> Self:
+        _strict(
+            value,
+            {"mode", "generation", "reason", "changed_at_ns", "changed_by"},
+            "runtime status",
+        )
+        return cls(**value)

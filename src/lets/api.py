@@ -625,6 +625,22 @@ def create_app(
         value = await _invoke(_method(service, "reclaim_expired"), identity=identity, **body)
         return _json_response({"reclaimed": value})
 
+    @app.get("/v1/maintenance/runtime")
+    async def runtime_status(request: Request) -> JSONResponse:
+        identity = await client_identity(request)
+        value = await _invoke(_method(service, "runtime_status"), identity=identity)
+        return _json_response(value)
+
+    @app.post("/v1/maintenance/runtime")
+    async def set_runtime_mode(request: Request) -> JSONResponse:
+        identity = await client_identity(request)
+        body = _fields(
+            await _json_object(request, maximum_bytes=maximum_body_bytes),
+            required=frozenset({"request_id", "mode", "reason"}),
+        )
+        value = await _invoke(_method(service, "set_runtime_mode"), identity=identity, **body)
+        return _json_response(value)
+
     @app.get("/v1/invariants")
     async def invariants(request: Request) -> JSONResponse:
         identity = await client_identity(request)
@@ -1468,6 +1484,28 @@ def create_app(
                 "envelope_id": {"type": "string"},
             },
         },
+        "RuntimeModeRequest": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["request_id", "mode", "reason"],
+            "properties": {
+                "request_id": {"type": "string"},
+                "mode": {"type": "string", "enum": ["ACTIVE", "DRAINING"]},
+                "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+            },
+        },
+        "RuntimeStatus": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["mode", "generation", "reason", "changed_at_ns", "changed_by"],
+            "properties": {
+                "mode": {"type": "string", "enum": ["ACTIVE", "DRAINING"]},
+                "generation": {"type": "integer", "minimum": 0},
+                "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "changed_at_ns": {"type": "integer", "minimum": 0},
+                "changed_by": {"type": "string"},
+            },
+        },
     }
     body_contracts = {
         "/v1/envelopes": "EnvelopeRequest",
@@ -1481,6 +1519,7 @@ def create_app(
         "/v1/leases/{lease_id}/close": "IdempotentRequest",
         "/v1/branches/{lease_id}/revoke": "RevocationRequest",
         "/v1/maintenance/reclaim": "ReclaimRequest",
+        "/v1/maintenance/runtime": "RuntimeModeRequest",
         "/v1/transfers/prepare": "PrepareTransferRequest",
         "/v1/transfers/{source_warden}/{sequence}/accept": "TransferVoucher",
         "/v1/transfers/{target_warden}/{sequence}/finalize": "TransferAck",
@@ -1509,6 +1548,7 @@ def create_app(
         "/v1/leases/{lease_id}": "LeaseSnapshot",
         "/v1/branches/{lease_id}/revoke": "BranchRevocation",
         "/v1/maintenance/reclaim": "ReclaimResult",
+        "/v1/maintenance/runtime": "RuntimeStatus",
         "/v1/invariants": "InvariantSnapshot",
         "/v1/metrics": "MetricsSnapshot",
         "/v1/audit": "AuditPage",

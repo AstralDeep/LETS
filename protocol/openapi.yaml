@@ -1009,6 +1009,68 @@
         ],
         "type": "object"
       },
+      "RuntimeModeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "enum": [
+              "ACTIVE",
+              "DRAINING"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "mode",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "RuntimeStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "changed_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "changed_by": {
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "ACTIVE",
+              "DRAINING"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "generation",
+          "reason",
+          "changed_at_ns",
+          "changed_by"
+        ],
+        "type": "object"
+      },
       "SpawnRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2137,6 +2199,80 @@
           }
         ],
         "summary": "Reclaim"
+      }
+    },
+    "/v1/maintenance/runtime": {
+      "get": {
+        "operationId": "runtime_status_v1_maintenance_runtime_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Runtime Status"
+      },
+      "post": {
+        "operationId": "set_runtime_mode_v1_maintenance_runtime_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeModeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Set Runtime Mode"
       }
     },
     "/v1/metrics": {
