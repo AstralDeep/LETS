@@ -40,6 +40,36 @@ def _policy(*, gap_window: int = 64) -> PolicySpec:
     )
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("poll_interval_s", True),
+        ("poll_interval_s", "0.25"),
+        ("request_timeout_s", float("nan")),
+        ("request_timeout_s", float("inf")),
+    ),
+)
+def test_dispatcher_rejects_non_numeric_or_non_finite_intervals(field: str, value: object) -> None:
+    options: dict[str, object] = {field: value}
+    with pytest.raises(ValueError, match="intervals must be positive"):
+        PeerDispatcher(
+            object(),  # type: ignore[arg-type]
+            object(),  # type: ignore[arg-type]
+            object(),  # type: ignore[arg-type]
+            {},
+            **options,  # type: ignore[arg-type]
+        )
+
+
+def test_dispatcher_retry_metadata_sanitizers_never_return_untrusted_text() -> None:
+    assert PeerDispatcher._stored_record_kind("transfer") == "transfer"
+    assert PeerDispatcher._stored_record_kind("unsafe/kind") == "unknown"
+    assert PeerDispatcher._stored_target_warden("warden-b") == "warden-b"
+    assert PeerDispatcher._stored_target_warden("https://secret.example/peer") == "unknown"
+    assert PeerDispatcher._stored_exception_class("OSError: https://secret.example") == "OSError"
+    assert PeerDispatcher._stored_exception_class("Bad-Class: C:\\secret") == "UnknownError"
+
+
 class _ServiceTransport:
     def __init__(
         self, target: WardenService, source_warden: str, *, fail_once: bool = False
@@ -159,7 +189,28 @@ def test_durable_dispatch_retries_across_restart_and_delivers_all_record_kinds(
             policy_digest=digest,
         )
         dispatcher.run_once()
-        assert dispatcher.status()["failed_records"] == 1
+        failed_status = dispatcher.status()
+        assert failed_status["failed_records"] == 1
+        assert failed_status["last_error"] == "OSError"
+        durable_retry = failed_status["durable_retry"]
+        assert isinstance(durable_retry, dict)
+        assert durable_retry["attempt_count"] == 1
+        assert durable_retry["exception_class"] == "OSError"
+        assert durable_retry["record_kind"] == "transfer"
+        assert durable_retry["target_warden"] == "target"
+        assert 0 <= float(durable_retry["next_retry_delay_seconds"]) <= 0.25
+        assert "injected peer partition" not in str(failed_status)
+        with source_store.write() as transaction:
+            transaction.connection.execute(
+                "UPDATE peer_delivery_state SET last_error = ? WHERE last_error IS NOT NULL",
+                ("Bad-Class: https://secret.example/private/path\ncredential",),
+            )
+        legacy_status = dispatcher.status()
+        legacy_retry = legacy_status["durable_retry"]
+        assert isinstance(legacy_retry, dict)
+        assert legacy_retry["exception_class"] == "UnknownError"
+        assert "secret.example" not in str(legacy_status)
+        assert "private/path" not in str(legacy_status)
         dispatcher.stop()
         source_store.close()
 
@@ -1221,11 +1272,125 @@ def test_dispatcher_passes_outbound_tls_configuration(
     try:
         assert captured["verify"] == "private-ca.pem"
         assert captured["cert"] == ("client.pem", "client.key")
-        assert captured["timeout"] == 2.0
+        assert captured["timeout"] == 60
+        assert captured["total_timeout_s"] == 60
     finally:
         dispatcher.stop()
         store.close()
     assert captured["closed"] is True
+
+
+def test_peer_deadline_recovers_an_ack_lost_at_old_two_second_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = ManualClock(1_000_000, 5)
+    source_signer = Ed25519Signer.generate("source")
+    target_signer = Ed25519Signer.generate("target")
+    registry = PublicKeyRegistry(clock=clock)
+    registry.register_signer(source_signer)
+    registry.register_signer(target_signer)
+    source_store, source = _node(
+        tmp_path / "delayed-source.db",
+        warden_id="source",
+        share=100,
+        signer=source_signer,
+        clock=clock,
+        registry=registry,
+        peers={"target"},
+    )
+    target_store, target = _node(
+        tmp_path / "delayed-target.db",
+        warden_id="target",
+        share=0,
+        signer=target_signer,
+        clock=clock,
+        registry=registry,
+        peers={"source"},
+    )
+    transport = _ServiceTransport(target, "source")
+    calls = 0
+    captured_timeouts: list[float] = []
+
+    class _DelayedHealthyClient:
+        def __init__(self, _base_url: str, **options: Any) -> None:
+            captured_timeouts.append(float(options["total_timeout_s"]))
+
+        def accept_transfer(self, voucher: Mapping[str, Any]) -> Mapping[str, Any]:
+            nonlocal calls
+            calls += 1
+            started = time.monotonic()
+            acknowledgement = transport.accept_transfer(voucher)
+            time.sleep(2.05)
+            if time.monotonic() - started >= captured_timeouts[-1]:
+                raise TimeoutError("configured peer deadline elapsed")
+            return acknowledgement
+
+        def ingest_revocation(self, revocation: Mapping[str, Any]) -> Mapping[str, Any]:
+            return transport.ingest_revocation(revocation)
+
+        def ingest_transfer_checkpoint(self, checkpoint: Mapping[str, Any]) -> Mapping[str, Any]:
+            return transport.ingest_transfer_checkpoint(checkpoint)
+
+        def close(self) -> None:
+            transport.close()
+
+    monkeypatch.setattr(peer_module, "PeerClient", _DelayedHealthyClient)
+    dispatcher = PeerDispatcher(
+        source,
+        source_store,
+        source_signer,
+        {"target": "https://target.example"},
+        request_timeout_s=2.0,
+    )
+    try:
+        source.prepare_transfer(
+            request_id="delayed-transfer",
+            identity=_identity("source"),
+            tenant_id="tenant",
+            envelope_id="envelope",
+            target_warden="target",
+            amount=(5,),
+            policy_digest=_policy().digest,
+        )
+        dispatcher.run_once()
+        assert calls == 1
+        assert captured_timeouts == [2.0]
+        failed = dispatcher.status()
+        assert failed["pending_records"] == 1
+        assert failed["failed_records"] == 1
+        assert failed["prepared_transfers"] == 1
+        assert failed["last_error"] == "TimeoutError"
+        source_snapshot = source.invariant_snapshot(identity=_identity("source"))
+        target_snapshot = target.invariant_snapshot(identity=_identity("target"))
+        assert source_snapshot.healthy is True
+        assert target_snapshot.healthy is True
+        assert source_snapshot.transferred_out == target_snapshot.transferred_in == (5,)
+        assert source_snapshot.free_pool[0] + target_snapshot.free_pool[0] == 100
+
+        dispatcher.stop()
+        with source_store.write() as transaction:
+            transaction.connection.execute(
+                "UPDATE peer_delivery_state SET next_attempt_ns = 0 WHERE delivered_at_ns IS NULL"
+            )
+        dispatcher = PeerDispatcher(
+            source,
+            source_store,
+            source_signer,
+            {"target": "https://target.example"},
+        )
+        dispatcher.run_once()
+        assert calls == 2
+        assert captured_timeouts == [2.0, 60.0]
+        recovered = dispatcher.status()
+        assert recovered["pending_records"] == 0
+        assert recovered["failed_records"] == 0
+        assert recovered["prepared_transfers"] == 0
+        assert recovered["durable_retry"] is None
+        assert target.invariant_snapshot(identity=_identity("target")).free_pool == (5,)
+    finally:
+        dispatcher.stop()
+        source_store.close()
+        target_store.close()
 
 
 def test_started_dispatcher_close_interrupts_blocked_transport(tmp_path: Path) -> None:

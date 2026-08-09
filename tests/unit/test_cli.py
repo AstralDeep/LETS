@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,6 +17,11 @@ from lets.cli import (
 )
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
 from lets.errors import ValidationError
+from lets.timeouts import (
+    DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS,
+    MAX_PEER_REQUEST_TIMEOUT_SECONDS,
+    MIN_PRODUCTION_PEER_REQUEST_TIMEOUT_SECONDS,
+)
 
 
 @pytest.mark.parametrize(
@@ -62,6 +68,20 @@ def test_serve_rejects_request_body_deadlines_outside_production_bounds(timeout:
     parsed = _parser().parse_args(["serve", "--request-body-timeout", timeout])
     with pytest.raises(ValidationError, match="request-body-timeout"):
         _serve(Path("configuration-is-not-read.json"), parsed)
+
+
+@pytest.mark.parametrize("timeout", ["0", "61"])
+def test_serve_rejects_peer_request_deadlines_outside_runtime_bounds(timeout: str) -> None:
+    parsed = _parser().parse_args(["serve", "--peer-request-timeout-seconds", timeout])
+    with pytest.raises(ValidationError, match="peer-request-timeout-seconds"):
+        _serve(Path("configuration-is-not-read.json"), parsed)
+
+
+def test_peer_request_deadline_defaults_and_production_bounds_are_explicit() -> None:
+    parsed = _parser().parse_args(["serve"])
+    assert parsed.peer_request_timeout_seconds == DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS == 60
+    assert MIN_PRODUCTION_PEER_REQUEST_TIMEOUT_SECONDS == 30
+    assert MAX_PEER_REQUEST_TIMEOUT_SECONDS == 60
 
 
 def test_serve_parser_accepts_complete_outbound_mtls_configuration() -> None:
@@ -241,3 +261,92 @@ def test_production_admission_rejects_every_development_trust_path() -> None:
     unsafe_capacity["min_free_disk_bytes"] = 0
     with pytest.raises(ValidationError, match="positive min_free_disk_bytes"):
         _validate_production_admission(unsafe_capacity, parsed, provider_name="managed")
+
+
+def test_production_peer_deadline_enforces_transport_and_generic_provider_bounds() -> None:
+    config: dict[str, object] = {
+        "manifest": "cluster.json",
+        "manifest_digest": "sha256:" + "1" * 64,
+        "operator_trust": {"threshold": 1},
+        "allow_insecure_manifest": False,
+        "bootstrap_identities": [],
+        "min_free_disk_bytes": 1_000_000,
+        "max_database_bytes": 100_000_000,
+        "reserve_pages": 128,
+        "peer_endpoints": {"warden-b": "https://warden-b.example"},
+    }
+    parsed = _parser().parse_args(
+        [
+            "serve",
+            "--production",
+            "--tls-cert",
+            "server.pem",
+            "--tls-key",
+            "server.key",
+            "--client-ca",
+            "clients-ca.pem",
+            "--peer-ca",
+            "peer-ca.pem",
+            "--peer-cert",
+            "peer.pem",
+            "--peer-key",
+            "peer.key",
+            "--runtime-provider",
+            "generic-production",
+        ]
+    )
+    _validate_production_admission(
+        config,
+        parsed,
+        provider_name="generic-production",
+        provider_options={},
+    )
+
+    parsed.peer_request_timeout_seconds = 29
+    with pytest.raises(ValidationError, match="between 30 and 60"):
+        _validate_production_admission(config, parsed, provider_name="managed")
+    parsed.peer_request_timeout_seconds = 61
+    with pytest.raises(ValidationError, match="between 30 and 60"):
+        _validate_production_admission(config, parsed, provider_name="managed")
+
+    parsed.peer_request_timeout_seconds = 54
+    with pytest.raises(ValidationError, match=r"safety bound \(55 seconds\)"):
+        _validate_production_admission(
+            config,
+            parsed,
+            provider_name="generic-production",
+            provider_options={},
+        )
+    parsed.peer_request_timeout_seconds = 55
+    _validate_production_admission(
+        config,
+        parsed,
+        provider_name="generic-production",
+        provider_options={},
+    )
+
+    custom_options = {"authority_timeout_s": "4", "signer_timeout_s": "4"}
+    parsed.peer_request_timeout_seconds = 46
+    with pytest.raises(ValidationError, match=r"safety bound \(47 seconds\)"):
+        _validate_production_admission(
+            config,
+            parsed,
+            provider_name="generic-production",
+            provider_options=custom_options,
+        )
+    parsed.peer_request_timeout_seconds = 47
+    _validate_production_admission(
+        config,
+        parsed,
+        provider_name="generic-production",
+        provider_options=custom_options,
+    )
+
+    invalid_options: dict[str, Any] = {"authority_timeout_s": ["not", "a", "number"]}
+    with pytest.raises(ValidationError, match="authority_timeout_s must be a number"):
+        _validate_production_admission(
+            config,
+            parsed,
+            provider_name="generic-production",
+            provider_options=invalid_options,
+        )

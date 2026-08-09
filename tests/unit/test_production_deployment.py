@@ -107,6 +107,8 @@ def test_opt_in_production_acceptance_requires_real_mtls_and_external_provider()
     assert "network_mode: none" in compose.split("  materials:", 1)[1].split("  init-a:", 1)[0]
     assert "cap_add: [CHOWN, FOWNER]" in compose
     assert "--backlog" in compose
+    assert '--peer-request-timeout-seconds\n  - "60"' in compose
+    assert "stop_grace_period: 120s" in compose
     assert "max-size: 10m" in compose
     assert "nofile:" in compose
     assert compose.count("mem_limit: 1g") == 1
@@ -164,8 +166,12 @@ def test_production_compose_is_fail_closed_and_hardened() -> None:
     assert "--request-body-timeout" in compose
     assert "${LETS_REQUEST_BODY_TIMEOUT_SECONDS:-30}" in compose
     assert "LETS_REQUEST_BODY_TIMEOUT_SECONDS=30" in example_environment
+    assert "--peer-request-timeout-seconds" in compose
+    assert "${LETS_PEER_REQUEST_TIMEOUT_SECONDS:-60}" in compose
+    assert "LETS_PEER_REQUEST_TIMEOUT_SECONDS=60" in example_environment
     assert "--timeout-graceful-shutdown" in compose
-    assert "stop_grace_period: 75s" in compose
+    assert "stop_grace_period: 120s" in compose
+    assert 40 + 10 + (60 + 5 + 0.25 + 2) < 120
     assert "${LETS_HEALTH_START_PERIOD_SECONDS:-600}s" in compose
     assert 'mem_limit: "${LETS_MEMORY_LIMIT:-1g}"' in compose
     assert 'memswap_limit: "${LETS_MEMORY_LIMIT:-1g}"' in compose
@@ -277,6 +283,7 @@ def _production_environment(tmp_path: Path) -> dict[str, str]:
     return {
         "LETS_IMAGE": f"ghcr.io/example/lets@sha256:{'a' * 64}",
         "LETS_RUNTIME_PROVIDER": "example-provider",
+        "LETS_PEER_REQUEST_TIMEOUT_SECONDS": "60",
         "LETS_SERVER_NAME": "warden-a.example.test",
         "LETS_STATE_DIR": directories["state"],
         "LETS_AUTHORITY_DIR": directories["authority"],
@@ -342,6 +349,7 @@ def test_production_environment_validation(tmp_path: Path) -> None:
     environment["LETS_MEMORY_LIMIT"] = "0"
     environment["LETS_BACKLOG"] = "0"
     environment["LETS_REQUEST_BODY_TIMEOUT_SECONDS"] = "0"
+    environment["LETS_PEER_REQUEST_TIMEOUT_SECONDS"] = "29"
     errors = validate.validate_environment(environment)
     assert any("immutable" in error for error in errors)
     assert any("distinct non-nested paths" in error for error in errors)
@@ -355,6 +363,7 @@ def test_production_environment_validation(tmp_path: Path) -> None:
     assert any("LETS_MEMORY_LIMIT" in error for error in errors)
     assert any("LETS_BACKLOG" in error for error in errors)
     assert any("LETS_REQUEST_BODY_TIMEOUT_SECONDS" in error for error in errors)
+    assert any("LETS_PEER_REQUEST_TIMEOUT_SECONDS" in error for error in errors)
 
 
 def test_production_environment_rejects_shared_or_undeclared_rollback_domains(
@@ -631,6 +640,39 @@ def test_generic_provider_paths_are_bound_to_separate_production_mounts(tmp_path
         "signer executable",
     ):
         assert any(field in error for error in errors)
+
+
+def test_generic_provider_peer_timeout_floor_matches_runtime_admission(tmp_path: Path) -> None:
+    environment = _production_environment(tmp_path)
+    environment["LETS_RUNTIME_PROVIDER"] = "generic-production"
+    document = json.loads(Path(environment["LETS_CONFIG_FILE"]).read_text(encoding="utf-8"))
+    document["peer_endpoints"] = {"warden-b": "https://warden-b.example"}
+    document["runtime"] = {"provider": "generic-production", "options": _generic_options()}
+    _rewrite_config(environment, document)
+
+    environment["LETS_PEER_REQUEST_TIMEOUT_SECONDS"] = "54"
+    errors = validate.validate_environment(environment)
+    assert any("provider safety bound (55 seconds)" in error for error in errors)
+
+    for admitted in ("55", "60"):
+        environment["LETS_PEER_REQUEST_TIMEOUT_SECONDS"] = admitted
+        assert validate.validate_environment(environment) == ()
+
+    options = document["runtime"]["options"]
+    assert isinstance(options, dict)
+    options.update({"authority_timeout_s": "4", "signer_timeout_s": "4"})
+    _rewrite_config(environment, document)
+    environment["LETS_PEER_REQUEST_TIMEOUT_SECONDS"] = "46"
+    errors = validate.validate_environment(environment)
+    assert any("provider safety bound (47 seconds)" in error for error in errors)
+    environment["LETS_PEER_REQUEST_TIMEOUT_SECONDS"] = "47"
+    assert validate.validate_environment(environment) == ()
+
+    for invalid in ("NaN", "Infinity", "60.5"):
+        environment["LETS_PEER_REQUEST_TIMEOUT_SECONDS"] = invalid
+        errors = validate.validate_environment(environment)
+        assert errors
+        assert any("must be an integer" in error for error in errors)
 
 
 def test_production_compose_renders_when_docker_compose_is_available(tmp_path: Path) -> None:

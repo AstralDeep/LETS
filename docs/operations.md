@@ -123,14 +123,20 @@ its local escrow share during a peer partition.
 
 `serve --production` requires inbound mTLS (`--tls-cert`, `--tls-key`, and `--client-ca`). When
 peers are configured it also requires outbound `--peer-ca`, `--peer-cert`, and `--peer-key`.
-`--limit-concurrency`, `--request-body-timeout`, `--timeout-keep-alive`, and
-`--timeout-graceful-shutdown` bound overload, body receipt, idle connections, and termination. The
-request-body timeout is a total application deadline around pre-authentication body buffering; an
-incomplete body receives a `408 request_body_timeout` problem and the connection is closed. It is
-independent of the HTTP keep-alive timeout. Give the process at least its graceful-shutdown interval
-before a hard kill. The server owns the node process lock for its entire lifetime, so recovery and
-schema migration cannot run concurrently with it. Production readiness also requires a healthy,
-bounded audit exporter; a blocked sink, excessive backlog, or stalled export makes readiness false.
+`--limit-concurrency`, `--request-body-timeout`, `--peer-request-timeout-seconds`,
+`--timeout-keep-alive`, and `--timeout-graceful-shutdown` bound overload, body receipt, durable peer
+delivery, idle connections, and termination. The request-body timeout is a total application
+deadline around pre-authentication body buffering; an incomplete body receives a
+`408 request_body_timeout` problem and the connection is closed. It is independent of the HTTP
+keep-alive timeout. A peer timeout does not refund or mark a transfer delivered: the sender retains
+the authoritative `PREPARED` record and retries its durable outbox entry with bounded backoff.
+For the bundled `generic-production` provider, production admits the peer deadline only when it
+covers the configured signer, authority-anchor, SQLite, and scheduling/TLS bounds; the supplied
+profile uses 60 seconds. Give the process
+the complete documented server, exporter, dispatcher, and provider shutdown window before a hard
+kill. The server owns the node process lock for its entire lifetime, so recovery and schema
+migration cannot run concurrently with it. Production readiness also requires a healthy, bounded
+audit exporter; a blocked sink, excessive backlog, or stalled export makes readiness false.
 
 `max_clock_uncertainty_ns` is an operator-attested upper bound, not a measured guarantee. Monitor
 the actual source and configure a conservative bound. Core warden authority and executor replay
@@ -164,8 +170,9 @@ bounded aggregate counters preserve delivery observability.
 During a partition:
 
 - continue local transitions while leases, receipts, and clock bounds remain valid;
-- monitor `peer_dispatcher.pending_records`, `failed_records`, and `prepared_transfers`; the
-  runtime retains and retries the exact signed business record;
+- monitor `peer_dispatcher.pending_records`, `failed_records`, `prepared_transfers`, and the
+  sanitized `durable_retry` attempt/delay/kind/target summary; the runtime retains and retries the
+  exact signed business record without exposing raw transport error text;
 - do not manually edit pools or restore timed-out transfers;
 - accept that rights stranded at the other warden are unavailable.
 

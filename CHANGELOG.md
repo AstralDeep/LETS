@@ -5,7 +5,59 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
-## [1.0.3] - 2026-08-09
+## [1.0.4] - 2026-08-09
+
+### Fixed
+
+- Replaced the peer dispatcher's obsolete two-second request watchdog with an explicit bounded
+  deadline. The supplied production profile defaults to 60 seconds, admits 30 through 60 seconds,
+  and rejects a value that cannot cover every signer, authority-anchor, SQLite, and scheduling/TLS
+  bound in the authenticated transfer-acceptance path. A durable delivery still performs one HTTP
+  attempt per dispatcher cycle and remains `PREPARED` after any timeout; no timeout is treated as
+  acceptance.
+- Removed the soak's hidden 60-second settle cap. Recovery now uses the configured convergence
+  budget through one shared monotonic deadline across every node/status request, while continuing
+  to require all failed/pending/prepared/in-flight peer state to drain before fault injection or
+  final success.
+- Hardened failed-soak teardown for the named Compose one-off workload. Cleanup may remove only the
+  exact container whose project, service, and one-off labels match the current unique run, records
+  the bounded result, and then proves the project has no remaining containers, networks, or
+  volumes.
+- Made durable peer failure diagnostics safe and actionable: newly persisted errors retain only a
+  bounded exception-class token, while authenticated metrics expose the oldest failed delivery's
+  sanitized attempt count, remaining retry delay, record kind, and target warden. Raw exception
+  text, URLs, paths, and credentials are never copied into the status document.
+
+### Changed
+
+- The signed `v1.0.3` tag is retained as an unpromoted candidate. Its package, provenance, and
+  hardened acceptance gates passed, but the mandatory soak failed before its first injected fault:
+  a transfer was accepted by the target while the sender's two-second watchdog closed before the
+  acknowledgement completed, leaving durable `PREPARED`/failed work for an exponentially backed-off
+  retry. No `1.0.3` package or final OCI tag was published and no GitHub release was created.
+  Version 1.0.4 fixes forward without moving or reusing any failed public candidate tag.
+- The supplied container stop window is 120 seconds so the maximum admitted peer deadline, server
+  graceful shutdown, audit-exporter stop, SQLite busy allowance, and dispatcher join all remain
+  bounded before the runtime may be killed.
+- Carries forward every 1.0.1 through 1.0.3 candidate change, including the pre-authentication body
+  deadline, exact-candidate sustained soak, cgroup-v2 resource proof, sampled audit-BUSY recovery,
+  and serialized core storage recovery.
+
+### Compatibility, migration, and rollback
+
+- LETS v1 wire/API compatibility, warden schema 2, executor schema 5, manifest semantics, and
+  authority/replay formats remain unchanged from 1.0.0 through 1.0.3. No database or executor
+  migration is required. The new peer deadline is a deployment/runtime setting, not a wire change.
+- Drain peer and audit queues, verify an authority-safe recovery bundle, stop every old process,
+  and deploy only the exact 1.0.4 artifacts. Mixed-version operation remains unsupported; set the
+  required `LETS_PEER_REQUEST_TIMEOUT_SECONDS` consistently across the stopped cluster before
+  restart (the supplied generic profile uses `60`).
+- A binary/configuration rollback remains schema-compatible, but never restore older database,
+  audit, replay, or anchor bytes. Preserve the live monotonic state or recover forward. Rolling
+  back below 1.0.4 also restores the unsafe two-second production peer watchdog and is not a
+  supported remedy for delayed delivery.
+
+## [1.0.3] - 2026-08-09 (unreleased candidate)
 
 ### Fixed
 
@@ -164,8 +216,9 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.3...HEAD
-[1.0.3]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.3
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.4
+[1.0.3]: https://github.com/AstralDeep/LETS/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/AstralDeep/LETS/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/AstralDeep/LETS/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.0

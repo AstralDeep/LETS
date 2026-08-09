@@ -181,12 +181,14 @@ docker compose --env-file /etc/lets/warden-a/compose.env \
 
 The service runs as UID/GID 10001 with a read-only root filesystem, no Linux capabilities,
 `no-new-privileges`, bounded processes/memory/CPU/file descriptors, a no-exec tmpfs, bounded JSON
-logs, bounded request concurrency/body receipt/keep-alive/shutdown, and a 75-second container stop
-window. That window covers the runtime's 30-second graceful shutdown plus the audit-exporter and
-peer-dispatcher stop deadlines before Docker can kill the process. The separately staged config is
-a nested read-only bind over the writable state directory, so the runtime UID cannot replace it
-across a restart. It publishes TLS only. The readiness probe performs hostname-verifying TLS with a
-client certificate and accepts only the exact LETS ready document.
+logs, bounded request concurrency/body receipt/keep-alive/shutdown, and a 120-second container stop
+window. That window covers the maximum admitted 40-second server graceful shutdown, the
+audit-exporter stop, and the peer dispatcher's maximum 60-second request plus SQLite/poll/join
+allowance before Docker can kill the process. Do not shorten it without proving the complete
+configured shutdown inequality. The separately staged config is a nested read-only bind over the
+writable state directory, so the runtime UID cannot replace it across a restart. It publishes TLS
+only. The readiness probe performs hostname-verifying TLS with a client certificate and accepts
+only the exact LETS ready document.
 
 The request concurrency limit defaults to 64 and the TCP accept backlog to 128 in both the core
 server and this profile. Override `LETS_LIMIT_CONCURRENCY` or `LETS_BACKLOG` only after measuring
@@ -198,6 +200,19 @@ The total pre-authentication request-body deadline defaults to 30 seconds. Set
 the complete TLS path. A client that does not finish its body within that deadline receives a
 `408 request_body_timeout` problem and its connection is closed; the keep-alive timeout does not
 replace this body-read deadline.
+
+The supplied profile uses a 60-second outbound peer request deadline. Production validation
+requires `LETS_PEER_REQUEST_TIMEOUT_SECONDS`, admits only 30 through 60 seconds, and still performs
+one HTTP attempt per durable dispatcher attempt. A timeout therefore leaves the authoritative
+transfer `PREPARED` and records a failed delivery for bounded retry; it never implies that a
+response was not committed remotely. For the bundled `generic-production` provider, admission also
+requires the peer deadline to cover four authority-anchor calls, four signer calls, two SQLite busy
+allowances, and a fixed scheduling/TLS margin. The exact floor is
+`4 * authority_timeout_s + 4 * signer_timeout_s + 15` seconds. Increasing signer or authority
+timeouts without increasing this deadline is rejected, as is a combination whose derived bound
+exceeds the 60-second production ceiling. The peer timestamp is authenticated on arrival before
+target-side storage work; do not route peers through an intermediary that can hold a signed
+request beyond the accepted clock-skew window.
 
 Startup deliberately performs full SQLite integrity, foreign-key, authority-anchor, and audit
 admission before serving. The healthcheck start period defaults to ten minutes; it does not weaken
@@ -348,6 +363,9 @@ warden container once, bounding the complete three-node resource attempt to abou
 Failure log capture is limited to ten seconds; cleanup uses five-second inventory probes and a
 30-second Compose-down limit. Normal success-path probe and cleanup deadlines are unchanged, while
 the failure path reaches atomic evidence publication within an approximately three-minute budget.
+After the host Compose CLI is confirmed stopped, failure cleanup may force-remove only the exact
+named workload container whose Compose project, service, and one-off labels match the unique run;
+it then applies the checked project teardown and retains the zero-container/network/volume proof.
 Release automation archives that failure evidence under a run-attempt-scoped `diagnostic-*`
 artifact using an `always()` failure condition, while only verified success evidence receives the
 `release-*` artifact name consumed by publication. The failed soak job continues to block image
@@ -421,8 +439,11 @@ node lifecycle. Alert on `storage_capacity.logical_live_bytes`, `main_database_b
 `shared_memory_bytes`, `worst_case_transaction_wal_bytes`,
 `worst_case_shared_memory_bytes`, `additional_shared_memory_bytes`,
 `remaining_main_growth_bytes`, `required_filesystem_free_bytes`, actual filesystem free bytes,
-`audit_exporter.pending`/`stalled_for_s`, peer pending/prepared counts, and readiness. Recalculate
-the horizon after every policy or traffic change.
+`audit_exporter.pending`/`stalled_for_s`, peer pending/prepared counts,
+`peer_dispatcher.durable_retry` attempt/delay/kind/target metadata, and readiness. The status uses a
+bounded exception-class token and never returns raw transport error text; each new attempt also
+replaces a legacy pending row's raw error with that class-only form. Recalculate the horizon after
+every policy or traffic change.
 
 The provider audit archive has a separate append-only growth curve and does not share the core
 state cap. Alert on archive main/WAL/SHM bytes, filesystem/quota free bytes, exported head sequence,

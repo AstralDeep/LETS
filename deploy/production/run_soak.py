@@ -30,6 +30,8 @@ WORKLOAD_PAUSE_PATH = "/scenario/soak-workload-pause.json"
 WORKLOAD_PAUSE_ACK_PATH = "/scenario/soak-workload-pause-ack.json"
 DEFAULT_EVIDENCE = ROOT / "results" / "generated" / "production-profile-soak.json"
 IMAGE_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
+CONTAINER_ID = re.compile(r"\A[0-9a-f]{12,64}\Z")
+CONTAINER_NAME = re.compile(r"\A[a-z0-9][a-z0-9_.-]{0,127}\Z")
 DEFAULT_RESTART_INTERVAL_SECONDS = 900.0
 MIN_RESTART_EPISODES = len(WARDENS)
 RELEASE_MINIMUM_CYCLES = 300
@@ -200,7 +202,8 @@ connection.row_factory = sqlite3.Row
 probe = connection.execute(
     """
     SELECT t.transfer_id, t.sequence, t.status, d.attempts, d.last_attempt_ns,
-           d.next_attempt_ns, d.delivered_at_ns, d.superseded_at_ns, d.last_error
+           d.next_attempt_ns, d.delivered_at_ns, d.superseded_at_ns,
+           CASE WHEN d.last_error IS NULL THEN 0 ELSE 1 END AS has_error
     FROM outgoing_transfers AS t
     JOIN peer_delivery_state AS d
       ON d.record_kind = 'transfer'
@@ -1603,7 +1606,7 @@ def _resume_workload(harness: Harness, *, timeout: float = 30) -> None:
 
 def _settle_cluster(harness: Harness, episode: int) -> dict[str, Any]:
     output_path = f"/scenario/soak-settle-{episode:06d}.json"
-    timeout = min(60.0, harness.configuration.convergence_timeout_seconds)
+    timeout = harness.configuration.convergence_timeout_seconds
     harness.compose(
         "run",
         "--rm",
@@ -1679,7 +1682,7 @@ def _partition_probe(harness: Harness, episode: int) -> dict[str, Any]:
             and int(candidate.get("sequence", -1)) == int(result["sequence"])
             and candidate.get("status") == "PREPARED"
             and int(candidate.get("attempts", 0)) >= 1
-            and candidate.get("last_error") is not None
+            and candidate.get("has_error") == 1
             and candidate.get("delivered_at_ns") is None
             and candidate.get("superseded_at_ns") is None
         ):
@@ -1833,6 +1836,7 @@ def _failed_workload_status(
         stderr = error.stderr
     if workload is None:
         return {
+            "host_cli_terminated": True,
             "return_code": None,
             "started": False,
             "state": "not_started",
@@ -1855,7 +1859,19 @@ def _failed_workload_status(
         stderr = stderr or collected_stderr
     except Exception as exc:
         collection_error = _bounded_text(str(exc))
+        if workload.poll() is None:
+            try:
+                state = "killed_after_collection_failure"
+                workload.kill()
+                collected_stdout, collected_stderr = workload.communicate(timeout=10)
+                stdout = stdout or collected_stdout
+                stderr = stderr or collected_stderr
+            except Exception as kill_error:
+                collection_error = _bounded_text(
+                    f"{collection_error}; {type(kill_error).__name__}: {kill_error}"
+                )
     result: dict[str, Any] = {
+        "host_cli_terminated": workload.poll() is not None,
         "pid": workload.pid,
         "return_code": workload.poll(),
         "started": True,
@@ -1866,6 +1882,121 @@ def _failed_workload_status(
     if collection_error is not None:
         result["collection_error"] = collection_error
     return result
+
+
+def _failed_workload_container_listing(
+    harness: Harness,
+    *,
+    timeout: float,
+) -> tuple[str, str] | None:
+    """Return the exact named one-off workload only; reject ambiguous Docker output."""
+
+    name = harness.workload_container
+    if CONTAINER_NAME.fullmatch(name) is None:
+        raise RuntimeError("refusing to inspect an invalid workload container name")
+    output = harness.run(
+        [
+            "docker",
+            "container",
+            "ls",
+            "--all",
+            "--filter",
+            f"name=^/{name}$",
+            "--format",
+            "{{.ID}}\t{{.Names}}",
+        ],
+        timeout=timeout,
+    ).stdout
+    rows = [line.split("\t") for line in output.splitlines() if line.strip()]
+    if not rows:
+        return None
+    if len(rows) != 1 or len(rows[0]) != 2:
+        raise RuntimeError("exact workload container inspection returned ambiguous output")
+    container_id, listed_name = (item.strip() for item in rows[0])
+    if listed_name != name or CONTAINER_ID.fullmatch(container_id) is None:
+        raise RuntimeError("exact workload container inspection returned an invalid identity")
+    return container_id, listed_name
+
+
+def _remove_failed_workload_container(
+    harness: Harness,
+    *,
+    host_cli_terminated: bool,
+    timeout: float = FAILURE_COMMAND_TIMEOUT_SECONDS,
+    result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Fail closed around removal of the exact Compose one-off workload container."""
+
+    name = harness.workload_container
+    cleanup_result = {} if result is None else result
+    cleanup_result.update(
+        {
+            "attempted": False,
+            "container_name": name,
+            "force_removed": False,
+            "found": False,
+            "labels_validated": False,
+            "remaining": False,
+        }
+    )
+    if host_cli_terminated is not True:
+        raise RuntimeError("refusing workload cleanup while the host Compose CLI is still active")
+    cleanup_result["attempted"] = True
+    listed = _failed_workload_container_listing(harness, timeout=timeout)
+    if listed is None:
+        return cleanup_result
+    container_id, _ = listed
+    cleanup_result["found"] = True
+    cleanup_result["remaining"] = True
+    inspection = harness.run(
+        [
+            "docker",
+            "container",
+            "inspect",
+            "--format",
+            "{{json .}}",
+            name,
+        ],
+        timeout=timeout,
+    ).stdout
+    try:
+        document = json.loads(inspection)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("exact workload container inspect returned malformed JSON") from exc
+    if not isinstance(document, dict):
+        raise RuntimeError("exact workload container inspect returned a non-object")
+    inspected_id = document.get("Id")
+    config = document.get("Config")
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    expected_labels = {
+        "com.docker.compose.oneoff": "True",
+        "com.docker.compose.project": harness.project,
+        "com.docker.compose.service": "scenario",
+    }
+    if (
+        document.get("Name") != f"/{name}"
+        or not isinstance(inspected_id, str)
+        or len(inspected_id) != 64
+        or CONTAINER_ID.fullmatch(inspected_id) is None
+        or not inspected_id.startswith(container_id)
+        or not isinstance(labels, dict)
+        or any(labels.get(key) != value for key, value in expected_labels.items())
+    ):
+        raise RuntimeError(
+            "refusing to remove a workload container with mismatched identity labels"
+        )
+    cleanup_result["labels_validated"] = True
+    harness.run(
+        ["docker", "container", "rm", "--force", inspected_id],
+        timeout=timeout,
+    )
+    cleanup_result["force_removed"] = True
+    cleanup_result["remaining"] = (
+        _failed_workload_container_listing(harness, timeout=timeout) is not None
+    )
+    if cleanup_result["remaining"] is True:
+        raise RuntimeError("exact workload container remained after forced removal")
+    return cleanup_result
 
 
 def _restart(harness: Harness, service: str, *, elapsed_s: float) -> dict[str, Any]:
@@ -2359,18 +2490,37 @@ def run_soak(
                 )
         if started_cluster and not keep and not cleanup_attempted:
             cleanup_attempted = True
+            workload_container_cleanup: dict[str, Any] = {
+                "attempted": False,
+                "container_name": harness.workload_container,
+                "force_removed": False,
+                "found": False,
+                "labels_validated": False,
+                "remaining": False,
+            }
             try:
-                cleanup = _checked_down(
+                workload_container_cleanup = _remove_failed_workload_container(
+                    harness,
+                    host_cli_terminated=workload_status.get("host_cli_terminated") is True,
+                    timeout=FAILURE_COMMAND_TIMEOUT_SECONDS,
+                    result=workload_container_cleanup,
+                )
+                down_cleanup = _checked_down(
                     harness,
                     probe_timeout=FAILURE_COMMAND_TIMEOUT_SECONDS,
                     down_timeout=FAILURE_DOWN_TIMEOUT_SECONDS,
                 )
+                cleanup = {
+                    **down_cleanup,
+                    "workload_container": workload_container_cleanup,
+                }
                 started_cluster = False
             except Exception as cleanup_error:
                 cleanup = {
                     "error": _bounded_text(str(cleanup_error)),
                     "performed": False,
                     "reason": "cleanup failed",
+                    "workload_container": workload_container_cleanup,
                 }
         elif keep:
             cleanup = {

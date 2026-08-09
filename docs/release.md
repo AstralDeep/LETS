@@ -237,7 +237,7 @@ docker compose --env-file /etc/lets/warden-a/compose.env \
 
 # Confirm peer-delivery and audit-outbox counts are zero through authenticated metrics.
 docker compose --env-file /etc/lets/warden-a/compose.env \
-  -f deploy/production/compose.yaml stop --timeout 75 warden
+  -f deploy/production/compose.yaml stop --timeout 120 warden
 
 docker compose --env-file /etc/lets/warden-a/compose.env \
   -f deploy/production/maintenance-compose.yaml run --rm --no-deps maintenance \

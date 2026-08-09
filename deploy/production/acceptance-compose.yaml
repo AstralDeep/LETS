@@ -24,7 +24,7 @@ x-node: &node
   init: true
   restart: unless-stopped
   stop_signal: SIGTERM
-  stop_grace_period: 75s
+  stop_grace_period: 120s
   logging:
     driver: json-file
     options:
@@ -60,6 +60,8 @@ x-node-command: &node-command
   - "64"
   - --backlog
   - "128"
+  - --peer-request-timeout-seconds
+  - "60"
   - --timeout-keep-alive
   - "5"
   - --timeout-graceful-shutdown
