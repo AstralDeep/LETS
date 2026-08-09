@@ -13,6 +13,7 @@ protocol with a hardware monotonic counter or conditional remote record.
 
 from __future__ import annotations
 
+import importlib
 import os
 import subprocess
 import sys
@@ -41,7 +42,7 @@ def _durable_move(source: str, target: Path, *, exclusive: bool) -> None:
     """Publish one already-fsynced file with durable directory-entry semantics."""
 
     if os.name == "nt":
-        import ctypes
+        ctypes = importlib.import_module("ctypes")
 
         flags = _MOVEFILE_WRITE_THROUGH
         if not exclusive:
@@ -338,7 +339,7 @@ class FileAuthorityAnchor:
             stream.seek(0)
             deadline = time.monotonic() + self._timeout_s
             if os.name == "nt":
-                import msvcrt
+                msvcrt = importlib.import_module("msvcrt")
 
                 while True:
                     try:
@@ -355,8 +356,6 @@ class FileAuthorityAnchor:
                     stream.seek(0)
                     msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
             else:
-                import importlib
-
                 fcntl = importlib.import_module("fcntl")
                 while True:
                     try:

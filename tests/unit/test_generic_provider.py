@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -84,6 +85,19 @@ def _signer_helper(path: Path) -> Path:
     return path
 
 
+def _signer_command(helper: Path, *arguments: Path) -> list[str]:
+    resolved_helper = helper.resolve()
+    resolved_arguments = [str(argument.resolve()) for argument in arguments]
+    if os.name == "nt":
+        return [sys.executable, str(resolved_helper), *resolved_arguments]
+    helper.write_text(
+        f"#!{sys.executable}\n{helper.read_text(encoding='utf-8')}",
+        encoding="utf-8",
+    )
+    helper.chmod(0o700)
+    return [str(resolved_helper), *resolved_arguments]
+
+
 def test_generic_production_provider_uses_external_signer_jwt_anchor_and_sink(
     tmp_path: Path,
 ) -> None:
@@ -105,9 +119,7 @@ def test_generic_production_provider_uses_external_signer_jwt_anchor_and_sink(
         "identity_audience": "lets-api",
         "identity_issuer": "issuer-a",
         "identity_keys_file": str(identity_keys.resolve()),
-        "signer_command_json": json.dumps(
-            [sys.executable, str(helper.resolve()), str(seed_file.resolve())]
-        ),
+        "signer_command_json": json.dumps(_signer_command(helper, seed_file)),
         "signer_key_id": "warden-key",
         "signer_public_key": b64url_encode(signer_key.verify_key.encode()),
     }
@@ -210,7 +222,7 @@ def test_generic_provider_rejects_missing_resources_and_bad_signatures(tmp_path:
             "identity_audience": "lets-api",
             "identity_issuer": "issuer-a",
             "identity_keys_file": str(_key_file(tmp_path / "keys.json", key).resolve()),
-            "signer_command_json": json.dumps([sys.executable, str(helper.resolve())]),
+            "signer_command_json": json.dumps(_signer_command(helper)),
             "signer_key_id": "warden-key",
             "signer_public_key": b64url_encode(key.verify_key.encode()),
         },
