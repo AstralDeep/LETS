@@ -407,6 +407,8 @@ def test_production_serve_requires_inbound_and_peer_mtls_and_bounded_limits() ->
             "managed",
             "--limit-concurrency",
             "256",
+            "--request-body-timeout",
+            "12",
             "--timeout-keep-alive",
             "4",
             "--timeout-graceful-shutdown",
@@ -415,6 +417,7 @@ def test_production_serve_requires_inbound_and_peer_mtls_and_bounded_limits() ->
     )
     _validate_production_admission(config, complete, provider_name="managed")
     assert complete.limit_concurrency == 256
+    assert complete.request_body_timeout == 12
     assert complete.timeout_keep_alive == 4
     assert complete.timeout_graceful_shutdown == 20
 

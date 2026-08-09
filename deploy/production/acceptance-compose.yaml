@@ -79,6 +79,8 @@ services:
     cpus: 1.0
     network_mode: none
     command: [python, /app/deploy/production/acceptance/materialize.py]
+    environment:
+      LETS_ACCEPTANCE_INITIAL_SHARE: ${LETS_ACCEPTANCE_INITIAL_SHARE:-100}
     volumes:
       - trust:/materials/trust
       - client:/materials/client

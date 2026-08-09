@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import logging
+import math
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict, is_dataclass
 from functools import partial
@@ -14,7 +16,9 @@ from fastapi import FastAPI, HTTPException, Path, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
+from lets import __version__
 from lets.auth import (
     AuthenticationError,
     IdentityAuthenticator,
@@ -46,6 +50,9 @@ JSON_MEDIA_TYPE = "application/json"
 LOGGER = logging.getLogger("lets.api")
 WARDEN_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
 KEY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._~:/+-]{0,511}$"
+DEFAULT_REQUEST_BODY_TIMEOUT_S = 30.0
+MIN_REQUEST_BODY_TIMEOUT_S = 0.001
+MAX_REQUEST_BODY_TIMEOUT_S = 300.0
 
 WardenPath = Annotated[str, Path(pattern=WARDEN_ID_PATTERN)]
 PositiveTransferSequence = Annotated[int, Path(ge=1)]
@@ -89,6 +96,7 @@ def _title_for(status_code: int) -> str:
         401: "Authentication Required",
         403: "Request Denied",
         404: "Not Found",
+        408: "Request Timeout",
         409: "Conflict",
         410: "Gone",
         413: "Content Too Large",
@@ -252,6 +260,7 @@ def create_app(
     | None = None,
     node_metadata: Mapping[str, object] | None = None,
     maximum_body_bytes: int = 2 * 1024 * 1024,
+    request_body_timeout_s: float = DEFAULT_REQUEST_BODY_TIMEOUT_S,
 ) -> FastAPI:
     """Build an authenticated LETS API without coupling the core to FastAPI.
 
@@ -262,12 +271,22 @@ def create_app(
 
     if maximum_body_bytes <= 0:
         raise ValueError("maximum_body_bytes must be positive")
+    if (
+        isinstance(request_body_timeout_s, bool)
+        or not isinstance(request_body_timeout_s, (int, float))
+        or not math.isfinite(request_body_timeout_s)
+        or not MIN_REQUEST_BODY_TIMEOUT_S <= request_body_timeout_s <= MAX_REQUEST_BODY_TIMEOUT_S
+    ):
+        raise ValueError(
+            "request_body_timeout_s must be a finite number between "
+            f"{MIN_REQUEST_BODY_TIMEOUT_S} and {MAX_REQUEST_BODY_TIMEOUT_S} seconds"
+        )
     if peer_authenticator is not None and not peer_tenant_id:
         raise ValueError("peer_tenant_id is required when peer authentication is enabled")
 
     app = FastAPI(
         title="LETS Warden API",
-        version="1.0.0",
+        version=__version__,
         docs_url=None,
         redoc_url=None,
         openapi_url="/v1/openapi.json",
@@ -291,15 +310,37 @@ def create_app(
             )
         else:
             request.state.request_id = supplied or new_id("request")
-            if not await _buffer_bounded_body(request, maximum_bytes=maximum_body_bytes):
+            try:
+                body_within_limit = await asyncio.wait_for(
+                    _buffer_bounded_body(request, maximum_bytes=maximum_body_bytes),
+                    timeout=request_body_timeout_s,
+                )
+            except ClientDisconnect:
                 response = _problem_response(
                     request,
-                    status_code=413,
-                    code="http_413",
-                    detail="request body exceeds the configured limit",
+                    status_code=400,
+                    code="client_disconnected",
+                    detail="client disconnected before the request body was complete",
+                    headers={"connection": "close"},
+                )
+            except TimeoutError:
+                response = _problem_response(
+                    request,
+                    status_code=408,
+                    code="request_body_timeout",
+                    detail="request body was not received within the configured deadline",
+                    headers={"connection": "close"},
                 )
             else:
-                response = await call_next(request)
+                if not body_within_limit:
+                    response = _problem_response(
+                        request,
+                        status_code=413,
+                        code="http_413",
+                        detail="request body exceeds the configured limit",
+                    )
+                else:
+                    response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         return response
 

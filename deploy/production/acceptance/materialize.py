@@ -28,12 +28,7 @@ TENANT_ID = "production-acceptance-tenant"
 ENVELOPE_ID = "production-acceptance-envelope"
 IDENTITY_ISSUER = "https://identity.production-acceptance"
 IDENTITY_AUDIENCE = "lets-production-acceptance"
-INITIAL_BUDGET = (300,)
-NODES = (
-    ("warden-a", (100,), "https://toxiproxy:8667", "https://warden-a:8443"),
-    ("warden-b", (100,), "https://toxiproxy:8666", "https://warden-b:8443"),
-    ("warden-c", (100,), "https://warden-c:8443", "https://warden-c:8443"),
-)
+DEFAULT_INITIAL_SHARE = 100
 ROOT = Path("/materials")
 TRUST = ROOT / "trust"
 CLIENT = ROOT / "client"
@@ -59,6 +54,26 @@ def acceptance_policy() -> PolicySpec:
         receipt_ttl_ns=60_000_000_000,
         max_clock_uncertainty_ns=1_000_000_000,
         transfer_gap_window=8,
+    )
+
+
+def _initial_share() -> int:
+    raw = os.environ.get("LETS_ACCEPTANCE_INITIAL_SHARE", str(DEFAULT_INITIAL_SHARE))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("LETS_ACCEPTANCE_INITIAL_SHARE must be an integer") from exc
+    if value < DEFAULT_INITIAL_SHARE or value > 1_000_000_000:
+        raise RuntimeError("LETS_ACCEPTANCE_INITIAL_SHARE must be between 100 and 1000000000")
+    return value
+
+
+def _nodes() -> tuple[tuple[str, tuple[int, ...], str, str], ...]:
+    share = (_initial_share(),)
+    return (
+        ("warden-a", share, "https://toxiproxy:8667", "https://warden-a:8443"),
+        ("warden-b", share, "https://toxiproxy:8666", "https://warden-b:8443"),
+        ("warden-c", share, "https://warden-c:8443", "https://warden-c:8443"),
     )
 
 
@@ -191,7 +206,11 @@ def _own_writable_directory(path: Path, *, owner: int = 10001) -> None:
     path.chmod(0o700)
 
 
-def _manifest(signers: dict[str, Ed25519Signer], operator: Ed25519Signer) -> ClusterManifest:
+def _manifest(
+    signers: dict[str, Ed25519Signer],
+    operator: Ed25519Signer,
+    nodes: tuple[tuple[str, tuple[int, ...], str, str], ...],
+) -> ClusterManifest:
     policy = acceptance_policy()
     unsigned = ClusterManifest(
         tenant_id=TENANT_ID,
@@ -199,7 +218,7 @@ def _manifest(signers: dict[str, Ed25519Signer], operator: Ed25519Signer) -> Clu
         config_epoch=1,
         created_at=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         resources=policy.dimensions,
-        initial_budget=INITIAL_BUDGET,
+        initial_budget=(sum(share[0] for _, share, _, _ in nodes),),
         wardens=tuple(
             WardenManifest(
                 warden_id=warden_id,
@@ -214,7 +233,7 @@ def _manifest(signers: dict[str, Ed25519Signer], operator: Ed25519Signer) -> Clu
                 ),
                 extensions={},
             )
-            for warden_id, share, peer_endpoint, client_endpoint in NODES
+            for warden_id, share, peer_endpoint, client_endpoint in nodes
         ),
         policies=(policy,),
         extensions={
@@ -241,6 +260,7 @@ def _manifest(signers: dict[str, Ed25519Signer], operator: Ed25519Signer) -> Clu
 
 
 def main() -> int:
+    nodes = _nodes()
     _require_empty(TRUST)
     _require_empty(CLIENT)
     _require_empty(ROOT / "scenario")
@@ -249,7 +269,7 @@ def main() -> int:
         directory = ROOT / "executor" / executor_domain
         _require_empty(directory)
         _own_writable_directory(directory)
-    for warden_id, *_ in NODES:
+    for warden_id, *_ in nodes:
         _require_empty(ROOT / "pki" / warden_id)
         _require_empty(ROOT / "signers" / warden_id)
         for domain in ("state", "config", "authority", "audit"):
@@ -259,7 +279,7 @@ def main() -> int:
 
     operator = Ed25519Signer.generate("production-acceptance-operator")
     signers: dict[str, Ed25519Signer] = {}
-    for warden_id, *_ in NODES:
+    for warden_id, *_ in nodes:
         signer = Ed25519Signer.generate(warden_id)
         signers[warden_id] = signer
         directory = ROOT / "signers" / warden_id
@@ -276,7 +296,7 @@ def main() -> int:
         _copy(SOURCE_HELPER, directory / "signer_helper.py", 0o500)
         _protect_tree(directory)
 
-    manifest = _manifest(signers, operator)
+    manifest = _manifest(signers, operator, nodes)
     _json(TRUST / "manifest.json", manifest.to_dict())
     _json(
         TRUST / "operator.json",
@@ -309,7 +329,7 @@ def main() -> int:
         server_ca, server_ca_key = _ca(work, "server-ca")
         client_ca, client_ca_key = _ca(work, "client-ca")
         wrong_ca, wrong_ca_key = _ca(work, "untrusted-client-ca")
-        for serial, (warden_id, *_rest) in enumerate(NODES, 10):
+        for serial, (warden_id, *_rest) in enumerate(nodes, 10):
             directory = ROOT / "pki" / warden_id
             server_certificate, server_key = _certificate(
                 work,
@@ -378,7 +398,7 @@ def main() -> int:
                 "manifest_digest": manifest.digest,
                 "provider": "generic-production",
                 "status": "materialized",
-                "wardens": [item[0] for item in NODES],
+                "wardens": [item[0] for item in nodes],
             },
             sort_keys=True,
         )

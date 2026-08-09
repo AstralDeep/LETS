@@ -244,6 +244,13 @@ def _parser() -> argparse.ArgumentParser:
         help="maximum kernel accept backlog for the listening socket",
     )
     serve.add_argument(
+        "--request-body-timeout",
+        type=int,
+        default=30,
+        metavar="SECONDS",
+        help="total deadline in seconds for receiving a request body before authentication",
+    )
+    serve.add_argument(
         "--timeout-keep-alive",
         type=int,
         default=5,
@@ -2985,6 +2992,7 @@ def _metrics_provider(
 ) -> dict[str, object]:
     invariant = service.invariant_snapshot(identity=identity)
     capacity = store.capacity_snapshot()
+    service_ready = service.ready()
     with store.read() as transaction:
         connection = transaction.connection
         lease_rows = connection.execute(
@@ -3024,7 +3032,8 @@ def _metrics_provider(
     checked_at_ns = time.time_ns()
     result: dict[str, object] = {
         "checked_at_ns": checked_at_ns,
-        "ready": service.ready(),
+        "ready": service_ready,
+        "service_ready": service_ready,
         "invariant_healthy": invariant.healthy,
         "resources": {
             "initial_share": list(invariant.initial_share),
@@ -3150,6 +3159,12 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
             raise ValidationError(
                 f"--{name.replace('_', '-')} must be an integer between 1 and 3600"
             )
+    if (
+        isinstance(arguments.request_body_timeout, bool)
+        or not isinstance(arguments.request_body_timeout, int)
+        or not 1 <= arguments.request_body_timeout <= 300
+    ):
+        raise ValidationError("--request-body-timeout must be an integer between 1 and 300")
     if (
         isinstance(arguments.backlog, bool)
         or not isinstance(arguments.backlog, int)
@@ -3291,6 +3306,7 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                     "runtime_provider": runtime.provider_name,
                     "sqlite_version": sqlite3.sqlite_version,
                 },
+                request_body_timeout_s=float(arguments.request_body_timeout),
             )
             dispatcher.start()
             try:

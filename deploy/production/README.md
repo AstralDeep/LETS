@@ -181,17 +181,23 @@ docker compose --env-file /etc/lets/warden-a/compose.env \
 
 The service runs as UID/GID 10001 with a read-only root filesystem, no Linux capabilities,
 `no-new-privileges`, bounded processes/memory/CPU/file descriptors, a no-exec tmpfs, bounded JSON
-logs, bounded request concurrency/keep-alive/shutdown, and a 75-second container stop window. That
-window covers the runtime's 30-second graceful shutdown plus the audit-exporter and peer-dispatcher
-stop deadlines before Docker can kill the process. The separately staged config is a nested
-read-only bind over the writable state directory, so the runtime UID cannot replace it across a
-restart. It publishes TLS only. The readiness probe performs hostname-verifying TLS with a client
-certificate and accepts only the exact LETS ready document.
+logs, bounded request concurrency/body receipt/keep-alive/shutdown, and a 75-second container stop
+window. That window covers the runtime's 30-second graceful shutdown plus the audit-exporter and
+peer-dispatcher stop deadlines before Docker can kill the process. The separately staged config is
+a nested read-only bind over the writable state directory, so the runtime UID cannot replace it
+across a restart. It publishes TLS only. The readiness probe performs hostname-verifying TLS with a
+client certificate and accepts only the exact LETS ready document.
 
 The request concurrency limit defaults to 64 and the TCP accept backlog to 128 in both the core
 server and this profile. Override `LETS_LIMIT_CONCURRENCY` or `LETS_BACKLOG` only after measuring
 the complete TLS/provider/SQLite path under the configured CPU, memory, file-descriptor, and PID
 limits; increasing either value can raise memory and shutdown pressure.
+
+The total pre-authentication request-body deadline defaults to 30 seconds. Set
+`LETS_REQUEST_BODY_TIMEOUT_SECONDS` from 1 through 300 only after measuring legitimate uploads over
+the complete TLS path. A client that does not finish its body within that deadline receives a
+`408 request_body_timeout` problem and its connection is closed; the keep-alive timeout does not
+replace this body-read deadline.
 
 Startup deliberately performs full SQLite integrity, foreign-key, authority-anchor, and audit
 admission before serving. The healthcheck start period defaults to ten minutes; it does not weaken
@@ -257,6 +263,56 @@ Release automation publishes a unique multi-architecture candidate first and set
 that all three wardens ran that candidate while keeping only material generation and the scenario
 driver in the local test image. Evidence records both the configured registry digest and the one
 platform image ID; a mismatch fails the release before scan, signing, or tag promotion.
+
+### Sustained production soak
+
+The soak runner extends the same hardened three-warden profile for a time-bounded mixed workload.
+It requires an immutable OCI index digest; mutable tags and locally built runtime images are
+rejected. A normal run lasts at least five minutes and must contain at least two bidirectional
+Toxiproxy partitions. Every warden must receive a planned `SIGKILL` and reopen at least once; the
+one-hour default spaces those kills 900 seconds apart and requires at least 300 completed workload
+cycles:
+
+```sh
+python deploy/production/run_soak.py \
+  --image ghcr.io/astraldeep/lets@sha256:INDEX_DIGEST \
+  --duration-seconds 3600 \
+  --output results/generated/production-profile-soak.json
+```
+
+Every workload cycle issues a root lease, authorizes signed transitions, quiesces, resumes, renews,
+and closes the lease. Directed transfers rotate across every warden pair while partitions and
+process kills occur. A separately anchored executor claims each receipt, rejects its replay, and
+periodically closes and reopens both `SQLiteReceiptReplayStore` and
+`ProcessFileExecutorAuthorityAnchor`. Warden restarts similarly reopen `SQLiteStorage`,
+`ProcessFileAuthorityAnchor`, `SQLiteAuditSink`, and `AuditExporter` through the production provider.
+
+The runner continuously samples local conservation, full signed-audit verification, audit-export
+health, storage capacity, and peer backlogs, including during coordinated workload pauses. Before
+each partition the workload acknowledges a pause and the cluster settles. While both A/B proxy
+links are disabled, the runner binds the exact probe transfer ID, sequence, and direction to a
+failed `PREPARED` transfer and its undelivered durable delivery row. After restoring the links it
+requires that exact source stream's acknowledged/compacted watermarks and target stream's
+contiguous/compacted watermarks to cover the probe sequence, then requires every peer, transfer,
+and audit queue to converge to zero.
+
+Host-side probes record the actual LETS child process's RSS and file-descriptor count (not the PID 1
+init shim), core DB/WAL/SHM, audit DB/WAL/SHM, signer log, anchor, Docker restart count, OOM state,
+and process identity. Any automatic restart or OOM fails the run; every planned kill must replace
+the PID, and every warden must retain a long uninterrupted process lifetime. Fixed ceilings and
+per-cycle growth budgets fail the run on unbounded resource growth. The sorted JSON record binds
+start/end timestamps, the unique initially empty Compose project and zero-resource cleanup, exact
+requested OCI index digest, inspected image ID and repository digests, matching OCI/host/three-node
+runtime/workload/verifier package versions, Git commit/dirty state, deterministic source-tree
+digest, individual soak harness file hashes, chaos events, replay/anchor heads, health/load/latency
+metrics, and a canonical payload SHA-256.
+
+Use `--smoke` only for harness diagnostics. It permits a run shorter than five minutes but still
+requires at least two proven partition episodes and planned restarts covering all three wardens;
+never present smoke output as sustained-soak evidence. Every run uses a unique Compose project,
+requires its container/volume/network namespace to be empty before startup, and proves that all
+three resource classes are absent after cleanup. Use `--keep` only for failure investigation because
+all generated PKI, signer seeds, and authority state are test material.
 
 ## Protected executor boundary
 
