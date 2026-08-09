@@ -427,6 +427,7 @@ def test_metrics_include_capacity_and_fail_readiness_on_audit_export_error(
             },
         )
         assert healthy["ready"] is True
+        assert healthy["service_ready"] is True
         assert healthy["storage_capacity"]["healthy"] is True
         assert healthy["audit_exporter"]["running"] is True
 
@@ -443,6 +444,7 @@ def test_metrics_include_capacity_and_fail_readiness_on_audit_export_error(
             },
         )
         assert stalled["ready"] is False
+        assert stalled["service_ready"] is True
 
         failed = _metrics_provider(
             service,

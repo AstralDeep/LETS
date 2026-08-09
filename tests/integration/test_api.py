@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Mapping
+import tomllib
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from jsonschema import Draft202012Validator
 
 import deploy.start_warden as start_warden_module
 import lets.cli as cli_module
+from lets import __version__
 from lets.api import create_app
 from lets.auth import (
     PeerMessageAuthenticator,
@@ -568,6 +570,125 @@ def test_body_limit_runs_before_client_and_peer_authentication(tmp_path: Path) -
     assert peer.status_code == 413
 
 
+def test_slow_chunked_body_times_out_before_authentication_and_closes_connection() -> None:
+    class CountingAuthenticator:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def authenticate(self, request: object) -> IdentityContext:
+            del request
+            self.calls += 1
+            return _identity()
+
+    class SlowChunkedBody(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield b"{"
+            await asyncio.sleep(0.3)
+            yield b"}"
+
+    service = StubService()
+    authenticator = CountingAuthenticator()
+    app = create_app(
+        service,
+        authenticator=authenticator,
+        request_body_timeout_s=0.05,
+    )
+
+    timed_out = _request(
+        app,
+        "POST",
+        "/v1/roots",
+        content=SlowChunkedBody(),
+        headers={"content-type": "application/json"},
+    )
+
+    assert timed_out.status_code == 408
+    assert timed_out.headers["connection"] == "close"
+    assert timed_out.json()["type"] == "urn:lets:problem:request_body_timeout"
+    assert timed_out.json()["title"] == "Request Timeout"
+    assert timed_out.json()["code"] == "request_body_timeout"
+    assert authenticator.calls == 0
+    assert service.calls == []
+
+    accepted = _request(
+        app,
+        "POST",
+        "/v1/roots",
+        json=_root_payload(),
+        headers={"authorization": "Bearer valid-token"},
+    )
+    assert accepted.status_code == 201
+    assert authenticator.calls == 1
+    assert service.calls[0][0] == "issue_root"
+
+
+def test_client_disconnect_during_body_is_quiet_and_never_authenticates(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class CountingAuthenticator:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def authenticate(self, request: object) -> IdentityContext:
+            del request
+            self.calls += 1
+            return _identity()
+
+    service = StubService()
+    authenticator = CountingAuthenticator()
+    app = create_app(service, authenticator=authenticator, request_body_timeout_s=1)
+    sent: list[dict[str, Any]] = []
+    incoming = iter(
+        (
+            {"type": "http.request", "body": b"{", "more_body": True},
+            {"type": "http.disconnect"},
+        )
+    )
+
+    async def receive() -> dict[str, Any]:
+        return next(incoming)
+
+    async def send(message: dict[str, Any]) -> None:
+        sent.append(message)
+
+    scope: dict[str, Any] = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "https",
+        "path": "/v1/roots",
+        "raw_path": b"/v1/roots",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"content-type", b"application/json")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("warden", 8443),
+    }
+
+    with caplog.at_level(logging.ERROR, logger="lets.api"):
+        asyncio.run(app(scope, receive, send))
+
+    assert authenticator.calls == 0
+    assert service.calls == []
+    assert "unhandled LETS API error" not in caplog.text
+    starts = [message for message in sent if message["type"] == "http.response.start"]
+    assert starts and starts[0]["status"] == 400
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [True, "30", 0, -1, float("nan"), float("inf"), 300.001],
+)
+def test_request_body_timeout_must_be_a_finite_bounded_number(timeout: object) -> None:
+    with pytest.raises(ValueError, match="request_body_timeout_s"):
+        create_app(
+            StubService(),
+            authenticator=StaticBearerAuthenticator.single("valid-token", _identity()),
+            request_body_timeout_s=timeout,  # type: ignore[arg-type]
+        )
+
+
 def test_unexpected_api_error_is_logged_without_request_body(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -733,6 +854,10 @@ def test_openapi_exports_strict_body_and_security_contracts() -> None:
         (Path(__file__).parents[2] / "protocol" / "openapi.yaml").read_text(encoding="utf-8")
     )
     assert document == published
+    project = tomllib.loads(
+        (Path(__file__).parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert document["info"]["version"] == __version__ == project["project"]["version"]
 
 
 def test_openapi_matches_problem_validation_and_transport_identifier_runtime() -> None:

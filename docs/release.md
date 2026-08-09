@@ -14,17 +14,36 @@ artifact-attestation service or its plan availability. OIDC, Cosign attestation/
 push, or signing failure stops the workflow before the GitHub release is created. There is no
 `continue-on-error` or private-repository bypass.
 
-Protect `main` and the `v*` tag namespace. Require CI and security workflows, reviewed changes,
-linear history, no force pushes, and signed annotated tags. Restrict package deletion and
-tag/release administration to release operators. Retain Actions logs, release signature bundles,
-registry signatures and attestations, and their transparency-log records for the system's audit
-lifetime.
+Immediately before pushing a release tag, a trusted release operator with repository
+Administration-read permission must confirm the repository setting (the Actions `GITHUB_TOKEN`
+cannot read this admin-only endpoint):
+
+```sh
+test "$(gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+  repos/AstralDeep/LETS/immutable-releases --jq .enabled)" = true
+```
+
+Protect `main` and the `v*` tag namespace when the repository plan provides server-side branch and
+tag rules. Require CI and security workflows, reviewed changes, linear history, no force pushes,
+and signed annotated tags. A private repository plan that does not expose those rules must treat
+repository administrators as trusted release operators and record that governance boundary. The
+release workflow still fails closed unless the commit is GitHub-verified, its exact `push` CI and
+security runs succeeded, a GitHub-verified annotated tag resolves to the current `main`, and the
+same tag still resolves to that commit immediately before publication. These checks protect the
+published artifact but do not pretend to provide independent review or no-force-push governance.
+Restrict package deletion and tag/release administration to release operators. GitHub Actions log
+retention is a short-lived diagnostic window, not the release archive. Before that window expires,
+export any incident-relevant logs and their hashes to the independently controlled audit archive.
+Retain the immutable GitHub release attestation, release signature bundles, registry signatures and
+attestations, acceptance evidence, and transparency-log records for the system's audit lifetime.
 
 ## Prepare a release
 
 1. Resolve every P0/P1 issue and confirm `ci` plus `security` are green on the exact commit.
-2. Update the version in `pyproject.toml`; do not edit `uv.lock` by hand. Run `uv lock` in the
-   repository-local environment and commit both files.
+2. Update the version in `pyproject.toml`, `src/lets/__init__.py`, and the FastAPI application;
+   regenerate `protocol/openapi.yaml`, then run `uv lock` in the repository-local environment.
+   Do not edit `uv.lock` by hand. If the paper describes the current release, regenerate every
+   version-bound evidence field and rebuild/render it rather than merely relabeling old evidence.
 3. Move the relevant `Unreleased` entries in `CHANGELOG.md` under
    `## [X.Y.Z] - YYYY-MM-DD`. State protocol/schema compatibility, migration steps, and rollback
    boundaries explicitly.
@@ -63,11 +82,17 @@ Cosign attestations to their exact child-manifest digests after acceptance, then
 promotion. These controls improve reproducibility but are not a claim that arbitrary independent
 BuildKit invocations must produce the same index digest. The workflow runs the three-node mTLS
 production profile against that exact candidate digest with the generic external provider through a
-partition and process restart. After acceptance, it scans both candidate architectures by digest,
-requires the upstream WAL-reset fix in the SQLite library loaded by both, signs and inspects the
-image digest, and promotes only that verified digest to the full-version and commit tags.
+partition and process restart. A separate mandatory one-hour soak drives mixed lease lifecycle,
+authorization, anchored executor replay, and transfer traffic while repeatedly partitioning peer
+links and replacing warden processes with `SIGKILL`. It continuously checks invariants, audit and
+dispatcher health, final conservation and backlog convergence, and explicit RSS, file-descriptor,
+database, WAL, audit, and signer growth bounds. Its machine record binds the exact OCI digest and
+config ID to the clean release commit, source-tree digest, and soak-harness hashes. After acceptance
+and soak, the workflow scans both candidate architectures by digest, requires the upstream WAL-reset
+fix in the SQLite library loaded by both, signs and inspects the image digest, and promotes only that
+verified digest to the full-version and commit tags.
 The package build, isolated smoke, locked dependency audit, and package SBOM must all pass before
-the production-profile acceptance or image-promotion jobs can start.
+the production-profile acceptance, production-soak, or image-promotion jobs can start.
 
 The Python wheel smoke test runs in an isolated environment synchronized from the server/client
 closure exported from the frozen `uv.lock`; the wheel is then installed with `--no-deps`. Dependency
@@ -96,8 +121,10 @@ retry-safe: after every gate and the explicit final-asset allowlist succeed, the
 resumes a draft release, overwrites the expected assets, downloads them again, and compares every
 name and SHA-256 digest before publishing the draft. A retry accepts an already published release
 only when its complete downloaded asset set is byte-identical; an unexpected title, prerelease
-state, extra asset, or digest mismatch stops the job. Enable GitHub's immutable-releases control for
-this repository and prevent concurrent release writers. Never retag or rewrite a mismatched
+state, extra asset, or digest mismatch stops the job. GitHub's immutable-releases control is a hard
+operator prerequisite. The workflow immediately verifies the published release's `immutable` state
+and GitHub release attestation; if GitHub does not make it immutable, the workflow returns the
+release to draft and fails. Prevent concurrent release writers. Never retag or rewrite a mismatched
 version; investigate it as a release-integrity incident and fix forward with a new patch version.
 
 ## Verify before deployment
@@ -119,14 +146,15 @@ sha256sum --check RELEASE_SHA256SUMS
 
 `SHA256SUMS` is the package-build manifest and is itself one of the payloads authenticated through
 the final manifest. `RELEASE_SHA256SUMS` is generated only after the independently gated package,
-production-acceptance, and image jobs have completed. Before constructing it, the workflow requires
-the exact versioned payload allowlist, rejects missing, extra, empty, nested, or colliding inputs,
-and rechecks the package hashes. It covers all fourteen payload assets. The published release then
-adds `RELEASE_SHA256SUMS` and its `RELEASE_SHA256SUMS.sigstore.json` verification bundle for an
-exact sixteen-asset set. The bundle cannot be listed in the manifest it authenticates;
+production-acceptance, one-hour production-soak, and image jobs have completed. Before constructing
+it, the workflow requires the exact versioned payload allowlist, rejects missing, extra, empty,
+nested, or colliding inputs, and rechecks the package hashes. It covers all fifteen payload assets,
+including `production-profile-soak.json`. The published release then adds `RELEASE_SHA256SUMS` and
+its `RELEASE_SHA256SUMS.sigstore.json` verification bundle for an exact seventeen-asset set. The
+bundle cannot be listed in the manifest it authenticates;
 `cosign verify-blob` instead verifies the manifest's certificate identity, OIDC issuer, signature,
 and transparency-log evidence directly from that bundle. Publication still downloads and
-byte-compares the complete sixteen-asset set before making the draft public.
+byte-compares the complete seventeen-asset set before making the draft public.
 
 The SBOM portion of the image asset group contains `lets-container-amd64.spdx.json`,
 `lets-container-arm64.spdx.json`, and `lets-container-sbom-index.json`. Verify the hashes in the

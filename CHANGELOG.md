@@ -5,6 +5,38 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-09
+
+### Fixed
+
+- Bound the complete pre-authentication request-body read to an operator-configurable deadline
+  (30 seconds by default). A stalled upload now fails with HTTP 408
+  `request_body_timeout`, closes the connection, and never reaches authentication or authority
+  handling; a client that disconnects mid-body is rejected quietly without an unexpected-error
+  traceback or log amplification.
+
+### Changed
+
+- Added a mandatory one-hour, exact-candidate production soak before image promotion. The soak
+  drives mixed lease lifecycle, authorization, anchored executor replay, and all-pairs transfer
+  traffic through repeated peer partitions and rotating `SIGKILL` process replacement; it fails on
+  insufficient work, unhealthy invariants/audit/capacity, unconverged backlogs, or bounded-resource
+  regressions and publishes its source- and digest-bound machine record as a signed release asset.
+- Tightened release governance so publication requires the exact commit's successful CI and
+  security push runs, exact compatibility/migration/rollback notes, repository release
+  immutability, and GitHub's post-publication release attestation.
+
+### Compatibility, migration, and rollback
+
+- LETS v1 wire/API compatibility, warden schema 2, executor schema 5, manifest semantics, and
+  authority/replay formats are unchanged from 1.0.0. No database or executor migration is required.
+- Mixed-version operation remains unsupported. Drain peer and audit queues, take and verify an
+  authority-safe recovery bundle, stop every old process, and deploy the exact 1.0.1 image/package
+  together. Configure the new body deadline explicitly if the 30-second default is unsuitable.
+- A stop-the-world rollback to the exact 1.0.0 artifact is schema-compatible, but it removes the
+  pre-authentication body deadline. Never restore older database or anchor bytes; preserve the live
+  schema-2/schema-5 state and monotonic authority checkpoints or recover forward.
+
 ## [1.0.0] - 2026-08-09
 
 ### Added
@@ -49,5 +81,20 @@ image together; the Git tag is the package version prefixed with `v`.
 - Runtime, replay, audit, recovery, capacity, and distributed-delivery failures are fail closed;
   bounded maintenance keeps authority-convergence transactions within fixed write budgets.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.0...HEAD
+### Compatibility, migration, and rollback
+
+- The 1.0.0 wire/API contract is LETS v1, warden storage is schema 2, and protected-executor replay
+  storage is schema 5. Mixed-version rolling operation is not supported; upgrades are
+  stop-the-world after a signed drain and exact recovery backup.
+- Schema-1 wardens migrate through the journaled `lets migrate` flow after peer/audit drain and
+  legacy replay expiry. Executor schema 4 has no authority-safe in-place promotion; wait through
+  the receipt-validity window, drain effects, and initialize a fresh schema-5 executor epoch and
+  independent anchor.
+- Rollback never means reopening older authority bytes. Restore accepts only an exact verified
+  bundle consistent with the live monotonic anchors; a database behind an anchor remains fenced.
+  Roll back deployment configuration or binaries only while their schema/protocol compatibility is
+  proven, otherwise recover forward with a patch release.
+
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.1
 [1.0.0]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.0

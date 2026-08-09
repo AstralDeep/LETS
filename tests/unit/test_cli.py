@@ -57,6 +57,13 @@ def test_serve_rejects_incomplete_transport_security_configuration(
         _serve(Path("configuration-is-not-read.json"), parsed)
 
 
+@pytest.mark.parametrize("timeout", ["0", "301"])
+def test_serve_rejects_request_body_deadlines_outside_production_bounds(timeout: str) -> None:
+    parsed = _parser().parse_args(["serve", "--request-body-timeout", timeout])
+    with pytest.raises(ValidationError, match="request-body-timeout"):
+        _serve(Path("configuration-is-not-read.json"), parsed)
+
+
 def test_serve_parser_accepts_complete_outbound_mtls_configuration() -> None:
     parsed = _parser().parse_args(
         [

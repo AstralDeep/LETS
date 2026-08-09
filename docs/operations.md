@@ -123,11 +123,14 @@ its local escrow share during a peer partition.
 
 `serve --production` requires inbound mTLS (`--tls-cert`, `--tls-key`, and `--client-ca`). When
 peers are configured it also requires outbound `--peer-ca`, `--peer-cert`, and `--peer-key`.
-`--limit-concurrency`, `--timeout-keep-alive`, and `--timeout-graceful-shutdown` bound overload and
-termination. Give the process at least its graceful-shutdown interval before a hard kill. The
-server owns the node process lock for its entire lifetime, so recovery and schema migration cannot
-run concurrently with it. Production readiness also requires a healthy, bounded audit exporter;
-a blocked sink, excessive backlog, or stalled export makes readiness false.
+`--limit-concurrency`, `--request-body-timeout`, `--timeout-keep-alive`, and
+`--timeout-graceful-shutdown` bound overload, body receipt, idle connections, and termination. The
+request-body timeout is a total application deadline around pre-authentication body buffering; an
+incomplete body receives a `408 request_body_timeout` problem and the connection is closed. It is
+independent of the HTTP keep-alive timeout. Give the process at least its graceful-shutdown interval
+before a hard kill. The server owns the node process lock for its entire lifetime, so recovery and
+schema migration cannot run concurrently with it. Production readiness also requires a healthy,
+bounded audit exporter; a blocked sink, excessive backlog, or stalled export makes readiness false.
 
 `max_clock_uncertainty_ns` is an operator-attested upper bound, not a measured guarantee. Monitor
 the actual source and configure a conservative bound. Core warden authority and executor replay

@@ -157,6 +157,9 @@ def test_production_compose_is_fail_closed_and_hardened() -> None:
     assert "${LETS_LIMIT_CONCURRENCY:-64}" in compose
     assert "--backlog" in compose
     assert "${LETS_BACKLOG:-128}" in compose
+    assert "--request-body-timeout" in compose
+    assert "${LETS_REQUEST_BODY_TIMEOUT_SECONDS:-30}" in compose
+    assert "LETS_REQUEST_BODY_TIMEOUT_SECONDS=30" in example_environment
     assert "--timeout-graceful-shutdown" in compose
     assert "stop_grace_period: 75s" in compose
     assert "${LETS_HEALTH_START_PERIOD_SECONDS:-600}s" in compose
@@ -332,6 +335,7 @@ def test_production_environment_validation(tmp_path: Path) -> None:
     environment["LETS_CPUS"] = "0"
     environment["LETS_MEMORY_LIMIT"] = "0"
     environment["LETS_BACKLOG"] = "0"
+    environment["LETS_REQUEST_BODY_TIMEOUT_SECONDS"] = "0"
     errors = validate.validate_environment(environment)
     assert any("immutable" in error for error in errors)
     assert any("distinct non-nested paths" in error for error in errors)
@@ -344,6 +348,7 @@ def test_production_environment_validation(tmp_path: Path) -> None:
     assert any("LETS_CPUS" in error for error in errors)
     assert any("LETS_MEMORY_LIMIT" in error for error in errors)
     assert any("LETS_BACKLOG" in error for error in errors)
+    assert any("LETS_REQUEST_BODY_TIMEOUT_SECONDS" in error for error in errors)
 
 
 def test_production_environment_rejects_shared_or_undeclared_rollback_domains(
@@ -815,6 +820,12 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
 
     assert "if: github.event.deleted == false" in workflow
     assert "Require a GitHub-verified annotated tag" in workflow
+    assert "Require a verified commit and successful push gates" in workflow
+    assert "actions: read" in workflow
+    assert "for required, expected_path in required_workflows.items()" in workflow
+    assert 'run.get("head_sha") == os.environ["GITHUB_SHA"]' in workflow
+    assert 'latest.get("conclusion") != "success"' in workflow
+    assert "release commit is not GitHub-verified" in workflow
     assert "Perform two clean reproducible builds" in workflow
     assert "Record deterministic image metadata" in workflow
     assert 'epoch="$(git show -s --format=%ct "$GITHUB_SHA")"' in workflow
@@ -881,6 +892,19 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert "cosign verify \\" in workflow
     assert "Run the mTLS production-profile acceptance" in workflow
     assert "release-production-acceptance-${{ needs.verify.outputs.version }}" in workflow
+    assert "Run the one-hour production-profile soak against the exact candidate" in workflow
+    assert "release-production-soak-${{ needs.verify.outputs.version }}" in workflow
+    assert "--duration-seconds 3600" in workflow
+    assert 'source.get("git_commit") != os.environ["GITHUB_SHA"]' in workflow
+    assert 'source.get("dirty") is not False' in workflow
+    assert 'workload_evaluation.get("passed") is not True' in workflow
+    assert 'get("health_cadence") is not True' in workflow
+    assert 'int(workload_metrics.get("actual_cycles", 0)) < 300' in workflow
+    assert "len(pair_counts) != 6" in workflow
+    assert 'get("durably_pending_observed") is not True' in workflow
+    assert 'get("all_wardens_sigkilled") is not True' in workflow
+    assert 'get("identity", {}).get("passed") is not True' in workflow
+    assert 'cleanup.get("remaining_containers") != 0' in workflow
     assert (
         "tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
         in workflow
@@ -890,8 +914,11 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
         in workflow
     )
     assert "needs: [verify, package, image-candidate]" in workflow
-    assert "needs: [verify, package, image-candidate, production-acceptance]" in workflow
-    assert "needs: [verify, package, production-acceptance, image]" in workflow
+    assert (
+        "needs: [verify, package, image-candidate, production-acceptance, production-soak]"
+        in workflow
+    )
+    assert "needs: [verify, package, production-acceptance, production-soak, image]" in workflow
     assert "candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}" in workflow
     assert "LETS_PRODUCTION_ACCEPTANCE_IMAGE" in workflow
     assert 'evidence.get("runtime_image_digest")' in workflow
@@ -900,6 +927,9 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert "type=raw,value=latest" not in workflow
     assert "release tag must resolve to the current main commit" in workflow
     assert "lets.__version__ does not match package version" in workflow
+    assert '"ci": ".github/workflows/ci.yml"' in workflow
+    assert '"security": ".github/workflows/security.yml"' in workflow
+    assert 'key=lambda run: (run.get("id", 0), run.get("run_attempt", 0))' in workflow
     assert "refusing to move existing release image tag" in workflow
     assert (
         workflow.count(
@@ -914,13 +944,14 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert "merge-multiple: true" not in workflow
     assert 'f"release-package-{version}"' in workflow
     assert 'f"release-production-acceptance-{version}"' in workflow
+    assert 'f"release-production-soak-{version}"' in workflow
     assert 'f"release-image-{version}"' in workflow
     assert "release asset name collision" in workflow
     assert "release asset is empty" in workflow
-    assert "if len(artifacts) != 14:" in workflow
+    assert "if len(artifacts) != 15:" in workflow
     assert 'signature_name = f"{checksum_name}.sigstore.json"' in workflow
     assert "path.name not in {checksum_name, signature_name}" in workflow
-    assert 'test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 16' in workflow
+    assert 'test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 17' in workflow
     assert "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610" in workflow
     assert "syft-version: v1.50.0" in workflow
     assert "--from registry" in workflow
@@ -968,6 +999,17 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
         'mv "$remote_bundle" "$bundle"'
     )
     assert "Publish or safely resume the immutable GitHub release" in workflow
+    assert "Extract exact compatibility, migration, and rollback release notes" in workflow
+    assert '"### Compatibility, migration, and rollback"' in workflow
+    assert "--notes-file release-notes.md" in workflow
+    assert "published GitHub release has the wrong lifecycle notes" in workflow
+    assert "--generate-notes" not in workflow
+    assert '"repos/$GITHUB_REPOSITORY/immutable-releases"' not in workflow
+    assert "release tag moved before publication" in workflow
+    assert "GitHub release did not become immutable within its deadline" in workflow
+    assert "mutable release was returned to draft" in workflow
+    assert 'gh release verify "$GITHUB_REF_NAME"' in workflow
+    assert workflow.count("X-GitHub-Api-Version: 2026-03-10") >= 1
     assert 'gh release create "$GITHUB_REF_NAME"' in workflow
     assert "--draft" in workflow
     assert 'gh release upload "$GITHUB_REF_NAME" release-assets/*' in workflow
@@ -984,6 +1026,7 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
         '"RELEASE_SHA256SUMS"',
         '"RELEASE_SHA256SUMS.sigstore.json"',
         '"production-profile-acceptance.json"',
+        '"production-profile-soak.json"',
         '"image-digest.txt"',
         '"image-manifest.json"',
         '"lets-container-amd64.spdx.json"',

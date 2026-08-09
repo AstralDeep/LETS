@@ -24,6 +24,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     permissions:
+      actions: read
       contents: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
@@ -82,6 +83,59 @@ jobs:
           }
           test "$(gh api "$tag" --jq '.object.type')" = "commit"
           test "$(gh api "$tag" --jq '.object.sha')" = "$GITHUB_SHA"
+      - name: Require a verified commit and successful push gates
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" \
+            --jq '.commit.verification.verified')" = "true" || {
+            echo "release commit is not GitHub-verified" >&2
+            exit 1
+          }
+          runs="$(mktemp)"
+          trap 'rm -f "$runs"' EXIT
+          gh api \
+            "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=100" \
+            > "$runs"
+          RUNS="$runs" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path(os.environ["RUNS"]).read_text(encoding="utf-8"))
+          runs = payload.get("workflow_runs")
+          if not isinstance(runs, list):
+              raise SystemExit("GitHub returned no workflow-run collection")
+          required_workflows = {
+              "ci": ".github/workflows/ci.yml",
+              "security": ".github/workflows/security.yml",
+          }
+          for required, expected_path in required_workflows.items():
+              candidates = [
+                  run
+                  for run in runs
+                  if run.get("name") == required
+                  and run.get("path") == expected_path
+                  and run.get("head_sha") == os.environ["GITHUB_SHA"]
+                  and run.get("event") == "push"
+                  and run.get("status") == "completed"
+              ]
+              if not candidates:
+                  raise SystemExit(
+                      f"release commit has no completed {required!r} push workflow"
+                  )
+              latest = max(
+                  candidates,
+                  key=lambda run: (run.get("id", 0), run.get("run_attempt", 0)),
+              )
+              if latest.get("conclusion") != "success":
+                  raise SystemExit(
+                      f"latest {required!r} push workflow did not succeed: "
+                      f"{latest.get('html_url')!r}"
+                  )
+          PY
 
   package:
     name: Rebuild, smoke, hash, and archive Python artifacts
@@ -630,9 +684,137 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  production-soak:
+    name: Sustain the exact published candidate under mixed traffic and repeated faults
+    needs: [verify, package, image-candidate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Log in to GHCR for the exact candidate
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Synchronize the frozen repository environment
+        run: uv sync --all-extras --frozen
+      - name: Run the one-hour production-profile soak against the exact candidate
+        env:
+          EXACT_IMAGE: >-
+            ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+        run: >-
+          uv run --frozen python deploy/production/run_soak.py
+          --image "$EXACT_IMAGE"
+          --duration-seconds 3600
+          --output results/generated/production-profile-soak.json
+      - name: Require sustained evidence to bind the exact candidate and source
+        env:
+          EXPECTED_IMAGE: >-
+            ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = json.loads(
+              Path("results/generated/production-profile-soak.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          failures = []
+          if evidence.get("passed") is not True:
+              failures.append("soak did not pass")
+          if evidence.get("image", {}).get("configured_digest") != os.environ["EXPECTED_IMAGE"]:
+              failures.append("soak used the wrong image digest")
+          source = evidence.get("source", {})
+          if source.get("git_commit") != os.environ["GITHUB_SHA"] or source.get("dirty") is not False:
+              failures.append("soak source was not the exact clean release commit")
+          configuration = evidence.get("configuration", {})
+          workload = evidence.get("workload", {})
+          if float(configuration.get("duration_seconds", 0)) < 3600:
+              failures.append("soak was not sustained for one hour")
+          if float(workload.get("duration_seconds", 0)) < 3600:
+              failures.append("mixed workload stopped before one hour")
+          workload_evaluation = evidence.get("workload_evaluation", {})
+          if workload_evaluation.get("passed") is not True:
+              failures.append("soak workload adequacy checks did not pass")
+          workload_metrics = workload_evaluation.get("metrics", {})
+          if int(workload_metrics.get("actual_cycles", 0)) < 300:
+              failures.append("soak completed fewer than 300 mixed-workload cycles")
+          if int(workload_metrics.get("actual_health_samples", 0)) < int(
+              workload_metrics.get("required_health_samples", 1)
+          ):
+              failures.append("soak health sampling was not sustained")
+          if workload_evaluation.get("checks", {}).get("health_cadence") is not True:
+              failures.append("soak health samples did not cover every audit-stall window")
+          pair_counts = workload.get("transfer_pair_counts", {})
+          if len(pair_counts) != 6 or any(int(value) <= 0 for value in pair_counts.values()):
+              failures.append("soak did not exercise all six directed transfer pairs")
+          chaos = evidence.get("chaos", {})
+          partitions = chaos.get("partitions", [])
+          if len(partitions) < 2:
+              failures.append("soak did not complete repeated partitions")
+          elif any(
+              item.get("observation", {}).get("durably_pending_observed") is not True
+              or item.get("observation", {}).get("durable_sql", {}).get("status") != "PREPARED"
+              for item in partitions
+          ):
+              failures.append("partition evidence did not bind exact durable failed transfers")
+          recovery = chaos.get("partition_recovery", [])
+          if len(recovery) != len(partitions) or any(item.get("passed") is not True for item in recovery):
+              failures.append("partition transfer streams did not recover exactly")
+          restart_integrity = chaos.get("restart_integrity", {})
+          if (
+              restart_integrity.get("passed") is not True
+              or restart_integrity.get("all_wardens_sigkilled") is not True
+              or int(restart_integrity.get("planned_sigkills", 0)) < 3
+              or len(restart_integrity.get("per_warden_lifetimes", {})) != 3
+              or any(
+                  item.get("passed") is not True
+                  for item in restart_integrity.get("per_warden_lifetimes", {}).values()
+              )
+          ):
+              failures.append("soak SIGKILL or per-warden lifetime evidence is incomplete")
+          if evidence.get("resources", {}).get("evaluation", {}).get("passed") is not True:
+              failures.append("soak resource bounds did not pass")
+          if evidence.get("package", {}).get("identity", {}).get("passed") is not True:
+              failures.append("soak package/OCI identity checks did not pass")
+          cleanup = evidence.get("cleanup", {})
+          if (
+              cleanup.get("performed") is not True
+              or cleanup.get("remaining_containers") != 0
+              or cleanup.get("remaining_volumes") != 0
+              or cleanup.get("remaining_networks") != 0
+          ):
+              failures.append("soak did not prove complete Docker cleanup")
+          verification = evidence.get("verification", {})
+          if verification.get("converged") is not True:
+              failures.append("soak did not converge")
+          if verification.get("conservation", {}).get("balanced") is not True:
+              failures.append("soak conservation failed")
+          if failures:
+              raise SystemExit("; ".join(failures))
+          PY
+      - name: Archive production-profile soak evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-production-soak-${{ needs.verify.outputs.version }}
+          path: results/generated/production-profile-soak.json
+          if-no-files-found: error
+          retention-days: 90
+
   image:
     name: Scan, attest, sign, and promote the accepted OCI candidate
-    needs: [verify, package, image-candidate, production-acceptance]
+    needs: [verify, package, image-candidate, production-acceptance, production-soak]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -1016,13 +1198,14 @@ jobs:
 
   github-release:
     name: Publish GitHub release after every gate succeeds
-    needs: [verify, package, production-acceptance, image]
+    needs: [verify, package, production-acceptance, production-soak, image]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: write
       id-token: write
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: release-*
@@ -1055,6 +1238,9 @@ jobs:
               },
               f"release-production-acceptance-{version}": {
                   "production-profile-acceptance.json",
+              },
+              f"release-production-soak-{version}": {
+                  "production-profile-soak.json",
               },
               f"release-image-{version}": {
                   "image-digest.txt",
@@ -1096,6 +1282,36 @@ jobs:
                   shutil.copy2(artifact, destination / name)
               seen.update(actual_files)
           PY
+      - name: Extract exact compatibility, migration, and rollback release notes
+        env:
+          RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["RELEASE_VERSION"]
+          changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(
+              rf"(?ms)^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}\n"
+              rf"(?P<body>.*?)(?=^## \[|\Z)",
+              changelog,
+          )
+          if match is None:
+              raise SystemExit("release changelog section is missing")
+          notes = f"## LETS {version}\n\n{match.group('body').strip()}\n"
+          required = (
+              "### Compatibility, migration, and rollback",
+              "Compatibility",
+              "migration",
+              "rollback",
+          )
+          missing = [value for value in required if value not in notes]
+          if missing:
+              raise SystemExit(f"release notes omit required lifecycle facts: {missing!r}")
+          Path("release-notes.md").write_text(notes, encoding="utf-8")
+          PY
       - name: Verify package hashes and construct the complete release checksum manifest
         shell: bash
         run: |
@@ -1114,7 +1330,7 @@ jobs:
               for path in directory.iterdir()
               if path.is_file() and path.name not in {checksum_name, signature_name}
           )
-          if len(artifacts) != 14:
+          if len(artifacts) != 15:
               raise SystemExit("release asset set is incomplete")
           lines = [
               f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
@@ -1207,6 +1423,20 @@ jobs:
           RELEASE_VERSION: ${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
+          ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}"
+          object_type="$(gh api "$ref" --jq '.object.type')"
+          object_sha="$(gh api "$ref" --jq '.object.sha')"
+          test "$object_type" = "tag" || {
+            echo "release tag stopped being annotated before publication" >&2
+            exit 1
+          }
+          tag="repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}"
+          test "$(gh api "$tag" --jq '.verification.verified')" = "true"
+          test "$(gh api "$tag" --jq '.object.type')" = "commit"
+          test "$(gh api "$tag" --jq '.object.sha')" = "$GITHUB_SHA" || {
+            echo "release tag moved before publication" >&2
+            exit 1
+          }
           python - <<'PY'
           import os
           from pathlib import Path
@@ -1226,6 +1456,7 @@ jobs:
               f"lets_agent-{version}-py3-none-any.whl",
               f"lets_agent-{version}.tar.gz",
               "production-profile-acceptance.json",
+              "production-profile-soak.json",
               "sqlite-runtime-versions.txt",
               "trivy-amd64.txt",
               "trivy-arm64.txt",
@@ -1239,12 +1470,12 @@ jobs:
                   f"files={sorted(actual)!r}, entries={sorted(nested)!r}"
               )
           PY
-          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 16
+          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 17
           state_file="$(mktemp)"
           view_error="$(mktemp)"
           if ! gh release view "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --json tagName,name,isDraft,isPrerelease,assets \
+            --json tagName,name,isDraft,isPrerelease,assets,body \
             >"$state_file" 2>"$view_error"; then
             if ! grep -Eiq 'release not found|HTTP 404|not found' "$view_error"; then
               cat "$view_error" >&2
@@ -1256,10 +1487,10 @@ jobs:
               --verify-tag \
               --draft \
               --title "$RELEASE_TITLE" \
-              --generate-notes
+              --notes-file release-notes.md
             gh release view "$GITHUB_REF_NAME" \
               --repo "$GITHUB_REPOSITORY" \
-              --json tagName,name,isDraft,isPrerelease,assets \
+              --json tagName,name,isDraft,isPrerelease,assets,body \
               >"$state_file"
           fi
 
@@ -1278,6 +1509,9 @@ jobs:
               raise SystemExit("existing GitHub release has the wrong title")
           if state.get("isPrerelease") is not False:
               raise SystemExit("existing GitHub release is unexpectedly a prerelease")
+          expected_body = Path("release-notes.md").read_text(encoding="utf-8").rstrip("\n")
+          if state.get("isDraft") is not True and state.get("body", "").rstrip("\n") != expected_body:
+              raise SystemExit("published GitHub release has the wrong lifecycle notes")
           if any(not isinstance(name, str) for name in names) or len(names) != len(set(names)):
               raise SystemExit("existing GitHub release has invalid or duplicate assets")
           unexpected = set(names) - expected
@@ -1316,12 +1550,59 @@ jobs:
           PY
           }
 
+          verify_immutable_release() {
+            local release_state
+            release_state="$(mktemp)"
+            for _ in $(seq 1 15); do
+              gh api -H 'X-GitHub-Api-Version: 2026-03-10' \
+                "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" \
+                > "$release_state"
+              if RELEASE_STATE="$release_state" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state = json.loads(Path(os.environ["RELEASE_STATE"]).read_text(encoding="utf-8"))
+          if state.get("immutable") is not True:
+              raise SystemExit(1)
+          if state.get("draft") is not False or state.get("prerelease") is not False:
+              raise SystemExit("immutable release has an invalid publication state")
+          if len(state.get("assets") or []) != 17:
+              raise SystemExit("immutable release has the wrong asset count")
+          expected_body = Path("release-notes.md").read_text(encoding="utf-8").rstrip("\n")
+          if state.get("body", "").rstrip("\n") != expected_body:
+              raise SystemExit("immutable release has the wrong lifecycle notes")
+          PY
+              then
+                gh release verify "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+                rm -f "$release_state"
+                return 0
+              fi
+              sleep 1
+            done
+            cat "$release_state" >&2
+            rm -f "$release_state"
+            if gh release edit "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft=true; then
+              echo "mutable release was returned to draft" >&2
+            else
+              echo "release could not be returned to draft; inspect immutable state" >&2
+            fi
+            echo "GitHub release did not become immutable within its deadline" >&2
+            return 1
+          }
+
           if [ "$release_mode" = "published" ]; then
             verify_remote_assets
+            verify_immutable_release
             echo "published GitHub release already has the exact verified asset set"
             exit 0
           fi
 
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --notes-file release-notes.md
           gh release upload "$GITHUB_REF_NAME" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
@@ -1347,3 +1628,4 @@ jobs:
               raise SystemExit("GitHub release did not become the expected published release")
           PY
           verify_remote_assets
+          verify_immutable_release

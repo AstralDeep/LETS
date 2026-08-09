@@ -38,6 +38,8 @@ services:
       - "${LETS_LIMIT_CONCURRENCY:-64}"
       - --backlog
       - "${LETS_BACKLOG:-128}"
+      - --request-body-timeout
+      - "${LETS_REQUEST_BODY_TIMEOUT_SECONDS:-30}"
       - --timeout-keep-alive
       - "${LETS_TIMEOUT_KEEP_ALIVE:-5}"
       - --timeout-graceful-shutdown
