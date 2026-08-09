@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 import pytest
+from jsonschema import Draft202012Validator
 
 import deploy.start_warden as start_warden_module
 import lets.cli as cli_module
@@ -596,6 +597,40 @@ def test_unexpected_api_error_is_logged_without_request_body(
     assert "logging-request" in caplog.text
     assert "/v1/roots" in caplog.text
     assert "agent-a" not in caplog.text
+
+
+def test_reclaim_route_and_openapi_return_a_resource_vector() -> None:
+    class ReclaimService(StubService):
+        def reclaim_expired(self, **arguments: Any) -> tuple[int, ...]:
+            self.calls.append(("reclaim_expired", arguments))
+            return (3, 5)
+
+    service = ReclaimService()
+    app = create_app(
+        service,
+        authenticator=StaticBearerAuthenticator.single("valid-token", _identity()),
+    )
+
+    response = _request(
+        app,
+        "POST",
+        "/v1/maintenance/reclaim",
+        json={},
+        headers={"authorization": "Bearer valid-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"reclaimed": [3, 5]}
+    assert service.calls[0][0] == "reclaim_expired"
+
+    document = _request(app, "GET", "/v1/openapi.json").json()
+    reclaim_schema = document["components"]["schemas"]["ReclaimResult"]
+    assert reclaim_schema["properties"]["reclaimed"] == {
+        "$ref": "#/components/schemas/ResourceVector"
+    }
+    Draft202012Validator(document["components"]["schemas"]["ResourceVector"]).validate(
+        response.json()["reclaimed"]
+    )
 
 
 def test_openapi_exports_strict_body_and_security_contracts() -> None:

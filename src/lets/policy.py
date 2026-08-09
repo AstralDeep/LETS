@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import Any, Self
 
 from lets.canonical import canonical_digest, canonical_json
@@ -21,6 +22,14 @@ MAX_EVIDENCE_VALUES = 256
 MAX_MACHINE_TRANSITIONS = 1024
 MAX_POLICY_DIMENSIONS = 256
 MAX_TRANSFER_GAP_WINDOW = 1_048_576
+
+
+class _EvidenceResult(Enum):
+    """Internal three-valued result for fail-closed evidence composition."""
+
+    ALLOW = auto()
+    DENY = auto()
+    INVALID = auto()
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +281,122 @@ def _resolve_path(
     return True, current
 
 
+def _evidence_result(
+    expression: EvidenceRule,
+    facts: dict[str, Any],
+    *,
+    now_ns: int,
+    subject_id: str,
+    audience: str,
+) -> _EvidenceResult:
+    """Evaluate one validated rule without collapsing invalid input into denial.
+
+    Collapsing ``INVALID`` to ``DENY`` inside the expression tree is unsafe:
+    ``not DENY`` becomes an authorization.  Invalid results therefore propagate
+    through every Boolean combinator and are converted to denial only at the
+    public boundary.
+    """
+
+    if expression.op in _BOOLEAN_OPS:
+        results = tuple(
+            _evidence_result(
+                item,
+                facts,
+                now_ns=now_ns,
+                subject_id=subject_id,
+                audience=audience,
+            )
+            for item in expression.rules
+        )
+        if _EvidenceResult.INVALID in results:
+            return _EvidenceResult.INVALID
+        if expression.op == "all":
+            return (
+                _EvidenceResult.ALLOW
+                if all(result is _EvidenceResult.ALLOW for result in results)
+                else _EvidenceResult.DENY
+            )
+        return (
+            _EvidenceResult.ALLOW
+            if any(result is _EvidenceResult.ALLOW for result in results)
+            else _EvidenceResult.DENY
+        )
+
+    if expression.op == "not":
+        if expression.rule is None:
+            return _EvidenceResult.INVALID
+        nested = _evidence_result(
+            expression.rule,
+            facts,
+            now_ns=now_ns,
+            subject_id=subject_id,
+            audience=audience,
+        )
+        if nested is _EvidenceResult.INVALID:
+            return nested
+        return _EvidenceResult.DENY if nested is _EvidenceResult.ALLOW else _EvidenceResult.ALLOW
+
+    path = expression.observed_at_path if expression.op == "fresh" else expression.path
+    if path is None:
+        return _EvidenceResult.INVALID
+    exists, actual = _resolve_path(
+        path,
+        facts,
+        now_ns=now_ns,
+        subject_id=subject_id,
+        audience=audience,
+    )
+    if expression.op == "exists":
+        return _EvidenceResult.ALLOW if exists else _EvidenceResult.DENY
+    if not exists:
+        return _EvidenceResult.INVALID
+
+    if expression.op in {"eq", "ne"}:
+        expected = expression.value
+        if type(actual) is not type(expected):
+            return _EvidenceResult.INVALID
+        equal = canonical_json(actual) == canonical_json(expected)
+        if expression.op == "ne":
+            equal = not equal
+        return _EvidenceResult.ALLOW if equal else _EvidenceResult.DENY
+
+    if expression.op == "in":
+        compatible = tuple(
+            candidate for candidate in expression.values if type(actual) is type(candidate)
+        )
+        if not compatible:
+            return _EvidenceResult.INVALID
+        encoded = canonical_json(actual)
+        matched = any(encoded == canonical_json(candidate) for candidate in compatible)
+        return _EvidenceResult.ALLOW if matched else _EvidenceResult.DENY
+
+    if expression.op == "fresh":
+        if type(actual) is not int or expression.max_age_ns is None:
+            return _EvidenceResult.INVALID
+        fresh = 0 <= now_ns - actual <= expression.max_age_ns
+        return _EvidenceResult.ALLOW if fresh else _EvidenceResult.DENY
+
+    expected = expression.value
+    same_supported_type = (type(actual) is int and type(expected) is int) or (
+        type(actual) is str and type(expected) is str
+    )
+    if not same_supported_type:
+        return _EvidenceResult.INVALID
+    comparisons = {
+        "lt": lambda: actual < expected,
+        "lte": lambda: actual <= expected,
+        "gt": lambda: actual > expected,
+        "gte": lambda: actual >= expected,
+    }
+    callback = comparisons.get(expression.op)
+    if callback is None:
+        return _EvidenceResult.INVALID
+    try:
+        return _EvidenceResult.ALLOW if callback() else _EvidenceResult.DENY
+    except (TypeError, ValueError):
+        return _EvidenceResult.INVALID
+
+
 def evaluate_evidence(
     rule: EvidenceRule | dict[str, Any] | None,
     evidence: dict[str, Any] | None,
@@ -287,87 +412,20 @@ def evaluate_evidence(
     try:
         expression = EvidenceRule.from_dict(rule) if isinstance(rule, dict) else rule
         facts = {} if evidence is None else evidence
-        if not isinstance(facts, dict):
+        if not isinstance(expression, EvidenceRule) or not isinstance(facts, dict):
             return False
-        if expression.op == "all":
-            return all(
-                evaluate_evidence(
-                    item,
-                    facts,
-                    now_ns=now_ns,
-                    subject_id=subject_id,
-                    audience=audience,
-                )
-                for item in expression.rules
-            )
-        if expression.op == "any":
-            return any(
-                evaluate_evidence(
-                    item,
-                    facts,
-                    now_ns=now_ns,
-                    subject_id=subject_id,
-                    audience=audience,
-                )
-                for item in expression.rules
-            )
-        if expression.op == "not":
-            if expression.rule is None:
-                return False
-            return not evaluate_evidence(
-                expression.rule,
-                facts,
-                now_ns=now_ns,
-                subject_id=subject_id,
-                audience=audience,
-            )
-        path = expression.observed_at_path if expression.op == "fresh" else expression.path
-        if path is None:
-            return False
-        exists, actual = _resolve_path(
-            path,
+        # Reject a malformed fact anywhere in the supplied evidence object.  The
+        # HTTP boundary already guarantees LETS-CJ/1, while direct embeddings get
+        # the same fail-closed behavior instead of path-dependent validation.
+        canonical_json(facts)
+        result = _evidence_result(
+            expression,
             facts,
             now_ns=now_ns,
             subject_id=subject_id,
             audience=audience,
         )
-        if expression.op == "exists":
-            return exists
-        if not exists:
-            return False
-        if expression.op == "eq":
-            return canonical_json(actual) == canonical_json(expression.value)
-        if expression.op == "ne":
-            return canonical_json(actual) != canonical_json(expression.value)
-        if expression.op == "in":
-            encoded = canonical_json(actual)
-            return any(encoded == canonical_json(candidate) for candidate in expression.values)
-        if expression.op == "fresh":
-            return (
-                isinstance(actual, int)
-                and not isinstance(actual, bool)
-                and expression.max_age_ns is not None
-                and 0 <= now_ns - actual <= expression.max_age_ns
-            )
-        expected = expression.value
-        same_supported_type = (type(actual) is int and type(expected) is int) or (
-            type(actual) is str and type(expected) is str
-        )
-        if not same_supported_type:
-            return False
-        comparisons = {
-            "lt": lambda: actual < expression.value,
-            "lte": lambda: actual <= expression.value,
-            "gt": lambda: actual > expression.value,
-            "gte": lambda: actual >= expression.value,
-        }
-        callback = comparisons.get(expression.op)
-        if callback is None:
-            return False
-        try:
-            return bool(callback())
-        except (TypeError, ValueError):
-            return False
+        return result is _EvidenceResult.ALLOW
     except (KeyError, TypeError, ValueError, ValidationError):
         return False
 

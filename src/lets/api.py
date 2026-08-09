@@ -1401,7 +1401,7 @@ def create_app(
             "type": "object",
             "additionalProperties": False,
             "required": ["reclaimed"],
-            "properties": {"reclaimed": {"type": "integer", "minimum": 0}},
+            "properties": {"reclaimed": {"$ref": "#/components/schemas/ResourceVector"}},
         },
         "AuditVerification": {
             "type": "object",
