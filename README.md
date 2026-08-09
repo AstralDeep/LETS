@@ -169,18 +169,22 @@ machine digests, audience, freshness, and sequence, then durably claims the rece
 the claim and effect in one domain transaction or make the effect idempotent. LETS does not pretend
 a generic receipt can make an arbitrary external side effect exactly once.
 
-## Three-node deployment
+## Three-node fault and production profiles
 
-The Compose topology runs three independent warden containers with separate databases, replay
-stores, keys, and persistent volumes. It exercises real HTTP peer transfer rather than several
-logical wardens sharing one process or database.
+The root Compose topology is a cleartext development fault harness. It runs three independent
+warden containers with separate databases, keys, and persistent volumes and exercises real HTTP
+peer transfer rather than several logical wardens sharing one process or database.
 
 ```powershell
 uv run --frozen python deploy/run_acceptance.py
 ```
 
-See `deploy/` and `docs/operations.md` for bootstrap, TLS, partition, recovery, backup, and
-watermark procedures. The test harness records reproducible evidence under `results/generated/`.
+The separate [production deployment](deploy/production/README.md) is one warden per Linux failure
+domain with TLS and required mTLS, external signer/JWT/provider bindings, independently mounted
+state/authority/audit domains, an immutable staged config, container hardening, recovery and release
+runbooks, and an opt-in three-node production acceptance gate. See `deploy/`,
+`docs/operations.md`, and `docs/release.md` for bootstrap, partition, recovery, backup, and release
+procedures. Test harnesses record reproducible evidence under `results/generated/`.
 
 ## Host integrations
 
@@ -235,14 +239,14 @@ Paper and artifact reproduction commands are documented in `paper/README.md` and
 
 ## Current boundaries
 
-LETS v1 is a production-intent pre-1.0 runtime and has not received an independent external
-security audit. Its explicit boundaries are:
+LETS 1.0 is a production release within the documented v1 threat and lifecycle boundary. It has
+not yet received an independent third-party security audit. Its explicit boundaries are:
 
 - one envelope per SQLite database;
-- one live warden identity per local-disk database; shared filesystems and concurrent clones are
-  outside the safety model;
+- one live warden identity per local-disk database; production monotonic anchors make stale or
+  losing clones fail closed, but shared filesystems and multi-writer operation remain unsupported;
 - trusted (non-Byzantine) wardens in the base protocol;
-- no simultaneous use of cloned/restored warden state;
+- no supported simultaneous use or automatic merge of cloned/restored warden state;
 - no live configuration-epoch rollover;
 - no arbitrary active-subtree migration; v1 transfers free rights and issues at the target;
 - no automatic copying of agent artifacts, workspace state, memory, identities, or secrets;

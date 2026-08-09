@@ -30,7 +30,10 @@ REQUIRED_TABLES = frozenset(
         "audit_log",
         "audit_outbox",
         "peer_delivery_state",
+        "peer_delivery_heads",
         "peer_delivery_counters",
+        "peer_http_authority",
+        "peer_http_replay",
         "executor_replay",
     }
 )
@@ -58,6 +61,8 @@ REQUIRED_INDEXES = frozenset(
         "ix_audit_entity",
         "ix_audit_outbox_pending",
         "ix_peer_delivery_due",
+        "ix_peer_delivery_pending_stream",
+        "ix_peer_http_replay_expiry",
         "ix_executor_replay_expiry",
         "ux_executor_replay_nonce",
     }
@@ -74,6 +79,13 @@ REQUIRED_TRIGGERS = frozenset(
         "database_instance_no_delete",
         "runtime_control_generation_monotonic",
         "runtime_control_no_delete",
+        "peer_http_authority_monotonic",
+        "peer_http_authority_no_delete",
+        "peer_http_replay_immutable_update",
+        "peer_delivery_head_delete",
+        "peer_delivery_head_insert",
+        "peer_delivery_head_terminal_update",
+        "peer_delivery_stream_identity_immutable",
         "envelopes_immutable",
         "envelopes_no_delete",
         "inbound_acks_binding_insert",
@@ -565,6 +577,157 @@ SCHEMA_STATEMENTS = (
     ON peer_delivery_state(delivered_at_ns, superseded_at_ns, next_attempt_ns, target_warden)
     """,
     """
+    CREATE INDEX ix_peer_delivery_pending_stream
+    ON peer_delivery_state(
+        target_warden, record_kind, ordering_key,
+        stream_position, created_at_ns, record_id
+    )
+    WHERE delivered_at_ns IS NULL AND superseded_at_ns IS NULL
+    """,
+    """
+    CREATE TABLE peer_delivery_heads (
+        target_warden   TEXT NOT NULL CHECK (length(target_warden) BETWEEN 1 AND 128),
+        record_kind     TEXT NOT NULL CHECK (
+            record_kind IN ('transfer', 'revocation', 'checkpoint')
+        ),
+        ordering_key    TEXT NOT NULL CHECK (length(ordering_key) BETWEEN 1 AND 512),
+        record_id       TEXT NOT NULL CHECK (length(record_id) BETWEEN 1 AND 512),
+        stream_position INTEGER NOT NULL CHECK (stream_position > 0),
+        created_at_ns   INTEGER NOT NULL CHECK (created_at_ns >= 0),
+        PRIMARY KEY (target_warden, record_kind, ordering_key),
+        FOREIGN KEY (record_kind, record_id, target_warden)
+            REFERENCES peer_delivery_state(record_kind, record_id, target_warden)
+            ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED
+    ) STRICT, WITHOUT ROWID
+    """,
+    """
+    CREATE TRIGGER peer_delivery_head_insert
+    AFTER INSERT ON peer_delivery_state
+    WHEN NEW.delivered_at_ns IS NULL AND NEW.superseded_at_ns IS NULL
+    BEGIN
+        INSERT INTO peer_delivery_heads(
+            target_warden, record_kind, ordering_key,
+            record_id, stream_position, created_at_ns
+        ) VALUES (
+            NEW.target_warden, NEW.record_kind, NEW.ordering_key,
+            NEW.record_id, NEW.stream_position, NEW.created_at_ns
+        )
+        ON CONFLICT(target_warden, record_kind, ordering_key) DO UPDATE SET
+            record_id = excluded.record_id,
+            stream_position = excluded.stream_position,
+            created_at_ns = excluded.created_at_ns
+        WHERE (
+            excluded.stream_position,
+            excluded.created_at_ns,
+            excluded.record_id
+        ) < (
+            peer_delivery_heads.stream_position,
+            peer_delivery_heads.created_at_ns,
+            peer_delivery_heads.record_id
+        );
+    END
+    """,
+    """
+    CREATE TRIGGER peer_delivery_head_terminal_update
+    AFTER UPDATE OF delivered_at_ns, superseded_at_ns ON peer_delivery_state
+    WHEN NEW.delivered_at_ns IS NOT OLD.delivered_at_ns
+      OR NEW.superseded_at_ns IS NOT OLD.superseded_at_ns
+    BEGIN
+        DELETE FROM peer_delivery_heads
+        WHERE target_warden = OLD.target_warden
+          AND record_kind = OLD.record_kind
+          AND ordering_key = OLD.ordering_key
+          AND record_id = OLD.record_id;
+
+        INSERT INTO peer_delivery_heads(
+            target_warden, record_kind, ordering_key,
+            record_id, stream_position, created_at_ns
+        )
+        SELECT target_warden, record_kind, ordering_key,
+               record_id, stream_position, created_at_ns
+        FROM peer_delivery_state
+        WHERE target_warden = OLD.target_warden
+          AND record_kind = OLD.record_kind
+          AND ordering_key = OLD.ordering_key
+          AND delivered_at_ns IS NULL
+          AND superseded_at_ns IS NULL
+        ORDER BY stream_position, created_at_ns, record_id
+        LIMIT 1
+        ON CONFLICT(target_warden, record_kind, ordering_key) DO UPDATE SET
+            record_id = excluded.record_id,
+            stream_position = excluded.stream_position,
+            created_at_ns = excluded.created_at_ns;
+    END
+    """,
+    """
+    CREATE TRIGGER peer_delivery_head_delete
+    AFTER DELETE ON peer_delivery_state
+    BEGIN
+        DELETE FROM peer_delivery_heads
+        WHERE target_warden = OLD.target_warden
+          AND record_kind = OLD.record_kind
+          AND ordering_key = OLD.ordering_key
+          AND record_id = OLD.record_id;
+
+        INSERT INTO peer_delivery_heads(
+            target_warden, record_kind, ordering_key,
+            record_id, stream_position, created_at_ns
+        )
+        SELECT target_warden, record_kind, ordering_key,
+               record_id, stream_position, created_at_ns
+        FROM peer_delivery_state
+        WHERE target_warden = OLD.target_warden
+          AND record_kind = OLD.record_kind
+          AND ordering_key = OLD.ordering_key
+          AND delivered_at_ns IS NULL
+          AND superseded_at_ns IS NULL
+        ORDER BY stream_position, created_at_ns, record_id
+        LIMIT 1
+        ON CONFLICT(target_warden, record_kind, ordering_key) DO UPDATE SET
+            record_id = excluded.record_id,
+            stream_position = excluded.stream_position,
+            created_at_ns = excluded.created_at_ns;
+    END
+    """,
+    """
+    CREATE TRIGGER peer_delivery_stream_identity_immutable
+    BEFORE UPDATE OF record_kind, record_id, target_warden, ordering_key,
+                     stream_position, payload, created_at_ns
+    ON peer_delivery_state
+    BEGIN
+        SELECT RAISE(ABORT, 'peer delivery stream identity is immutable');
+    END
+    """,
+    """
+    INSERT INTO peer_delivery_heads(
+        target_warden, record_kind, ordering_key,
+        record_id, stream_position, created_at_ns
+    )
+    SELECT candidate.target_warden, candidate.record_kind, candidate.ordering_key,
+           candidate.record_id, candidate.stream_position, candidate.created_at_ns
+    FROM peer_delivery_state AS candidate
+    WHERE candidate.delivered_at_ns IS NULL
+      AND candidate.superseded_at_ns IS NULL
+      AND NOT EXISTS (
+          SELECT 1
+          FROM peer_delivery_state AS earlier
+          WHERE earlier.target_warden = candidate.target_warden
+            AND earlier.record_kind = candidate.record_kind
+            AND earlier.ordering_key = candidate.ordering_key
+            AND earlier.delivered_at_ns IS NULL
+            AND earlier.superseded_at_ns IS NULL
+            AND (
+                earlier.stream_position,
+                earlier.created_at_ns,
+                earlier.record_id
+            ) < (
+                candidate.stream_position,
+                candidate.created_at_ns,
+                candidate.record_id
+            )
+      )
+    """,
+    """
     CREATE TABLE peer_delivery_counters (
         record_kind       TEXT NOT NULL CHECK (
             record_kind IN ('transfer', 'revocation', 'checkpoint')
@@ -1030,6 +1193,81 @@ MIGRATION_2 = (
     BEFORE DELETE ON runtime_control
     BEGIN
         SELECT RAISE(ABORT, 'runtime control cannot be deleted');
+    END
+    """,
+    """
+    CREATE TABLE peer_http_authority (
+        singleton               INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
+        tenant_id               TEXT NOT NULL,
+        envelope_id             TEXT NOT NULL,
+        clock_floor_s           INTEGER CHECK (clock_floor_s IS NULL OR clock_floor_s >= 0),
+        revision                INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+        history_digest          BLOB NOT NULL CHECK (
+            typeof(history_digest) = 'blob' AND length(history_digest) = 32
+        ),
+        legacy_snapshot_digest  BLOB CHECK (
+            legacy_snapshot_digest IS NULL OR (
+                typeof(legacy_snapshot_digest) = 'blob'
+                AND length(legacy_snapshot_digest) = 32
+            )
+        ),
+        FOREIGN KEY (tenant_id, envelope_id)
+            REFERENCES envelopes(tenant_id, envelope_id) ON DELETE RESTRICT
+    ) STRICT
+    """,
+    """
+    INSERT INTO peer_http_authority(
+        singleton, tenant_id, envelope_id, clock_floor_s, revision,
+        history_digest, legacy_snapshot_digest
+    )
+    SELECT 1, tenant_id, envelope_id, NULL, 0, zeroblob(32), NULL
+    FROM envelopes WHERE singleton = 1
+    """,
+    """
+    CREATE TABLE peer_http_replay (
+        tenant_id      TEXT NOT NULL,
+        envelope_id    TEXT NOT NULL,
+        warden_id      TEXT NOT NULL CHECK (length(warden_id) BETWEEN 1 AND 512),
+        key_id         TEXT NOT NULL CHECK (length(key_id) BETWEEN 1 AND 512),
+        nonce          TEXT NOT NULL CHECK (length(nonce) BETWEEN 1 AND 512),
+        timestamp_s    INTEGER NOT NULL CHECK (timestamp_s >= 0),
+        expires_at_s   INTEGER NOT NULL CHECK (expires_at_s >= timestamp_s),
+        accepted_at_ns INTEGER NOT NULL CHECK (accepted_at_ns >= 0),
+        PRIMARY KEY (tenant_id, envelope_id, warden_id, key_id, nonce),
+        FOREIGN KEY (tenant_id, envelope_id)
+            REFERENCES envelopes(tenant_id, envelope_id) ON DELETE CASCADE
+    ) STRICT, WITHOUT ROWID
+    """,
+    """
+    CREATE INDEX ix_peer_http_replay_expiry
+    ON peer_http_replay(tenant_id, envelope_id, expires_at_s)
+    """,
+    """
+    CREATE TRIGGER peer_http_authority_monotonic
+    BEFORE UPDATE ON peer_http_authority
+    BEGIN
+        SELECT CASE WHEN NEW.revision != OLD.revision + 1
+            THEN RAISE(ABORT, 'peer replay revision must increase by one') END;
+        SELECT CASE WHEN OLD.clock_floor_s IS NOT NULL AND (
+            NEW.clock_floor_s IS NULL OR NEW.clock_floor_s < OLD.clock_floor_s
+        ) THEN RAISE(ABORT, 'peer replay clock floor cannot move backward') END;
+        SELECT CASE WHEN OLD.legacy_snapshot_digest IS NOT NULL
+            AND NEW.legacy_snapshot_digest IS NOT OLD.legacy_snapshot_digest
+            THEN RAISE(ABORT, 'legacy replay snapshot binding is immutable') END;
+    END
+    """,
+    """
+    CREATE TRIGGER peer_http_authority_no_delete
+    BEFORE DELETE ON peer_http_authority
+    BEGIN
+        SELECT RAISE(ABORT, 'peer replay authority metadata cannot be deleted');
+    END
+    """,
+    """
+    CREATE TRIGGER peer_http_replay_immutable_update
+    BEFORE UPDATE ON peer_http_replay
+    BEGIN
+        SELECT RAISE(ABORT, 'peer replay claims are immutable');
     END
     """,
 )

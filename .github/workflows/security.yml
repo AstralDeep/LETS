@@ -1,0 +1,198 @@
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-supply-chain:
+    name: Python audit, SBOM, and package smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Check lock and container build context
+        run: |
+          uv lock --check
+          python deploy/production/check_build_context.py
+      - name: Synchronize the repository-local environment
+        run: uv sync --all-extras --frozen
+      - name: Run Bandit
+        run: uvx --from bandit==1.9.4 bandit -q -r src/lets -ll
+      - name: Audit locked runtime dependencies
+        run: |
+          uv export --frozen --no-dev --extra server --extra client \
+            --no-emit-project --output-file requirements-audit.txt
+          uvx --from pip-audit==2.10.1 pip-audit --strict \
+            --requirement requirements-audit.txt
+      - name: Build and inspect distributions
+        run: |
+          uv build --out-dir dist
+          uvx --from twine==7.0.0 twine check dist/*
+      - name: Smoke-test isolated wheel installations
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          uv venv --python 3.14 .smoke/base
+          uv pip install --python .smoke/base/bin/python \
+            --constraint requirements-audit.txt "$wheel"
+          .smoke/base/bin/python -c "import lets; print(lets.__version__)"
+          .smoke/base/bin/lets --help
+          uv venv --python 3.14 .smoke/server
+          uv pip install --python .smoke/server/bin/python \
+            --constraint requirements-audit.txt "${wheel}[server,client]"
+          .smoke/server/bin/python -c "import fastapi, httpx, lets, uvicorn"
+      - name: Generate and validate Python CycloneDX SBOM
+        run: |
+          uvx --from cyclonedx-bom==7.3.1 cyclonedx-py environment \
+            .smoke/server/bin/python --pyproject pyproject.toml \
+            --mc-type application --output-reproducible --output-format JSON \
+            --output-file dist/lets-python.cdx.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          document = json.loads(Path("dist/lets-python.cdx.json").read_text(encoding="utf-8"))
+          assert document.get("bomFormat") == "CycloneDX"
+          assert document.get("specVersion")
+          assert document.get("components"), "SBOM contains no components"
+          assert (document.get("metadata") or {}).get("component", {}).get("name") == "lets-agent"
+          PY
+      - name: Archive Python supply-chain evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: python-supply-chain-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/
+            requirements-audit.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  container-supply-chain:
+    name: Container SBOM, hardening smoke, and vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+      - name: Check container build context
+        run: python deploy/production/check_build_context.py
+      - name: Validate GitHub Actions workflows
+        run: |
+          docker run --rm --volume "$PWD:/repo:ro" --workdir /repo \
+            rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1@sha256:2f5adac4ecd194d9f8c10b7b5d7bceb5186853db1b26e5abd3a657af0b7e26ec
+      - name: Record image metadata
+        id: metadata
+        shell: bash
+        run: |
+          echo "created=$(date --utc +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - name: Build the production runtime target
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile
+          target: runtime
+          load: true
+          push: false
+          tags: lets-security:${{ github.sha }}
+          build-args: |
+            BUILD_DATE=${{ steps.metadata.outputs.created }}
+            VERSION=0.0.0-security
+            VCS_REF=${{ github.sha }}
+      - name: Exercise hardened container execution
+        shell: bash
+        run: |
+          docker run --rm \
+            --user 10001:10001 \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
+            lets-security:${{ github.sha }} lets --help
+          set +e
+          docker run --rm --user 10001:10001 lets-security:${{ github.sha }} \
+            python -c 'from pathlib import Path; Path("/app/.venv/immutability-check").write_text("unsafe", encoding="utf-8")' \
+            > immutability-smoke.txt 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0 || {
+            echo "runtime user unexpectedly modified /app/.venv" >&2
+            exit 1
+          }
+          grep -Eq 'PermissionError|Permission denied' immutability-smoke.txt || {
+            cat immutability-smoke.txt >&2
+            echo "immutability smoke failed for an unexpected reason" >&2
+            exit 1
+          }
+      - name: Require an upstream-patched SQLite runtime
+        run: |
+          docker run --rm \
+            --user 10001:10001 \
+            --read-only \
+            --network none \
+            --cap-drop ALL \
+            --security-opt no-new-privileges \
+            --entrypoint python \
+            lets-security:${{ github.sha }} \
+            -c 'import sqlite3; from lets.cli import _require_production_sqlite; _require_production_sqlite(); print(sqlite3.sqlite_version)'
+      - name: Generate SPDX container SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: lets-security:${{ github.sha }}
+          format: spdx-json
+          output-file: lets-container.spdx.json
+          syft-version: v1.50.0
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Validate SPDX container SBOM
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          document = json.loads(Path("lets-container.spdx.json").read_text(encoding="utf-8"))
+          assert document.get("spdxVersion", "").startswith("SPDX-")
+          assert document.get("documentNamespace")
+          assert document.get("packages"), "SBOM contains no packages"
+          PY
+      - name: Scan the runtime image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: lets-security:${{ github.sha }}
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: table
+          output: trivy-container.txt
+          exit-code: 1
+          version: v0.73.0
+      - name: Archive container supply-chain evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: container-supply-chain-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            lets-container.spdx.json
+            trivy-container.txt
+          if-no-files-found: error
+          retention-days: 30

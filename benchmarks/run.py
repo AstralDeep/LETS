@@ -353,7 +353,10 @@ def _executor_benchmarks(directory: Path, iterations: int, warmup: int) -> list[
     policy = _policy()
     verifier = ReceiptVerifier(
         registry,
-        SQLiteReceiptReplayStore.initialize(directory / "executor-replay.sqlite3"),
+        SQLiteReceiptReplayStore.initialize(
+            directory / "executor-replay.sqlite3",
+            allow_unanchored=True,
+        ),
         ExecutorPolicy(
             audience="benchmark-executor",
             tenant_id="benchmark",

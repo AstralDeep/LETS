@@ -72,11 +72,87 @@ provenance in the host system, and place only identifiers or evidence digests in
 ## Executor integration
 
 Use `lets.executor.ReceiptVerifier` with a filesystem-backed
-`SQLiteReceiptReplayStore`. Configure the exact audience, tenant, envelope, configuration epoch,
-accepted policy/machine digests, and trusted warden keys. `verify_and_claim()` supplies durable
-at-most-once authorization. The host must additionally make its effect idempotent or bind the
-claim and effect in one domain transaction; no generic library can make an arbitrary external
-effect exactly once.
+`SQLiteReceiptReplayStore`. Production mode also requires an external executor authority anchor
+in a rollback and failure domain independent from the replay database:
+
+```python
+from lets.crypto import PublicKeyRegistry
+from lets.executor import (
+    ExecutorPolicy,
+    ReceiptVerifier,
+    SQLiteReceiptReplayStore,
+    executor_replay_identity,
+)
+from lets.executor_authority import ProcessFileExecutorAuthorityAnchor
+
+registry = PublicKeyRegistry()
+# Load this exact material and its validity bounds from an authenticated,
+# signed bootstrap manifest. An unauthenticated /v1/keys response is not a
+# production trust root.
+registry.register(
+    "warden-a",
+    manifest_key_id,
+    manifest_public_key,
+    not_before_ns=manifest_not_before_ns,
+    not_after_ns=manifest_not_after_ns,
+)
+policy = ExecutorPolicy(
+    audience="document-gateway",
+    tenant_id="production",
+    envelope_id="agent-actions-2026-08",
+    config_epoch=1,
+    allowed_policy_digests=frozenset({"sha256:..."}),
+    allowed_machine_digests=frozenset({"sha256:..."}),
+    trusted_wardens=frozenset({"warden-a"}),
+    max_clock_uncertainty_ns=10_000_000,
+)
+anchor = ProcessFileExecutorAuthorityAnchor(
+    "/var/lib/lets-executor-authority/document-gateway.anchor"
+)
+identity = executor_replay_identity(policy, registry)
+store = SQLiteReceiptReplayStore.initialize(
+    "/var/lib/lets-executor/document-gateway.sqlite3",
+    authority_anchor=anchor,
+    identity=identity,
+)
+verifier = ReceiptVerifier(registry, store, policy)
+```
+
+On reopen, omit `identity`; the database supplies it and the verifier proves that the complete
+policy plus exact registry key bytes and validity intervals still match. A policy widening,
+same-warden key substitution, database clone, stale restore, missing anchor, or clock-floor
+rollback fails before authorization. The process-isolated file anchor gives filesystem calls a
+hard deadline. Its directory must not be snapshotted, restored, replicated, or writable with the
+replay database directory; a remote linearizable CAS/HSM implementation may instead implement
+`ExecutorAuthorityAnchor`.
+
+`verify_and_claim()` verifies the receipt, commits its replay claim and append-only hash-chain
+head, and synchronously advances the external CAS before returning. A commit followed by an anchor
+outage returns an error and faults that store instance; exact reopen reconciles the committed head
+without reauthorizing the receipt. Expired claim/window cleanup is limited to 128 claim rows and
+128 watermarks per accepted receipt. `allow_unanchored=True` is an explicit development-only mode:
+it survives ordinary restart but provides no stale-restore or cloned-branch protection and is
+never a production default.
+
+This supplies durable at-most-once *authorization*, not exactly-once physical execution. A crash
+after claim and before effect can omit the effect; a generic library cannot atomically commit an
+arbitrary actuator. Make the domain operation idempotent, consume the receipt in the effect's own
+transaction through a conforming `ReceiptReplayStore`, or implement explicit recovery and
+compensation.
+
+The immutable `claim_history` is intentionally append-only, so an executor database is a finite
+authority epoch. Put it on a dedicated quota-owned local filesystem, alert on the database/WAL/SHM
+and free-byte fields from `store.status()`, and treat `SQLITE_FULL` as a protected-effect outage.
+Before a database-only backup, quiesce callers, require `store.checkpoint_wal()` to return a zero
+busy field, and copy the database without its external anchor. Never restore WAL/SHM from another
+point in time. A stale database restored beneath a live anchor is rejected on exact reopen.
+
+Schema 4 has no external claim chain and therefore cannot be safely promoted in place. Reopen
+fails closed without modifying it. Drain the old executor for the maximum outstanding receipt
+lifetime plus declared clock uncertainty, prove there are no in-flight effects, archive its bytes,
+and start a fresh schema-5 database and new independent anchor. The same drain rule applies when a
+capacity epoch is retired; retain the old database/anchor as audit evidence and never reuse an old
+anchor path for a new database instance.
 
 ## Identity and transport
 

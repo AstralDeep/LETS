@@ -9,8 +9,8 @@ adapters are deliberately kept outside this module.
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import asdict, is_dataclass, replace
 from hashlib import sha256
 from typing import Any, Protocol, TypeAlias, cast
@@ -24,6 +24,7 @@ from lets.canonical import (
 )
 from lets.clock import Clock, SystemClock
 from lets.errors import (
+    CapacityError,
     ClockUncertainError,
     ConflictError,
     DrainingError,
@@ -36,7 +37,13 @@ from lets.errors import (
     StorageError,
     ValidationError,
 )
-from lets.ids import new_id, require_digest, require_identifier, require_warden_id
+from lets.ids import (
+    new_id,
+    require_digest,
+    require_identifier,
+    require_key_id,
+    require_warden_id,
+)
 from lets.invariants import ConservationSnapshot
 from lets.models import (
     MAX_LINEAGE_DEPTH,
@@ -78,6 +85,9 @@ _LIVE = frozenset({"PROVISIONED", "ACTIVE", "QUIESCENT", "MIGRATING", "REVOKED"}
 _SUBJECT_LIFECYCLE_SCOPES = frozenset({"lets.admin", "lets.lease.manage"})
 _ADMIN_SCOPES = frozenset({"lets.admin", "lets.warden.admin"})
 _ROOT_ISSUER_SCOPES = _ADMIN_SCOPES | frozenset({"lets.lease.issue"})
+_PEER_REPLAY_GC_BATCH = 128
+_MAINTENANCE_ROW_BATCH = 64
+_MAX_ATOMIC_CASCADE_DESCENDANTS = 64
 
 
 class _Transaction(Protocol):
@@ -204,6 +214,41 @@ class WardenService:
         self._require_signing_key_current()
         with self._store.read() as transaction:
             self._verify_database_identity(self._connection(transaction))
+
+    def _write_transaction(self, *, capacity_recovery: bool = False) -> AbstractContextManager[Any]:
+        """Open a normal write or the emergency reserve lane.
+
+        The reserve lane is limited to operations that reduce authority or
+        complete already-debited distributed work. It cannot be selected for
+        issuance, execution, renewal, resume, policy changes, or new transfer
+        preparation.
+        """
+
+        if capacity_recovery:
+            recovery = getattr(self._store, "capacity_recovery", None)
+            if callable(recovery):
+                return cast(AbstractContextManager[Any], recovery())
+        return self._store.write()
+
+    @contextmanager
+    def _write_or_degraded_retry(self, *, capacity_recovery: bool = False) -> Iterator[Any | None]:
+        """Yield a write transaction, or ``None`` when only a read retry is safe.
+
+        Capacity admission happens before the underlying context yields.  An
+        exact request-id replay can therefore be served from immutable durable
+        state without weakening the new-write fence.  Capacity failures raised
+        after a yielded mutation still propagate and roll the transaction back.
+        """
+
+        with ExitStack() as stack:
+            try:
+                transaction = stack.enter_context(
+                    self._write_transaction(capacity_recovery=capacity_recovery)
+                )
+            except CapacityError:
+                yield None
+                return
+            yield transaction
 
     @property
     def warden_id(self) -> str:
@@ -507,6 +552,293 @@ class WardenService:
             return False
         return True
 
+    @staticmethod
+    def _peer_replay_seconds(value: object, field: str) -> int:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < 0
+            or value > MAX_RESOURCE
+        ):
+            raise ValidationError(f"peer replay {field} must be a non-negative integer")
+        return value
+
+    def claim_peer_request(
+        self,
+        *,
+        warden_id: str,
+        key_id: str,
+        nonce: str,
+        timestamp_s: int,
+        expires_at_s: int,
+        now_s: int,
+        clock_tolerance_s: int = 0,
+    ) -> bool:
+        """Atomically burn one peer HTTP nonce in externally anchored core state."""
+
+        peer = require_warden_id(warden_id, field="peer warden_id")
+        key = require_key_id(key_id, field="peer key_id")
+        checked_nonce = require_identifier(nonce, field="peer nonce")
+        timestamp = self._peer_replay_seconds(timestamp_s, "timestamp_s")
+        expires = self._peer_replay_seconds(expires_at_s, "expires_at_s")
+        now = self._peer_replay_seconds(now_s, "now_s")
+        tolerance = self._peer_replay_seconds(clock_tolerance_s, "clock_tolerance_s")
+        if self._allowed_peer_wardens is not None and peer not in self._allowed_peer_wardens:
+            raise SignatureError("peer warden is not admitted by the signed manifest")
+        if timestamp > MAX_RESOURCE - tolerance:
+            raise ValidationError("peer replay timestamp window exceeds signed 64-bit time")
+        if expires < max(timestamp, now):
+            raise ValidationError("peer replay expiry precedes its acceptance window")
+        now_ns = self._clock.now_ns()
+        nonce_digest = sha256(checked_nonce.encode("utf-8")).digest()
+
+        with self._write_transaction(capacity_recovery=True) as transaction:
+            connection = self._connection(transaction)
+            self._verify_database_identity(connection)
+            envelope = self._singleton_envelope(connection)
+            tenant_id = str(_row_value(envelope, "tenant_id"))
+            envelope_id = str(_row_value(envelope, "envelope_id"))
+            metadata = connection.execute(
+                """
+                SELECT clock_floor_s, revision, history_digest
+                FROM peer_http_authority WHERE singleton = 1
+                """
+            ).fetchone()
+            if metadata is None:
+                raise StorageError("peer replay authority metadata is missing")
+            floor_value = _row_value(metadata, "clock_floor_s")
+            if floor_value is not None and now < int(floor_value):
+                raise ClockUncertainError("peer HTTP clock moved behind its anchored replay floor")
+            if floor_value is not None and timestamp + tolerance < int(floor_value):
+                return False
+            duplicate = connection.execute(
+                """
+                SELECT 1 FROM peer_http_replay
+                WHERE tenant_id=? AND envelope_id=? AND warden_id=? AND key_id=? AND nonce=?
+                """,
+                (tenant_id, envelope_id, peer, key, checked_nonce),
+            ).fetchone()
+            if duplicate is not None:
+                return False
+
+            self._clock_is_safe(connection, envelope, now_ns=now_ns)
+            connection.execute(
+                """
+                DELETE FROM peer_http_replay
+                WHERE (tenant_id, envelope_id, warden_id, key_id, nonce) IN (
+                    SELECT tenant_id, envelope_id, warden_id, key_id, nonce
+                    FROM peer_http_replay
+                    WHERE tenant_id=? AND envelope_id=? AND expires_at_s < ?
+                    ORDER BY expires_at_s, warden_id, key_id, nonce
+                    LIMIT ?
+                )
+                """,
+                (tenant_id, envelope_id, now, _PEER_REPLAY_GC_BATCH),
+            )
+            connection.execute(
+                """
+                INSERT INTO peer_http_replay(
+                    tenant_id, envelope_id, warden_id, key_id, nonce,
+                    timestamp_s, expires_at_s, accepted_at_ns
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tenant_id,
+                    envelope_id,
+                    peer,
+                    key,
+                    checked_nonce,
+                    timestamp,
+                    expires,
+                    now_ns,
+                ),
+            )
+            revision = int(_row_value(metadata, "revision")) + 1
+            previous = bytes(_row_value(metadata, "history_digest"))
+            if len(previous) != 32:
+                raise StorageError("peer replay history digest is malformed")
+            history_digest = sha256(
+                canonical_json(
+                    {
+                        "type": "lets.peer-http-replay-claim/v1",
+                        "previous": b64url_encode(previous),
+                        "revision": revision,
+                        "warden_id": peer,
+                        "key_id": key,
+                        "nonce_sha256": nonce_digest.hex(),
+                        "timestamp_s": timestamp,
+                        "expires_at_s": expires,
+                        "accepted_at_ns": now_ns,
+                    }
+                )
+            ).digest()
+            new_floor = now if floor_value is None else max(now, int(floor_value))
+            connection.execute(
+                """
+                UPDATE peer_http_authority
+                SET clock_floor_s=?, revision=?, history_digest=?
+                WHERE singleton=1
+                """,
+                (new_floor, revision, history_digest),
+            )
+            self._append_audit(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                event_type="peer-http.nonce-claimed",
+                entity_type="warden",
+                entity_id=peer,
+                actor_id=peer,
+                details={
+                    "key_id": key,
+                    "nonce_sha256": f"sha256:{nonce_digest.hex()}",
+                    "timestamp_s": timestamp,
+                    "expires_at_s": expires,
+                    "replay_revision": revision,
+                    "replay_history_digest": f"sha256:{history_digest.hex()}",
+                },
+                now_ns=now_ns,
+            )
+        return True
+
+    def import_legacy_peer_replay(
+        self,
+        *,
+        clock_floor_s: int | None,
+        snapshot_digest: bytes,
+        active_claim_count: int,
+        now_s: int,
+    ) -> bool:
+        """Bind drained schema-1 replay authority exactly once during migration."""
+
+        now = self._peer_replay_seconds(now_s, "migration now_s")
+        if not isinstance(snapshot_digest, bytes) or len(snapshot_digest) != 32:
+            raise ValidationError("legacy peer replay snapshot digest must contain 32 bytes")
+        if (
+            isinstance(active_claim_count, bool)
+            or not isinstance(active_claim_count, int)
+            or active_claim_count < 0
+        ):
+            raise ValidationError("legacy peer replay active claim count is invalid")
+        if active_claim_count:
+            raise ValidationError(
+                "legacy peer replay still has live claims; keep the schema-1 node stopped, "
+                "wait at least the peer signature validity window, then retry migration"
+            )
+        floor = (
+            None
+            if clock_floor_s is None
+            else self._peer_replay_seconds(clock_floor_s, "legacy clock_floor_s")
+        )
+        if floor is not None and now < floor:
+            raise ClockUncertainError("migration clock moved behind the legacy peer replay floor")
+        now_ns = self._clock.now_ns()
+
+        with self._write_transaction(capacity_recovery=True) as transaction:
+            connection = self._connection(transaction)
+            self._verify_database_identity(connection)
+            envelope = self._singleton_envelope(connection)
+            tenant_id = str(_row_value(envelope, "tenant_id"))
+            envelope_id = str(_row_value(envelope, "envelope_id"))
+            metadata = connection.execute(
+                """
+                SELECT clock_floor_s, revision, history_digest, legacy_snapshot_digest
+                FROM peer_http_authority WHERE singleton=1
+                """
+            ).fetchone()
+            if metadata is None:
+                raise StorageError("peer replay authority metadata is missing")
+            existing_digest = _row_value(metadata, "legacy_snapshot_digest")
+            if existing_digest is not None:
+                if bytes(existing_digest) != snapshot_digest:
+                    raise ConflictError(
+                        "legacy peer replay import is bound to a different snapshot"
+                    )
+                return False
+            if int(_row_value(metadata, "revision")) != 0:
+                raise ConflictError("peer replay authority advanced before legacy import")
+            existing_claim = connection.execute("SELECT 1 FROM peer_http_replay LIMIT 1").fetchone()
+            if existing_claim is not None:
+                raise ConflictError("core peer replay table is non-empty before legacy import")
+            self._clock_is_safe(connection, envelope, now_ns=now_ns)
+            imported_floor = now if floor is None else max(now, floor)
+            history_digest = sha256(
+                canonical_json(
+                    {
+                        "type": "lets.peer-http-replay-import/v1",
+                        "snapshot_sha256": snapshot_digest.hex(),
+                        "legacy_clock_floor_s": floor,
+                        "clock_floor_s": imported_floor,
+                        "active_claim_count": 0,
+                    }
+                )
+            ).digest()
+            connection.execute(
+                """
+                UPDATE peer_http_authority
+                SET clock_floor_s=?, revision=1, history_digest=?, legacy_snapshot_digest=?
+                WHERE singleton=1
+                """,
+                (imported_floor, history_digest, snapshot_digest),
+            )
+            self._append_audit(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                event_type="peer-http.legacy-replay-imported",
+                entity_type="warden",
+                entity_id=self.warden_id,
+                actor_id="lets-migration",
+                details={
+                    "snapshot_sha256": f"sha256:{snapshot_digest.hex()}",
+                    "legacy_clock_floor_s": floor,
+                    "clock_floor_s": imported_floor,
+                    "active_claim_count": 0,
+                    "replay_revision": 1,
+                    "replay_history_digest": f"sha256:{history_digest.hex()}",
+                },
+                now_ns=now_ns,
+            )
+        return True
+
+    def peer_replay_status(self) -> dict[str, object]:
+        """Return the anchored core replay head and active claim count."""
+
+        with self._store.read() as transaction:
+            connection = self._connection(transaction)
+            metadata = connection.execute(
+                """
+                SELECT clock_floor_s, revision, history_digest, legacy_snapshot_digest
+                FROM peer_http_authority WHERE singleton=1
+                """
+            ).fetchone()
+            if metadata is None:
+                raise StorageError("peer replay authority metadata is missing")
+            history = bytes(_row_value(metadata, "history_digest"))
+            legacy = _row_value(metadata, "legacy_snapshot_digest")
+            if len(history) != 32 or (legacy is not None and len(bytes(legacy)) != 32):
+                raise StorageError("peer replay authority digest is malformed")
+            floor_value = _row_value(metadata, "clock_floor_s")
+            claims = connection.execute(
+                """
+                SELECT COUNT(*),
+                       SUM(CASE WHEN expires_at_s >= COALESCE(?, 0) THEN 1 ELSE 0 END)
+                FROM peer_http_replay
+                """,
+                (floor_value,),
+            ).fetchone()
+            return {
+                "authority": "core",
+                "clock_floor_s": floor_value,
+                "revision": int(_row_value(metadata, "revision")),
+                "history_digest": f"sha256:{history.hex()}",
+                "legacy_snapshot_digest": (
+                    None if legacy is None else f"sha256:{bytes(legacy).hex()}"
+                ),
+                "stored_claims": 0 if claims is None else int(claims[0]),
+                "active_claims": (0 if claims is None or claims[1] is None else int(claims[1])),
+            }
+
     def _sign(self, kind: str, payload: Mapping[str, Any]) -> tuple[bytes, WireObject]:
         self._require_signing_key_current()
         signing_object = {"kind": kind, "payload": payload}
@@ -721,6 +1053,75 @@ class WardenService:
                 f"request_id {request_id!r} was already used with incompatible arguments"
             )
         return _json_object(_row_value(row, "response"))
+
+    def _degraded_idempotent_response(
+        self,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        scope: str,
+        request_id: str,
+        fingerprint: bytes,
+    ) -> WireObject:
+        with self._store.read() as transaction:
+            response = self._idempotent_response(
+                self._connection(transaction),
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                scope=scope,
+                request_id=request_id,
+                fingerprint=fingerprint,
+            )
+        if response is None:
+            raise CapacityError(
+                "storage capacity reserve is exhausted; only exact durable retries are available"
+            )
+        return response
+
+    def _degraded_lease_idempotent_response(
+        self,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        lease_id: str,
+        actor: str,
+        scopes: frozenset[str],
+        authorization_error: str,
+        require_root_management: bool,
+        scope: str,
+        request_id: str,
+        fingerprint: bytes,
+    ) -> WireObject:
+        with self._store.read() as transaction:
+            connection = self._connection(transaction)
+            lease = self._load_lease(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                lease_id=lease_id,
+            )
+            has_management_scope = self._has_scope(scopes, _SUBJECT_LIFECYCLE_SCOPES)
+            if actor != _row_value(lease, "subject_id") and not has_management_scope:
+                raise PolicyError(authorization_error)
+            if (
+                require_root_management
+                and _row_value(lease, "parent_id") is None
+                and not has_management_scope
+            ):
+                raise PolicyError("root lease renewal requires lease-management scope")
+            response = self._idempotent_response(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                scope=scope,
+                request_id=request_id,
+                fingerprint=fingerprint,
+            )
+        if response is None:
+            raise CapacityError(
+                "storage capacity reserve is exhausted; only exact durable retries are available"
+            )
+        return response
 
     @staticmethod
     def _remember_response(
@@ -941,6 +1342,214 @@ class WardenService:
         ).fetchone()
         return row is not None
 
+    @staticmethod
+    def _materialize_revoked_branch(
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        lineage_id: str,
+        branch_lease_id: str,
+        now_ns: int,
+    ) -> tuple[tuple[str, ...], bool]:
+        """Materialize one bounded revocation batch.
+
+        The durable ``revocations`` row is the immediate authorization fence;
+        ``leases.status`` is a query-friendly materialization.  Selecting one
+        look-ahead row makes both the write set and the audit payload bounded
+        while allowing identical request/delivery retries to converge.
+        """
+
+        rows = connection.execute(
+            """
+            SELECT candidate.lease_id
+            FROM leases AS candidate NOT INDEXED
+            WHERE candidate.tenant_id = ? AND candidate.envelope_id = ?
+              AND candidate.lineage_id = ?
+              AND candidate.status IN ('PROVISIONED', 'ACTIVE', 'QUIESCENT', 'MIGRATING')
+              AND (
+                    candidate.lease_id = ?
+                    OR EXISTS (
+                        SELECT 1
+                        FROM json_each(candidate.ancestor_path_json) AS ancestor
+                        WHERE ancestor.type = 'text' AND ancestor.value = ?
+                    )
+              )
+            ORDER BY candidate.lease_id
+            LIMIT ?
+            """,
+            (
+                tenant_id,
+                envelope_id,
+                lineage_id,
+                branch_lease_id,
+                branch_lease_id,
+                _MAINTENANCE_ROW_BATCH + 1,
+            ),
+        ).fetchall()
+        affected = tuple(str(row[0]) for row in rows[:_MAINTENANCE_ROW_BATCH])
+        for lease_id in affected:
+            connection.execute(
+                """
+                UPDATE leases
+                SET status = 'REVOKED', sequence = sequence + 1, updated_at_ns = ?
+                WHERE tenant_id = ? AND envelope_id = ? AND lease_id = ?
+                  AND status IN ('PROVISIONED', 'ACTIVE', 'QUIESCENT', 'MIGRATING')
+                """,
+                (now_ns, tenant_id, envelope_id, lease_id),
+            )
+        return affected, len(rows) <= _MAINTENANCE_ROW_BATCH
+
+    @staticmethod
+    def _prune_outgoing_transfer_prefix(
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        target_warden: str,
+        through_sequence: int,
+    ) -> int:
+        cursor = connection.execute(
+            """
+            DELETE FROM outgoing_transfers
+            WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
+              AND sequence IN (
+                  SELECT sequence FROM outgoing_transfers
+                  WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
+                    AND sequence <= ?
+                  ORDER BY sequence
+                  LIMIT ?
+              )
+            """,
+            (
+                tenant_id,
+                envelope_id,
+                target_warden,
+                tenant_id,
+                envelope_id,
+                target_warden,
+                through_sequence,
+                _MAINTENANCE_ROW_BATCH,
+            ),
+        )
+        return max(cursor.rowcount, 0)
+
+    @staticmethod
+    def _prune_inbound_ack_prefix(
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        source_warden: str,
+        through_sequence: int,
+    ) -> int:
+        cursor = connection.execute(
+            """
+            DELETE FROM inbound_transfer_acks
+            WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
+              AND sequence IN (
+                  SELECT sequence FROM inbound_transfer_acks
+                  WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
+                    AND sequence <= ?
+                  ORDER BY sequence
+                  LIMIT ?
+              )
+            """,
+            (
+                tenant_id,
+                envelope_id,
+                source_warden,
+                tenant_id,
+                envelope_id,
+                source_warden,
+                through_sequence,
+                _MAINTENANCE_ROW_BATCH,
+            ),
+        )
+        return max(cursor.rowcount, 0)
+
+    @staticmethod
+    def _advance_inbound_gap_prefix(
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        source_warden: str,
+        watermark: int,
+        limit: int = _MAINTENANCE_ROW_BATCH,
+    ) -> tuple[int, int]:
+        """Consume at most ``limit`` consecutive accepted gap rows."""
+
+        if limit <= 0:
+            return watermark, 0
+        rows = connection.execute(
+            """
+            SELECT sequence FROM inbound_transfer_gaps
+            WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
+              AND sequence > ?
+            ORDER BY sequence
+            LIMIT ?
+            """,
+            (tenant_id, envelope_id, source_warden, watermark, limit),
+        ).fetchall()
+        advanced = watermark
+        for row in rows:
+            sequence = int(row[0])
+            if sequence != advanced + 1:
+                break
+            advanced = sequence
+        count = advanced - watermark
+        if count:
+            cursor = connection.execute(
+                """
+                DELETE FROM inbound_transfer_gaps
+                WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
+                  AND sequence > ? AND sequence <= ?
+                """,
+                (tenant_id, envelope_id, source_warden, watermark, advanced),
+            )
+            if cursor.rowcount != count or count > limit:
+                raise InvariantError("inbound watermark advancement exceeded its bounded prefix")
+        return advanced, count
+
+    @staticmethod
+    def _advance_outgoing_finalized_prefix(
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        target_warden: str,
+        watermark: int,
+    ) -> int:
+        """Return a source watermark advanced across at most one terminal batch."""
+
+        rows = connection.execute(
+            """
+            SELECT sequence, status FROM outgoing_transfers
+            WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
+              AND sequence > ?
+            ORDER BY sequence
+            LIMIT ?
+            """,
+            (
+                tenant_id,
+                envelope_id,
+                target_warden,
+                watermark,
+                _MAINTENANCE_ROW_BATCH,
+            ),
+        ).fetchall()
+        advanced = watermark
+        for row in rows:
+            sequence = int(row[0])
+            if sequence != advanced + 1 or str(row[1]) not in {
+                "FINALIZED",
+                "ACKNOWLEDGED",
+            }:
+                break
+            advanced = sequence
+        return advanced
+
     def _require_actionable(
         self,
         connection: sqlite3.Connection,
@@ -985,19 +1594,31 @@ class WardenService:
             raise ValidationError("runtime mode must be ACTIVE or DRAINING") from exc
         if not isinstance(reason, str) or not 1 <= len(reason) <= 2000:
             raise ValidationError("runtime mode reason must contain 1..2000 characters")
+        tenant_id = self._store.metadata.tenant_id
+        envelope_id = self._store.metadata.envelope_id
+        actor = self._require_admin(identity, tenant_id)
+        fingerprint = self._fingerprint(
+            "set_runtime_mode",
+            {"actor": actor, "mode": requested_mode.value, "reason": reason},
+        )
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry(
+            capacity_recovery=requested_mode is RuntimeMode.DRAINING
+        ) as transaction:
+            if transaction is None:
+                return RuntimeStatus.from_dict(
+                    self._degraded_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        scope="runtime-mode",
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             self._verify_database_identity(connection)
             envelope = self._singleton_envelope(connection)
-            tenant_id = cast(str, _row_value(envelope, "tenant_id"))
-            envelope_id = cast(str, _row_value(envelope, "envelope_id"))
-            actor = self._require_admin(identity, tenant_id)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            fingerprint = self._fingerprint(
-                "set_runtime_mode",
-                {"actor": actor, "mode": requested_mode.value, "reason": reason},
-            )
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -1206,7 +1827,12 @@ class WardenService:
             envelope = self._envelope(connection, tenant_id, envelope_id)
             return self._invariant_snapshot(connection, envelope, now_ns)
 
-    def register_policy(self, policy: object) -> str:
+    def register_policy(
+        self,
+        policy: object,
+        *,
+        identity: IdentityContext | None = None,
+    ) -> str:
         """Register one immutable, content-addressed policy and machine."""
 
         payload = self._policy_payload(policy)
@@ -1233,6 +1859,13 @@ class WardenService:
             self._verify_database_identity(connection)
             envelope = self._singleton_envelope(connection)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
+            actor_id = self.warden_id
+            if identity is not None:
+                identity_tenant, actor_id, scopes = self._identity_fields(identity)
+                if not self._has_scope(scopes, _ADMIN_SCOPES):
+                    raise PolicyError("policy registration requires administrative scope")
+                if identity_tenant != _row_value(envelope, "tenant_id"):
+                    raise PolicyError("identity tenant does not match policy tenant")
             tenant_id = payload.get("tenant_id", _row_value(envelope, "tenant_id"))
             envelope_id = payload.get("envelope_id", _row_value(envelope, "envelope_id"))
             if tenant_id != _row_value(envelope, "tenant_id") or envelope_id != _row_value(
@@ -1380,7 +2013,7 @@ class WardenService:
                 event_type="policy.registered",
                 entity_type="policy",
                 entity_id=policy_digest,
-                actor_id=self.warden_id,
+                actor_id=actor_id,
                 details={
                     "policy_id": policy_id,
                     "policy_version": policy_version,
@@ -1529,31 +2162,41 @@ class WardenService:
         requested_capabilities = frozenset(
             require_identifier(item, field="capability") for item in capabilities
         )
+        checked_allocation = vector(
+            allocation,
+            dimensions=self._store.metadata.dimension_count,
+        )
+        if not any(checked_allocation):
+            raise ValidationError("root allocation must contain a non-zero dimension")
+        fingerprint = self._fingerprint(
+            "issue_root",
+            {
+                "actor": actor,
+                "subject_id": subject_id,
+                "allocation": list(checked_allocation),
+                "capabilities": sorted(requested_capabilities),
+                "policy_digest": policy_digest,
+                "ttl_ns": ttl,
+                "lineage_id": requested_lineage,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry() as transaction:
+            if transaction is None:
+                return LeaseGrant.from_dict(
+                    self._degraded_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        scope="issue_root",
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             self._verify_database_identity(connection)
             envelope = self._envelope(connection, tenant_id, envelope_id)
             uncertainty = self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            checked_allocation = vector(
-                allocation,
-                dimensions=int(_row_value(envelope, "dimension_count")),
-            )
-            if not any(checked_allocation):
-                raise ValidationError("root allocation must contain a non-zero dimension")
-            fingerprint = self._fingerprint(
-                "issue_root",
-                {
-                    "actor": actor,
-                    "subject_id": subject_id,
-                    "allocation": list(checked_allocation),
-                    "capabilities": sorted(requested_capabilities),
-                    "policy_digest": policy_digest,
-                    "ttl_ns": ttl,
-                    "lineage_id": requested_lineage,
-                    "config_epoch": int(_row_value(envelope, "config_epoch")),
-                },
-            )
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -1706,15 +2349,50 @@ class WardenService:
         ):
             raise ValidationError("expected_sequence must be a non-negative integer")
         identity_tenant, actor, scopes = self._identity_fields(identity)
+        tenant_id = self._store.metadata.tenant_id
+        envelope_id = self._store.metadata.envelope_id
+        if identity_tenant != tenant_id:
+            raise PolicyError("identity tenant does not match parent tenant")
+        checked_allocation = vector(
+            allocation,
+            dimensions=self._store.metadata.dimension_count,
+        )
+        if not any(checked_allocation):
+            raise ValidationError("child allocation must contain a non-zero dimension")
+        fingerprint = self._fingerprint(
+            "spawn",
+            {
+                "actor": actor,
+                "parent_id": parent_id,
+                "subject_id": subject_id,
+                "allocation": list(checked_allocation),
+                "capabilities": sorted(child_capabilities),
+                "ttl_ns": ttl,
+                "requested_policy_digest": policy_digest,
+                "expected_sequence": expected_sequence,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry() as transaction:
+            if transaction is None:
+                return LeaseGrant.from_dict(
+                    self._degraded_lease_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        lease_id=parent_id,
+                        actor=actor,
+                        scopes=scopes,
+                        authorization_error="only the parent subject may spawn a child",
+                        require_root_management=False,
+                        scope=f"spawn:{parent_id}",
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             envelope = self._singleton_envelope(connection)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            tenant_id = str(_row_value(envelope, "tenant_id"))
-            envelope_id = str(_row_value(envelope, "envelope_id"))
-            if identity_tenant != tenant_id:
-                raise PolicyError("identity tenant does not match parent tenant")
             parent = self._load_lease(
                 connection,
                 tenant_id=tenant_id,
@@ -1726,26 +2404,6 @@ class WardenService:
             ):
                 raise PolicyError("only the parent subject may spawn a child")
             selected_policy_digest = policy_digest or str(_row_value(parent, "policy_digest"))
-            checked_allocation = vector(
-                allocation,
-                dimensions=int(_row_value(envelope, "dimension_count")),
-            )
-            if not any(checked_allocation):
-                raise ValidationError("child allocation must contain a non-zero dimension")
-            fingerprint = self._fingerprint(
-                "spawn",
-                {
-                    "actor": actor,
-                    "parent_id": parent_id,
-                    "subject_id": subject_id,
-                    "allocation": list(checked_allocation),
-                    "capabilities": sorted(child_capabilities),
-                    "ttl_ns": ttl,
-                    "policy_digest": selected_policy_digest,
-                    "expected_sequence": expected_sequence,
-                    "config_epoch": int(_row_value(envelope, "config_epoch")),
-                },
-            )
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -1895,15 +2553,44 @@ class WardenService:
         evidence_object = None if evidence is None else dict(evidence)
         evidence_digest = canonical_digest(evidence_object) if evidence_object is not None else None
         identity_tenant, actor, scopes = self._identity_fields(identity)
+        tenant_id = self._store.metadata.tenant_id
+        envelope_id = self._store.metadata.envelope_id
+        if identity_tenant != tenant_id:
+            raise PolicyError("identity tenant does not match lease tenant")
+        fingerprint = self._fingerprint(
+            "authorize",
+            {
+                "actor": actor,
+                "lease_id": lease_id,
+                "transition": transition,
+                "audience": audience,
+                "nonce": nonce,
+                "evidence_digest": evidence_digest,
+                "expected_state": expected_state,
+                "expected_sequence": expected_sequence,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry() as transaction:
+            if transaction is None:
+                return Receipt.from_dict(
+                    self._degraded_lease_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        lease_id=lease_id,
+                        actor=actor,
+                        scopes=scopes,
+                        authorization_error="authenticated subject does not own this lease",
+                        require_root_management=False,
+                        scope=f"authorize:{lease_id}",
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             envelope = self._singleton_envelope(connection)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            tenant_id = str(_row_value(envelope, "tenant_id"))
-            envelope_id = str(_row_value(envelope, "envelope_id"))
-            if identity_tenant != tenant_id:
-                raise PolicyError("identity tenant does not match lease tenant")
             lease = self._load_lease(
                 connection,
                 tenant_id=tenant_id,
@@ -1914,22 +2601,6 @@ class WardenService:
                 scopes, _SUBJECT_LIFECYCLE_SCOPES
             ):
                 raise PolicyError("authenticated subject does not own this lease")
-            fingerprint = self._fingerprint(
-                "authorize",
-                {
-                    "actor": actor,
-                    "lease_id": lease_id,
-                    "transition": transition,
-                    "audience": audience,
-                    "nonce": nonce,
-                    "evidence_digest": evidence_digest,
-                    "expected_state": expected_state,
-                    "expected_sequence": expected_sequence,
-                    "policy_digest": _row_value(lease, "policy_digest"),
-                    "machine_digest": _row_value(lease, "machine_digest"),
-                    "config_epoch": int(_row_value(envelope, "config_epoch")),
-                },
-            )
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -2200,15 +2871,41 @@ class WardenService:
         ):
             raise ValidationError("expected_sequence must be a non-negative integer")
         identity_tenant, actor, scopes = self._identity_fields(identity)
+        tenant_id = self._store.metadata.tenant_id
+        envelope_id = self._store.metadata.envelope_id
+        if identity_tenant != tenant_id:
+            raise PolicyError("identity tenant does not match lease tenant")
+        fingerprint = self._fingerprint(
+            "renew",
+            {
+                "actor": actor,
+                "lease_id": lease_id,
+                "ttl_ns": ttl,
+                "expected_sequence": expected_sequence,
+                "cascade": cascade,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry() as transaction:
+            if transaction is None:
+                return LeaseSnapshot.from_dict(
+                    self._degraded_lease_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        lease_id=lease_id,
+                        actor=actor,
+                        scopes=scopes,
+                        authorization_error="authenticated subject may not renew this lease",
+                        require_root_management=True,
+                        scope=f"renew:{lease_id}",
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             envelope = self._singleton_envelope(connection)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            tenant_id = str(_row_value(envelope, "tenant_id"))
-            envelope_id = str(_row_value(envelope, "envelope_id"))
-            if identity_tenant != tenant_id:
-                raise PolicyError("identity tenant does not match lease tenant")
             lease = self._load_lease(
                 connection,
                 tenant_id=tenant_id,
@@ -2223,19 +2920,6 @@ class WardenService:
                 scopes, _SUBJECT_LIFECYCLE_SCOPES
             ):
                 raise PolicyError("root lease renewal requires lease-management scope")
-            fingerprint = self._fingerprint(
-                "renew",
-                {
-                    "actor": actor,
-                    "lease_id": lease_id,
-                    "ttl_ns": ttl,
-                    "expected_sequence": expected_sequence,
-                    "cascade": cascade,
-                    "policy_digest": _row_value(lease, "policy_digest"),
-                    "machine_digest": _row_value(lease, "machine_digest"),
-                    "config_epoch": int(_row_value(envelope, "config_epoch")),
-                },
-            )
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -2288,40 +2972,52 @@ class WardenService:
                     raise PolicyError("renewal would outlive the parent lease")
             if requested_expires_at <= now_ns + uncertainty:
                 raise ExpiredError("renewal is not fresh under clock uncertainty")
-            descendants = connection.execute(
-                """
-                WITH RECURSIVE subtree(lease_id) AS (
-                    SELECT lease_id FROM leases
-                    WHERE tenant_id = ? AND envelope_id = ? AND parent_id = ?
-                    UNION ALL
-                    SELECT child.lease_id FROM leases AS child
-                    JOIN subtree ON child.parent_id = subtree.lease_id
-                    WHERE child.tenant_id = ? AND child.envelope_id = ?
+            descendant_ids = tuple(
+                str(row[0])
+                for row in connection.execute(
+                    """
+                    SELECT candidate.lease_id
+                    FROM leases AS candidate NOT INDEXED
+                    WHERE candidate.tenant_id = ? AND candidate.envelope_id = ?
+                      AND candidate.status IN (
+                          'PROVISIONED', 'ACTIVE', 'QUIESCENT', 'MIGRATING', 'REVOKED'
+                      )
+                      AND candidate.expires_at_ns > ?
+                      AND EXISTS (
+                          SELECT 1
+                          FROM json_each(candidate.ancestor_path_json) AS ancestor
+                          WHERE ancestor.type = 'text' AND ancestor.value = ?
+                      )
+                    ORDER BY candidate.lease_id
+                    LIMIT ?
+                    """,
+                    (
+                        tenant_id,
+                        envelope_id,
+                        requested_expires_at,
+                        lease_id,
+                        _MAX_ATOMIC_CASCADE_DESCENDANTS + 1,
+                    ),
+                ).fetchall()
+            )
+            if len(descendant_ids) > _MAX_ATOMIC_CASCADE_DESCENDANTS:
+                raise PolicyError(
+                    "renewal would shorten more than "
+                    f"{_MAX_ATOMIC_CASCADE_DESCENDANTS} live descendants; "
+                    "shorten descendant leases in smaller branches first"
                 )
-                SELECT leases.* FROM leases JOIN subtree USING (lease_id)
-                WHERE leases.tenant_id = ? AND leases.envelope_id = ?
-                  AND leases.status IN ('PROVISIONED', 'ACTIVE', 'QUIESCENT',
-                                        'MIGRATING', 'REVOKED')
-                  AND leases.expires_at_ns > ?
-                ORDER BY leases.lease_id
-                """,
-                (
-                    tenant_id,
-                    envelope_id,
-                    lease_id,
-                    tenant_id,
-                    envelope_id,
-                    tenant_id,
-                    envelope_id,
-                    requested_expires_at,
-                ),
-            ).fetchall()
-            if descendants and not cascade:
+            if descendant_ids and not cascade:
                 raise ConflictError(
                     "renewal shortens the parent beneath a live child; use cascade=True"
                 )
             changed_ids: list[str] = []
-            for descendant in descendants:
+            for descendant_id in descendant_ids:
+                descendant = self._load_lease(
+                    connection,
+                    tenant_id=tenant_id,
+                    envelope_id=envelope_id,
+                    lease_id=descendant_id,
+                )
                 descendant_grant = self._grant_from_row(connection, descendant)
                 renewed_descendant = replace(
                     descendant_grant,
@@ -2433,15 +3129,42 @@ class WardenService:
         ):
             raise ValidationError("expected_sequence must be a non-negative integer")
         identity_tenant, actor, scopes = self._identity_fields(identity)
+        tenant_id = self._store.metadata.tenant_id
+        envelope_id = self._store.metadata.envelope_id
+        if identity_tenant != tenant_id:
+            raise PolicyError("identity tenant does not match lease tenant")
+        fingerprint = self._fingerprint(
+            operation,
+            {
+                "actor": actor,
+                "lease_id": lease_id,
+                "expected_sequence": expected_sequence,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
+        scope = f"{operation}:{lease_id}"
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry(
+            capacity_recovery=operation in {"quiesce", "close"}
+        ) as transaction:
+            if transaction is None:
+                return LeaseSnapshot.from_dict(
+                    self._degraded_lease_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        lease_id=lease_id,
+                        actor=actor,
+                        scopes=scopes,
+                        authorization_error="authenticated subject may not manage this lease",
+                        require_root_management=False,
+                        scope=scope,
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             envelope = self._singleton_envelope(connection)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            tenant_id = str(_row_value(envelope, "tenant_id"))
-            envelope_id = str(_row_value(envelope, "envelope_id"))
-            if identity_tenant != tenant_id:
-                raise PolicyError("identity tenant does not match lease tenant")
             lease = self._load_lease(
                 connection,
                 tenant_id=tenant_id,
@@ -2452,18 +3175,6 @@ class WardenService:
                 scopes, _SUBJECT_LIFECYCLE_SCOPES
             ):
                 raise PolicyError("authenticated subject may not manage this lease")
-            fingerprint = self._fingerprint(
-                operation,
-                {
-                    "actor": actor,
-                    "lease_id": lease_id,
-                    "expected_sequence": expected_sequence,
-                    "policy_digest": _row_value(lease, "policy_digest"),
-                    "machine_digest": _row_value(lease, "machine_digest"),
-                    "config_epoch": int(_row_value(envelope, "config_epoch")),
-                },
-            )
-            scope = f"{operation}:{lease_id}"
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -2654,15 +3365,35 @@ class WardenService:
         identity_tenant, actor, scopes = self._identity_fields(identity)
         if not self._has_scope(scopes, _ADMIN_SCOPES | frozenset({"lets.branch.revoke"})):
             raise PolicyError("branch revocation scope is required")
+        tenant_id = self._store.metadata.tenant_id
+        envelope_id = self._store.metadata.envelope_id
+        if identity_tenant != tenant_id:
+            raise PolicyError("identity tenant does not match branch tenant")
+        fingerprint = self._fingerprint(
+            "revoke_branch",
+            {
+                "actor": actor,
+                "lease_id": lease_id,
+                "reason": reason,
+                "expected_epoch": expected_epoch,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry(capacity_recovery=True) as transaction:
+            if transaction is None:
+                return BranchRevocation.from_dict(
+                    self._degraded_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        scope=f"revoke:{lease_id}",
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             envelope = self._singleton_envelope(connection)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            tenant_id = str(_row_value(envelope, "tenant_id"))
-            envelope_id = str(_row_value(envelope, "envelope_id"))
-            if identity_tenant != tenant_id:
-                raise PolicyError("identity tenant does not match branch tenant")
             branch = self._load_lease(
                 connection,
                 tenant_id=tenant_id,
@@ -2679,21 +3410,6 @@ class WardenService:
                 (tenant_id, envelope_id, lineage_id, lease_id),
             ).fetchone()
             current_epoch = 0 if current is None else int(_row_value(current, "epoch"))
-            if expected_epoch is not None and expected_epoch != current_epoch:
-                raise ConflictError(
-                    f"branch revocation epoch is {current_epoch}, expected {expected_epoch}"
-                )
-            fingerprint = self._fingerprint(
-                "revoke_branch",
-                {
-                    "actor": actor,
-                    "lease_id": lease_id,
-                    "lineage_id": lineage_id,
-                    "reason": reason,
-                    "expected_epoch": expected_epoch,
-                    "config_epoch": int(_row_value(envelope, "config_epoch")),
-                },
-            )
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -2703,7 +3419,37 @@ class WardenService:
                 fingerprint=fingerprint,
             )
             if prior is not None:
-                return BranchRevocation.from_dict(prior)
+                prior_revocation = BranchRevocation.from_dict(prior)
+                affected, materialization_complete = self._materialize_revoked_branch(
+                    connection,
+                    tenant_id=tenant_id,
+                    envelope_id=envelope_id,
+                    lineage_id=lineage_id,
+                    branch_lease_id=lease_id,
+                    now_ns=now_ns,
+                )
+                if affected:
+                    self._append_audit(
+                        connection,
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        event_type="branch.revocation-materialized",
+                        entity_type="lease",
+                        entity_id=lease_id,
+                        actor_id=actor,
+                        details={
+                            "lineage_id": lineage_id,
+                            "epoch": current_epoch,
+                            "affected": list(affected),
+                            "materialization_complete": materialization_complete,
+                        },
+                        now_ns=now_ns,
+                    )
+                return prior_revocation
+            if expected_epoch is not None and expected_epoch != current_epoch:
+                raise ConflictError(
+                    f"branch revocation epoch is {current_epoch}, expected {expected_epoch}"
+                )
             unsigned = BranchRevocation(
                 tenant_id=tenant_id,
                 envelope_id=envelope_id,
@@ -2783,29 +3529,13 @@ class WardenService:
                         now_ns=now_ns,
                         supersede_older=True,
                     )
-            connection.execute(
-                """
-                WITH RECURSIVE subtree(lease_id) AS (
-                    SELECT ?
-                    UNION ALL
-                    SELECT child.lease_id FROM leases AS child
-                    JOIN subtree ON child.parent_id = subtree.lease_id
-                    WHERE child.tenant_id = ? AND child.envelope_id = ?
-                )
-                UPDATE leases
-                SET status = 'REVOKED', sequence = sequence + 1, updated_at_ns = ?
-                WHERE tenant_id = ? AND envelope_id = ?
-                  AND lease_id IN (SELECT lease_id FROM subtree)
-                  AND status IN ('PROVISIONED', 'ACTIVE', 'QUIESCENT', 'MIGRATING')
-                """,
-                (
-                    lease_id,
-                    tenant_id,
-                    envelope_id,
-                    now_ns,
-                    tenant_id,
-                    envelope_id,
-                ),
+            affected, materialization_complete = self._materialize_revoked_branch(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                lineage_id=lineage_id,
+                branch_lease_id=lease_id,
+                now_ns=now_ns,
             )
             self._append_audit(
                 connection,
@@ -2819,6 +3549,8 @@ class WardenService:
                     "lineage_id": lineage_id,
                     "epoch": revocation.epoch,
                     "reason": reason,
+                    "affected": list(affected),
+                    "materialization_complete": materialization_complete,
                 },
                 now_ns=now_ns,
             )
@@ -2856,7 +3588,7 @@ class WardenService:
             raise PolicyError("peer identity does not match revocation issuer")
         self._verify_record(parsed, warden_id=parsed.issuer_warden)
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
             envelope = self._envelope(connection, parsed.tenant_id, parsed.envelope_id)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
@@ -2896,6 +3628,32 @@ class WardenService:
                 if parsed.epoch == existing_epoch:
                     if bytes(_row_value(existing, "payload")) != payload:
                         raise ConflictError("revocation epoch is bound to different signed content")
+                    affected, materialization_complete = self._materialize_revoked_branch(
+                        connection,
+                        tenant_id=parsed.tenant_id,
+                        envelope_id=parsed.envelope_id,
+                        lineage_id=parsed.lineage_id,
+                        branch_lease_id=parsed.branch_lease_id,
+                        now_ns=now_ns,
+                    )
+                    if affected:
+                        self._append_audit(
+                            connection,
+                            tenant_id=parsed.tenant_id,
+                            envelope_id=parsed.envelope_id,
+                            event_type="branch.revocation-materialized",
+                            entity_type="lease",
+                            entity_id=parsed.branch_lease_id,
+                            actor_id=actor,
+                            details={
+                                "lineage_id": parsed.lineage_id,
+                                "epoch": parsed.epoch,
+                                "issuer_warden": parsed.issuer_warden,
+                                "affected": list(affected),
+                                "materialization_complete": materialization_complete,
+                            },
+                            now_ns=now_ns,
+                        )
                     return parsed
                 connection.execute(
                     """
@@ -2946,29 +3704,14 @@ class WardenService:
                         payload,
                     ),
                 )
-            leases = connection.execute(
-                """
-                SELECT lease_id, ancestor_path_json FROM leases
-                WHERE tenant_id = ? AND envelope_id = ? AND lineage_id = ?
-                  AND status IN ('PROVISIONED', 'ACTIVE', 'QUIESCENT', 'MIGRATING')
-                """,
-                (parsed.tenant_id, parsed.envelope_id, parsed.lineage_id),
-            ).fetchall()
-            affected: list[str] = []
-            for lease in leases:
-                lease_id = str(_row_value(lease, "lease_id"))
-                ancestors = _json_array(_row_value(lease, "ancestor_path_json"))
-                if lease_id != parsed.branch_lease_id and parsed.branch_lease_id not in ancestors:
-                    continue
-                connection.execute(
-                    """
-                    UPDATE leases
-                    SET status = 'REVOKED', sequence = sequence + 1, updated_at_ns = ?
-                    WHERE tenant_id = ? AND envelope_id = ? AND lease_id = ?
-                    """,
-                    (now_ns, parsed.tenant_id, parsed.envelope_id, lease_id),
-                )
-                affected.append(lease_id)
+            affected, materialization_complete = self._materialize_revoked_branch(
+                connection,
+                tenant_id=parsed.tenant_id,
+                envelope_id=parsed.envelope_id,
+                lineage_id=parsed.lineage_id,
+                branch_lease_id=parsed.branch_lease_id,
+                now_ns=now_ns,
+            )
             self._append_audit(
                 connection,
                 tenant_id=parsed.tenant_id,
@@ -2981,7 +3724,8 @@ class WardenService:
                     "lineage_id": parsed.lineage_id,
                     "epoch": parsed.epoch,
                     "issuer_warden": parsed.issuer_warden,
-                    "affected": affected,
+                    "affected": list(affected),
+                    "materialization_complete": materialization_complete,
                 },
                 now_ns=now_ns,
             )
@@ -2997,7 +3741,7 @@ class WardenService:
         """Reclaim residual only beyond the uncertainty and receipt-freshness barrier."""
 
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
             envelope = self._singleton_envelope(connection)
             actual_tenant = str(_row_value(envelope, "tenant_id"))
@@ -3009,34 +3753,42 @@ class WardenService:
             actor = self._require_admin(identity, actual_tenant)
             uncertainty = self._clock_is_safe(connection, envelope, now_ns=now_ns)
             receipt_ttl = int(_row_value(envelope, "receipt_ttl_ns"))
-            candidates = connection.execute(
-                """
-                SELECT leases.*,
-                       COALESCE(MAX(receipts.expires_at_ns), leases.expires_at_ns)
-                           AS last_receipt_expiry_ns
-                FROM leases
-                LEFT JOIN receipts
-                  ON receipts.tenant_id = leases.tenant_id
-                 AND receipts.envelope_id = leases.envelope_id
-                 AND receipts.lease_id = leases.lease_id
-                WHERE leases.tenant_id = ? AND leases.envelope_id = ?
-                  AND leases.status IN ('PROVISIONED', 'ACTIVE', 'QUIESCENT',
-                                        'MIGRATING', 'REVOKED')
-                GROUP BY leases.tenant_id, leases.envelope_id, leases.lease_id
-                ORDER BY leases.lease_id
-                """,
-                (actual_tenant, actual_envelope),
-            ).fetchall()
             dimensions = int(_row_value(envelope, "dimension_count"))
             reclaimed = zero(dimensions)
             reclaimed_ids: list[str] = []
             lower_bound_now = now_ns - uncertainty
+            latest_reclaimable_lease_expiry = lower_bound_now - receipt_ttl
+            candidates: Sequence[sqlite3.Row] = ()
+            if latest_reclaimable_lease_expiry >= 0:
+                candidates = connection.execute(
+                    """
+                    SELECT candidate.lease_id, candidate.residual
+                    FROM leases AS candidate NOT INDEXED
+                    WHERE candidate.tenant_id = ? AND candidate.envelope_id = ?
+                      AND candidate.status IN (
+                          'PROVISIONED', 'ACTIVE', 'QUIESCENT', 'MIGRATING', 'REVOKED'
+                      )
+                      AND candidate.expires_at_ns <= ?
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM receipts AS receipt INDEXED BY ux_receipts_lease_sequence
+                          WHERE receipt.tenant_id = candidate.tenant_id
+                            AND receipt.envelope_id = candidate.envelope_id
+                            AND receipt.lease_id = candidate.lease_id
+                            AND receipt.expires_at_ns > ?
+                      )
+                    ORDER BY candidate.lease_id
+                    LIMIT ?
+                    """,
+                    (
+                        actual_tenant,
+                        actual_envelope,
+                        latest_reclaimable_lease_expiry,
+                        lower_bound_now,
+                        _MAINTENANCE_ROW_BATCH,
+                    ),
+                ).fetchall()
             for lease in candidates:
-                lease_expiry = int(_row_value(lease, "expires_at_ns"))
-                last_receipt_expiry = int(_row_value(lease, "last_receipt_expiry_ns"))
-                barrier = max(lease_expiry + receipt_ttl, last_receipt_expiry)
-                if lower_bound_now < barrier:
-                    continue
                 residual = _unpack_blob(_row_value(lease, "residual"))
                 reclaimed = add(reclaimed, residual)
                 lease_identifier = str(_row_value(lease, "lease_id"))
@@ -3213,18 +3965,38 @@ class WardenService:
             raise PolicyError("transfer preparation scope is required")
         if policy_digest is not None:
             require_digest(policy_digest, field="policy_digest")
+        checked_amount = vector(
+            amount,
+            dimensions=self._store.metadata.dimension_count,
+        )
+        if not any(checked_amount):
+            raise ValidationError("transfer amount must contain a non-zero dimension")
+        fingerprint = self._fingerprint(
+            "prepare_transfer",
+            {
+                "actor": actor,
+                "target_warden": target_warden,
+                "amount": list(checked_amount),
+                "requested_policy_digest": policy_digest,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_or_degraded_retry() as transaction:
+            if transaction is None:
+                return TransferVoucher.from_dict(
+                    self._degraded_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        scope=f"prepare_transfer:{target_warden}",
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
             connection = self._connection(transaction)
             self._verify_database_identity(connection)
             envelope = self._envelope(connection, tenant_id, envelope_id)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
-            checked_amount = vector(
-                amount,
-                dimensions=int(_row_value(envelope, "dimension_count")),
-            )
-            if not any(checked_amount):
-                raise ValidationError("transfer amount must contain a non-zero dimension")
             if policy_digest is None:
                 policy_row = connection.execute(
                     """
@@ -3245,16 +4017,6 @@ class WardenService:
                     policy_digest,
                 )
                 selected_policy_digest = policy_digest
-            fingerprint = self._fingerprint(
-                "prepare_transfer",
-                {
-                    "actor": actor,
-                    "target_warden": target_warden,
-                    "amount": list(checked_amount),
-                    "policy_digest": selected_policy_digest,
-                    "config_epoch": int(_row_value(envelope, "config_epoch")),
-                },
-            )
             prior = self._idempotent_response(
                 connection,
                 tenant_id=tenant_id,
@@ -3442,7 +4204,7 @@ class WardenService:
             raise PolicyError("transfer acceptance scope is required")
         self._verify_record(parsed, warden_id=parsed.source_warden)
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
             envelope = self._envelope(connection, parsed.tenant_id, parsed.envelope_id)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
@@ -3485,8 +4247,65 @@ class WardenService:
             if existing is not None:
                 if _row_value(existing, "transfer_digest") != digest:
                     raise ConflictError("transfer sequence is bound to another voucher digest")
-                return TransferAck.from_dict(_json_object(_row_value(existing, "ack_payload")))
-            self._require_runtime_active(connection)
+                stored_ack = TransferAck.from_dict(
+                    _json_object(_row_value(existing, "ack_payload"))
+                )
+                stream = connection.execute(
+                    """
+                    SELECT contiguous_through, compacted_through
+                    FROM inbound_transfer_streams
+                    WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
+                    """,
+                    (
+                        parsed.tenant_id,
+                        parsed.envelope_id,
+                        parsed.source_warden,
+                    ),
+                ).fetchone()
+                if stream is None:
+                    raise StorageError("inbound transfer stream is missing")
+                if parsed.sequence <= int(_row_value(stream, "compacted_through")):
+                    raise ReplayError("compacted transfer prefix rejects voucher replay")
+                prior_watermark = int(_row_value(stream, "contiguous_through"))
+                advanced_watermark, _ = self._advance_inbound_gap_prefix(
+                    connection,
+                    tenant_id=parsed.tenant_id,
+                    envelope_id=parsed.envelope_id,
+                    source_warden=parsed.source_warden,
+                    watermark=prior_watermark,
+                )
+                if advanced_watermark > prior_watermark:
+                    connection.execute(
+                        """
+                        UPDATE inbound_transfer_streams
+                        SET contiguous_through = ?, updated_at_ns = ?
+                        WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
+                        """,
+                        (
+                            advanced_watermark,
+                            now_ns,
+                            parsed.tenant_id,
+                            parsed.envelope_id,
+                            parsed.source_warden,
+                        ),
+                    )
+                    self._append_audit(
+                        connection,
+                        tenant_id=parsed.tenant_id,
+                        envelope_id=parsed.envelope_id,
+                        event_type="transfer.inbound-watermark-advanced",
+                        entity_type="warden",
+                        entity_id=parsed.source_warden,
+                        actor_id=actor,
+                        details={
+                            "trigger_transfer_id": parsed.transfer_id,
+                            "trigger_sequence": parsed.sequence,
+                            "prior_contiguous_through": prior_watermark,
+                            "contiguous_through": advanced_watermark,
+                        },
+                        now_ns=now_ns,
+                    )
+                return stored_ack
             duplicate_id = connection.execute(
                 """
                 SELECT sequence, transfer_digest FROM inbound_transfer_acks
@@ -3558,37 +4377,13 @@ class WardenService:
                 )
                 new_contiguous = contiguous
             else:
-                new_contiguous = parsed.sequence
-                while True:
-                    next_gap = connection.execute(
-                        """
-                        SELECT 1 FROM inbound_transfer_gaps
-                        WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
-                          AND sequence = ?
-                        """,
-                        (
-                            parsed.tenant_id,
-                            parsed.envelope_id,
-                            parsed.source_warden,
-                            new_contiguous + 1,
-                        ),
-                    ).fetchone()
-                    if next_gap is None:
-                        break
-                    new_contiguous += 1
-                    connection.execute(
-                        """
-                        DELETE FROM inbound_transfer_gaps
-                        WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
-                          AND sequence = ?
-                        """,
-                        (
-                            parsed.tenant_id,
-                            parsed.envelope_id,
-                            parsed.source_warden,
-                            new_contiguous,
-                        ),
-                    )
+                new_contiguous, _ = self._advance_inbound_gap_prefix(
+                    connection,
+                    tenant_id=parsed.tenant_id,
+                    envelope_id=parsed.envelope_id,
+                    source_warden=parsed.source_warden,
+                    watermark=parsed.sequence,
+                )
             highest_seen = max(int(_row_value(stream, "highest_seen")), parsed.sequence)
             unsigned_ack = TransferAck(
                 tenant_id=parsed.tenant_id,
@@ -3709,7 +4504,7 @@ class WardenService:
             raise PolicyError("transfer finalization scope is required")
         self._verify_record(ack, warden_id=ack.target_warden)
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
             envelope = self._envelope(connection, ack.tenant_id, ack.envelope_id)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
@@ -3735,10 +4530,58 @@ class WardenService:
                 raise ConflictError("acknowledgement voucher digest does not match transfer")
             status = str(_row_value(outgoing, "status"))
             ack_payload = canonical_json(ack.to_dict())
+            stream = connection.execute(
+                """
+                SELECT acked_through FROM outgoing_transfer_streams
+                WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
+                """,
+                (ack.tenant_id, ack.envelope_id, ack.target_warden),
+            ).fetchone()
+            if stream is None:
+                raise StorageError("outgoing transfer stream is missing")
+            prior_watermark = int(_row_value(stream, "acked_through"))
             if status in {"FINALIZED", "ACKNOWLEDGED"}:
                 stored_ack = _row_value(outgoing, "ack_payload")
                 if stored_ack is None or bytes(stored_ack) != ack_payload:
                     raise ConflictError("transfer was finalized with another acknowledgement")
+                watermark = self._advance_outgoing_finalized_prefix(
+                    connection,
+                    tenant_id=ack.tenant_id,
+                    envelope_id=ack.envelope_id,
+                    target_warden=ack.target_warden,
+                    watermark=prior_watermark,
+                )
+                if watermark > prior_watermark:
+                    connection.execute(
+                        """
+                        UPDATE outgoing_transfer_streams
+                        SET acked_through = ?, updated_at_ns = ?
+                        WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
+                        """,
+                        (
+                            watermark,
+                            now_ns,
+                            ack.tenant_id,
+                            ack.envelope_id,
+                            ack.target_warden,
+                        ),
+                    )
+                    self._append_audit(
+                        connection,
+                        tenant_id=ack.tenant_id,
+                        envelope_id=ack.envelope_id,
+                        event_type="transfer.outbound-watermark-advanced",
+                        entity_type="warden",
+                        entity_id=ack.target_warden,
+                        actor_id=actor,
+                        details={
+                            "trigger_transfer_id": ack.transfer_id,
+                            "trigger_sequence": ack.sequence,
+                            "prior_acked_through": prior_watermark,
+                            "acked_through": watermark,
+                        },
+                        now_ns=now_ns,
+                    )
                 return ack
             if status != "PREPARED":
                 raise ConflictError(f"transfer status {status!r} cannot be finalized")
@@ -3758,36 +4601,13 @@ class WardenService:
                     ack.sequence,
                 ),
             )
-            stream = connection.execute(
-                """
-                SELECT acked_through FROM outgoing_transfer_streams
-                WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
-                """,
-                (ack.tenant_id, ack.envelope_id, ack.target_warden),
-            ).fetchone()
-            if stream is None:
-                raise StorageError("outgoing transfer stream is missing")
-            watermark = int(_row_value(stream, "acked_through"))
-            while True:
-                next_row = connection.execute(
-                    """
-                    SELECT status FROM outgoing_transfers
-                    WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
-                      AND sequence = ?
-                    """,
-                    (
-                        ack.tenant_id,
-                        ack.envelope_id,
-                        ack.target_warden,
-                        watermark + 1,
-                    ),
-                ).fetchone()
-                if next_row is None or _row_value(next_row, "status") not in {
-                    "FINALIZED",
-                    "ACKNOWLEDGED",
-                }:
-                    break
-                watermark += 1
+            watermark = self._advance_outgoing_finalized_prefix(
+                connection,
+                tenant_id=ack.tenant_id,
+                envelope_id=ack.envelope_id,
+                target_warden=ack.target_warden,
+                watermark=prior_watermark,
+            )
             connection.execute(
                 """
                 UPDATE outgoing_transfer_streams
@@ -3844,7 +4664,7 @@ class WardenService:
         ):
             raise ValidationError("through_sequence must be a positive integer")
         now_ns = self._clock.now_ns()
-        with self._store.write() as transaction:
+        with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
             envelope = self._singleton_envelope(connection)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
@@ -3872,6 +4692,13 @@ class WardenService:
             if through == compacted:
                 if existing_payload is None:
                     raise StorageError("compacted stream is missing its checkpoint proof")
+                self._prune_outgoing_transfer_prefix(
+                    connection,
+                    tenant_id=tenant_id,
+                    envelope_id=envelope_id,
+                    target_warden=target_warden,
+                    through_sequence=through,
+                )
                 return _json_object(existing_payload)
             if through < compacted:
                 raise ConflictError("transfer checkpoint would move backward")
@@ -3938,13 +4765,12 @@ class WardenService:
                     now_ns=now_ns,
                     supersede_older=True,
                 )
-            connection.execute(
-                """
-                DELETE FROM outgoing_transfers
-                WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
-                  AND sequence <= ?
-                """,
-                (tenant_id, envelope_id, target_warden, through),
+            self._prune_outgoing_transfer_prefix(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                target_warden=target_warden,
+                through_sequence=through,
             )
             self._append_audit(
                 connection,
@@ -4015,7 +4841,7 @@ class WardenService:
         tenant_id = cast(str, wire["tenant_id"])
         envelope_id = cast(str, wire["envelope_id"])
         through = cast(int, wire["through_sequence"])
-        with self._store.write() as transaction:
+        with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
             envelope = self._envelope(connection, tenant_id, envelope_id)
             self._clock_is_safe(connection, envelope, now_ns=now_ns)
@@ -4045,6 +4871,13 @@ class WardenService:
                 existing = _row_value(stream, "checkpoint_payload")
                 if existing is None or bytes(existing) != payload:
                     raise ConflictError("checkpoint watermark is bound to different signed content")
+                self._prune_inbound_ack_prefix(
+                    connection,
+                    tenant_id=tenant_id,
+                    envelope_id=envelope_id,
+                    source_warden=source_warden,
+                    through_sequence=through,
+                )
                 return wire
             connection.execute(
                 """
@@ -4054,13 +4887,12 @@ class WardenService:
                 """,
                 (through, payload, now_ns, tenant_id, envelope_id, source_warden),
             )
-            connection.execute(
-                """
-                DELETE FROM inbound_transfer_acks
-                WHERE tenant_id = ? AND envelope_id = ? AND source_warden = ?
-                  AND sequence <= ?
-                """,
-                (tenant_id, envelope_id, source_warden, through),
+            self._prune_inbound_ack_prefix(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                source_warden=source_warden,
+                through_sequence=through,
             )
             self._append_audit(
                 connection,
@@ -4102,7 +4934,7 @@ class WardenService:
                 ORDER BY sequence
                 """,
                 (tenant_id, envelope_id),
-            ).fetchall()
+            )
             expected_previous = bytes(32)
             for expected_sequence, row in enumerate(rows):
                 sequence = int(_row_value(row, "sequence"))

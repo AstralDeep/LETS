@@ -842,6 +842,229 @@ def test_dispatcher_round_robin_does_not_starve_a_healthy_peer(tmp_path: Path) -
         store.close()
 
 
+def test_terminal_outbox_pruning_is_bounded_and_preserves_checkpoint_proof(
+    tmp_path: Path,
+) -> None:
+    clock = ManualClock(1_000_000, 5)
+    signer = Ed25519Signer.generate("source")
+    registry = PublicKeyRegistry(clock=clock)
+    registry.register_signer(signer)
+    store, service = _node(
+        tmp_path / "bounded-prune.db",
+        warden_id="source",
+        share=100,
+        signer=signer,
+        clock=clock,
+        registry=registry,
+        peers=set(),
+    )
+    dispatcher = PeerDispatcher(service, store, signer, {}, batch_size=64)
+    try:
+        with store.write() as transaction:
+            connection = transaction.connection
+            for index in range(130):
+                connection.execute(
+                    """
+                    INSERT INTO peer_delivery_state(
+                        record_kind, record_id, target_warden, ordering_key,
+                        stream_position, payload, created_at_ns, delivered_at_ns
+                    ) VALUES ('transfer', ?, 'target', 'target', ?, x'7b7d', ?, 1)
+                    """,
+                    (f"transfer-{index:03d}", index + 1, index + 1),
+                )
+            connection.execute(
+                """
+                INSERT INTO peer_delivery_state(
+                    record_kind, record_id, target_warden, ordering_key,
+                    stream_position, payload, created_at_ns, delivered_at_ns
+                ) VALUES ('checkpoint', 'checkpoint-130', 'target', 'target',
+                          130, x'7b7d', 131, 1)
+                """
+            )
+            for index in range(200):
+                connection.execute(
+                    """
+                    INSERT INTO peer_delivery_state(
+                        record_kind, record_id, target_warden, ordering_key,
+                        stream_position, payload, created_at_ns, delivered_at_ns
+                    ) VALUES ('revocation', ?, 'target', ?, ?, x'7b7d', ?, 1)
+                    """,
+                    (
+                        f"revocation-{index:03d}",
+                        f"branch-{index:03d}",
+                        index + 1,
+                        index + 132,
+                    ),
+                )
+
+        prior = 331
+        for _ in range(6):
+            dispatcher._prune_terminal()
+            with store.read() as transaction:
+                current = int(
+                    transaction.connection.execute(
+                        "SELECT COUNT(*) FROM peer_delivery_state"
+                    ).fetchone()[0]
+                )
+                transfers = int(
+                    transaction.connection.execute(
+                        """
+                        SELECT COUNT(*) FROM peer_delivery_state
+                        WHERE record_kind = 'transfer'
+                        """
+                    ).fetchone()[0]
+                )
+                checkpoints = int(
+                    transaction.connection.execute(
+                        """
+                        SELECT COUNT(*) FROM peer_delivery_state
+                        WHERE record_kind = 'checkpoint'
+                        """
+                    ).fetchone()[0]
+                )
+            assert prior - current <= 64
+            if transfers:
+                assert checkpoints == 1
+            prior = current
+        assert prior == 0
+    finally:
+        dispatcher.stop()
+        store.close()
+
+
+def test_dispatchers_finish_checkpointed_history_cleanup_without_network_replay(
+    tmp_path: Path,
+) -> None:
+    clock = ManualClock(1_000_000, 5)
+    source_signer = Ed25519Signer.generate("source")
+    target_signer = Ed25519Signer.generate("target")
+    registry = PublicKeyRegistry(clock=clock)
+    registry.register_signer(source_signer)
+    registry.register_signer(target_signer)
+    source_store, source = _node(
+        tmp_path / "history-source.db",
+        warden_id="source",
+        share=100,
+        signer=source_signer,
+        clock=clock,
+        registry=registry,
+        peers={"target"},
+        gap_window=128,
+    )
+    target_store, target = _node(
+        tmp_path / "history-target.db",
+        warden_id="target",
+        share=0,
+        signer=target_signer,
+        clock=clock,
+        registry=registry,
+        peers={"source"},
+        gap_window=128,
+    )
+    transport = _ServiceTransport(target, "source")
+    source_dispatcher = PeerDispatcher(
+        source,
+        source_store,
+        source_signer,
+        {"target": "memory://target"},
+        client_factory=lambda _endpoint: transport,
+        batch_size=64,
+    )
+    target_dispatcher = PeerDispatcher(target, target_store, target_signer, {}, batch_size=64)
+    try:
+        for sequence in range(66):
+            source.prepare_transfer(
+                request_id=f"history-transfer-{sequence:03d}",
+                identity=_identity("source"),
+                tenant_id="tenant",
+                envelope_id="envelope",
+                target_warden="target",
+                amount=(1,),
+                policy_digest=_policy(gap_window=128).digest,
+            )
+
+        for _ in range(72):
+            source_dispatcher.run_once()
+            target_dispatcher.run_once()
+
+        with source_store.read() as transaction:
+            assert transaction.scalar("SELECT COUNT(*) FROM outgoing_transfers") == 0
+        with target_store.read() as transaction:
+            assert transaction.scalar("SELECT COUNT(*) FROM inbound_transfer_acks") == 0
+        assert source_dispatcher.status()["pending_records"] == 0
+    finally:
+        source_dispatcher.stop()
+        target_dispatcher.stop()
+        source_store.close()
+        target_store.close()
+
+
+def test_pending_discovery_uses_materialized_heads_without_payload_sort(
+    tmp_path: Path,
+) -> None:
+    clock = ManualClock(1_000_000, 5)
+    signer = Ed25519Signer.generate("source")
+    registry = PublicKeyRegistry(clock=clock)
+    registry.register_signer(signer)
+    store, service = _node(
+        tmp_path / "materialized-head.db",
+        warden_id="source",
+        share=100,
+        signer=signer,
+        clock=clock,
+        registry=registry,
+        peers=set(),
+    )
+    dispatcher = PeerDispatcher(service, store, signer, {}, batch_size=64)
+    payload = b"x" * 8_192
+    try:
+        with store.write() as transaction:
+            transaction.connection.executemany(
+                """
+                INSERT INTO peer_delivery_state(
+                    record_kind, record_id, target_warden, ordering_key,
+                    stream_position, payload, created_at_ns,
+                    attempts, next_attempt_ns
+                ) VALUES ('transfer', ?, 'target', 'stream', ?, ?, ?, 0, 0)
+                """,
+                ((f"record-{index:05d}", index + 1, payload, index + 1) for index in range(2_048)),
+            )
+
+        with store.read() as transaction:
+            connection = transaction.connection
+            assert (
+                int(connection.execute("SELECT COUNT(*) FROM peer_delivery_heads").fetchone()[0])
+                == 1
+            )
+            plan = tuple(
+                str(row[3])
+                for row in connection.execute(
+                    """
+                    EXPLAIN QUERY PLAN
+                    SELECT head.record_kind, head.record_id, head.target_warden,
+                           head.ordering_key, state.payload
+                    FROM peer_delivery_heads AS head
+                    JOIN peer_delivery_state AS state
+                      ON state.record_kind = head.record_kind
+                     AND state.record_id = head.record_id
+                     AND state.target_warden = head.target_warden
+                    WHERE (head.target_warden, head.record_kind, head.ordering_key)
+                              > ('', '', '')
+                      AND (state.next_attempt_ns = 0 OR state.next_attempt_ns <= 1)
+                    ORDER BY head.target_warden, head.record_kind, head.ordering_key
+                    LIMIT 64
+                    """
+                )
+            )
+        assert all("TEMP B-TREE" not in step for step in plan)
+        assert dispatcher._pending_records() == {
+            "target": [("transfer", "record-00000", "stream", payload)]
+        }
+    finally:
+        dispatcher.stop()
+        store.close()
+
+
 def test_dispatcher_rotates_across_more_due_streams_than_one_batch(tmp_path: Path) -> None:
     clock = ManualClock(1_000_000, 5)
     signer = Ed25519Signer.generate("source")
@@ -899,6 +1122,54 @@ def test_dispatcher_rotates_across_more_due_streams_than_one_batch(tmp_path: Pat
         assert len(first) == 64
         assert set(first) | set(second) == peer_ids
         assert set(second) - set(first)
+    finally:
+        dispatcher.stop()
+        store.close()
+
+
+def test_checkpoint_creation_rotates_past_a_failing_full_batch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = ManualClock(1_000_000, 5)
+    signer = Ed25519Signer.generate("source")
+    registry = PublicKeyRegistry(clock=clock)
+    registry.register_signer(signer)
+    peer_ids = [f"peer-{index:03d}" for index in range(65)]
+    store, service = _node(
+        tmp_path / "checkpoint-fairness.db",
+        warden_id="source",
+        share=100,
+        signer=signer,
+        clock=clock,
+        registry=registry,
+        peers=set(peer_ids),
+    )
+    dispatcher = PeerDispatcher(service, store, signer, {}, batch_size=64)
+    attempted: list[str] = []
+
+    def fail_checkpoint(*, target_warden: str, **_arguments: object) -> None:
+        attempted.append(target_warden)
+        raise RuntimeError("injected stream-local checkpoint failure")
+
+    monkeypatch.setattr(service, "create_transfer_checkpoint", fail_checkpoint)
+    try:
+        with store.write() as transaction:
+            transaction.connection.executemany(
+                """
+                INSERT INTO outgoing_transfer_streams(
+                    tenant_id, envelope_id, target_warden, config_epoch,
+                    next_sequence, acked_through, compacted_through,
+                    checkpoint_payload, updated_at_ns
+                ) VALUES ('tenant', 'envelope', ?, 1, 2, 1, 0, NULL, 1)
+                """,
+                ((peer_id,) for peer_id in peer_ids),
+            )
+
+        dispatcher._create_checkpoints()
+        assert attempted == peer_ids[:64]
+        dispatcher._create_checkpoints()
+        assert peer_ids[-1] in attempted[64:]
     finally:
         dispatcher.stop()
         store.close()
@@ -1020,3 +1291,96 @@ def test_started_dispatcher_close_interrupts_blocked_transport(tmp_path: Path) -
         released.set()
         dispatcher.stop(timeout_s=2)
         store.close()
+
+
+def test_dispatcher_converges_using_reserved_capacity_lane(tmp_path: Path) -> None:
+    clock = ManualClock(1_000_000, 5)
+    source_signer = Ed25519Signer.generate("source")
+    target_signer = Ed25519Signer.generate("target")
+    registry = PublicKeyRegistry(clock=clock)
+    registry.register_signer(source_signer)
+    registry.register_signer(target_signer)
+    source_path = tmp_path / "capacity-source.db"
+    source_store, source = _node(
+        source_path,
+        warden_id="source",
+        share=100,
+        signer=source_signer,
+        clock=clock,
+        registry=registry,
+        peers={"target"},
+    )
+    target_store, target = _node(
+        tmp_path / "capacity-target.db",
+        warden_id="target",
+        share=0,
+        signer=target_signer,
+        clock=clock,
+        registry=registry,
+        peers={"source"},
+    )
+    source.prepare_transfer(
+        request_id="capacity-transfer",
+        identity=_identity("source"),
+        tenant_id="tenant",
+        envelope_id="envelope",
+        target_warden="target",
+        amount=(5,),
+        policy_digest=_policy().digest,
+    )
+    baseline = source_store.capacity_snapshot()
+    source_store.close()
+    reserve_pages = 8
+    source_store = SQLiteStorage(
+        source_path,
+        "source",
+        (100,),
+        signing_key_id=source_signer.key_id,
+        signing_public_key=source_signer.public_key_bytes,
+        tenant_id="tenant",
+        envelope_id="envelope",
+        initial_local_share=(100,),
+        receipt_ttl_ns=100,
+        max_clock_uncertainty_ns=5,
+        transfer_gap_window=64,
+        max_database_bytes=baseline.effective_database_bytes
+        + (reserve_pages // 2) * baseline.page_size,
+        reserve_pages=reserve_pages,
+    )
+    source = WardenService(
+        source_store,
+        signer=source_signer,
+        clock=clock,
+        trust_registry=registry,
+        allowed_peer_wardens={"target"},
+    )
+    transport = _ServiceTransport(target, "source")
+    dispatcher = PeerDispatcher(
+        source,
+        source_store,
+        source_signer,
+        {"target": "memory://target"},
+        client_factory=lambda _endpoint: transport,
+        poll_interval_s=0.01,
+        request_timeout_s=0.01,
+    )
+    try:
+        assert not source_store.capacity_snapshot().healthy
+        dispatcher.run_once()
+        dispatcher.run_once()
+        dispatcher.run_once()
+        status = dispatcher.status()
+        assert status["pending_records"] == 0
+        assert status["prepared_transfers"] == 0
+        assert target.invariant_snapshot(identity=_identity("target")).free_pool == (5,)
+        with target_store.read() as transaction:
+            assert (
+                transaction.connection.execute(
+                    "SELECT compacted_through FROM inbound_transfer_streams"
+                ).fetchone()[0]
+                == 1
+            )
+    finally:
+        dispatcher.stop()
+        source_store.close()
+        target_store.close()

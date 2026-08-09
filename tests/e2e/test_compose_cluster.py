@@ -485,7 +485,7 @@ def test_real_three_node_fault_recovery_and_conservation(tmp_path: Path) -> None
         b64url_decode(warden_a_key["public_key"]),
     )
     replay_path = tmp_path / "executor-replay.sqlite3"
-    replay_store = SQLiteReceiptReplayStore.initialize(replay_path)
+    replay_store = SQLiteReceiptReplayStore.initialize(replay_path, allow_unanchored=True)
     verifier = ReceiptVerifier(
         registry,
         replay_store,
@@ -501,7 +501,7 @@ def test_real_three_node_fault_recovery_and_conservation(tmp_path: Path) -> None
         ),
     )
     verifier.verify_and_claim(Receipt.from_dict(receipt_a))
-    reopened_store = SQLiteReceiptReplayStore(replay_path)
+    reopened_store = SQLiteReceiptReplayStore(replay_path, allow_unanchored=True)
     reopened_verifier = ReceiptVerifier(registry, reopened_store, verifier.policy)
     with pytest.raises(ReplayError):
         reopened_verifier.verify_and_claim(Receipt.from_dict(receipt_a))

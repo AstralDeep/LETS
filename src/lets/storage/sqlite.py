@@ -271,7 +271,18 @@ class StorageMetadata:
 
 @dataclass(frozen=True, slots=True)
 class CapacitySnapshot:
+    main_database_bytes: int
+    wal_bytes: int
+    shared_memory_bytes: int
     database_bytes: int
+    reusable_bytes: int
+    effective_database_bytes: int
+    logical_live_bytes: int
+    remaining_main_growth_bytes: int
+    worst_case_transaction_wal_bytes: int
+    worst_case_shared_memory_bytes: int
+    additional_shared_memory_bytes: int
+    required_filesystem_free_bytes: int
     filesystem_free_bytes: int | None
     page_size: int
     page_count: int
@@ -285,7 +296,18 @@ class CapacitySnapshot:
 
     def to_dict(self) -> Record:
         return {
+            "main_database_bytes": self.main_database_bytes,
+            "wal_bytes": self.wal_bytes,
+            "shared_memory_bytes": self.shared_memory_bytes,
             "database_bytes": self.database_bytes,
+            "reusable_bytes": self.reusable_bytes,
+            "effective_database_bytes": self.effective_database_bytes,
+            "logical_live_bytes": self.logical_live_bytes,
+            "remaining_main_growth_bytes": self.remaining_main_growth_bytes,
+            "worst_case_transaction_wal_bytes": self.worst_case_transaction_wal_bytes,
+            "worst_case_shared_memory_bytes": self.worst_case_shared_memory_bytes,
+            "additional_shared_memory_bytes": self.additional_shared_memory_bytes,
+            "required_filesystem_free_bytes": self.required_filesystem_free_bytes,
             "filesystem_free_bytes": self.filesystem_free_bytes,
             "page_size": self.page_size,
             "page_count": self.page_count,
@@ -1656,7 +1678,13 @@ class SQLiteTransaction:
         cursor = self.execute(
             """
             DELETE FROM executor_replay
-            WHERE tenant_id = ? AND envelope_id = ? AND expires_at_ns <= ?
+            WHERE (tenant_id, envelope_id, executor_audience, receipt_id) IN (
+                SELECT tenant_id, envelope_id, executor_audience, receipt_id
+                FROM executor_replay
+                WHERE tenant_id = ? AND envelope_id = ? AND expires_at_ns <= ?
+                ORDER BY expires_at_ns, executor_audience, receipt_id
+                LIMIT 128
+            )
             """,
             (*self.scope, _nonnegative_integer(now_ns, "now_ns")),
         )
@@ -1835,6 +1863,7 @@ class SQLiteStorage:
         return self._busy_timeout_ms / 1_000
 
     def _connect(self, *, set_wal: bool = False) -> sqlite3.Connection:
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(
                 self._connect_path,
@@ -1853,10 +1882,17 @@ class SQLiteStorage:
                 mode = cast(str, connection.execute("PRAGMA journal_mode = WAL").fetchone()[0])
                 if mode.lower() != "wal":
                     raise StorageError(f"SQLite refused WAL mode (selected {mode!r})")
+            self._install_capacity_limits(connection)
             self._restrict_file_permissions()
             return connection
         except sqlite3.Error as exc:
+            if connection is not None:
+                connection.close()
             raise StorageError(f"could not open SQLite database {self._path!r}") from exc
+        except BaseException:
+            if connection is not None:
+                connection.close()
+            raise
 
     def _restrict_file_permissions(self) -> None:
         """Best-effort POSIX protection for the DB and SQLite sidecars.
@@ -1882,6 +1918,8 @@ class SQLiteStorage:
         connection = self._connect(set_wal=create)
         try:
             connection.execute("BEGIN IMMEDIATE")
+            if create or migrate:
+                self._require_write_capacity(connection)
             version = cast(int, connection.execute("PRAGMA user_version").fetchone()[0])
             application_id = cast(int, connection.execute("PRAGMA application_id").fetchone()[0])
             if version > SCHEMA_VERSION:
@@ -1940,6 +1978,8 @@ class SQLiteStorage:
             metadata = self._load_metadata(connection)
             self._verify_candidate(metadata, candidate)
             self._assert_local_conservation(connection, metadata, reconcile=True)
+            if create or migrate:
+                self._require_write_capacity(connection)
             connection.commit()
             self._reconcile_authority_anchor(
                 connection,
@@ -2037,6 +2077,15 @@ class SQLiteStorage:
                 created_at_ns,
             ),
         )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO peer_http_authority(
+                singleton, tenant_id, envelope_id, clock_floor_s, revision,
+                history_digest, legacy_snapshot_digest
+            ) VALUES (1, ?, ?, NULL, 0, zeroblob(32), NULL)
+            """,
+            (candidate["tenant_id"], candidate["envelope_id"]),
+        )
 
     @staticmethod
     def _verify_schema(connection: sqlite3.Connection) -> None:
@@ -2066,6 +2115,66 @@ class SQLiteStorage:
                 "legacy database embeds a signing seed; export it securely and migrate to "
                 "external signer storage before opening it with this runtime"
             )
+        replay_authority_info = tuple(connection.execute("PRAGMA table_info(peer_http_authority)"))
+        replay_claim_info = tuple(connection.execute("PRAGMA table_info(peer_http_replay)"))
+        if tuple(str(row[1]) for row in replay_authority_info) != (
+            "singleton",
+            "tenant_id",
+            "envelope_id",
+            "clock_floor_s",
+            "revision",
+            "history_digest",
+            "legacy_snapshot_digest",
+        ):
+            raise StorageError("peer replay authority schema is not supported")
+        if tuple(str(row[1]) for row in replay_claim_info) != (
+            "tenant_id",
+            "envelope_id",
+            "warden_id",
+            "key_id",
+            "nonce",
+            "timestamp_s",
+            "expires_at_s",
+            "accepted_at_ns",
+        ):
+            raise StorageError("peer replay claim schema is not supported")
+        replay_primary_key = tuple(
+            name
+            for _, name in sorted(
+                (int(row[5]), str(row[1])) for row in replay_claim_info if int(row[5]) > 0
+            )
+        )
+        replay_expiry_index = tuple(
+            str(row[2])
+            for row in connection.execute("PRAGMA index_info(ix_peer_http_replay_expiry)")
+        )
+        if replay_primary_key != (
+            "tenant_id",
+            "envelope_id",
+            "warden_id",
+            "key_id",
+            "nonce",
+        ) or replay_expiry_index != ("tenant_id", "envelope_id", "expires_at_s"):
+            raise StorageError("peer replay uniqueness or expiry index is invalid")
+        replay_authority = connection.execute(
+            """
+            SELECT tenant_id, envelope_id, revision, history_digest, legacy_snapshot_digest
+            FROM peer_http_authority WHERE singleton=1
+            """
+        ).fetchone()
+        if replay_authority is None:
+            raise StorageError("peer replay authority metadata is missing")
+        history_digest = replay_authority["history_digest"]
+        legacy_digest = replay_authority["legacy_snapshot_digest"]
+        if (
+            not isinstance(history_digest, bytes)
+            or len(history_digest) != 32
+            or (
+                legacy_digest is not None
+                and (not isinstance(legacy_digest, bytes) or len(legacy_digest) != 32)
+            )
+        ):
+            raise StorageError("peer replay authority digest is malformed")
         foreign_key_errors = connection.execute("PRAGMA foreign_key_check").fetchall()
         if foreign_key_errors:
             raise StorageError("SQLite foreign-key integrity check failed")
@@ -2279,6 +2388,28 @@ class SQLiteStorage:
             audit_hash = _blob(audit["event_hash"], "authority audit hash", allow_empty=False)
             if len(audit_hash) != 32:
                 raise StorageError("authority audit hash must contain exactly 32 bytes")
+        replay = connection.execute(
+            """
+            SELECT clock_floor_s, revision, history_digest, legacy_snapshot_digest
+            FROM peer_http_authority WHERE singleton = 1
+            """
+        ).fetchone()
+        if replay is None:
+            raise StorageError("peer replay authority metadata is missing")
+        replay_history = _blob(
+            replay["history_digest"], "peer replay history digest", allow_empty=False
+        )
+        if len(replay_history) != 32:
+            raise StorageError("peer replay history digest must contain exactly 32 bytes")
+        legacy_replay = replay["legacy_snapshot_digest"]
+        if legacy_replay is not None:
+            legacy_replay = _blob(
+                legacy_replay, "legacy peer replay snapshot digest", allow_empty=False
+            )
+            if len(legacy_replay) != 32:
+                raise StorageError(
+                    "legacy peer replay snapshot digest must contain exactly 32 bytes"
+                )
         vector_fields = (
             "free_pool",
             "lease_residual",
@@ -2296,13 +2427,18 @@ class SQLiteStorage:
             for field in vector_fields
         }
         state_payload["revision"] = cast(int, state["revision"])
-        state_payload["clock_floor_ns"] = cast(int | None, state["clock_floor_ns"])
         state_payload["runtime_control"] = {
             "mode": cast(str, control["mode"]),
             "generation": cast(int, control["generation"]),
             "reason": cast(str, control["reason"]),
             "changed_at_ns": cast(int, control["changed_at_ns"]),
             "changed_by": cast(str, control["changed_by"]),
+        }
+        state_payload["peer_http_replay"] = {
+            "clock_floor_s": cast(int | None, replay["clock_floor_s"]),
+            "revision": cast(int, replay["revision"]),
+            "history_digest": replay_history.hex(),
+            "legacy_snapshot_digest": (None if legacy_replay is None else legacy_replay.hex()),
         }
         return AuthorityCheckpoint(
             warden_id=current.warden_id,
@@ -2317,6 +2453,7 @@ class SQLiteStorage:
             audit_hash=audit_hash,
             state_revision=cast(int, state["revision"]),
             state_digest=sha256(canonical_json(state_payload)).digest(),
+            clock_floor_ns=cast(int | None, state["clock_floor_ns"]),
         )
 
     def _audit_hash_at(
@@ -2368,21 +2505,93 @@ class SQLiteStorage:
             self._authority_anchor_faulted = True
             raise StorageError("authority anchor provider failed") from exc
 
-    def _database_size(self) -> int:
+    def _install_capacity_limits(self, connection: sqlite3.Connection) -> None:
+        """Install the logical main-database ceiling on every connection.
+
+        ``max_page_count`` is connection-local.  Setting it only during genesis
+        silently loses the bound on reopen, so every operational connection must
+        set and verify the same value before it can execute SQL.
+        """
+
+        if self._max_database_bytes is None:
+            return
+        page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
+        page_count = int(connection.execute("PRAGMA page_count").fetchone()[0])
+        configured_pages = self._max_database_bytes // page_size
+        if configured_pages < 1:
+            raise CapacityError("max_database_bytes is smaller than one SQLite page")
+        if page_count > configured_pages:
+            raise CapacityError(
+                "existing SQLite page count exceeds the configured logical database limit"
+            )
+        applied = int(
+            connection.execute(f"PRAGMA max_page_count = {configured_pages}").fetchone()[0]
+        )
+        if applied != configured_pages:
+            raise CapacityError("SQLite did not apply the configured logical database limit")
+
+    def _database_sizes(self) -> tuple[int, int, int]:
         if self._uri:
-            return 0
-        total = 0
+            return (0, 0, 0)
+        sizes: list[int] = []
         for candidate in (self._path, f"{self._path}-wal", f"{self._path}-shm"):
+            size = 0
             with suppress(OSError):
-                total += os.path.getsize(candidate)
-        return total
+                size = os.path.getsize(candidate)
+            sizes.append(size)
+        return cast(tuple[int, int, int], tuple(sizes))
 
     def _capacity_snapshot(self, connection: sqlite3.Connection) -> CapacitySnapshot:
         page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
         page_count = int(connection.execute("PRAGMA page_count").fetchone()[0])
         free_pages = int(connection.execute("PRAGMA freelist_count").fetchone()[0])
         max_page_count = int(connection.execute("PRAGMA max_page_count").fetchone()[0])
-        database_bytes = self._database_size()
+        main_database_bytes, wal_bytes, shared_memory_bytes = self._database_sizes()
+        database_bytes = main_database_bytes + wal_bytes + shared_memory_bytes
+        reusable_bytes = min(main_database_bytes, free_pages * page_size)
+        logical_live_bytes = max(0, page_count - free_pages) * page_size
+        # Retain the historical field for API compatibility, but define it as the
+        # logical live main-database footprint.  WAL/SHM are reported separately;
+        # no stock SQLite pragma imposes a live combined-file byte ceiling.
+        effective_database_bytes = logical_live_bytes
+        configured_pages = max_page_count if self._max_database_bytes is not None else page_count
+        worst_case_wal = (
+            0 if self._max_database_bytes is None else 32 + configured_pages * (page_size + 24)
+        )
+        maximum_main_bytes = configured_pages * page_size
+        remaining_main_growth = (
+            0
+            if self._max_database_bytes is None
+            else max(0, maximum_main_bytes - main_database_bytes)
+        )
+        existing_wal_frames = 0
+        if wal_bytes > 32:
+            frame_bytes = page_size + 24
+            existing_wal_frames = (wal_bytes - 32 + frame_bytes - 1) // frame_bytes
+        future_wal_frames = existing_wal_frames + (
+            configured_pages if self._max_database_bytes is not None else 0
+        )
+        worst_case_shared_memory = 0
+        if future_wal_frames > 0:
+            extra_frames = max(0, future_wal_frames - 4_062)
+            shm_blocks = 1 + (extra_frames + 4_095) // 4_096
+            worst_case_shared_memory = shm_blocks * 32_768
+        additional_shared_memory = max(0, worst_case_shared_memory - shared_memory_bytes)
+        reserve_bytes = self._reserve_pages * page_size
+        if self._max_database_bytes is None:
+            required_filesystem_free = self._min_free_disk_bytes + reserve_bytes
+        else:
+            # A commit first appends dirty pages to WAL.  A later checkpoint may
+            # need to grow the main file while those WAL frames still exist.  Both
+            # allocations (plus WAL-index growth) must fit simultaneously above the
+            # emergency floor; reserving only the WAL can commit a state that can
+            # never be checkpointed on a full filesystem.
+            required_filesystem_free = (
+                self._min_free_disk_bytes
+                + remaining_main_growth
+                + worst_case_wal
+                + additional_shared_memory
+            )
         filesystem_free: int | None = None
         if not self._uri:
             try:
@@ -2394,16 +2603,27 @@ class SQLiteStorage:
             not self._capacity_faulted
             and page_headroom >= self._reserve_pages
             and (
-                (filesystem_free is not None and filesystem_free >= self._min_free_disk_bytes)
-                or self._min_free_disk_bytes == 0
+                (filesystem_free is not None and filesystem_free >= required_filesystem_free)
+                or (filesystem_free is None and self._min_free_disk_bytes == 0)
             )
             and (
                 self._max_database_bytes is None
-                or database_bytes + self._reserve_pages * page_size <= self._max_database_bytes
+                or effective_database_bytes + reserve_bytes <= self._max_database_bytes
             )
         )
         return CapacitySnapshot(
+            main_database_bytes=main_database_bytes,
+            wal_bytes=wal_bytes,
+            shared_memory_bytes=shared_memory_bytes,
             database_bytes=database_bytes,
+            reusable_bytes=reusable_bytes,
+            effective_database_bytes=effective_database_bytes,
+            logical_live_bytes=logical_live_bytes,
+            remaining_main_growth_bytes=remaining_main_growth,
+            worst_case_transaction_wal_bytes=worst_case_wal,
+            worst_case_shared_memory_bytes=worst_case_shared_memory,
+            additional_shared_memory_bytes=additional_shared_memory,
+            required_filesystem_free_bytes=required_filesystem_free,
             filesystem_free_bytes=filesystem_free,
             page_size=page_size,
             page_count=page_count,
@@ -2423,6 +2643,32 @@ class SQLiteStorage:
                 "storage capacity reserve is exhausted; authority writes are disabled"
             )
 
+    def _require_recovery_capacity(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        baseline: CapacitySnapshot | None,
+    ) -> CapacitySnapshot:
+        snapshot = self._capacity_snapshot(connection)
+        page_headroom = max(0, snapshot.max_page_count - snapshot.page_count) + snapshot.free_pages
+        if page_headroom <= 0:
+            raise CapacityError("storage has no page headroom for emergency recovery")
+        if (snapshot.filesystem_free_bytes is None and snapshot.min_free_disk_bytes > 0) or (
+            snapshot.filesystem_free_bytes is not None
+            and snapshot.filesystem_free_bytes < snapshot.required_filesystem_free_bytes
+        ):
+            raise CapacityError(
+                "storage cannot reserve one worst-case transaction above its filesystem floor"
+            )
+        if (
+            baseline is not None
+            and snapshot.max_database_bytes is not None
+            and snapshot.effective_database_bytes
+            > max(snapshot.max_database_bytes, baseline.effective_database_bytes)
+        ):
+            raise CapacityError("emergency recovery exceeded the hard database limit")
+        return snapshot
+
     @contextmanager
     def transaction(
         self, *, write: bool = True, capacity_recovery: bool = False
@@ -2434,6 +2680,7 @@ class SQLiteStorage:
         token = self._active.set(True)
         connection: sqlite3.Connection | None = None
         transaction: SQLiteTransaction | None = None
+        recovery_baseline: CapacitySnapshot | None = None
         try:
             # Keep in-process readers, the peer dispatcher, and HTTP handlers behind
             # the post-COMMIT anchor CAS.  Consequently no signed result or outbox row
@@ -2441,11 +2688,16 @@ class SQLiteStorage:
             with self._authority_transaction_lock:
                 connection = self._connect()
                 self._reconcile_authority_anchor(connection)
-                if write and not capacity_recovery:
-                    self._require_write_capacity(connection)
+                connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+                if write:
+                    if capacity_recovery:
+                        recovery_baseline = self._require_recovery_capacity(
+                            connection, baseline=None
+                        )
+                    else:
+                        self._require_write_capacity(connection)
                 if not write:
                     connection.execute("PRAGMA query_only = ON")
-                connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
                 transaction = SQLiteTransaction(connection, self._metadata, writable=write)
                 yield transaction
                 if write:
@@ -2463,9 +2715,25 @@ class SQLiteStorage:
                         if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
                             raise sqlite3.IntegrityError("FOREIGN KEY constraint failed") from None
                         raise
+                    if capacity_recovery:
+                        self._require_recovery_capacity(
+                            connection,
+                            baseline=recovery_baseline,
+                        )
+                    else:
+                        self._require_write_capacity(connection)
                 connection.commit()
                 if write:
                     self._reconcile_authority_anchor(connection)
+                    committed = self._capacity_snapshot(connection)
+                    if (
+                        committed.filesystem_free_bytes is not None
+                        and committed.filesystem_free_bytes < committed.min_free_disk_bytes
+                    ):
+                        self._capacity_faulted = True
+                        raise CapacityError(
+                            "committed transaction crossed the emergency filesystem floor"
+                        )
         except sqlite3.IntegrityError:
             if connection is not None and connection.in_transaction:
                 connection.rollback()
@@ -2478,6 +2746,9 @@ class SQLiteStorage:
                 or "full" in str(exc).casefold()
             ):
                 self._capacity_faulted = True
+                raise CapacityError(
+                    "SQLite reached its configured logical or filesystem capacity limit"
+                ) from exc
             raise StorageError("SQLite transaction failed") from exc
         except BaseException:
             if connection is not None and connection.in_transaction:
@@ -2581,6 +2852,14 @@ class SQLiteStorage:
             mode = "TRUNCATE" if truncate else "PASSIVE"
             row = connection.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
             return cast(tuple[int, int, int], tuple(row))
+        except sqlite3.Error as exc:
+            if (
+                getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL
+                or "full" in str(exc).casefold()
+            ):
+                self._capacity_faulted = True
+                raise CapacityError("SQLite checkpoint exhausted filesystem capacity") from exc
+            raise StorageError("SQLite checkpoint failed") from exc
         finally:
             connection.close()
 

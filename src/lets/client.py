@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import email.utils
+import ssl
 import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Self, cast
 from urllib.parse import quote
 
@@ -14,6 +16,41 @@ import httpx
 
 from lets.auth import PeerSigner, sign_peer_headers
 from lets.canonical import canonical_json, strict_json_loads
+
+TLSVerify = bool | str | ssl.SSLContext
+TLSCertificate = str | tuple[str, str] | tuple[str, str, str]
+
+
+def _httpx_tls_configuration(
+    verify: TLSVerify,
+    cert: TLSCertificate | None,
+) -> tuple[TLSVerify, TLSCertificate | None]:
+    """Build one SSL context so a CA path cannot bypass client-certificate loading."""
+
+    context: ssl.SSLContext
+    if isinstance(verify, str):
+        trust = Path(verify)
+        context = (
+            ssl.create_default_context(capath=verify)
+            if trust.is_dir()
+            else ssl.create_default_context(cafile=verify)
+        )
+    elif cert is None:
+        return verify, None
+    elif isinstance(verify, ssl.SSLContext):
+        context = verify
+    elif verify:
+        context = ssl.create_default_context()
+    else:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    if cert is not None:
+        if isinstance(cert, str):
+            context.load_cert_chain(cert)
+        else:
+            context.load_cert_chain(*cert)
+    return context, None
 
 
 def _response_json(response: httpx.Response, content: bytes | None = None) -> Any:
@@ -152,8 +189,8 @@ class LETSClient:
         base_url: str,
         *,
         token: str | None = None,
-        verify: bool | str = True,
-        cert: str | tuple[str, str] | None = None,
+        verify: TLSVerify = True,
+        cert: TLSCertificate | None = None,
         timeout: float | httpx.Timeout = 10.0,
         total_timeout_s: float = 10.0,
         max_response_bytes: int = 1_048_576,
@@ -176,13 +213,14 @@ class LETSClient:
         self._owns_client = client is None
         self._client_factory: Callable[[], httpx.Client] | None = None
         if client is None:
+            tls_verify, tls_cert = _httpx_tls_configuration(verify, cert)
 
             def create_client() -> httpx.Client:
                 return httpx.Client(
                     base_url=base_url.rstrip("/") + "/",
                     headers=headers,
-                    verify=verify,
-                    cert=cert,
+                    verify=tls_verify,
+                    cert=tls_cert,
                     timeout=timeout,
                     transport=transport,
                     follow_redirects=False,

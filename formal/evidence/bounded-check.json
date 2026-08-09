@@ -12,7 +12,7 @@
     "max_receipts": 2,
     "max_transfers": 2
   },
-  "generated_at": "2026-08-09T09:53:32.557840+00:00",
+  "generated_at": "2026-08-09T14:56:01.403564+00:00",
   "maximum_depth_reached": 9,
   "model_digest": "sha256:77d48812fa293cf5934496c90a435f8f7792a6f88aef6e4f460bcf0e7ee3b5b8",
   "passed": true,

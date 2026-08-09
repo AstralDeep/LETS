@@ -111,6 +111,7 @@ class RuntimeProviderContext:
     """Validated local identity and non-secret configuration supplied to a provider."""
 
     config_path: Path
+    database_path: Path
     warden_id: str
     tenant_id: str
     envelope_id: str
@@ -122,7 +123,10 @@ class RuntimeProviderContext:
     def __post_init__(self) -> None:
         if not isinstance(self.config_path, Path):
             raise ValidationError("runtime provider config_path must be a pathlib Path")
+        if not isinstance(self.database_path, Path):
+            raise ValidationError("runtime provider database_path must be a pathlib Path")
         object.__setattr__(self, "config_path", self.config_path.resolve())
+        object.__setattr__(self, "database_path", self.database_path.resolve())
         require_warden_id(self.warden_id, field="runtime warden_id")
         for field_name in ("tenant_id", "envelope_id"):
             value = getattr(self, field_name)
@@ -282,6 +286,8 @@ def _admit_bindings(
         anchor = bindings.authority_anchor
         if anchor is not None and not callable(getattr(anchor, "reconcile", None)):
             raise ValidationError("runtime provider returned an invalid authority anchor type")
+        if anchor is not None and not callable(getattr(anchor, "read_current", None)):
+            raise ValidationError("runtime provider anchor must support non-mutating inspection")
         if context.production and anchor is None:
             raise ValidationError(
                 "the selected runtime provider did not supply an independent authority anchor"
@@ -289,6 +295,8 @@ def _admit_bindings(
         audit_sink = bindings.audit_sink
         if audit_sink is not None and not callable(getattr(audit_sink, "publish", None)):
             raise ValidationError("runtime provider returned an invalid audit sink type")
+        if audit_sink is not None and not callable(getattr(audit_sink, "head", None)):
+            raise ValidationError("runtime provider audit sink must support head reconciliation")
         if context.production and audit_sink is None:
             raise ValidationError(
                 "the selected runtime provider did not supply an independent audit sink"

@@ -1,0 +1,51 @@
+name: lets-production-provision
+
+services:
+  provision:
+    image: "${LETS_IMAGE:?LETS_IMAGE must be an immutable image digest}"
+    pull_policy: always
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    entrypoint: []
+    command: [lets, --help]
+    volumes:
+      - type: bind
+        source: "${LETS_STATE_DIR:?LETS_STATE_DIR must name a pre-provisioned state directory}"
+        target: /var/lib/lets
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: "${LETS_AUTHORITY_DIR:?LETS_AUTHORITY_DIR must name an independent authority directory}"
+        target: /var/lib/lets-authority
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: "${LETS_AUDIT_DIR:?LETS_AUDIT_DIR must name an independent audit directory}"
+        target: /var/lib/lets-audit
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: "${LETS_TRUST_DIR:?LETS_TRUST_DIR must name a signed trust directory}"
+        target: /etc/lets/trust
+        read_only: true
+        bind:
+          create_host_path: false
+          propagation: rprivate
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777
+    pids_limit: 64
+    cpus: "${LETS_CPUS:-2.0}"
+    mem_limit: "${LETS_MEMORY_LIMIT:-1g}"
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 1024
+    restart: "no"

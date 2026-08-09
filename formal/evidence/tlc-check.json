@@ -1,11 +1,11 @@
 {
-  "checked_at": "2026-08-09T09:54:01.428845+00:00",
+  "checked_at": "2026-08-09T14:55:47.771429+00:00",
   "config_sha256": "17ffc118e43c52ca39e63333d7f30df3ccf06a236c9c055ff67022f853da08a0",
   "distinct_states": 6776,
   "fingerprint_collision_probability_optimistic": 1.2e-11,
   "maximum_depth": 14,
   "passed": true,
-  "runner_command": "python -m formal.run_tlc --meta-directory results/generated/formal/tlc-states-final-20260809-0954 --evidence-output results/generated/formal/tlc-check-final-20260809-0954.json",
+  "runner_command": "python -m formal.run_tlc --meta-directory results/generated/formal/tlc-states-1.0.0-20260809-1455 --evidence-output results/generated/formal/tlc-check-1.0.0.json",
   "schema": "lets.tlc-model-check/v1",
   "spec_sha256": "10760299dc6a653939950d753a3f911bb44c4ec5516787e0e66efb6123a35b53",
   "states_generated": 40057,
@@ -13,7 +13,7 @@
   "tla2tools_jar_bytes": 4486015,
   "tla2tools_jar_sha256": "e22f8ffb4bacdea0a871f444dd94fe5fb0d8013b3388ae39e82e26f852c735d5",
   "tla2tools_release": "v1.8.0",
-  "tlc_command": "java -XX:+UseParallelGC -cp ../tmp/tla/tla2tools.jar tlc2.TLC -workers auto -metadir ../results/generated/formal/tlc-states-final-20260809-0954 -config LETS.cfg LETS.tla",
+  "tlc_command": "java -XX:+UseParallelGC -cp ../tmp/tla/tla2tools.jar tlc2.TLC -workers auto -metadir ../results/generated/formal/tlc-states-1.0.0-20260809-1455 -config LETS.cfg LETS.tla",
   "tlc_version": "2026.07.31.184830 (rev: 30cc360)",
   "tlc_working_directory": "formal",
   "workers": 32

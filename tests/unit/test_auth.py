@@ -141,6 +141,27 @@ def test_sqlite_peer_replay_prunes_in_same_claim_transaction(tmp_path: Path) -> 
     assert retained <= 3
 
 
+def test_sqlite_peer_replay_manual_prune_is_bounded_and_converges(tmp_path: Path) -> None:
+    path = tmp_path / "bounded-manual-prune.sqlite3"
+    replay = SQLitePeerReplayStore.initialize(path)
+
+    with closing(sqlite3.connect(path)) as connection:
+        connection.executemany(
+            """
+            INSERT INTO peer_http_replay(
+                warden_id, key_id, nonce, timestamp_s, expires_at_s
+            ) VALUES ('warden-a', 'warden-a/key-1', ?, 1, 2)
+            """,
+            ((f"expired-{index}",) for index in range(300)),
+        )
+        connection.commit()
+
+    assert replay.prune(now_s=3) == 128
+    assert replay.prune(now_s=3) == 128
+    assert replay.prune(now_s=3) == 44
+    assert replay.prune(now_s=3) == 0
+
+
 def test_peer_replay_clock_floor_survives_restart_and_blocks_revived_nonce(
     tmp_path: Path,
 ) -> None:

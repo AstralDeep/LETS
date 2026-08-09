@@ -5,15 +5,39 @@ import pytest
 from lets.canonical import b64url_encode
 from lets.cli import (
     _configured_peer_endpoints,
+    _database_path,
     _operator_keys,
     _parser,
     _runtime_configuration,
     _serve,
+    _sqlite_wal_reset_safe,
     _validate_peer_trust,
     _validate_production_admission,
 )
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
 from lets.errors import ValidationError
+
+
+@pytest.mark.parametrize(
+    ("version", "safe"),
+    [
+        ((3, 44, 5), False),
+        ((3, 44, 6), True),
+        ((3, 49, 1), False),
+        ((3, 50, 6), False),
+        ((3, 50, 7), True),
+        ((3, 51, 0), False),
+        ((3, 51, 2), False),
+        ((3, 51, 3), True),
+        ((3, 52, 0), False),
+        ((3, 52, 9), False),
+        ((3, 53, 2), True),
+    ],
+)
+def test_production_sqlite_requires_an_upstream_wal_reset_fix(
+    version: tuple[int, int, int], safe: bool
+) -> None:
+    assert _sqlite_wal_reset_safe(version) is safe
 
 
 @pytest.mark.parametrize(
@@ -120,6 +144,37 @@ def test_runtime_configuration_rejects_duplicate_options_and_scopes_overrides() 
     assert dict(options) == {"endpoint": "https://kms.example"}
 
 
+def test_absolute_database_path_requires_an_external_runtime_provider(tmp_path: Path) -> None:
+    database = (tmp_path / "state" / "warden.sqlite3").resolve()
+    config_path = (tmp_path / "immutable-config" / "config.json").resolve()
+
+    with pytest.raises(ValidationError, match="external runtime provider"):
+        _database_path(config_path, {"database": str(database)})
+    with pytest.raises(ValidationError, match="external runtime provider"):
+        _database_path(
+            config_path,
+            {"database": str(database), "runtime": {"provider": "builtin"}},
+        )
+
+    assert (
+        _database_path(
+            config_path,
+            {"database": str(database), "runtime": {"provider": "generic-production"}},
+        )
+        == database
+    )
+
+
+def test_builtin_database_path_remains_project_local(tmp_path: Path) -> None:
+    config_path = (tmp_path / "project" / "config.json").resolve()
+    assert (
+        _database_path(config_path, {"database": "state/warden.sqlite3"})
+        == (config_path.parent / "state" / "warden.sqlite3").resolve()
+    )
+    with pytest.raises(ValidationError, match="escapes its project directory"):
+        _database_path(config_path, {"database": "../warden.sqlite3"})
+
+
 def test_production_admission_rejects_every_development_trust_path() -> None:
     config: dict[str, object] = {
         "manifest": "cluster.json",
@@ -139,6 +194,8 @@ def test_production_admission_rejects_every_development_trust_path() -> None:
             "server.pem",
             "--tls-key",
             "server.key",
+            "--client-ca",
+            "clients-ca.pem",
             "--runtime-provider",
             "managed",
         ]

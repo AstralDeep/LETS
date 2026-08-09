@@ -253,3 +253,30 @@ class PublicKeyRegistry:
         if entry is None:
             raise SignatureError(f"untrusted key {(warden_id, key_id)!r}")
         return entry[0]
+
+    def trust_digest(self) -> bytes:
+        """Canonical digest of every admitted key, identity, and validity bound.
+
+        Protected executors bind this value into their external replay anchor so
+        a restored verifier cannot substitute key bytes or silently widen trust
+        while retaining the same warden identifiers.
+        """
+
+        keys = [
+            {
+                "warden_id": warden_id,
+                "key_id": key_id,
+                "public_key": b64url_encode(entry[0]),
+                "not_before_ns": entry[2],
+                "not_after_ns": entry[3],
+            }
+            for (warden_id, key_id), entry in sorted(self._keys.items())
+        ]
+        return sha256(
+            canonical_json(
+                {
+                    "type": "lets.executor-trust-registry/v1",
+                    "keys": keys,
+                }
+            )
+        ).digest()

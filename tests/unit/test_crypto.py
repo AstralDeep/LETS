@@ -130,3 +130,36 @@ def test_public_key_registry_requires_full_clock_interval_inside_key_validity() 
     )
     with pytest.raises(SignatureError, match="outside its validity interval"):
         registry_with_later_start.require_current(signer.warden_id, signer.key_id)
+
+
+def test_public_key_registry_trust_digest_is_order_stable_and_exact() -> None:
+    first = Ed25519Signer.generate("warden-a")
+    second = Ed25519Signer.generate("warden-b")
+    forward = PublicKeyRegistry()
+    reverse = PublicKeyRegistry()
+    forward.register_signer(first)
+    forward.register(
+        second.warden_id,
+        second.key_id,
+        second.public_key_bytes,
+        not_after_ns=1_000,
+    )
+    reverse.register(
+        second.warden_id,
+        second.key_id,
+        second.public_key_bytes,
+        not_after_ns=1_000,
+    )
+    reverse.register_signer(first)
+
+    assert forward.trust_digest() == reverse.trust_digest()
+
+    changed_validity = PublicKeyRegistry()
+    changed_validity.register_signer(first)
+    changed_validity.register(
+        second.warden_id,
+        second.key_id,
+        second.public_key_bytes,
+        not_after_ns=1_001,
+    )
+    assert changed_validity.trust_digest() != forward.trust_digest()

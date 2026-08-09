@@ -80,7 +80,12 @@ def _verifier(
     )
     clock = ManualClock(now_ns, uncertainty_ns)
     factory = SQLiteReceiptReplayStore.initialize if initialize else SQLiteReceiptReplayStore
-    return ReceiptVerifier(registry, factory(path), policy, clock=clock)
+    return ReceiptVerifier(
+        registry,
+        factory(path, allow_unanchored=True),
+        policy,
+        clock=clock,
+    )
 
 
 def test_valid_receipt_is_claimed_exactly_once_across_restart(tmp_path: Path) -> None:
@@ -91,9 +96,69 @@ def test_valid_receipt_is_claimed_exactly_once_across_restart(tmp_path: Path) ->
     _verifier(path, signer).verify_and_claim(receipt)
 
     restarted = _verifier(path, signer, initialize=False)
-    assert SQLiteReceiptReplayStore(path).integrity_check() == ("ok",)
+    assert SQLiteReceiptReplayStore(path, allow_unanchored=True).integrity_check() == ("ok",)
     with pytest.raises(ReplayError):
         restarted.verify_and_claim(receipt)
+
+
+def test_executor_expiry_cleanup_is_bounded_and_converges(tmp_path: Path) -> None:
+    signer = Ed25519Signer.generate("warden-a")
+    path = tmp_path / "executor.sqlite3"
+    store = SQLiteReceiptReplayStore.initialize(path, allow_unanchored=True)
+    expired = 300
+    with closing(sqlite3.connect(path)) as connection:
+        connection.executemany(
+            """
+            INSERT INTO receipt_claims(
+                receipt_id, tenant_id, envelope_id, warden_id, lease_id, audience,
+                resulting_sequence, nonce, claimed_at_ns, expires_at_ns
+            ) VALUES (?, 'tenant-a', 'envelope-a', 'warden-a', ?, 'executor-a', 1, ?, 1, 2)
+            """,
+            (
+                (f"expired-{index}", f"expired-lease-{index}", f"expired-nonce-{index}")
+                for index in range(expired)
+            ),
+        )
+        connection.executemany(
+            """
+            INSERT INTO lease_watermarks(
+                warden_id, lease_id, audience, last_sequence, updated_at_ns, expires_at_ns
+            ) VALUES ('warden-a', ?, 'executor-a', 1, 1, 2)
+            """,
+            ((f"expired-lease-{index}",) for index in range(expired)),
+        )
+        connection.commit()
+
+    for index in range(3):
+        receipt = replace(
+            _signed_receipt(
+                signer,
+                receipt_id=f"live-{index}",
+                nonce=f"live-nonce-{index}",
+                sequence=index + 1,
+            ),
+            lease_id=f"live-lease-{index}",
+        )
+        # Re-sign after changing the lease identity.
+        receipt = replace(
+            receipt,
+            signature=b64url_encode(signer.sign(canonical_json(receipt.unsigned_payload()))),
+        )
+        store.claim(receipt, claimed_at_ns=100)
+        with closing(sqlite3.connect(path)) as connection:
+            remaining_claims = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM receipt_claims WHERE expires_at_ns <= 100"
+                ).fetchone()[0]
+            )
+            remaining_watermarks = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM lease_watermarks WHERE expires_at_ns <= 100"
+                ).fetchone()[0]
+            )
+        expected = max(0, expired - (index + 1) * 128)
+        assert remaining_claims == expected
+        assert remaining_watermarks == expected
 
 
 def test_domain_nonce_is_unique_across_trusted_wardens(tmp_path: Path) -> None:
@@ -104,7 +169,7 @@ def test_domain_nonce_is_unique_across_trusted_wardens(tmp_path: Path) -> None:
     registry.register_signer(second)
     verifier = ReceiptVerifier(
         registry,
-        SQLiteReceiptReplayStore.initialize(tmp_path / "executor.sqlite3"),
+        SQLiteReceiptReplayStore.initialize(tmp_path / "executor.sqlite3", allow_unanchored=True),
         ExecutorPolicy(
             audience="executor-a",
             tenant_id="tenant-a",
@@ -171,7 +236,7 @@ def test_executor_rejects_signature_tampering_and_untrusted_keys(tmp_path: Path)
     policy = replace(verifier.policy, trusted_wardens=frozenset())
     untrusted = ReceiptVerifier(
         registry,
-        SQLiteReceiptReplayStore.initialize(tmp_path / "untrusted.sqlite3"),
+        SQLiteReceiptReplayStore.initialize(tmp_path / "untrusted.sqlite3", allow_unanchored=True),
         policy,
         clock=ManualClock(100),
     )
@@ -191,21 +256,59 @@ def test_executor_fails_closed_on_excessive_clock_uncertainty(tmp_path: Path) ->
         ).verify(receipt)
 
 
+def test_verify_and_claim_uses_one_clock_interval_sample(tmp_path: Path) -> None:
+    signer = Ed25519Signer.generate("warden-a")
+    receipt = _signed_receipt(signer)
+    registry = PublicKeyRegistry()
+    registry.register_signer(signer)
+
+    class FlappingClock:
+        def __init__(self) -> None:
+            self.now_calls = 0
+            self.uncertainty_calls = 0
+
+        def now_ns(self) -> int:
+            self.now_calls += 1
+            return 100 if self.now_calls == 1 else 10_000
+
+        def uncertainty_ns(self) -> int:
+            self.uncertainty_calls += 1
+            return 0 if self.uncertainty_calls == 1 else 10_000
+
+    clock = FlappingClock()
+    verifier = ReceiptVerifier(
+        registry,
+        SQLiteReceiptReplayStore.initialize(tmp_path / "executor.sqlite3", allow_unanchored=True),
+        ExecutorPolicy(
+            audience="executor-a",
+            tenant_id="tenant-a",
+            envelope_id="envelope-a",
+            config_epoch=1,
+            max_clock_uncertainty_ns=0,
+        ),
+        clock=clock,
+    )
+
+    verifier.verify_and_claim(receipt)
+    assert clock.now_calls == 1
+    assert clock.uncertainty_calls == 1
+
+
 def test_replay_store_requires_durable_filesystem_storage() -> None:
     with pytest.raises(ValueError, match="filesystem-backed"):
-        SQLiteReceiptReplayStore(":memory:")
+        SQLiteReceiptReplayStore(":memory:", allow_unanchored=True)
 
 
 def test_executor_replay_open_does_not_reset_missing_state(tmp_path: Path) -> None:
     path = tmp_path / "missing-executor-replay.sqlite3"
     with pytest.raises(StorageError, match="could not open"):
-        SQLiteReceiptReplayStore(path)
+        SQLiteReceiptReplayStore(path, allow_unanchored=True)
     assert not path.exists()
 
     empty = tmp_path / "empty-executor-replay.sqlite3"
     empty.write_bytes(b"")
     with pytest.raises(StorageError, match="empty or has an incomplete schema"):
-        SQLiteReceiptReplayStore(empty)
+        SQLiteReceiptReplayStore(empty, allow_unanchored=True)
     assert empty.read_bytes() == b""
 
 
@@ -213,18 +316,11 @@ def test_executor_replay_rejects_versioned_schema_without_nonce_uniqueness(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "weakened-executor-replay.sqlite3"
+    SQLiteReceiptReplayStore.initialize(path, allow_unanchored=True)
     with closing(sqlite3.connect(path)) as connection:
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute(f"PRAGMA application_id={SQLiteReceiptReplayStore.APPLICATION_ID}")
-        connection.execute(f"PRAGMA user_version={SQLiteReceiptReplayStore.SCHEMA_VERSION}")
         connection.executescript(
             """
-            CREATE TABLE metadata(
-                singleton INTEGER PRIMARY KEY,
-                schema_version INTEGER NOT NULL,
-                clock_floor_ns INTEGER
-            ) STRICT;
-            INSERT INTO metadata VALUES (1, 4, NULL);
+            DROP TABLE receipt_claims;
             CREATE TABLE receipt_claims(
                 receipt_id TEXT PRIMARY KEY,
                 tenant_id TEXT NOT NULL,
@@ -238,16 +334,23 @@ def test_executor_replay_rejects_versioned_schema_without_nonce_uniqueness(
                 expires_at_ns INTEGER NOT NULL
             ) STRICT;
             CREATE INDEX ix_receipt_claims_expiry ON receipt_claims(expires_at_ns);
-            CREATE TABLE lease_watermarks(
-                warden_id TEXT NOT NULL,
-                lease_id TEXT NOT NULL,
-                audience TEXT NOT NULL,
-                last_sequence INTEGER NOT NULL,
-                updated_at_ns INTEGER NOT NULL,
-                expires_at_ns INTEGER NOT NULL,
-                PRIMARY KEY(warden_id, lease_id, audience)
-            ) STRICT, WITHOUT ROWID;
             """
         )
-    with pytest.raises(StorageError, match="uniqueness"):
-        SQLiteReceiptReplayStore(path)
+    with pytest.raises(StorageError, match="constraints or indexes"):
+        SQLiteReceiptReplayStore(path, allow_unanchored=True)
+
+
+def test_schema_four_requires_a_fresh_epoch_without_modifying_old_bytes(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "schema-four.sqlite3"
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(f"PRAGMA application_id={SQLiteReceiptReplayStore.APPLICATION_ID}")
+        connection.execute("PRAGMA user_version=4")
+        connection.execute("CREATE TABLE legacy_claims(receipt_id TEXT PRIMARY KEY) STRICT")
+        connection.commit()
+    before = path.read_bytes()
+
+    with pytest.raises(StorageError, match="schema 4 requires explicit migration to 5"):
+        SQLiteReceiptReplayStore(path, allow_unanchored=True)
+    assert path.read_bytes() == before

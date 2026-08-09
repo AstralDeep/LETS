@@ -130,12 +130,17 @@ gap beyond the configured window, an unknown epoch, or an untrusted peer fails c
 - **Client API:** authenticated commands and read-only snapshots. Identity is derived from a
   verified token or mutually authenticated connection, never trusted from JSON fields.
 - **Peer mutation API:** transfer, revocation, and checkpoint requests are Ed25519 message-signed
-  over TLS and require durable timestamp/nonce replay protection. Deployments may additionally
-  require mTLS. Key discovery and liveness/readiness are separate public, unsigned read endpoints;
-  discovering a key or a healthy node never grants authority.
-- **Executor API/library:** offline receipt signature and policy verification plus a durable replay
-  store. An executor must bind receipt consumption to its application effect as atomically as its
-  domain permits.
+  over TLS and require durable timestamp/nonce replay protection. Each accepted transport nonce is
+  a signed, hash-chained core authority event covered by the same external monotonic checkpoint as
+  resource state; there is no independently rollbackable replay store in schema 2. Deployments may
+  additionally require mTLS. Key discovery and liveness/readiness are separate public, unsigned
+  read endpoints; discovering a key or a healthy node never grants authority.
+- **Executor API/library:** offline receipt signature and exact policy/trust-registry verification
+  plus a durable replay store. Production stores bind a database-instance identity, monotonic
+  clock floor, and append-only claim-chain head to a linearizable external CAS in an independent
+  rollback domain. A stale restore or concurrent clone loses admission; a committed claim is not
+  returned until its head is anchored. An executor must still bind receipt consumption to its
+  application effect as atomically as its domain permits.
 - **Operator API:** loopback or separately protected health, invariant, audit verification,
   reconciliation, and maintenance endpoints.
 
