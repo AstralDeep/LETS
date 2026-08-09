@@ -138,3 +138,88 @@ def test_boolean_and_comparison_evidence_rules() -> None:
         subject_id="agent-a",
         audience="executor-a",
     )
+
+
+def test_not_only_inverts_valid_evidence_predicates() -> None:
+    not_low_score = EvidenceRule(
+        "not",
+        rule=EvidenceRule("lt", path="score", value=2),
+    )
+
+    assert evaluate_evidence(
+        not_low_score,
+        {"score": 5},
+        now_ns=1,
+        subject_id="agent-a",
+        audience="executor-a",
+    )
+    assert not evaluate_evidence(
+        not_low_score,
+        {"score": 1},
+        now_ns=1,
+        subject_id="agent-a",
+        audience="executor-a",
+    )
+    for invalid_evidence in ({}, {"score": True}, {"score": "malformed"}):
+        assert not evaluate_evidence(
+            not_low_score,
+            invalid_evidence,
+            now_ns=1,
+            subject_id="agent-a",
+            audience="executor-a",
+        )
+
+    not_blocked = EvidenceRule(
+        "not",
+        rule=EvidenceRule("exists", path="blocked"),
+    )
+    assert evaluate_evidence(
+        not_blocked,
+        {},
+        now_ns=1,
+        subject_id="agent-a",
+        audience="executor-a",
+    )
+    assert not evaluate_evidence(
+        not_blocked,
+        {"blocked": False},
+        now_ns=1,
+        subject_id="agent-a",
+        audience="executor-a",
+    )
+
+
+def test_invalid_evidence_propagates_through_all_boolean_compositions() -> None:
+    invalid = EvidenceRule("lt", path="missing.score", value=2)
+    valid_false = EvidenceRule("eq", path="flag", value=True)
+    valid_true = EvidenceRule("eq", path="flag", value=False)
+    facts = {"flag": False}
+
+    rules = (
+        EvidenceRule("all", rules=(valid_true, invalid)),
+        EvidenceRule("any", rules=(valid_true, invalid)),
+        EvidenceRule(
+            "not",
+            rule=EvidenceRule("all", rules=(valid_false, invalid)),
+        ),
+        EvidenceRule(
+            "not",
+            rule=EvidenceRule("any", rules=(valid_false, invalid)),
+        ),
+    )
+    for rule in rules:
+        assert not evaluate_evidence(
+            rule,
+            facts,
+            now_ns=1,
+            subject_id="agent-a",
+            audience="executor-a",
+        )
+
+    assert not evaluate_evidence(
+        EvidenceRule("not", rule=EvidenceRule("exists", path="opaque")),
+        {"unrelated": object()},
+        now_ns=1,
+        subject_id="agent-a",
+        audience="executor-a",
+    )

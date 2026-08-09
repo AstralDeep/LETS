@@ -924,8 +924,7 @@
         "additionalProperties": false,
         "properties": {
           "reclaimed": {
-            "minimum": 0,
-            "type": "integer"
+            "$ref": "#/components/schemas/ResourceVector"
           }
         },
         "required": [

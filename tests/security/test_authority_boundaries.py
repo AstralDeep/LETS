@@ -247,6 +247,84 @@ def test_evidence_equality_does_not_alias_json_boolean_and_integer(tmp_path: Pat
         store.close()
 
 
+def test_evidence_negation_cannot_mint_receipts_from_invalid_facts(tmp_path: Path) -> None:
+    store, service, _ = _service(tmp_path / "warden.sqlite3")
+    try:
+        policy = _policy(
+            evidence=EvidenceRule(
+                "not",
+                rule=EvidenceRule("lt", path="evidence.score", value=2),
+            )
+        )
+        service.register_policy(policy)
+        grant = service.issue_root(
+            request_id="negation-root",
+            identity=_identity("issuer", "lets.lease.issue"),
+            tenant_id="tenant",
+            envelope_id="envelope",
+            subject_id="agent",
+            allocation=(2,),
+            capabilities={"worker.act"},
+            policy_digest=policy.digest,
+            ttl_ns=1_000,
+        )
+
+        invalid_facts = (
+            ("missing-score", "nonce-missing-score-001", {}),
+            ("boolean-score", "nonce-boolean-score-001", {"score": True}),
+            ("malformed-score", "nonce-malformed-score-1", {"score": "malformed"}),
+        )
+        for request_id, nonce, evidence in invalid_facts:
+            with pytest.raises(PolicyError, match="evidence predicate"):
+                service.authorize(
+                    request_id=request_id,
+                    identity=_identity("agent"),
+                    lease_id=grant.lease_id,
+                    transition="act",
+                    audience="executor",
+                    nonce=nonce,
+                    evidence=evidence,
+                )
+
+        with pytest.raises(PolicyError, match="evidence predicate"):
+            service.authorize(
+                request_id="valid-not-deny",
+                identity=_identity("agent"),
+                lease_id=grant.lease_id,
+                transition="act",
+                audience="executor",
+                nonce="nonce-valid-not-deny-01",
+                evidence={"score": 1},
+            )
+
+        unchanged = service.snapshot(identity=_identity("agent"), lease_id=grant.lease_id)
+        invariant = service.invariant_snapshot(identity=_identity("agent"))
+        assert unchanged.residual == (2,)
+        assert unchanged.sequence == 0
+        assert invariant.consumed == (0,)
+        with store.read() as transaction:
+            assert (
+                transaction.connection.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+            )
+
+        receipt = service.authorize(
+            request_id="valid-not-allow",
+            identity=_identity("agent"),
+            lease_id=grant.lease_id,
+            transition="act",
+            audience="executor",
+            nonce="nonce-valid-not-allow-1",
+            evidence={"score": 5},
+        )
+        assert receipt.resulting_sequence == 1
+        assert service.snapshot(identity=_identity("agent"), lease_id=grant.lease_id).residual == (
+            1,
+        )
+        assert service.invariant_snapshot(identity=_identity("agent")).consumed == (1,)
+    finally:
+        store.close()
+
+
 def test_concurrent_spawns_cannot_overdraw_parent(tmp_path: Path) -> None:
     store, service, _ = _service(tmp_path / "warden.sqlite3")
     try:
