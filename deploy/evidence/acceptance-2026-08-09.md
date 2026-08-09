@@ -8,25 +8,24 @@ private keys, full logs, process IDs, public-key identifiers, receipt identifier
 ## Provenance
 
 - Evidence schema: `lets.production-profile-acceptance/v1`.
-- Started `2026-08-09T14:51:49.574851Z`; completed `2026-08-09T14:52:52.497479Z`.
-- Evidence-bound duration: `62.923` seconds.
+- Started `2026-08-09T15:32:06.966382Z`; completed `2026-08-09T15:32:48.860173Z`.
+- Evidence-bound duration: `41.894` seconds.
 - LETS version: `1.0.0`; Git commit:
-  `6ef7a02bdeacbc05b5c75741a3b6082fa3839441`.
-- The pre-run source snapshot contained 168 files and had deterministic digest
-  `sha256:d08cc199bd954563b13c3e6d32439b2492a5e1eeba6599e65abf11b13a4b0758`.
-  The worktree was dirty because the production implementation had not yet been committed. This
-  tracked summary is a derived post-run artifact and is not copied into the runtime image.
+  `8cd4b5e2f50c5d356de249aa93af2aef516e1fa6`.
+- The clean pre-run source snapshot contained 167 files and had deterministic digest
+  `sha256:ba0ede68f6def3244bebe9a051239fc34a28f76f0cfb324d0816cc50714cf06f`.
+  This tracked summary is a derived post-run artifact and is not copied into the runtime image.
 - Exact runtime candidate:
-  `127.0.0.1:25000/astraldeep/lets@sha256:2f002bc691685930e07bf5d4e297f2b9ba13617aad222d512afc7b3d59a8e8ad`.
+  `127.0.0.1:25001/astraldeep/lets@sha256:336feda3da169ecffea8ab3f0b68858c5de304cafe2208ee696d714c6dab64c4`.
 - Local runtime image content ID:
-  `sha256:e252f08159156d3f13f05a8722a8caa82d09ea491e4623482bee959bbdcf2d3e`.
+  `sha256:5d397bb16c6da91199595f2344fcabc109f08af69ca02b5d5bc4c3bf8245eb38`.
 - The image labels bind version `1.0.0`, the Git revision above, and the commit-derived creation
   time. The process ran as UID/GID `10001:10001` and loaded SQLite `3.53.2`, which passes the
   production WAL-reset safety admission.
 - Signed manifest digest:
-  `sha256:8b56c82dc49f3a030fad762bdd7fb76c8bcd5d89534bd847e729644bb7e5d9a3`.
+  `sha256:80ebcdba5ae7d27f94248564b59c68dd75aaecceda70572eb301ec632acb40de`.
 - Raw JSON evidence SHA-256:
-  `c1ffc7911f72f0a9608169e5c1033e011559532c1b64d5f447f6a37eaf929f80`.
+  `e9d8c47ab92b26c78c20552038be38641ba509047183ea7f36b1c34d0dbd353b`.
 - Dockerfile SHA-256:
   `af26180a2afe70d0cf758c33677aeac7838817676cbadad4610c2cb8f260c594`;
   production acceptance Compose SHA-256:
@@ -56,7 +55,7 @@ runtime image.
 | Warden | Audit bytes | Records | Archive head | External signer calls |
 | --- | ---: | ---: | ---: | ---: |
 | a | 53,248 | 6 | 5 | 21 |
-| b | 53,248 | 6 | 5 | 10 |
+| b | 53,248 | 5 | 4 | 9 |
 | c | 45,056 | 1 | 0 | 4 |
 
 All three immutable audit chains verified successfully.
