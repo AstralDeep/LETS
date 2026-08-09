@@ -16,6 +16,10 @@ image together; the Git tag is the package version prefixed with `v`.
 - Closed the audit archive connection when SQLite session setup fails, and retained only sanitized
   SQLite error identity in exporter diagnostics so transient lock/I/O failures are actionable
   without exposing storage paths.
+- Serialized core capacity snapshots, fault clearing, WAL checkpoints, and failed-transaction
+  rollback/teardown with authority transactions; latched `SQLITE_FULL` before releasing the lock;
+  restored a sticky fault after failed clearing; and exposed only a fixed setup stage plus sanitized
+  SQLite error identity when a core connection cannot open.
 
 ### Changed
 

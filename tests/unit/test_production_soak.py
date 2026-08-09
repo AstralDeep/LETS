@@ -1250,6 +1250,51 @@ def test_health_sample_accepts_only_bounded_audit_catchup() -> None:
     assert _is_converged(sample) is False
 
 
+@pytest.mark.parametrize("probe_name", ("wait_converged", "verify_final"))
+def test_settle_and_final_probes_reject_errors_outside_shared_budget(
+    monkeypatch: pytest.MonkeyPatch,
+    probe_name: str,
+) -> None:
+    class FakeClient:
+        @staticmethod
+        def request(_method: str, _node: str, path: str) -> dict[str, Any]:
+            if path == "/v1/invariants":
+                return {
+                    "consumed": [1],
+                    "free_pool": [9],
+                    "healthy": True,
+                    "lease_residual": [0],
+                    "transferred_in": [0],
+                    "transferred_out": [0],
+                }
+            if path == "/v1/audit/verify":
+                return {"valid": True}
+            status = _audit_status(
+                last_error=TRANSIENT_BUSY_ERROR,
+                oldest_pending_age_s=None,
+                pending=0,
+                stalled_for_s=5.0,
+            )
+            return {
+                **_audit_document(status),
+                "peer_dispatcher": {},
+                "receipts": {"total": 1},
+                "storage_capacity": {"healthy": True},
+                "transfers": {},
+            }
+
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: None)
+    monkeypatch.setattr(soak_scenario, "ClusterClient", lambda **_kwargs: FakeClient())
+    arguments = soak_scenario.argparse.Namespace(
+        convergence_timeout_seconds=1.0,
+        retry_timeout_seconds=1.0,
+        seed=1,
+    )
+    probe = getattr(soak_scenario, probe_name)
+    with pytest.raises(RuntimeError, match="outside the shared workload error budget"):
+        probe(arguments)
+
+
 @pytest.mark.parametrize(
     ("service_ready", "ready", "match"),
     (
