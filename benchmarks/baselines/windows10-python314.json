@@ -96,7 +96,7 @@
     "cryptography_locked": false,
     "unimplemented_postgres_extra_removed": true,
     "locked_packages": 48,
-    "lock_bytes": 356264,
+    "lock_bytes": 315852,
     "installed_crypto_backend_bytes": 1778149,
     "note": "Installed bytes include PyNaCl, its bundled native binding, cffi, and pycparser in the fresh exact project environment."
   },
