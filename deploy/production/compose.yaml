@@ -122,6 +122,7 @@ services:
     pids_limit: 256
     cpus: "${LETS_CPUS:-2.0}"
     mem_limit: "${LETS_MEMORY_LIMIT:-1g}"
+    memswap_limit: "${LETS_MEMORY_LIMIT:-1g}"
     ulimits:
       nofile:
         soft: 4096

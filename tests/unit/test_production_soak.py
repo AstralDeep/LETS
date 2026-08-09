@@ -24,9 +24,14 @@ from deploy.production.run_soak import (
     Harness,
     ResourceBounds,
     SoakConfiguration,
+    WorkloadExitedError,
+    _bounded_text,
     _canonical_digest,
+    _capture_failure_resource_sample,
     _expected_transfer_pair_counts,
     _next_restart_deadline,
+    _pause_workload,
+    _pre_sigkill_resource_checkpoint,
     _preflight_zero,
     _restart_integrity,
     evaluate_health_cadence,
@@ -35,6 +40,7 @@ from deploy.production.run_soak import (
     may_start_chaos_episode,
     minimum_cycle_count,
     minimum_health_sample_count,
+    run_soak,
     validate_image_labels,
     validate_package_identity,
 )
@@ -76,6 +82,34 @@ def _resource_node(*, rss: int, fds: int, database: int, audit: int) -> dict[str
             "database_bytes": database,
             "shared_memory_bytes": 32_768,
             "wal_bytes": 100_000,
+        },
+        "cgroup": {
+            "memory": {
+                "current_bytes": rss + 10_000_000,
+                "events": {
+                    "high": 0,
+                    "low": 0,
+                    "max": 0,
+                    "oom": 0,
+                    "oom_group_kill": 0,
+                    "oom_kill": 0,
+                },
+                "max_bytes": 1024 * 1024 * 1024,
+                "peak_bytes": rss + 20_000_000,
+            },
+            "pids": {
+                "current": 5,
+                "events": {"max": 0},
+                "max": 256,
+                "peak": 12,
+            },
+            "swap": {
+                "current_bytes": 0,
+                "events": {"fail": 0, "high": 0, "max": 0},
+                "max_bytes": 0,
+                "peak_bytes": 0,
+            },
+            "version": 2,
         },
         "fd_count": fds,
         "init": {
@@ -255,11 +289,19 @@ def test_health_cadence_rejects_gaps_larger_than_the_exporter_stall_bound() -> N
 
 
 def test_resource_bounds_accept_bounded_growth_and_report_leaks() -> None:
+    bounds = ResourceBounds()
+    assert bounds.max_rss_bytes == 256 * 1024 * 1024
+    assert bounds.max_rss_growth_bytes == 128 * 1024 * 1024
+    assert bounds.max_cgroup_memory_peak_bytes == 768 * 1024 * 1024
+    assert bounds.cgroup_memory_max_bytes == 1024 * 1024 * 1024
+    assert bounds.cgroup_swap_max_bytes == 0
+    assert bounds.max_cgroup_pids_peak == 192
+    assert bounds.cgroup_pids_max == 256
     samples = [
         _sample(rss=64_000_000, fds=20, database=2_000_000, audit=1_000_000),
         _sample(rss=66_000_000, fds=22, database=3_000_000, audit=2_000_000),
     ]
-    passed = evaluate_resource_bounds(samples, cycles=20, bounds=ResourceBounds())
+    passed = evaluate_resource_bounds(samples, cycles=20, bounds=bounds)
     assert passed["passed"] is True
     assert passed["violations"] == []
     assert all(all(node["checks"].values()) for node in passed["measurements"].values())
@@ -288,6 +330,294 @@ def test_resource_bounds_accept_bounded_growth_and_report_leaks() -> None:
     assert invalid_process["passed"] is False
     assert all(f"{node}:runtime_process" in invalid_process["violations"] for node in NODES)
     assert all(f"{node}:container_integrity" in invalid_process["violations"] for node in NODES)
+
+
+@pytest.mark.parametrize(
+    ("controller", "field", "value", "violation"),
+    (
+        ("memory", "peak_bytes", 769 * 1024 * 1024, "cgroup_memory_peak"),
+        ("memory", "max_bytes", 2 * 1024 * 1024 * 1024, "cgroup_memory_limit"),
+        ("swap", "current_bytes", 1, "cgroup_swap_usage"),
+        ("swap", "peak_bytes", 1, "cgroup_swap_usage"),
+        ("swap", "max_bytes", 1, "cgroup_swap_limit"),
+        ("pids", "peak", 193, "cgroup_pids_peak"),
+        ("pids", "max", 255, "cgroup_pids_limit"),
+    ),
+)
+def test_resource_bounds_reject_cgroup_limit_and_usage_regressions(
+    controller: str,
+    field: str,
+    value: int,
+    violation: str,
+) -> None:
+    samples = [
+        _sample(rss=64_000_000, fds=20, database=2_000_000, audit=1_000_000),
+        _sample(rss=66_000_000, fds=22, database=3_000_000, audit=2_000_000),
+    ]
+    samples[1]["nodes"]["warden-a"]["cgroup"][controller][field] = value
+    result = evaluate_resource_bounds(samples, cycles=20, bounds=ResourceBounds())
+    assert result["passed"] is False
+    assert f"warden-a:{violation}" in result["violations"]
+
+
+@pytest.mark.parametrize(
+    ("controller", "event", "violation"),
+    (
+        ("memory", "max", "cgroup_memory_events"),
+        ("memory", "oom", "cgroup_memory_events"),
+        ("memory", "oom_kill", "cgroup_memory_events"),
+        ("swap", "max", "cgroup_swap_events"),
+        ("swap", "fail", "cgroup_swap_events"),
+        ("pids", "max", "cgroup_pids_events"),
+    ),
+)
+def test_resource_bounds_reject_every_cgroup_exhaustion_counter(
+    controller: str,
+    event: str,
+    violation: str,
+) -> None:
+    samples = [
+        _sample(rss=64_000_000, fds=20, database=2_000_000, audit=1_000_000),
+        _sample(rss=66_000_000, fds=22, database=3_000_000, audit=2_000_000),
+    ]
+    samples[1]["nodes"]["warden-b"]["cgroup"][controller]["events"][event] = 1
+    result = evaluate_resource_bounds(samples, cycles=20, bounds=ResourceBounds())
+    assert result["passed"] is False
+    assert f"warden-b:{violation}" in result["violations"]
+
+
+def test_resource_bounds_fail_closed_when_cgroup_v2_evidence_is_missing() -> None:
+    samples = [
+        _sample(rss=64_000_000, fds=20, database=2_000_000, audit=1_000_000),
+        _sample(rss=66_000_000, fds=22, database=3_000_000, audit=2_000_000),
+    ]
+    del samples[1]["nodes"]["warden-c"]["cgroup"]
+    result = evaluate_resource_bounds(samples, cycles=20, bounds=ResourceBounds())
+    assert result["passed"] is False
+    assert "warden-c:cgroup_probe" in result["violations"]
+
+
+def test_pre_sigkill_checkpoint_is_sampled_and_evaluated_before_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    samples = [_sample(rss=64_000_000, fds=20, database=2_000_000, audit=1_000_000)]
+    captured: dict[str, Any] = {}
+
+    def fake_sample(
+        _harness: object,
+        *,
+        elapsed_s: float,
+        reason: str,
+        planned_sigkill_service: str | None = None,
+        command_timeout: float | None = None,
+    ) -> dict[str, Any]:
+        captured.update(
+            command_timeout=command_timeout,
+            elapsed_s=elapsed_s,
+            reason=reason,
+            service=planned_sigkill_service,
+        )
+        return _sample(rss=65_000_000, fds=21, database=2_100_000, audit=1_100_000)
+
+    def fake_evaluate(
+        actual: list[dict[str, Any]], *, cycles: int, bounds: ResourceBounds
+    ) -> dict[str, Any]:
+        captured.update(sample_count=len(actual), cycles=cycles, bounds=bounds)
+        return {"passed": True, "violations": []}
+
+    monkeypatch.setattr(soak_runner, "_resource_sample", fake_sample)
+    monkeypatch.setattr(soak_runner, "evaluate_resource_bounds", fake_evaluate)
+    checkpoint = _pre_sigkill_resource_checkpoint(
+        object(),  # type: ignore[arg-type]
+        service="warden-b",
+        elapsed_s=12.5,
+        samples=samples,
+        configuration=_configuration(),
+        bounds=ResourceBounds(),
+    )
+    assert captured["reason"] == "pre_sigkill"
+    assert captured["service"] == "warden-b"
+    assert captured["sample_count"] == 2
+    assert checkpoint == {
+        "evaluation_passed": True,
+        "sample_index": 1,
+        "sample_reason": "pre_sigkill",
+        "service": "warden-b",
+    }
+
+    monkeypatch.setattr(
+        soak_runner,
+        "evaluate_resource_bounds",
+        lambda *_args, **_kwargs: {"passed": False, "violations": ["warden-b:swap"]},
+    )
+    with pytest.raises(RuntimeError, match="pre-SIGKILL resource bounds failed"):
+        _pre_sigkill_resource_checkpoint(
+            object(),  # type: ignore[arg-type]
+            service="warden-b",
+            elapsed_s=13.0,
+            samples=samples,
+            configuration=_configuration(),
+            bounds=ResourceBounds(),
+        )
+
+
+def test_failure_resource_capture_records_success_and_bounded_unavailability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    samples: list[dict[str, Any]] = []
+    captured: dict[str, Any] = {}
+
+    def fake_sample(
+        _harness: object,
+        *,
+        elapsed_s: float,
+        reason: str,
+        planned_sigkill_service: str | None = None,
+        command_timeout: float | None = None,
+    ) -> dict[str, Any]:
+        captured.update(
+            command_timeout=command_timeout,
+            elapsed_s=elapsed_s,
+            reason=reason,
+            service=planned_sigkill_service,
+        )
+        return _sample(rss=65_000_000, fds=21, database=2_100_000, audit=1_100_000)
+
+    monkeypatch.setattr(soak_runner, "_resource_sample", fake_sample)
+    result = _capture_failure_resource_sample(
+        object(),  # type: ignore[arg-type]
+        elapsed_s=19.25,
+        samples=samples,
+    )
+    assert result == {"attempted": True, "captured": True, "sample_index": 0}
+    assert captured == {
+        "command_timeout": 5.0,
+        "elapsed_s": 19.25,
+        "reason": "failure",
+        "service": None,
+    }
+    assert len(samples) == 1
+
+    oversized = "probe unavailable: " + "x" * (soak_runner.FAILED_EVIDENCE_MAX_TEXT_BYTES * 2)
+    monkeypatch.setattr(
+        soak_runner,
+        "_resource_sample",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(oversized)),
+    )
+    unavailable = _capture_failure_resource_sample(
+        object(),  # type: ignore[arg-type]
+        elapsed_s=20.0,
+        samples=samples,
+    )
+    assert unavailable["attempted"] is True
+    assert unavailable["captured"] is False
+    assert "truncated to bounded tail" in unavailable["error"]
+    assert len(unavailable["error"].encode("utf-8")) <= soak_runner.FAILED_EVIDENCE_MAX_TEXT_BYTES
+    assert len(samples) == 1
+
+    monkeypatch.setattr(
+        soak_runner,
+        "_resource_sample",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            soak_runner.subprocess.TimeoutExpired(["docker", "inspect"], 5.0)
+        ),
+    )
+    timed_out = _capture_failure_resource_sample(
+        object(),  # type: ignore[arg-type]
+        elapsed_s=21.0,
+        samples=samples,
+    )
+    assert timed_out["attempted"] is True
+    assert timed_out["captured"] is False
+    assert "timed out after 5.0 seconds" in timed_out["error"]
+    assert len(samples) == 1
+
+
+def test_failure_resource_capture_propagates_five_second_timeout_per_command() -> None:
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    class TimedHarness:
+        def __init__(self) -> None:
+            self.container_calls: list[tuple[str, float]] = []
+            self.exec_timeouts: list[float] = []
+            self.state_calls: list[tuple[str, float]] = []
+            self.restart_calls: list[tuple[str, float]] = []
+
+        def container(self, service: str, *, timeout: float) -> str:
+            self.container_calls.append((service, timeout))
+            return f"container-{service}"
+
+        def run(self, _arguments: list[str], *, timeout: float) -> Result:
+            self.exec_timeouts.append(timeout)
+            document = _resource_node(
+                rss=65_000_000,
+                fds=21,
+                database=2_100_000,
+                audit=1_100_000,
+            )
+            return Result(soak_runner.json.dumps(document))
+
+        def container_state(self, container: str, *, timeout: float) -> dict[str, Any]:
+            self.state_calls.append((container, timeout))
+            return {"ExitCode": 0, "OOMKilled": False, "Pid": 100, "Status": "running"}
+
+        def container_restart_count(self, container: str, *, timeout: float) -> int:
+            self.restart_calls.append((container, timeout))
+            return 0
+
+    harness = TimedHarness()
+    samples: list[dict[str, Any]] = []
+    result = _capture_failure_resource_sample(
+        harness,  # type: ignore[arg-type]
+        elapsed_s=2.0,
+        samples=samples,
+    )
+    assert result == {"attempted": True, "captured": True, "sample_index": 0}
+    assert harness.container_calls == [(node, 5.0) for node in NODES]
+    assert harness.exec_timeouts == [5.0, 5.0, 5.0]
+    assert harness.state_calls == [(f"container-{node}", 5.0) for node in NODES]
+    assert harness.restart_calls == [(f"container-{node}", 5.0) for node in NODES]
+    assert (
+        len(harness.container_calls)
+        + len(harness.exec_timeouts)
+        + len(harness.state_calls)
+        + len(harness.restart_calls)
+    ) * soak_runner.FAILURE_COMMAND_TIMEOUT_SECONDS == 60.0
+    assert samples[0]["reason"] == "failure"
+    assert set(samples[0]["nodes"]) == set(NODES)
+
+
+def test_harness_inspection_helpers_propagate_explicit_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = Harness(_configuration())
+    compose_timeouts: list[float] = []
+    run_timeouts: list[float] = []
+
+    def fake_compose(*_arguments: str, timeout: float, **_options: Any) -> str:
+        compose_timeouts.append(timeout)
+        return "container-warden-a"
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def fake_run(arguments: list[str], *, timeout: float, **_options: Any) -> Result:
+        run_timeouts.append(timeout)
+        if any(".RestartCount" in item for item in arguments):
+            return Result("0")
+        return Result('{"ExitCode":0,"OOMKilled":false,"Pid":100,"Status":"running"}')
+
+    monkeypatch.setattr(harness, "compose", fake_compose)
+    monkeypatch.setattr(harness, "run", fake_run)
+    assert harness.state("warden-a", timeout=5.0)["Status"] == "running"
+    assert harness.restart_count("warden-a", timeout=5.0) == 0
+    assert harness.container_state("container-warden-a", timeout=5.0)["Pid"] == 100
+    assert harness.container_restart_count("container-warden-a", timeout=5.0) == 0
+    assert compose_timeouts == [5.0, 5.0]
+    assert run_timeouts == [5.0, 5.0, 5.0, 5.0]
 
 
 def test_convergence_rejects_in_flight_transfers_and_inbound_gaps() -> None:
@@ -468,6 +798,166 @@ def test_workload_pause_acknowledges_and_preserves_health_cadence(
     assert acknowledgement.read_text(encoding="utf-8") == ('{"episode": 4, "paused": true}\n')
 
 
+def test_workload_pause_fails_immediately_with_exited_workload_diagnostics() -> None:
+    class ExitedWorkload:
+        @staticmethod
+        def poll() -> int:
+            return 23
+
+        @staticmethod
+        def communicate(*, timeout: float) -> tuple[str, str]:
+            assert timeout == 1
+            return ("workload stdout", "workload stderr")
+
+    class UnusedHarness:
+        def run(self, *_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("pause coordination must not run after workload exit")
+
+    with pytest.raises(WorkloadExitedError, match="before partition pause 7") as captured:
+        _pause_workload(
+            UnusedHarness(),  # type: ignore[arg-type]
+            7,
+            ExitedWorkload(),  # type: ignore[arg-type]
+        )
+    assert captured.value.returncode == 23
+    assert captured.value.stdout == "workload stdout"
+    assert captured.value.stderr == "workload stderr"
+
+
+def test_failed_soak_evidence_is_atomic_structured_bounded_and_rethrows(
+    tmp_path: Any,
+) -> None:
+    output = tmp_path / "soak.json"
+    output.write_text('{"passed":true}\n', encoding="utf-8")
+    invalid = replace(_configuration(), image="mutable:latest")
+    with pytest.raises(ValueError, match="exact name@sha256"):
+        run_soak(invalid, output=output)
+
+    evidence = soak_runner.json.loads(output.read_text(encoding="utf-8"))
+    assert evidence["passed"] is False
+    assert evidence["source"] == {"status": "not_captured"}
+    assert evidence["image"] == {
+        "configured_digest": "mutable:latest",
+        "status": "not_inspected",
+    }
+    assert evidence["orchestration"]["preflight"] == {"status": "not_run"}
+    assert evidence["resources"]["sample_count"] == 0
+    assert evidence["resources"]["samples"] == []
+    assert evidence["resources"]["failure_capture"] == {
+        "attempted": False,
+        "captured": False,
+        "reason": "cluster was not started",
+    }
+    assert evidence["chaos"]["partition_count"] == 0
+    assert evidence["chaos"]["restart_count"] == 0
+    assert evidence["workload_status"] == {
+        "return_code": None,
+        "started": False,
+        "state": "not_started",
+        "stderr": "",
+        "stdout": "",
+    }
+    assert evidence["error"]["type"] == "builtins.ValueError"
+    assert evidence["orchestration"]["phase"] == "configuration"
+    assert evidence["cleanup"] == {
+        "performed": False,
+        "reason": "cluster was not started",
+    }
+    payload_digest = evidence.pop("evidence_payload_sha256")
+    assert payload_digest == _canonical_digest(evidence)
+
+    oversized = "prefix" + "x" * (soak_runner.FAILED_EVIDENCE_MAX_TEXT_BYTES * 2)
+    bounded = _bounded_text(oversized)
+    assert "truncated to bounded tail" in bounded
+    assert len(bounded.encode("utf-8")) <= soak_runner.FAILED_EVIDENCE_MAX_TEXT_BYTES
+
+    multibyte = _bounded_text("😀" * 10_000)
+    assert "truncated to bounded tail" in multibyte
+    assert len(multibyte.encode("utf-8")) <= soak_runner.FAILED_EVIDENCE_MAX_TEXT_BYTES
+
+
+def test_cleanup_failure_is_evidenced_without_masking_original_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    class OriginalError(RuntimeError):
+        pass
+
+    class CleanupError(RuntimeError):
+        pass
+
+    class Result:
+        stdout = ""
+        stderr = ""
+        returncode = 0
+
+    class FakeHarness:
+        project = "lets-production-soak-cleanup-test"
+
+        def __init__(self) -> None:
+            self.environment: dict[str, str] = {}
+            self.log_timeouts: list[float] = []
+
+        @staticmethod
+        def run(*_args: Any, **_kwargs: Any) -> Result:
+            return Result()
+
+        def compose(self, *arguments: str, **options: Any) -> str:
+            if arguments and arguments[0] == "up":
+                raise OriginalError("cluster startup failed")
+            if arguments and arguments[0] == "logs":
+                self.log_timeouts.append(options["timeout"])
+                return "bounded failure logs"
+            return ""
+
+    fake_harness = FakeHarness()
+    monkeypatch.setattr(soak_runner, "Harness", lambda _configuration: fake_harness)
+    monkeypatch.setattr(
+        soak_runner,
+        "_source_tree_digest",
+        lambda _environment: {
+            "dirty": True,
+            "git_commit": "f" * 40,
+            "status": "captured",
+        },
+    )
+    monkeypatch.setattr(
+        soak_runner,
+        "_preflight_zero",
+        lambda _harness: {"containers": 0, "networks": 0, "passed": True, "volumes": 0},
+    )
+    cleanup_timeouts: dict[str, float] = {}
+
+    def fail_cleanup(
+        _harness: object,
+        *,
+        probe_timeout: float,
+        down_timeout: float,
+    ) -> dict[str, Any]:
+        cleanup_timeouts.update(probe=probe_timeout, down=down_timeout)
+        raise CleanupError("cleanup proof failed")
+
+    monkeypatch.setattr(soak_runner, "_checked_down", fail_cleanup)
+    output = tmp_path / "cleanup-failure.json"
+    with pytest.raises(OriginalError, match="cluster startup failed"):
+        run_soak(_configuration(), output=output)
+
+    evidence = soak_runner.json.loads(output.read_text(encoding="utf-8"))
+    assert evidence["passed"] is False
+    assert evidence["error"]["type"].endswith("OriginalError")
+    assert evidence["error"]["message"] == "cluster startup failed"
+    assert evidence["cleanup"] == {
+        "error": "cleanup proof failed",
+        "performed": False,
+        "reason": "cleanup failed",
+    }
+    assert evidence["resources"]["failure_capture"]["attempted"] is True
+    assert evidence["resources"]["failure_capture"]["captured"] is False
+    assert evidence["orchestration"]["phase"] == "cluster_startup"
+    assert fake_harness.log_timeouts == [10.0]
+    assert cleanup_timeouts == {"probe": 5.0, "down": 30.0}
+
+
 def test_evidence_payload_digest_is_order_independent_and_content_bound() -> None:
     first = {"schema": "example/v1", "nested": {"b": 2, "a": 1}}
     reordered = {"nested": {"a": 1, "b": 2}, "schema": "example/v1"}
@@ -526,17 +1016,29 @@ def test_cleanup_proves_project_containers_volumes_and_networks_are_absent(
     class FakeHarness:
         def __init__(self) -> None:
             self.compose_calls: list[tuple[str, ...]] = []
+            self.compose_timeouts: list[float] = []
             self.allowed_volumes: set[str] = set()
 
-        def compose(self, *arguments: str, **_options: Any) -> str:
+        def compose(self, *arguments: str, timeout: float, **_options: Any) -> str:
             self.compose_calls.append(arguments)
+            self.compose_timeouts.append(timeout)
             return ""
 
     harness = FakeHarness()
+    probe_timeouts: list[float] = []
     volume_snapshots: Iterator[set[str]] = iter((set(), set()))
-    monkeypatch.setattr(soak_runner, "_project_volumes", lambda _harness: next(volume_snapshots))
-    monkeypatch.setattr(soak_runner, "_project_containers", lambda _harness: set())
-    monkeypatch.setattr(soak_runner, "_project_networks", lambda _harness: set())
+
+    def volumes(_harness: object, *, timeout: float) -> set[str]:
+        probe_timeouts.append(timeout)
+        return next(volume_snapshots)
+
+    def absent(_harness: object, *, timeout: float) -> set[str]:
+        probe_timeouts.append(timeout)
+        return set()
+
+    monkeypatch.setattr(soak_runner, "_project_volumes", volumes)
+    monkeypatch.setattr(soak_runner, "_project_containers", absent)
+    monkeypatch.setattr(soak_runner, "_project_networks", absent)
     result = soak_runner._checked_down(harness)  # type: ignore[arg-type]
     assert result == {
         "performed": True,
@@ -545,10 +1047,24 @@ def test_cleanup_proves_project_containers_volumes_and_networks_are_absent(
         "remaining_volumes": 0,
     }
     assert harness.compose_calls == [("down", "--volumes", "--remove-orphans")]
+    assert harness.compose_timeouts == [180]
+    assert probe_timeouts == [600, 600, 600, 600]
+
+    harness = FakeHarness()
+    probe_timeouts = []
+    volume_snapshots = iter((set(), set()))
+    result = soak_runner._checked_down(  # type: ignore[arg-type]
+        harness,
+        probe_timeout=5,
+        down_timeout=30,
+    )
+    assert result["performed"] is True
+    assert harness.compose_timeouts == [30]
+    assert probe_timeouts == [5, 5, 5, 5]
 
     harness = FakeHarness()
     volume_snapshots = iter((set(), {"leftover-volume"}))
-    monkeypatch.setattr(soak_runner, "_project_volumes", lambda _harness: next(volume_snapshots))
+    monkeypatch.setattr(soak_runner, "_project_volumes", volumes)
     with pytest.raises(RuntimeError, match="cleanup left project resources"):
         soak_runner._checked_down(harness)  # type: ignore[arg-type]
 

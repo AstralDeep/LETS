@@ -86,11 +86,17 @@ partition and process restart. A separate mandatory one-hour soak drives mixed l
 authorization, anchored executor replay, and transfer traffic while repeatedly partitioning peer
 links and replacing warden processes with `SIGKILL`. It continuously checks invariants, audit and
 dispatcher health, final conservation and backlog convergence, and explicit RSS, file-descriptor,
-database, WAL, audit, and signer growth bounds. Its machine record binds the exact OCI digest and
-config ID to the clean release commit, source-tree digest, and soak-harness hashes. After acceptance
-and soak, the workflow scans both candidate architectures by digest, requires the upstream WAL-reset
-fix in the SQLite library loaded by both, signs and inspects the image digest, and promotes only that
-verified digest to the full-version and commit tags.
+database, WAL, audit, and signer growth bounds. The soak uses the shipped 1 GiB container limit but
+admits at most a 768 MiB retained cgroup peak, independently caps the LETS process, disables swap,
+and requires zero memory/OOM/PID limit events. It samples retained cgroup counters before every
+planned process replacement so a new container lifetime cannot erase an earlier pressure event.
+Its machine record binds the exact OCI digest and config ID to the clean release commit,
+source-tree digest, and soak-harness hashes. A failed soak captures a final resource sample before
+cleanup, then atomically writes and uploads a bounded structured failure record that includes the
+cleanup result; that diagnostic artifact never authorizes promotion. After
+acceptance and soak, the workflow scans both candidate architectures by digest, requires the
+upstream WAL-reset fix in the SQLite library loaded by both, signs and inspects the image digest,
+and promotes only that verified digest to the full-version and commit tags.
 The package build, isolated smoke, locked dependency audit, and package SBOM must all pass before
 the production-profile acceptance, production-soak, or image-promotion jobs can start.
 

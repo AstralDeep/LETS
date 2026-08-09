@@ -14,7 +14,8 @@ x-node: &node
   security_opt: [no-new-privileges:true]
   tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777"]
   pids_limit: 256
-  mem_limit: 768m
+  mem_limit: 1g
+  memswap_limit: 1g
   cpus: 1.5
   ulimits:
     nofile:

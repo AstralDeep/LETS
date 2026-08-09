@@ -298,9 +298,20 @@ and audit queue to converge to zero.
 
 Host-side probes record the actual LETS child process's RSS and file-descriptor count (not the PID 1
 init shim), core DB/WAL/SHM, audit DB/WAL/SHM, signer log, anchor, Docker restart count, OOM state,
-and process identity. Any automatic restart or OOM fails the run; every planned kill must replace
-the PID, and every warden must retain a long uninterrupted process lifetime. Fixed ceilings and
-per-cycle growth budgets fail the run on unbounded resource growth. The sorted JSON record binds
+and process identity. The acceptance wardens use the shipped 1 GiB memory ceiling with
+`memswap_limit` set to the same value, which makes cgroup v2 `memory.max` exactly 1 GiB and
+`memory.swap.max` zero. The probe fails closed unless it can read current, peak, limit, and event
+counters for memory, swap, and PIDs from the unified cgroup v2 hierarchy. LETS-child RSS must stay
+at or below 256 MiB and grow by no more than 128 MiB; total cgroup memory peak must stay at or below
+768 MiB; swap current/peak and every memory/swap exhaustion, OOM, and PID-limit event must remain
+zero; and PID peak must stay at or below 192 under the exact limit of 256.
+
+Any automatic restart or OOM fails the run. Immediately before every planned `SIGKILL`, the runner
+captures and evaluates a resource checkpoint for all wardens, binds its sample index to the kill,
+and refuses to continue if it fails. This retains the killed process lifetime's peak counters even
+though a replacement container receives a fresh cgroup. Every planned kill must replace the PID,
+and every warden must retain a long uninterrupted process lifetime. Fixed ceilings and per-cycle
+growth budgets fail the run on unbounded resource growth. The sorted JSON record binds
 start/end timestamps, the unique initially empty Compose project and zero-resource cleanup, exact
 requested OCI index digest, inspected image ID and repository digests, matching OCI/host/three-node
 runtime/workload/verifier package versions, Git commit/dirty state, deterministic source-tree
@@ -312,7 +323,21 @@ requires at least two proven partition episodes and planned restarts covering al
 never present smoke output as sustained-soak evidence. Every run uses a unique Compose project,
 requires its container/volume/network namespace to be empty before startup, and proves that all
 three resource classes are absent after cleanup. Use `--keep` only for failure investigation because
-all generated PKI, signer seeds, and authority state are test material.
+all generated PKI, signer seeds, and authority state are test material. On any failure the runner
+atomically replaces the requested output with a bounded `passed: false` evidence record containing
+the source/image/preflight state, retained resource and chaos samples, workload exit status and
+bounded output, original error, and one-shot cleanup result, then rethrows the original exception.
+Before stopping the workload or touching the fault state, it also attempts one final `failure`
+resource sample and records either its sample index or a bounded capture error without masking the
+original failure. Failure-only Docker probes use five-second per-command timeouts and resolve each
+warden container once, bounding the complete three-node resource attempt to about 60 seconds.
+Failure log capture is limited to ten seconds; cleanup uses five-second inventory probes and a
+30-second Compose-down limit. Normal success-path probe and cleanup deadlines are unchanged, while
+the failure path reaches atomic evidence publication within an approximately three-minute budget.
+Release automation archives that failure evidence under a run-attempt-scoped `diagnostic-*`
+artifact using an `always()` failure condition, while only verified success evidence receives the
+`release-*` artifact name consumed by publication. The failed soak job continues to block image
+promotion and release publication.
 
 ## Protected executor boundary
 
