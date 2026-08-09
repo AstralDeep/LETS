@@ -176,12 +176,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          site_packages="$(
-            .release-smoke/bin/python -c \
-              'import sysconfig; print(sysconfig.get_paths()["purelib"])'
-          )"
           uvx --from pip-audit==2.10.1 pip-audit --strict \
-            --path "$site_packages"
+            --requirement requirements-release.txt
           uvx --from cyclonedx-bom==7.3.1 cyclonedx-py environment \
             .release-smoke/bin/python --pyproject pyproject.toml \
             --mc-type application --output-reproducible --output-format JSON \
@@ -581,7 +577,7 @@ jobs:
 
   production-acceptance:
     name: Exercise the exact published candidate in the hardened three-node profile
-    needs: [verify, image-candidate]
+    needs: [verify, package, image-candidate]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -636,7 +632,7 @@ jobs:
 
   image:
     name: Scan, attest, sign, and promote the accepted OCI candidate
-    needs: [verify, image-candidate, production-acceptance]
+    needs: [verify, package, image-candidate, production-acceptance]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -672,45 +668,6 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=sha,format=long
-      - name: Require patched SQLite in both exact published architectures
-        shell: bash
-        run: |
-          set -euo pipefail
-          : > sqlite-runtime-versions.txt
-          for platform in linux/amd64 linux/arm64; do
-            version="$(docker run --rm --pull always --platform "$platform" \
-              --user 10001:10001 --read-only --network none --cap-drop ALL \
-              --security-opt no-new-privileges --entrypoint python \
-              "$IMAGE_NAME@${{ needs.image-candidate.outputs.digest }}" \
-              -c 'import sqlite3; from lets.cli import _require_production_sqlite; _require_production_sqlite(); print(sqlite3.sqlite_version)')"
-            printf '%s %s\n' "$platform" "$version" | tee -a sqlite-runtime-versions.txt
-          done
-      - name: Scan the exact published amd64 candidate with Trivy
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_PLATFORM: linux/amd64
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: false
-          format: table
-          output: trivy-amd64.txt
-          exit-code: 1
-          version: v0.73.0
-      - name: Scan the exact published arm64 candidate with Trivy
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        env:
-          TRIVY_PLATFORM: linux/arm64
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: false
-          format: table
-          output: trivy-arm64.txt
-          exit-code: 1
-          version: v0.73.0
       - name: Verify both candidate architectures are present
         id: manifest
         env:
@@ -754,6 +711,49 @@ jobs:
               stream.write(f'amd64_digest={descriptors["linux/amd64"]}\n')
               stream.write(f'arm64_digest={descriptors["linux/arm64"]}\n')
           PY
+      - name: Require patched SQLite in both exact published architectures
+        env:
+          AMD64_DIGEST: ${{ steps.manifest.outputs.amd64_digest }}
+          ARM64_DIGEST: ${{ steps.manifest.outputs.arm64_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > sqlite-runtime-versions.txt
+          for image in "linux/amd64 $AMD64_DIGEST" "linux/arm64 $ARM64_DIGEST"; do
+            read -r platform child_digest <<< "$image"
+            version="$(docker run --rm --pull always --platform "$platform" \
+              --user 10001:10001 --read-only --network none --cap-drop ALL \
+              --security-opt no-new-privileges --entrypoint python \
+              "$IMAGE_NAME@$child_digest" \
+              -c 'import sqlite3; from lets.cli import _require_production_sqlite; _require_production_sqlite(); print(sqlite3.sqlite_version)')"
+            printf '%s %s\n' "$platform" "$version" | tee -a sqlite-runtime-versions.txt
+          done
+      - name: Scan the exact published amd64 candidate with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: table
+          output: trivy-amd64.txt
+          exit-code: 1
+          version: v0.73.0
+      - name: Scan the exact published arm64 candidate with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: table
+          output: trivy-arm64.txt
+          exit-code: 1
+          version: v0.73.0
       - name: Install pinned Syft
         id: syft
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
