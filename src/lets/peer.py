@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import re
 import threading
 import time
 from collections import defaultdict
@@ -20,6 +22,7 @@ from lets.ids import require_warden_id
 from lets.models import IdentityContext
 from lets.service import WardenService
 from lets.storage import SQLiteStorage
+from lets.timeouts import DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS
 
 
 class PeerTransport(Protocol):
@@ -35,6 +38,9 @@ class PeerTransport(Protocol):
 
 
 ClientFactory = Callable[[str], PeerTransport]
+
+MAX_PEER_RETRY_DELAY_SECONDS = 30.0
+_EXCEPTION_CLASS = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
 
 
 class PeerDispatcher:
@@ -55,11 +61,18 @@ class PeerDispatcher:
         verify: bool | str = True,
         cert: str | tuple[str, str] | None = None,
         poll_interval_s: float = 0.25,
-        request_timeout_s: float = 2.0,
+        request_timeout_s: float = DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS,
         batch_size: int = 64,
         max_concurrency: int = 8,
     ) -> None:
-        if poll_interval_s <= 0 or request_timeout_s <= 0:
+        intervals = (poll_interval_s, request_timeout_s)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+            for value in intervals
+        ):
             raise ValueError("peer dispatcher intervals must be positive")
         if batch_size < 1 or batch_size > 1024:
             raise ValueError("peer dispatcher batch_size must be between 1 and 1024")
@@ -109,6 +122,37 @@ class PeerDispatcher:
         self._checkpoint_cursor: str | None = None
 
     @staticmethod
+    def _exception_class(error: BaseException) -> str:
+        """Return a bounded class token without serializing attacker-controlled text."""
+
+        candidate = type(error).__name__
+        return candidate if _EXCEPTION_CLASS.fullmatch(candidate) is not None else "UnknownError"
+
+    @staticmethod
+    def _stored_exception_class(value: object) -> str:
+        """Sanitize both new class-only values and legacy ``Class: message`` rows."""
+
+        if not isinstance(value, str):
+            return "UnknownError"
+        candidate = value.partition(":")[0].strip()
+        return candidate if _EXCEPTION_CLASS.fullmatch(candidate) is not None else "UnknownError"
+
+    @staticmethod
+    def _stored_record_kind(value: object) -> str:
+        return (
+            value
+            if isinstance(value, str) and value in {"checkpoint", "revocation", "transfer"}
+            else "unknown"
+        )
+
+    @staticmethod
+    def _stored_target_warden(value: object) -> str:
+        try:
+            return require_warden_id(cast(str, value), field="durable retry target_warden")
+        except (TypeError, ValueError):
+            return "unknown"
+
+    @staticmethod
     def _object(payload: object, label: str) -> dict[str, Any]:
         decoded = strict_json_loads(cast(bytes | str, payload))
         if not isinstance(decoded, dict):
@@ -144,11 +188,12 @@ class PeerDispatcher:
                 message = None
             else:
                 delivered_at_ns = None
-                delay_ns = min(30_000_000_000, 250_000_000 * (2 ** min(attempts - 1, 7)))
+                delay_ns = min(
+                    int(MAX_PEER_RETRY_DELAY_SECONDS * 1_000_000_000),
+                    250_000_000 * (2 ** min(attempts - 1, 7)),
+                )
                 next_attempt_ns = min((1 << 63) - 1, now_ns + delay_ns)
-                message = f"{type(error).__name__}: {error}".replace("\r", " ").replace("\n", " ")[
-                    :500
-                ]
+                message = self._exception_class(error)
                 self._last_error = message
             cursor = connection.execute(
                 """
@@ -436,7 +481,7 @@ class PeerDispatcher:
                     try:
                         future.result()
                     except Exception as error:
-                        self._last_error = f"{type(error).__name__}: {error}"[:500]
+                        self._last_error = self._exception_class(error)
 
     def _create_checkpoints(self) -> None:
         cursor = self._checkpoint_cursor or ""
@@ -512,7 +557,7 @@ class PeerDispatcher:
                     through_sequence=int(row[1]),
                 )
             except Exception as error:
-                self._last_error = f"{type(error).__name__}: {error}"[:500]
+                self._last_error = self._exception_class(error)
 
     def run_once(self) -> None:
         """Run one bounded discovery and delivery cycle."""
@@ -528,7 +573,7 @@ class PeerDispatcher:
             self._last_cycle_ns = time.time_ns()
         except Exception as error:
             self._last_cycle_ns = time.time_ns()
-            self._last_error = f"{type(error).__name__}: {error}"[:500]
+            self._last_error = self._exception_class(error)
         finally:
             self._run_lock.release()
 
@@ -555,7 +600,7 @@ class PeerDispatcher:
             try:
                 client.close()
             except Exception as error:
-                self._last_error = f"{type(error).__name__}: {error}"[:500]
+                self._last_error = self._exception_class(error)
         if self._thread is not None:
             deadline = max(
                 5.0,
@@ -594,6 +639,31 @@ class PeerDispatcher:
                     "SELECT COUNT(*) FROM outgoing_transfers WHERE status = 'PREPARED'"
                 ).fetchone()[0]
             )
+            retry_row = transaction.connection.execute(
+                """
+                SELECT attempts, next_attempt_ns, last_error, record_kind, target_warden
+                FROM peer_delivery_state
+                WHERE delivered_at_ns IS NULL
+                  AND superseded_at_ns IS NULL
+                  AND last_error IS NOT NULL
+                ORDER BY created_at_ns, record_kind, record_id, target_warden
+                LIMIT 1
+                """
+            ).fetchone()
+        durable_retry: dict[str, object] | None = None
+        if retry_row is not None:
+            remaining_ns = max(0, int(retry_row[1]) - time.time_ns())
+            delay_seconds = min(
+                MAX_PEER_RETRY_DELAY_SECONDS,
+                remaining_ns / 1_000_000_000,
+            )
+            durable_retry = {
+                "attempt_count": max(0, int(retry_row[0])),
+                "exception_class": self._stored_exception_class(retry_row[2]),
+                "next_retry_delay_seconds": round(delay_seconds, 3),
+                "record_kind": self._stored_record_kind(retry_row[3]),
+                "target_warden": self._stored_target_warden(retry_row[4]),
+            }
         return {
             "configured_peers": len(self._clients),
             "pending_records": 0 if row[0] is None else int(row[0]),
@@ -601,9 +671,15 @@ class PeerDispatcher:
             "superseded_records": 0 if counters[1] is None else int(counters[1]),
             "failed_records": 0 if row[1] is None else int(row[1]),
             "prepared_transfers": prepared,
+            "durable_retry": durable_retry,
             "last_cycle_ns": self._last_cycle_ns,
             "last_error": self._last_error,
         }
 
 
-__all__ = ["PeerDispatcher", "PeerTransport"]
+__all__ = [
+    "DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS",
+    "MAX_PEER_RETRY_DELAY_SECONDS",
+    "PeerDispatcher",
+    "PeerTransport",
+]

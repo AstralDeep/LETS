@@ -1250,6 +1250,104 @@ def test_health_sample_accepts_only_bounded_audit_catchup() -> None:
     assert _is_converged(sample) is False
 
 
+def _converged_health_response(path: str) -> dict[str, Any]:
+    if path == "/v1/invariants":
+        return {
+            "consumed": [1],
+            "free_pool": [9],
+            "healthy": True,
+            "lease_residual": [0],
+            "transferred_in": [0],
+            "transferred_out": [0],
+        }
+    if path == "/v1/audit/verify":
+        return {"valid": True}
+    return {
+        **_audit_document(_clean_audit_status()),
+        "peer_dispatcher": {
+            "configured_peers": 2,
+            "failed_records": 0,
+            "last_cycle_ns": 1,
+            "last_error": None,
+            "pending_records": 0,
+            "prepared_transfers": 0,
+        },
+        "receipts": {"total": 1},
+        "storage_capacity": {"healthy": True},
+        "transfers": {"in_flight_count": 0, "inbound_gap_count": 0},
+    }
+
+
+def test_health_sample_threads_one_absolute_deadline_through_all_nine_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.deadlines: list[float | None] = []
+
+        def request(
+            self,
+            _method: str,
+            _node: str,
+            path: str,
+            *,
+            deadline_monotonic: float | None = None,
+        ) -> dict[str, Any]:
+            self.deadlines.append(deadline_monotonic)
+            return _converged_health_response(path)
+
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 90.0)
+    client = FakeClient()
+    sample = _health_sample(
+        client,  # type: ignore[arg-type]
+        elapsed_s=1.0,
+        deadline=100.0,
+    )
+    assert _is_converged(sample) is True
+    assert client.deadlines == [100.0] * 9
+
+
+def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    current = 0.0
+
+    class FakeClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.calls = 0
+            self.deadlines: list[float | None] = []
+
+        def request(
+            self,
+            _method: str,
+            _node: str,
+            path: str,
+            *,
+            deadline_monotonic: float | None = None,
+        ) -> dict[str, Any]:
+            nonlocal current
+            self.calls += 1
+            self.deadlines.append(deadline_monotonic)
+            if self.calls == 9:
+                current = 1.001
+            return _converged_health_response(path)
+
+    client = FakeClient()
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: None)
+    monkeypatch.setattr(soak_scenario, "ClusterClient", lambda **_kwargs: client)
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: current)
+    monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
+    arguments = soak_scenario.argparse.Namespace(
+        convergence_timeout_seconds=1.0,
+        retry_timeout_seconds=1.0,
+        seed=1,
+    )
+    with pytest.raises(RuntimeError, match="did not settle"):
+        soak_scenario.wait_converged(arguments)
+    assert client.calls == 9
+    assert client.deadlines == [1.0] * 9
+
+
 @pytest.mark.parametrize("probe_name", ("wait_converged", "verify_final"))
 def test_settle_and_final_probes_reject_errors_outside_shared_budget(
     monkeypatch: pytest.MonkeyPatch,
@@ -1257,7 +1355,12 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
 ) -> None:
     class FakeClient:
         @staticmethod
-        def request(_method: str, _node: str, path: str) -> dict[str, Any]:
+        def request(
+            _method: str,
+            _node: str,
+            path: str,
+            **_kwargs: Any,
+        ) -> dict[str, Any]:
             if path == "/v1/invariants":
                 return {
                     "consumed": [1],
@@ -1406,6 +1509,38 @@ def test_workload_pause_fails_immediately_with_exited_workload_diagnostics() -> 
     assert captured.value.stderr == "workload stderr"
 
 
+def test_settle_cluster_uses_the_full_configured_convergence_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeHarness:
+        configuration = replace(
+            _configuration(),
+            convergence_timeout_seconds=180.0,
+            retry_timeout_seconds=30.0,
+        )
+
+        def __init__(self) -> None:
+            self.arguments: tuple[str, ...] = ()
+            self.timeout = 0.0
+
+        def compose(self, *arguments: str, timeout: float) -> str:
+            self.arguments = arguments
+            self.timeout = timeout
+            return ""
+
+    harness = FakeHarness()
+    monkeypatch.setattr(
+        soak_runner,
+        "_scenario_result",
+        lambda _harness, _path: {"converged": True, "status": "passed"},
+    )
+    result = soak_runner._settle_cluster(harness, 7)  # type: ignore[arg-type]
+    convergence_index = harness.arguments.index("--convergence-timeout-seconds")
+    assert harness.arguments[convergence_index + 1] == "180.0"
+    assert harness.timeout == 330.0
+    assert result == {"converged": True, "status": "passed"}
+
+
 def test_failed_soak_evidence_is_atomic_structured_bounded_and_rethrows(
     tmp_path: Any,
 ) -> None:
@@ -1433,6 +1568,7 @@ def test_failed_soak_evidence_is_atomic_structured_bounded_and_rethrows(
     assert evidence["chaos"]["partition_count"] == 0
     assert evidence["chaos"]["restart_count"] == 0
     assert evidence["workload_status"] == {
+        "host_cli_terminated": True,
         "return_code": None,
         "started": False,
         "state": "not_started",
@@ -1473,15 +1609,20 @@ def test_cleanup_failure_is_evidenced_without_masking_original_error(
         stderr = ""
         returncode = 0
 
+    cleanup_order: list[str] = []
+
     class FakeHarness:
         project = "lets-production-soak-cleanup-test"
+        workload_container = f"{project}-workload"
 
         def __init__(self) -> None:
             self.environment: dict[str, str] = {}
             self.log_timeouts: list[float] = []
 
         @staticmethod
-        def run(*_args: Any, **_kwargs: Any) -> Result:
+        def run(arguments: list[str], **_kwargs: Any) -> Result:
+            if arguments[:3] == ["docker", "container", "ls"]:
+                cleanup_order.append("workload_container")
             return Result()
 
         def compose(self, *arguments: str, **options: Any) -> str:
@@ -1516,6 +1657,7 @@ def test_cleanup_failure_is_evidenced_without_masking_original_error(
         probe_timeout: float,
         down_timeout: float,
     ) -> dict[str, Any]:
+        cleanup_order.append("compose_down")
         cleanup_timeouts.update(probe=probe_timeout, down=down_timeout)
         raise CleanupError("cleanup proof failed")
 
@@ -1532,12 +1674,21 @@ def test_cleanup_failure_is_evidenced_without_masking_original_error(
         "error": "cleanup proof failed",
         "performed": False,
         "reason": "cleanup failed",
+        "workload_container": {
+            "attempted": True,
+            "container_name": "lets-production-soak-cleanup-test-workload",
+            "force_removed": False,
+            "found": False,
+            "labels_validated": False,
+            "remaining": False,
+        },
     }
     assert evidence["resources"]["failure_capture"]["attempted"] is True
     assert evidence["resources"]["failure_capture"]["captured"] is False
     assert evidence["orchestration"]["phase"] == "cluster_startup"
     assert fake_harness.log_timeouts == [10.0]
     assert cleanup_timeouts == {"probe": 5.0, "down": 30.0}
+    assert cleanup_order == ["workload_container", "compose_down"]
 
 
 def test_evidence_payload_digest_is_order_independent_and_content_bound() -> None:
@@ -1590,6 +1741,239 @@ def test_runtime_image_labels_must_match_source_commit_and_package_version() -> 
                 workload={"package_version": workload_version},
                 verification={"package_version": verifier_version},
             )
+
+
+def test_failed_workload_cleanup_refuses_an_active_host_cli_without_docker_calls() -> None:
+    class FakeHarness:
+        project = "lets-production-soak-active"
+        workload_container = f"{project}-workload"
+
+        @staticmethod
+        def run(*_args: Any, **_kwargs: Any) -> None:
+            pytest.fail("Docker must not be called while the host Compose CLI is active")
+
+    result: dict[str, Any] = {}
+    with pytest.raises(RuntimeError, match="host Compose CLI is still active"):
+        soak_runner._remove_failed_workload_container(
+            FakeHarness(),  # type: ignore[arg-type]
+            host_cli_terminated=False,
+            result=result,
+        )
+    assert result == {
+        "attempted": False,
+        "container_name": "lets-production-soak-active-workload",
+        "force_removed": False,
+        "found": False,
+        "labels_validated": False,
+        "remaining": False,
+    }
+
+
+def test_failed_workload_cleanup_records_absence_without_broad_deletion() -> None:
+    class Result:
+        stdout = ""
+
+    class FakeHarness:
+        project = "lets-production-soak-absent"
+        workload_container = f"{project}-workload"
+
+        def __init__(self) -> None:
+            self.commands: list[tuple[str, ...]] = []
+
+        def run(self, arguments: list[str], **_kwargs: Any) -> Result:
+            self.commands.append(tuple(arguments))
+            return Result()
+
+    harness = FakeHarness()
+    result = soak_runner._remove_failed_workload_container(
+        harness,  # type: ignore[arg-type]
+        host_cli_terminated=True,
+    )
+    assert result == {
+        "attempted": True,
+        "container_name": "lets-production-soak-absent-workload",
+        "force_removed": False,
+        "found": False,
+        "labels_validated": False,
+        "remaining": False,
+    }
+    assert len(harness.commands) == 1
+    assert harness.commands[0][:4] == ("docker", "container", "ls", "--all")
+    assert "name=^/lets-production-soak-absent-workload$" in harness.commands[0]
+    assert not any("rm" in command for command in harness.commands)
+
+
+def test_failed_workload_cleanup_validates_labels_removes_by_id_and_proves_absence() -> None:
+    short_id = "a" * 12
+    full_id = "a" * 64
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    class FakeHarness:
+        project = "lets-production-soak-valid"
+        workload_container = f"{project}-workload"
+
+        def __init__(self) -> None:
+            self.commands: list[tuple[str, ...]] = []
+            self.listings = iter((f"{short_id}\t{self.workload_container}\n", ""))
+
+        def run(self, arguments: list[str], **_kwargs: Any) -> Result:
+            command = tuple(arguments)
+            self.commands.append(command)
+            if command[2:4] == ("ls", "--all"):
+                return Result(next(self.listings))
+            if command[2] == "inspect":
+                return Result(
+                    soak_runner.json.dumps(
+                        {
+                            "Config": {
+                                "Labels": {
+                                    "com.docker.compose.oneoff": "True",
+                                    "com.docker.compose.project": self.project,
+                                    "com.docker.compose.service": "scenario",
+                                }
+                            },
+                            "Id": full_id,
+                            "Name": f"/{self.workload_container}",
+                        }
+                    )
+                )
+            assert command == ("docker", "container", "rm", "--force", full_id)
+            return Result("")
+
+    harness = FakeHarness()
+    result = soak_runner._remove_failed_workload_container(
+        harness,  # type: ignore[arg-type]
+        host_cli_terminated=True,
+    )
+    assert result == {
+        "attempted": True,
+        "container_name": "lets-production-soak-valid-workload",
+        "force_removed": True,
+        "found": True,
+        "labels_validated": True,
+        "remaining": False,
+    }
+    assert [command[2] for command in harness.commands] == ["ls", "inspect", "rm", "ls"]
+
+
+@pytest.mark.parametrize("mismatch", ("id", "name", "oneoff"))
+def test_failed_workload_cleanup_refuses_identity_or_label_mismatch(mismatch: str) -> None:
+    short_id = "a" * 12
+    full_id = ("b" if mismatch == "id" else "a") * 64
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    class FakeHarness:
+        project = "lets-production-soak-mismatch"
+        workload_container = f"{project}-workload"
+
+        def __init__(self) -> None:
+            self.commands: list[tuple[str, ...]] = []
+
+        def run(self, arguments: list[str], **_kwargs: Any) -> Result:
+            command = tuple(arguments)
+            self.commands.append(command)
+            if command[2] == "ls":
+                return Result(f"{short_id}\t{self.workload_container}\n")
+            assert command[2] == "inspect"
+            return Result(
+                soak_runner.json.dumps(
+                    {
+                        "Config": {
+                            "Labels": {
+                                "com.docker.compose.oneoff": (
+                                    "False" if mismatch == "oneoff" else "True"
+                                ),
+                                "com.docker.compose.project": self.project,
+                                "com.docker.compose.service": "scenario",
+                            }
+                        },
+                        "Id": full_id,
+                        "Name": (
+                            "/replacement" if mismatch == "name" else f"/{self.workload_container}"
+                        ),
+                    }
+                )
+            )
+
+    harness = FakeHarness()
+    result: dict[str, Any] = {}
+    with pytest.raises(RuntimeError, match="mismatched identity labels"):
+        soak_runner._remove_failed_workload_container(
+            harness,  # type: ignore[arg-type]
+            host_cli_terminated=True,
+            result=result,
+        )
+    assert result["found"] is True
+    assert result["labels_validated"] is False
+    assert result["force_removed"] is False
+    assert result["remaining"] is True
+    assert not any(command[2] == "rm" for command in harness.commands)
+
+
+def test_failed_workload_cleanup_does_not_delete_a_name_race_replacement() -> None:
+    original_short_id = "a" * 12
+    original_full_id = "a" * 64
+    replacement_short_id = "b" * 12
+
+    class Result:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    class FakeHarness:
+        project = "lets-production-soak-race"
+        workload_container = f"{project}-workload"
+
+        def __init__(self) -> None:
+            self.commands: list[tuple[str, ...]] = []
+            self.listings = iter(
+                (
+                    f"{original_short_id}\t{self.workload_container}\n",
+                    f"{replacement_short_id}\t{self.workload_container}\n",
+                )
+            )
+
+        def run(self, arguments: list[str], **_kwargs: Any) -> Result:
+            command = tuple(arguments)
+            self.commands.append(command)
+            if command[2] == "ls":
+                return Result(next(self.listings))
+            if command[2] == "inspect":
+                return Result(
+                    soak_runner.json.dumps(
+                        {
+                            "Config": {
+                                "Labels": {
+                                    "com.docker.compose.oneoff": "True",
+                                    "com.docker.compose.project": self.project,
+                                    "com.docker.compose.service": "scenario",
+                                }
+                            },
+                            "Id": original_full_id,
+                            "Name": f"/{self.workload_container}",
+                        }
+                    )
+                )
+            assert command == ("docker", "container", "rm", "--force", original_full_id)
+            return Result("")
+
+    harness = FakeHarness()
+    result: dict[str, Any] = {}
+    with pytest.raises(RuntimeError, match="remained after forced removal"):
+        soak_runner._remove_failed_workload_container(
+            harness,  # type: ignore[arg-type]
+            host_cli_terminated=True,
+            result=result,
+        )
+    removals = [command for command in harness.commands if command[2] == "rm"]
+    assert removals == [("docker", "container", "rm", "--force", original_full_id)]
+    assert result["force_removed"] is True
+    assert result["remaining"] is True
 
 
 def test_cleanup_proves_project_containers_volumes_and_networks_are_absent(

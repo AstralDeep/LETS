@@ -50,10 +50,14 @@ WRITABLE_DIRECTORIES = (
 )
 _IMAGE_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 _PROVIDER_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_GENERIC_PROVIDER_AUTHORITY_CALLS_PER_PEER_REQUEST = Decimal(4)
+_GENERIC_PROVIDER_SIGNER_CALLS_PER_PEER_REQUEST = Decimal(4)
+_GENERIC_PROVIDER_SQLITE_AND_MARGIN_SECONDS = Decimal(15)
 _BOUNDED_INTEGERS = {
     "LETS_PORT": (1, 65_535),
     "LETS_BACKLOG": (1, 65_535),
     "LETS_LIMIT_CONCURRENCY": (1, 3600),
+    "LETS_PEER_REQUEST_TIMEOUT_SECONDS": (30, 60),
     "LETS_REQUEST_BODY_TIMEOUT_SECONDS": (1, 300),
     "LETS_TIMEOUT_KEEP_ALIVE": (1, 3600),
     "LETS_TIMEOUT_GRACEFUL_SHUTDOWN": (1, 40),
@@ -567,6 +571,30 @@ def _generic_provider_errors(options: Mapping[str, object]) -> tuple[str, ...]:
     return tuple(errors)
 
 
+def _generic_peer_request_timeout_floor(options: Mapping[str, object]) -> Decimal:
+    def bounded_seconds(name: str) -> Decimal:
+        raw = options.get(name)
+        if raw is None:
+            return Decimal("5")
+        if not isinstance(raw, str):
+            raise ValueError(f"generic-production {name} must be a number")
+        try:
+            parsed = Decimal(raw)
+        except InvalidOperation as exc:
+            raise ValueError(f"generic-production {name} must be a number") from exc
+        if not parsed.is_finite() or not Decimal("0.05") <= parsed <= Decimal("30"):
+            raise ValueError(f"generic-production {name} must be between 0.05 and 30 seconds")
+        return parsed
+
+    authority_timeout = bounded_seconds("authority_timeout_s")
+    signer_timeout = bounded_seconds("signer_timeout_s")
+    return (
+        _GENERIC_PROVIDER_AUTHORITY_CALLS_PER_PEER_REQUEST * authority_timeout
+        + _GENERIC_PROVIDER_SIGNER_CALLS_PER_PEER_REQUEST * signer_timeout
+        + _GENERIC_PROVIDER_SQLITE_AND_MARGIN_SECONDS
+    )
+
+
 def _positive_integer(value: object, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"LETS_CONFIG_FILE {field} must be a positive integer")
@@ -925,6 +953,7 @@ def validate_environment(values: Mapping[str, str]) -> tuple[str, ...]:
     if _PROVIDER_NAME.fullmatch(provider) is None or provider == "builtin":
         errors.append("LETS_RUNTIME_PROVIDER must name an external provider entry point")
     capture(lambda: _server_name(_required(values, "LETS_SERVER_NAME")))
+    capture(lambda: _required(values, "LETS_PEER_REQUEST_TIMEOUT_SECONDS"))
     errors.extend(_resource_errors(values))
     errors.extend(_storage_domain_errors(values))
     for name, (minimum, maximum) in _BOUNDED_INTEGERS.items():
@@ -1029,6 +1058,23 @@ def validate_environment(values: Mapping[str, str]) -> tuple[str, ...]:
                 raise ValueError("LETS_CONFIG_FILE runtime options must be an object")
             if provider == "generic-production":
                 errors.extend(_generic_provider_errors(options))
+            peer_endpoints = document.get("peer_endpoints", {})
+            if not isinstance(peer_endpoints, Mapping):
+                raise ValueError("LETS_CONFIG_FILE peer_endpoints must be an object")
+            if peer_endpoints and provider == "generic-production":
+                peer_timeout_raw = _required(values, "LETS_PEER_REQUEST_TIMEOUT_SECONDS")
+                try:
+                    peer_timeout = int(peer_timeout_raw)
+                except ValueError as exc:
+                    raise ValueError(
+                        "LETS_PEER_REQUEST_TIMEOUT_SECONDS must be an integer"
+                    ) from exc
+                required_peer_timeout = _generic_peer_request_timeout_floor(options)
+                if Decimal(peer_timeout) < required_peer_timeout:
+                    raise ValueError(
+                        "LETS_PEER_REQUEST_TIMEOUT_SECONDS is below the generic-production "
+                        f"provider safety bound ({required_peer_timeout:g} seconds)"
+                    )
             if document.get("bootstrap_identities") not in (None, []):
                 raise ValueError("LETS_CONFIG_FILE must not contain static bootstrap identities")
             if document.get("allow_insecure_manifest") is not False:

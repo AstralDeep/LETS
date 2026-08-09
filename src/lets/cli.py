@@ -14,6 +14,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import closing, suppress
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, NoReturn, cast
@@ -55,10 +56,21 @@ from lets.runtime import (
 from lets.service import WardenService
 from lets.storage import SQLiteStorage
 from lets.storage.schema import APPLICATION_ID, SCHEMA_VERSION
+from lets.timeouts import (
+    DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS,
+    MAX_PEER_REQUEST_TIMEOUT_SECONDS,
+    MIN_PRODUCTION_PEER_REQUEST_TIMEOUT_SECONDS,
+)
 from lets.vector import MAX_RESOURCE
 
 CONFIG_VERSION = 1
 DEFAULT_CONFIG = Path(".lets/config.json")
+GENERIC_PRODUCTION_RUNTIME_PROVIDER = "generic-production"
+_GENERIC_PROVIDER_AUTHORITY_CALLS_PER_PEER_REQUEST = Decimal(4)
+_GENERIC_PROVIDER_SIGNER_CALLS_PER_PEER_REQUEST = Decimal(4)
+_GENERIC_PROVIDER_SQLITE_ALLOWANCE_SECONDS = Decimal(5)
+_GENERIC_PROVIDER_SCHEDULING_TLS_MARGIN_SECONDS = Decimal(5)
+_GENERIC_PROVIDER_SQLITE_WRITES_PER_PEER_REQUEST = Decimal(2)
 
 
 def _sqlite_wal_reset_safe(version: tuple[int, ...]) -> bool:
@@ -249,6 +261,13 @@ def _parser() -> argparse.ArgumentParser:
         default=30,
         metavar="SECONDS",
         help="total deadline in seconds for receiving a request body before authentication",
+    )
+    serve.add_argument(
+        "--peer-request-timeout-seconds",
+        type=int,
+        default=DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS,
+        metavar="SECONDS",
+        help="total deadline in seconds for one durable outbound peer request",
     )
     serve.add_argument(
         "--timeout-keep-alive",
@@ -3113,6 +3132,7 @@ def _validate_production_admission(
     arguments: argparse.Namespace,
     *,
     provider_name: str,
+    provider_options: Mapping[str, str] | None = None,
 ) -> None:
     """Reject development trust and transport choices before opening resources."""
 
@@ -3126,6 +3146,16 @@ def _validate_production_admission(
         raise ValidationError("--production requires --client-ca for inbound mTLS")
     if arguments.allow_insecure_http or arguments.allow_insecure_peer_http:
         raise ValidationError("--production rejects insecure client or peer HTTP opt-ins")
+    if not (
+        MIN_PRODUCTION_PEER_REQUEST_TIMEOUT_SECONDS
+        <= arguments.peer_request_timeout_seconds
+        <= MAX_PEER_REQUEST_TIMEOUT_SECONDS
+    ):
+        raise ValidationError(
+            "--production requires --peer-request-timeout-seconds between "
+            f"{MIN_PRODUCTION_PEER_REQUEST_TIMEOUT_SECONDS} and "
+            f"{MAX_PEER_REQUEST_TIMEOUT_SECONDS}"
+        )
     _validate_production_state_admission(config)
     raw_peers = config.get("peer_endpoints", {})
     if not isinstance(raw_peers, Mapping):
@@ -3136,6 +3166,37 @@ def _validate_production_admission(
         raise ValidationError(
             "--production peer endpoints require --peer-ca, --peer-cert, and --peer-key"
         )
+    if raw_peers and provider_name == GENERIC_PRODUCTION_RUNTIME_PROVIDER:
+        options = {} if provider_options is None else provider_options
+
+        def provider_timeout(name: str) -> Decimal:
+            raw = options.get(name)
+            if raw is None:
+                return Decimal(5)
+            if not isinstance(raw, str):
+                raise ValidationError(f"{name} must be a number")
+            try:
+                parsed = Decimal(raw)
+            except (InvalidOperation, TypeError, ValueError) as exc:
+                raise ValidationError(f"{name} must be a number") from exc
+            if not parsed.is_finite() or not Decimal("0.05") <= parsed <= Decimal(30):
+                raise ValidationError(f"{name} must be between 0.05 and 30 seconds")
+            return parsed
+
+        authority_timeout = provider_timeout("authority_timeout_s")
+        signer_timeout = provider_timeout("signer_timeout_s")
+        required_timeout = (
+            _GENERIC_PROVIDER_AUTHORITY_CALLS_PER_PEER_REQUEST * authority_timeout
+            + _GENERIC_PROVIDER_SIGNER_CALLS_PER_PEER_REQUEST * signer_timeout
+            + _GENERIC_PROVIDER_SQLITE_WRITES_PER_PEER_REQUEST
+            * _GENERIC_PROVIDER_SQLITE_ALLOWANCE_SECONDS
+            + _GENERIC_PROVIDER_SCHEDULING_TLS_MARGIN_SECONDS
+        )
+        if Decimal(arguments.peer_request_timeout_seconds) < required_timeout:
+            raise ValidationError(
+                "--peer-request-timeout-seconds is below the generic-production provider "
+                f"safety bound ({required_timeout:g} seconds)"
+            )
 
 
 def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
@@ -3166,6 +3227,15 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
     ):
         raise ValidationError("--request-body-timeout must be an integer between 1 and 300")
     if (
+        isinstance(arguments.peer_request_timeout_seconds, bool)
+        or not isinstance(arguments.peer_request_timeout_seconds, int)
+        or not 1 <= arguments.peer_request_timeout_seconds <= MAX_PEER_REQUEST_TIMEOUT_SECONDS
+    ):
+        raise ValidationError(
+            "--peer-request-timeout-seconds must be an integer between 1 and "
+            f"{MAX_PEER_REQUEST_TIMEOUT_SECONDS}"
+        )
+    if (
         isinstance(arguments.backlog, bool)
         or not isinstance(arguments.backlog, int)
         or not 1 <= arguments.backlog <= 65_535
@@ -3174,12 +3244,13 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
 
     resolved, config = _load_config(config_path)
     _require_no_incomplete_restore(resolved)
-    provider_name, _ = _runtime_configuration(config, arguments)
+    provider_name, provider_options = _runtime_configuration(config, arguments)
     if arguments.production:
         _validate_production_admission(
             config,
             arguments,
             provider_name=provider_name,
+            provider_options=provider_options,
         )
         _require_production_sqlite()
     try:
@@ -3261,6 +3332,7 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                 peer_endpoints,
                 verify=peer_verify,
                 cert=peer_cert,
+                request_timeout_s=float(arguments.peer_request_timeout_seconds),
             )
             audit_exporter = (
                 None if runtime.audit_sink is None else AuditExporter(store, runtime.audit_sink)

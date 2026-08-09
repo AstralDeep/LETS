@@ -40,6 +40,8 @@ services:
       - "${LETS_BACKLOG:-128}"
       - --request-body-timeout
       - "${LETS_REQUEST_BODY_TIMEOUT_SECONDS:-30}"
+      - --peer-request-timeout-seconds
+      - "${LETS_PEER_REQUEST_TIMEOUT_SECONDS:-60}"
       - --timeout-keep-alive
       - "${LETS_TIMEOUT_KEEP_ALIVE:-5}"
       - --timeout-graceful-shutdown
@@ -134,7 +136,7 @@ services:
       retries: 4
       start_period: "${LETS_HEALTH_START_PERIOD_SECONDS:-600}s"
     stop_signal: SIGTERM
-    stop_grace_period: 75s
+    stop_grace_period: 120s
     restart: unless-stopped
     logging:
       driver: json-file

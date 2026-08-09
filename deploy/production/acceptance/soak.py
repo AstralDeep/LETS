@@ -144,6 +144,7 @@ class ClusterClient:
         body: dict[str, Any] | None = None,
         expected: int = 200,
         retry_timeout_s: float | None = None,
+        deadline_monotonic: float | None = None,
     ) -> dict[str, Any]:
         retry_window = (
             self._retry_timeout_s
@@ -152,7 +153,12 @@ class ClusterClient:
         )
         if not math.isfinite(retry_window) or retry_window <= 0:
             raise RuntimeError("request retry timeout must be finite and positive")
-        deadline = time.monotonic() + retry_window
+        started = time.monotonic()
+        deadline = started + retry_window
+        if deadline_monotonic is not None:
+            if not math.isfinite(deadline_monotonic) or deadline_monotonic <= started:
+                raise RuntimeError("request deadline must be finite and in the future")
+            deadline = min(deadline, deadline_monotonic)
         last_error = "request was not attempted"
         while time.monotonic() < deadline:
             headers = {"authorization": f"Bearer {self._tokens.issue()}"}
@@ -171,6 +177,9 @@ class ClusterClient:
                     value = response.json()
                     if not isinstance(value, dict):
                         raise RuntimeError(f"{node}{path} returned a non-object response")
+                    if time.monotonic() > deadline:
+                        last_error = "response completed after the shared deadline"
+                        break
                     return cast(dict[str, Any], value)
                 last_error = f"HTTP {response.status_code}: {response.text[:500]}"
                 if response.status_code not in {429, 500, 502, 503, 504}:
@@ -546,6 +555,7 @@ def _poll_audit_error_recovery(
     initial_exporter: dict[str, Any],
     initial_elapsed_s: float,
     initial_observed_monotonic: float,
+    shared_deadline: float | None = None,
 ) -> dict[str, Any]:
     stalled_for = float(initial_exporter["stalled_for_s"])
     maximum_stall = float(initial_exporter["max_stall_s"])
@@ -553,16 +563,27 @@ def _poll_audit_error_recovery(
     if not math.isfinite(remaining_window) or remaining_window <= 0:
         raise RuntimeError(f"{node} audit exporter has no remaining recovery window")
     deadline = initial_observed_monotonic + remaining_window
+    if shared_deadline is not None:
+        deadline = min(deadline, shared_deadline)
     last: object = None
     while time.monotonic() < deadline:
         remaining = deadline - time.monotonic()
         try:
-            metrics = client.request(
-                "GET",
-                node,
-                "/v1/metrics",
-                retry_timeout_s=max(0.001, remaining),
-            )
+            if shared_deadline is None:
+                metrics = client.request(
+                    "GET",
+                    node,
+                    "/v1/metrics",
+                    retry_timeout_s=max(0.001, remaining),
+                )
+            else:
+                metrics = client.request(
+                    "GET",
+                    node,
+                    "/v1/metrics",
+                    retry_timeout_s=max(0.001, remaining),
+                    deadline_monotonic=deadline,
+                )
         except RuntimeError as exc:
             last = f"{type(exc).__name__}: {exc}"
             if time.monotonic() >= deadline:
@@ -599,14 +620,23 @@ def _health_sample(
     *,
     elapsed_s: float,
     audit_error_budget: AuditErrorBudget | None = None,
+    deadline: float | None = None,
 ) -> dict[str, Any]:
+    def request(node: str, path: str) -> dict[str, Any]:
+        if deadline is None:
+            return client.request("GET", node, path)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("cluster health sample exhausted its shared deadline")
+        return client.request("GET", node, path, deadline_monotonic=deadline)
+
     nodes: dict[str, Any] = {}
     audit_catchup_nodes: list[str] = []
     audit_error_recoveries: list[dict[str, Any]] = []
     for node in NODES:
-        invariant = client.request("GET", node, "/v1/invariants")
-        audit = client.request("GET", node, "/v1/audit/verify")
-        metrics = client.request("GET", node, "/v1/metrics")
+        invariant = request(node, "/v1/invariants")
+        audit = request(node, "/v1/audit/verify")
+        metrics = request(node, "/v1/metrics")
         metrics_observed_monotonic = time.monotonic()
         audit_exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
         capacity = metrics.get("storage_capacity")
@@ -655,6 +685,7 @@ def _health_sample(
                 initial_exporter=audit_exporter,
                 initial_elapsed_s=elapsed_s,
                 initial_observed_monotonic=metrics_observed_monotonic,
+                shared_deadline=deadline,
             )
             audit_error_budget.mark_recovered(node)
             audit_error_recoveries.append(recovery)
@@ -1158,12 +1189,18 @@ def wait_converged(arguments: argparse.Namespace) -> dict[str, Any]:
     started = time.monotonic()
     deadline = started + arguments.convergence_timeout_seconds
     final_sample: dict[str, Any] | None = None
+    converged = False
     while time.monotonic() < deadline:
-        final_sample = _health_sample(client, elapsed_s=time.monotonic() - started)
-        if _is_converged(final_sample):
+        final_sample = _health_sample(
+            client,
+            elapsed_s=time.monotonic() - started,
+            deadline=deadline,
+        )
+        if _is_converged(final_sample) and time.monotonic() <= deadline:
+            converged = True
             break
-        time.sleep(0.25)
-    if final_sample is None or not _is_converged(final_sample):
+        time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+    if final_sample is None or not converged:
         raise RuntimeError(f"cluster did not settle for partition injection: {final_sample!r}")
     return {
         "converged": True,
@@ -1181,12 +1218,18 @@ def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
     started = time.monotonic()
     deadline = started + arguments.convergence_timeout_seconds
     final_sample: dict[str, Any] | None = None
+    converged = False
     while time.monotonic() < deadline:
-        final_sample = _health_sample(client, elapsed_s=time.monotonic() - started)
-        if _is_converged(final_sample):
+        final_sample = _health_sample(
+            client,
+            elapsed_s=time.monotonic() - started,
+            deadline=deadline,
+        )
+        if _is_converged(final_sample) and time.monotonic() <= deadline:
+            converged = True
             break
-        time.sleep(0.5)
-    if final_sample is None or not _is_converged(final_sample):
+        time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+    if final_sample is None or not converged:
         raise RuntimeError(f"cluster did not converge before the soak deadline: {final_sample!r}")
     conservation = _validate_conservation(final_sample)
     anchor = ProcessFileExecutorAuthorityAnchor(EXECUTOR_ANCHOR, timeout_s=5)
