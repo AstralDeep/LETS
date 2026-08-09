@@ -114,3 +114,45 @@ def test_reopen_refuses_incomplete_versioned_schema(tmp_path: Path) -> None:
             signing_key_id="test-key",
             signing_public_key=bytes(range(32)),
         )
+
+
+def test_sqlite_full_rolls_back_atomically_and_sticks_readiness_false(tmp_path: Path) -> None:
+    path = tmp_path / "full.db"
+    options = {
+        "signing_key_id": "test-key",
+        "signing_public_key": bytes(range(32)),
+        "tenant_id": "tenant",
+        "envelope_id": "envelope",
+        "reserve_pages": 1,
+    }
+    store = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
+    try:
+        with (
+            pytest.raises(StorageError, match="SQLite transaction failed"),
+            store.write() as transaction,
+        ):
+            page_count = int(transaction.execute("PRAGMA page_count").fetchone()[0])
+            selected = int(
+                transaction.execute(f"PRAGMA max_page_count={page_count + 1}").fetchone()[0]
+            )
+            assert selected == page_count + 1
+            transaction.put_idempotency(
+                scope="capacity",
+                request_id="oversized-write",
+                fingerprint=b"fingerprint",
+                response=b"x" * (1024 * 1024),
+                status_code=200,
+                created_at_ns=1,
+            )
+        with store.read() as transaction:
+            assert transaction.get_idempotency("capacity", "oversized-write") is None
+        faulted = store.capacity_snapshot()
+        assert faulted.prior_full_error
+        assert not faulted.healthy
+
+        recovered = store.clear_capacity_fault()
+        assert recovered.healthy
+        assert store.pragma_integrity_check() == ("ok",)
+        assert store.verify_conservation()
+    finally:
+        store.close()

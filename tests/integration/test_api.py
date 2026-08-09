@@ -633,6 +633,77 @@ def test_reclaim_route_and_openapi_return_a_resource_vector() -> None:
     )
 
 
+def test_runtime_drain_control_has_strict_authenticated_wire_contract() -> None:
+    class RuntimeService(StubService):
+        def runtime_status(self, **arguments: Any) -> dict[str, object]:
+            self.calls.append(("runtime_status", arguments))
+            return {
+                "mode": "ACTIVE",
+                "generation": 0,
+                "reason": "schema initialization",
+                "changed_at_ns": 0,
+                "changed_by": "lets-migration",
+            }
+
+        def set_runtime_mode(self, **arguments: Any) -> dict[str, object]:
+            self.calls.append(("set_runtime_mode", arguments))
+            if arguments["mode"] not in {"ACTIVE", "DRAINING"}:
+                raise ValidationError("runtime mode must be ACTIVE or DRAINING")
+            return {
+                "mode": arguments["mode"],
+                "generation": 1,
+                "reason": arguments["reason"],
+                "changed_at_ns": 10,
+                "changed_by": arguments["identity"].subject_id,
+            }
+
+    service = RuntimeService()
+    app = create_app(
+        service,
+        authenticator=StaticBearerAuthenticator.single("valid-token", _identity()),
+    )
+    headers = {"authorization": "Bearer valid-token"}
+
+    status = _request(app, "GET", "/v1/maintenance/runtime", headers=headers)
+    assert status.status_code == 200
+    assert status.json()["mode"] == "ACTIVE"
+    changed = _request(
+        app,
+        "POST",
+        "/v1/maintenance/runtime",
+        headers=headers,
+        json={
+            "request_id": "drain-request",
+            "mode": "DRAINING",
+            "reason": "planned upgrade",
+        },
+    )
+    assert changed.status_code == 200
+    assert changed.json() == {
+        "mode": "DRAINING",
+        "generation": 1,
+        "reason": "planned upgrade",
+        "changed_at_ns": 10,
+        "changed_by": "operator-a",
+    }
+    invalid = _request(
+        app,
+        "POST",
+        "/v1/maintenance/runtime",
+        headers=headers,
+        json={"request_id": "bad", "mode": "PAUSED", "reason": "not supported"},
+    )
+    assert invalid.status_code == 422
+    document = _request(app, "GET", "/v1/openapi.json").json()
+    runtime_path = document["paths"]["/v1/maintenance/runtime"]
+    assert runtime_path["post"]["requestBody"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RuntimeModeRequest"
+    }
+    assert runtime_path["get"]["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/RuntimeStatus"
+    }
+
+
 def test_openapi_exports_strict_body_and_security_contracts() -> None:
     app = create_app(
         StubService(),

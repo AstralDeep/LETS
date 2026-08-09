@@ -3,11 +3,12 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
-from lets.errors import ConflictError, InvariantError, StorageError, ValidationError
+from lets.errors import CapacityError, ConflictError, InvariantError, StorageError, ValidationError
 from lets.storage import SQLiteStorage
 from lets.storage.schema import (
     APPLICATION_ID,
@@ -101,6 +102,76 @@ def test_open_existing_fails_closed_without_recreating_authority_state(tmp_path:
     created.close()
     with pytest.raises(StorageError, match="already initialized"):
         SQLiteStorage.initialize(initialized, "warden-a", (10,), **options)
+
+
+def test_schema_v1_requires_explicit_transactional_migration(tmp_path: Path) -> None:
+    path = tmp_path / "legacy-v1.db"
+    options = {
+        "signing_key_id": _SIGNING_KEY_ID,
+        "signing_public_key": _SIGNING_PUBLIC_KEY,
+        "tenant_id": "tenant-a",
+        "envelope_id": "envelope-a",
+    }
+    current = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
+    current.close()
+
+    # Construct the exact version boundary represented by the v1 schema: v2's
+    # expand-only runtime-control objects are absent and both version markers agree.
+    with closing(sqlite3.connect(path)) as connection, connection:
+        connection.execute("DROP TRIGGER runtime_control_generation_monotonic")
+        connection.execute("DROP TRIGGER runtime_control_no_delete")
+        connection.execute("DROP TABLE runtime_control")
+        connection.execute("DROP TRIGGER database_instance_immutable")
+        connection.execute("DROP TRIGGER database_instance_no_delete")
+        connection.execute("DROP TABLE database_instance")
+        connection.execute("UPDATE database_metadata SET schema_version = 1 WHERE singleton = 1")
+        connection.execute("PRAGMA user_version = 1")
+
+    with pytest.raises(StorageError, match="requires explicit migration"):
+        SQLiteStorage(path, "warden-a", (10,), **options)
+
+    migrated = SQLiteStorage.migrate(path, "warden-a", (10,), **options)
+    try:
+        assert migrated.schema_version == SCHEMA_VERSION == 2
+        with migrated.read() as transaction:
+            row = transaction.connection.execute(
+                "SELECT mode, generation FROM runtime_control WHERE singleton = 1"
+            ).fetchone()
+        assert tuple(row) == ("ACTIVE", 0)
+    finally:
+        migrated.close()
+
+
+def test_capacity_reserve_fails_closed_before_sqlite_full(tmp_path: Path) -> None:
+    path = tmp_path / "capacity.db"
+    options = {
+        "signing_key_id": _SIGNING_KEY_ID,
+        "signing_public_key": _SIGNING_PUBLIC_KEY,
+        "tenant_id": "tenant-a",
+        "envelope_id": "envelope-a",
+    }
+    initialized = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
+    initialized.close()
+
+    limited = SQLiteStorage(
+        path,
+        "warden-a",
+        (10,),
+        max_database_bytes=1,
+        reserve_pages=8,
+        **options,
+    )
+    try:
+        snapshot = limited.capacity_snapshot()
+        assert not snapshot.healthy
+        assert snapshot.max_database_bytes == 1
+        assert snapshot.database_bytes > snapshot.max_database_bytes
+        with pytest.raises(CapacityError, match="reserve is exhausted"), limited.write():
+            pass
+        assert limited.pragma_integrity_check() == ("ok",)
+        assert limited.verify_conservation()
+    finally:
+        limited.close()
 
 
 def test_transaction_rolls_back_and_closes_handle(store: SQLiteStorage) -> None:

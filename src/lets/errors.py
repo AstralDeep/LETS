@@ -45,5 +45,13 @@ class StorageError(LETSError):
     code = "storage_error"
 
 
+class DrainingError(StorageError):
+    code = "warden_draining"
+
+
+class CapacityError(StorageError):
+    code = "storage_capacity_exhausted"
+
+
 class ClockUncertainError(PolicyError):
     code = "clock_uncertain"

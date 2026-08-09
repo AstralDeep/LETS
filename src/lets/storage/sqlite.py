@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
+import threading
 import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
@@ -15,8 +17,16 @@ from pathlib import Path
 from typing import Any, Protocol, Self, TypeAlias, cast, runtime_checkable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from lets.authority import AuthorityAnchor, AuthorityCheckpoint
 from lets.canonical import canonical_json
-from lets.errors import ConflictError, InvariantError, NotFoundError, StorageError, ValidationError
+from lets.errors import (
+    CapacityError,
+    ConflictError,
+    InvariantError,
+    NotFoundError,
+    StorageError,
+    ValidationError,
+)
 from lets.ids import require_key_id, require_warden_id
 from lets.policy import MAX_TRANSFER_GAP_WINDOW
 from lets.storage.schema import (
@@ -257,6 +267,36 @@ class StorageMetadata:
     @property
     def dimension_count(self) -> int:
         return len(self.budget)
+
+
+@dataclass(frozen=True, slots=True)
+class CapacitySnapshot:
+    database_bytes: int
+    filesystem_free_bytes: int | None
+    page_size: int
+    page_count: int
+    free_pages: int
+    max_page_count: int
+    reserve_pages: int
+    min_free_disk_bytes: int
+    max_database_bytes: int | None
+    prior_full_error: bool
+    healthy: bool
+
+    def to_dict(self) -> Record:
+        return {
+            "database_bytes": self.database_bytes,
+            "filesystem_free_bytes": self.filesystem_free_bytes,
+            "page_size": self.page_size,
+            "page_count": self.page_count,
+            "free_pages": self.free_pages,
+            "max_page_count": self.max_page_count,
+            "reserve_pages": self.reserve_pages,
+            "min_free_disk_bytes": self.min_free_disk_bytes,
+            "max_database_bytes": self.max_database_bytes,
+            "prior_full_error": self.prior_full_error,
+            "healthy": self.healthy,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1647,6 +1687,10 @@ class SQLiteStorage:
         transfer_gap_window: int | None = None,
         config: object | None = None,
         busy_timeout_ms: int = 5_000,
+        authority_anchor: AuthorityAnchor | None = None,
+        min_free_disk_bytes: int = 0,
+        max_database_bytes: int | None = None,
+        reserve_pages: int = 64,
         _create: bool = False,
         _migrate: bool = False,
     ) -> None:
@@ -1679,6 +1723,17 @@ class SQLiteStorage:
         self._busy_timeout_ms = _nonnegative_integer(
             busy_timeout_ms, "busy_timeout_ms", positive=True
         )
+        self._authority_anchor = authority_anchor
+        self._authority_anchor_faulted = False
+        self._authority_transaction_lock = threading.RLock()
+        self._min_free_disk_bytes = _nonnegative_integer(min_free_disk_bytes, "min_free_disk_bytes")
+        self._max_database_bytes = (
+            None
+            if max_database_bytes is None
+            else _nonnegative_integer(max_database_bytes, "max_database_bytes", positive=True)
+        )
+        self._reserve_pages = _nonnegative_integer(reserve_pages, "reserve_pages", positive=True)
+        self._capacity_faulted = False
         self._closed = False
         self._active: ContextVar[bool] = ContextVar(
             f"lets_sqlite_transaction_{id(self)}", default=False
@@ -1886,6 +1941,12 @@ class SQLiteStorage:
             self._verify_candidate(metadata, candidate)
             self._assert_local_conservation(connection, metadata, reconcile=True)
             connection.commit()
+            self._reconcile_authority_anchor(
+                connection,
+                initialize=create,
+                allow_schema_upgrade=migrate,
+                metadata=metadata,
+            )
             return metadata
         except BaseException:
             if connection.in_transaction:
@@ -2167,8 +2228,205 @@ class SQLiteStorage:
                 f"local conservation violated: available={available}, accounted={accounted}"
             )
 
+    def _authority_checkpoint(
+        self,
+        connection: sqlite3.Connection,
+        metadata: StorageMetadata | None = None,
+    ) -> AuthorityCheckpoint:
+        current = self._metadata if metadata is None else metadata
+        state = connection.execute(
+            """
+            SELECT free_pool, lease_residual, consumed, transferred_in, transferred_out,
+                   revision, clock_floor_ns
+            FROM warden_state
+            WHERE tenant_id = ? AND envelope_id = ?
+            """,
+            (current.tenant_id, current.envelope_id),
+        ).fetchone()
+        if state is None:
+            raise StorageError("warden state is missing while computing the authority anchor")
+        control = connection.execute(
+            """
+            SELECT mode, generation, reason, changed_at_ns, changed_by
+            FROM runtime_control WHERE singleton = 1
+            """
+        ).fetchone()
+        if control is None:
+            raise StorageError("runtime control is missing while computing the authority anchor")
+        instance = connection.execute(
+            "SELECT instance_id FROM database_instance WHERE singleton = 1"
+        ).fetchone()
+        if instance is None:
+            raise StorageError("database instance identity is missing")
+        instance_id = _blob(
+            instance["instance_id"], "database instance identity", allow_empty=False
+        )
+        if len(instance_id) != 32:
+            raise StorageError("database instance identity must contain exactly 32 bytes")
+        audit = connection.execute(
+            """
+            SELECT sequence, event_hash FROM audit_log
+            WHERE tenant_id = ? AND envelope_id = ?
+            ORDER BY sequence DESC LIMIT 1
+            """,
+            (current.tenant_id, current.envelope_id),
+        ).fetchone()
+        if audit is None:
+            audit_sequence = -1
+            audit_hash = _ZERO_AUDIT_HASH
+        else:
+            audit_sequence = cast(int, audit["sequence"])
+            audit_hash = _blob(audit["event_hash"], "authority audit hash", allow_empty=False)
+            if len(audit_hash) != 32:
+                raise StorageError("authority audit hash must contain exactly 32 bytes")
+        vector_fields = (
+            "free_pool",
+            "lease_residual",
+            "consumed",
+            "transferred_in",
+            "transferred_out",
+        )
+        state_payload: dict[str, object] = {
+            field: list(
+                unpack(
+                    _blob(state[field], f"authority {field}"),
+                    dimensions=current.dimension_count,
+                )
+            )
+            for field in vector_fields
+        }
+        state_payload["revision"] = cast(int, state["revision"])
+        state_payload["clock_floor_ns"] = cast(int | None, state["clock_floor_ns"])
+        state_payload["runtime_control"] = {
+            "mode": cast(str, control["mode"]),
+            "generation": cast(int, control["generation"]),
+            "reason": cast(str, control["reason"]),
+            "changed_at_ns": cast(int, control["changed_at_ns"]),
+            "changed_by": cast(str, control["changed_by"]),
+        }
+        return AuthorityCheckpoint(
+            warden_id=current.warden_id,
+            tenant_id=current.tenant_id,
+            envelope_id=current.envelope_id,
+            config_epoch=current.config_epoch,
+            schema_version=current.schema_version,
+            signing_key_id=current.signing_key_id,
+            signing_public_key_sha256=current.signing_public_key_sha256,
+            database_instance_id=instance_id,
+            audit_sequence=audit_sequence,
+            audit_hash=audit_hash,
+            state_revision=cast(int, state["revision"]),
+            state_digest=sha256(canonical_json(state_payload)).digest(),
+        )
+
+    def _audit_hash_at(
+        self,
+        connection: sqlite3.Connection,
+        sequence: int,
+        metadata: StorageMetadata | None = None,
+    ) -> bytes | None:
+        current = self._metadata if metadata is None else metadata
+        row = connection.execute(
+            """
+            SELECT event_hash FROM audit_log
+            WHERE tenant_id = ? AND envelope_id = ? AND sequence = ?
+            """,
+            (current.tenant_id, current.envelope_id, sequence),
+        ).fetchone()
+        if row is None:
+            return None
+        digest = _blob(row["event_hash"], "historical authority audit hash", allow_empty=False)
+        if len(digest) != 32:
+            raise StorageError("historical authority audit hash must contain exactly 32 bytes")
+        return digest
+
+    def _reconcile_authority_anchor(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        initialize: bool = False,
+        allow_schema_upgrade: bool = False,
+        metadata: StorageMetadata | None = None,
+    ) -> None:
+        anchor = self._authority_anchor
+        if anchor is None:
+            return
+        if self._authority_anchor_faulted:
+            raise StorageError("authority anchor previously faulted; restart after operator repair")
+        try:
+            checkpoint = self._authority_checkpoint(connection, metadata)
+            anchor.reconcile(
+                checkpoint,
+                audit_hash_at=lambda sequence: self._audit_hash_at(connection, sequence, metadata),
+                initialize=initialize,
+                allow_schema_upgrade=allow_schema_upgrade,
+            )
+        except StorageError:
+            self._authority_anchor_faulted = True
+            raise
+        except Exception as exc:
+            self._authority_anchor_faulted = True
+            raise StorageError("authority anchor provider failed") from exc
+
+    def _database_size(self) -> int:
+        if self._uri:
+            return 0
+        total = 0
+        for candidate in (self._path, f"{self._path}-wal", f"{self._path}-shm"):
+            with suppress(OSError):
+                total += os.path.getsize(candidate)
+        return total
+
+    def _capacity_snapshot(self, connection: sqlite3.Connection) -> CapacitySnapshot:
+        page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
+        page_count = int(connection.execute("PRAGMA page_count").fetchone()[0])
+        free_pages = int(connection.execute("PRAGMA freelist_count").fetchone()[0])
+        max_page_count = int(connection.execute("PRAGMA max_page_count").fetchone()[0])
+        database_bytes = self._database_size()
+        filesystem_free: int | None = None
+        if not self._uri:
+            try:
+                filesystem_free = shutil.disk_usage(Path(self._path).resolve().parent).free
+            except OSError:
+                filesystem_free = None
+        page_headroom = max(0, max_page_count - page_count) + free_pages
+        healthy = (
+            not self._capacity_faulted
+            and page_headroom >= self._reserve_pages
+            and (
+                (filesystem_free is not None and filesystem_free >= self._min_free_disk_bytes)
+                or self._min_free_disk_bytes == 0
+            )
+            and (
+                self._max_database_bytes is None
+                or database_bytes + self._reserve_pages * page_size <= self._max_database_bytes
+            )
+        )
+        return CapacitySnapshot(
+            database_bytes=database_bytes,
+            filesystem_free_bytes=filesystem_free,
+            page_size=page_size,
+            page_count=page_count,
+            free_pages=free_pages,
+            max_page_count=max_page_count,
+            reserve_pages=self._reserve_pages,
+            min_free_disk_bytes=self._min_free_disk_bytes,
+            max_database_bytes=self._max_database_bytes,
+            prior_full_error=self._capacity_faulted,
+            healthy=healthy,
+        )
+
+    def _require_write_capacity(self, connection: sqlite3.Connection) -> None:
+        snapshot = self._capacity_snapshot(connection)
+        if not snapshot.healthy:
+            raise CapacityError(
+                "storage capacity reserve is exhausted; authority writes are disabled"
+            )
+
     @contextmanager
-    def transaction(self, *, write: bool = True) -> Iterator[SQLiteTransaction]:
+    def transaction(
+        self, *, write: bool = True, capacity_recovery: bool = False
+    ) -> Iterator[SQLiteTransaction]:
         if self._closed:
             raise StorageError("storage is closed")
         if self._active.get():
@@ -2177,28 +2435,37 @@ class SQLiteStorage:
         connection: sqlite3.Connection | None = None
         transaction: SQLiteTransaction | None = None
         try:
-            connection = self._connect()
-            if not write:
-                connection.execute("PRAGMA query_only = ON")
-            connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
-            transaction = SQLiteTransaction(connection, self._metadata, writable=write)
-            yield transaction
-            if write:
-                # SQLite enforces immediate constraints on each statement and deferred
-                # constraints at COMMIT because every connection enables foreign_keys.
-                # A full foreign_key_check is O(database size), so it remains a startup
-                # and explicit diagnostic instead of running on every write.
-                try:
-                    self._assert_local_conservation(connection, self._metadata, reconcile=False)
-                except InvariantError:
-                    # If a malformed internal transaction violates both conservation and
-                    # a deferred FK, preserve the FK failure that COMMIT would report.
-                    # This diagnostic scan is restricted to the already-failing path; it
-                    # never adds database-size work to a valid commit.
-                    if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
-                        raise sqlite3.IntegrityError("FOREIGN KEY constraint failed") from None
-                    raise
-            connection.commit()
+            # Keep in-process readers, the peer dispatcher, and HTTP handlers behind
+            # the post-COMMIT anchor CAS.  Consequently no signed result or outbox row
+            # from a losing fork can be observed through this storage instance.
+            with self._authority_transaction_lock:
+                connection = self._connect()
+                self._reconcile_authority_anchor(connection)
+                if write and not capacity_recovery:
+                    self._require_write_capacity(connection)
+                if not write:
+                    connection.execute("PRAGMA query_only = ON")
+                connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
+                transaction = SQLiteTransaction(connection, self._metadata, writable=write)
+                yield transaction
+                if write:
+                    # SQLite enforces immediate constraints on each statement and deferred
+                    # constraints at COMMIT because every connection enables foreign_keys.
+                    # A full foreign_key_check is O(database size), so it remains a startup
+                    # and explicit diagnostic instead of running on every write.
+                    try:
+                        self._assert_local_conservation(connection, self._metadata, reconcile=False)
+                    except InvariantError:
+                        # If a malformed internal transaction violates both conservation and
+                        # a deferred FK, preserve the FK failure that COMMIT would report.
+                        # This diagnostic scan is restricted to the already-failing path; it
+                        # never adds database-size work to a valid commit.
+                        if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                            raise sqlite3.IntegrityError("FOREIGN KEY constraint failed") from None
+                        raise
+                connection.commit()
+                if write:
+                    self._reconcile_authority_anchor(connection)
         except sqlite3.IntegrityError:
             if connection is not None and connection.in_transaction:
                 connection.rollback()
@@ -2206,6 +2473,11 @@ class SQLiteStorage:
         except sqlite3.Error as exc:
             if connection is not None and connection.in_transaction:
                 connection.rollback()
+            if (
+                getattr(exc, "sqlite_errorcode", None) == sqlite3.SQLITE_FULL
+                or "full" in str(exc).casefold()
+            ):
+                self._capacity_faulted = True
             raise StorageError("SQLite transaction failed") from exc
         except BaseException:
             if connection is not None and connection.in_transaction:
@@ -2221,12 +2493,63 @@ class SQLiteStorage:
     def write(self) -> AbstractContextManager[SQLiteTransaction]:
         return self.transaction(write=True)
 
+    def capacity_recovery(self) -> AbstractContextManager[SQLiteTransaction]:
+        """A reserved write lane for bounded deletion/export bookkeeping only."""
+
+        return self.transaction(write=True, capacity_recovery=True)
+
     def read(self) -> AbstractContextManager[SQLiteTransaction]:
         return self.transaction(write=False)
 
     def audit_sequence(self) -> int:
         with self.read() as transaction:
             return transaction.audit_sequence()
+
+    @property
+    def authority_anchor_enabled(self) -> bool:
+        return self._authority_anchor is not None
+
+    @property
+    def authority_anchor_healthy(self) -> bool:
+        return self._authority_anchor is not None and not self._authority_anchor_faulted
+
+    def authority_checkpoint(self) -> AuthorityCheckpoint:
+        """Return the current checkpoint for explicit external-anchor bootstrap."""
+
+        with self.read() as transaction:
+            return self._authority_checkpoint(transaction.connection)
+
+    def verify_authority_anchor(self) -> bool:
+        if self._authority_anchor is None:
+            raise StorageError("no authority anchor is configured")
+        with self.read():
+            pass
+        return True
+
+    def capacity_snapshot(self) -> CapacitySnapshot:
+        if self._closed:
+            raise StorageError("storage is closed")
+        connection = self._connect()
+        try:
+            return self._capacity_snapshot(connection)
+        finally:
+            connection.close()
+
+    def clear_capacity_fault(self) -> CapacitySnapshot:
+        """Clear a sticky SQLITE_FULL fault only after headroom is restored."""
+
+        if self._closed:
+            raise StorageError("storage is closed")
+        connection = self._connect()
+        try:
+            self._capacity_faulted = False
+            snapshot = self._capacity_snapshot(connection)
+            if not snapshot.healthy:
+                self._capacity_faulted = True
+                raise CapacityError("storage capacity headroom has not been restored")
+            return snapshot
+        finally:
+            connection.close()
 
     def pragma_integrity_check(self) -> tuple[str, ...]:
         with self.read() as transaction:
@@ -2279,6 +2602,7 @@ SQLiteStore = SQLiteStorage
 
 __all__ = [
     "AuditRecord",
+    "CapacitySnapshot",
     "Record",
     "SQLiteScalar",
     "SQLiteStorage",

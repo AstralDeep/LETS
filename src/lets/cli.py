@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, NoReturn, cast
 
 from lets.auth import SQLitePeerReplayStore, StaticBearerAuthenticator
+from lets.authority import AuthorityAnchor
 from lets.canonical import b64url_decode, b64url_encode, strict_json_loads
 from lets.clock import Clock, SystemClock
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
@@ -26,11 +27,37 @@ from lets.errors import LETSError, SignatureError, StorageError, ValidationError
 from lets.ids import require_warden_id
 from lets.manifest import validate_endpoint_origin
 from lets.models import IdentityContext
+from lets.runtime import (
+    BUILTIN_RUNTIME_PROVIDER,
+    RuntimeBindings,
+    RuntimeProviderContext,
+    RuntimeSession,
+    RuntimeSigner,
+    open_runtime_provider,
+    validate_runtime_options,
+    validate_runtime_provider_name,
+)
 from lets.service import WardenService
 from lets.storage import SQLiteStorage
+from lets.vector import MAX_RESOURCE
 
 CONFIG_VERSION = 1
 DEFAULT_CONFIG = Path(".lets/config.json")
+
+
+def _add_runtime_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument(
+        "--runtime-provider",
+        metavar="NAME",
+        help="installed lets.runtime_providers entry point (default: configured provider)",
+    )
+    command.add_argument(
+        "--runtime-option",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="bounded provider option; repeatable and never interpreted by LETS",
+    )
 
 
 def _strict_json(data: str | bytes) -> object:
@@ -65,6 +92,23 @@ def _parser() -> argparse.ArgumentParser:
     initialize.add_argument("--receipt-ttl-ns", type=int, default=1_000_000_000)
     initialize.add_argument("--max-clock-uncertainty-ns", type=int, default=50_000_000)
     initialize.add_argument("--transfer-gap-window", type=int, default=64)
+    initialize.add_argument(
+        "--min-free-disk-bytes",
+        type=int,
+        default=0,
+        help="development disk-free reserve; production requires an explicit positive value",
+    )
+    initialize.add_argument(
+        "--max-database-bytes",
+        type=int,
+        help="maximum database plus WAL/SHM bytes; production requires a positive value",
+    )
+    initialize.add_argument(
+        "--reserve-pages",
+        type=int,
+        default=64,
+        help="minimum SQLite page headroom retained for authority writes",
+    )
     initialize.add_argument("--bootstrap-subject")
     initialize.add_argument(
         "--manifest",
@@ -125,12 +169,21 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="explicitly permit cleartext outbound peer endpoints (development only)",
     )
+    serve.add_argument(
+        "--production",
+        action="store_true",
+        help="require manifest, TLS, and an external production-capable runtime provider",
+    )
     serve.add_argument("--log-level", default="info")
+    _add_runtime_arguments(serve)
 
-    commands.add_parser("key", help="print this node's public signing key")
-    commands.add_parser("info", help="inspect local node identity and database health")
+    key = commands.add_parser("key", help="print this node's public signing key")
+    _add_runtime_arguments(key)
+    info = commands.add_parser("info", help="inspect local node identity and database health")
+    _add_runtime_arguments(info)
     backup = commands.add_parser("backup", help="create a verified consistent SQLite backup")
     backup.add_argument("--output", type=Path, required=True)
+    _add_runtime_arguments(backup)
     return parser
 
 
@@ -243,6 +296,27 @@ def _initialize(config_path: Path, arguments: argparse.Namespace) -> int:
     resolved = config_path.resolve()
     if resolved.exists():
         raise ValidationError(f"configuration already exists: {resolved}")
+    for field, minimum in (
+        ("min_free_disk_bytes", 0),
+        ("reserve_pages", 1),
+    ):
+        value = getattr(arguments, field)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value < minimum
+            or value > MAX_RESOURCE
+        ):
+            raise ValidationError(
+                f"--{field.replace('_', '-')} must be an integer in [{minimum}, {MAX_RESOURCE}]"
+            )
+    if arguments.max_database_bytes is not None and (
+        isinstance(arguments.max_database_bytes, bool)
+        or not isinstance(arguments.max_database_bytes, int)
+        or arguments.max_database_bytes <= 0
+        or arguments.max_database_bytes > MAX_RESOURCE
+    ):
+        raise ValidationError(f"--max-database-bytes must be an integer in [1, {MAX_RESOURCE}]")
     manifest = None
     accepted_operator_keys: frozenset[str] = frozenset()
     operator_keys: dict[str, bytes] = {}
@@ -400,6 +474,9 @@ def _initialize(config_path: Path, arguments: argparse.Namespace) -> int:
         max_clock_uncertainty_ns=arguments.max_clock_uncertainty_ns,
         transfer_gap_window=arguments.transfer_gap_window,
         config={} if manifest_digest is None else {"manifest_digest": manifest_digest},
+        min_free_disk_bytes=arguments.min_free_disk_bytes,
+        max_database_bytes=arguments.max_database_bytes,
+        reserve_pages=arguments.reserve_pages,
     )
     policy_digests: list[str] = []
     if policies:
@@ -429,9 +506,13 @@ def _initialize(config_path: Path, arguments: argparse.Namespace) -> int:
         "receipt_ttl_ns": arguments.receipt_ttl_ns,
         "max_clock_uncertainty_ns": arguments.max_clock_uncertainty_ns,
         "transfer_gap_window": arguments.transfer_gap_window,
+        "min_free_disk_bytes": arguments.min_free_disk_bytes,
+        "max_database_bytes": arguments.max_database_bytes,
+        "reserve_pages": arguments.reserve_pages,
         "database": database_path.name,
         "signing_key": key_path.name,
         "replay_database": replay_path.name,
+        "runtime": {"provider": BUILTIN_RUNTIME_PROVIDER, "options": {}},
         "bootstrap_identities": [
             {
                 "token_sha256": sha256(token.encode("utf-8")).hexdigest(),
@@ -496,8 +577,9 @@ def _storage(
     config_path: Path,
     config: Mapping[str, Any],
     *,
-    signer: Ed25519Signer,
+    signer: RuntimeSigner,
     database_override: Path | None = None,
+    authority_anchor: AuthorityAnchor | None = None,
 ) -> SQLiteStorage:
     manifest_digest = config.get("manifest_digest")
     storage_extensions = (
@@ -524,6 +606,10 @@ def _storage(
         max_clock_uncertainty_ns=int(config.get("max_clock_uncertainty_ns", 50_000_000)),
         transfer_gap_window=int(config.get("transfer_gap_window", 64)),
         config=storage_extensions,
+        authority_anchor=authority_anchor,
+        min_free_disk_bytes=config.get("min_free_disk_bytes", 0),
+        max_database_bytes=config.get("max_database_bytes"),
+        reserve_pages=config.get("reserve_pages", 64),
     )
 
 
@@ -559,6 +645,109 @@ def _client_authenticator(config: Mapping[str, Any]) -> StaticBearerAuthenticato
             )
         )
     return StaticBearerAuthenticator.from_sha256_digests(credentials)
+
+
+def _runtime_option_pairs(values: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    pairs: list[tuple[str, str]] = []
+    for raw in values:
+        if not isinstance(raw, str):
+            raise ValidationError("--runtime-option must use NAME=VALUE syntax")
+        name, separator, value = raw.partition("=")
+        if separator != "=" or not name or not value:
+            raise ValidationError("--runtime-option must use NAME=VALUE syntax")
+        pairs.append((name, value))
+    return tuple(pairs)
+
+
+def _runtime_configuration(
+    config: Mapping[str, Any],
+    arguments: argparse.Namespace | None = None,
+) -> tuple[str, Mapping[str, str]]:
+    raw_runtime = config.get("runtime")
+    configured = raw_runtime is not None
+    if raw_runtime is None:
+        configured_provider = BUILTIN_RUNTIME_PROVIDER
+        configured_options: Mapping[str, str] = {}
+    else:
+        if not isinstance(raw_runtime, Mapping):
+            raise ValidationError("runtime configuration must be an object")
+        unknown = set(raw_runtime) - {"provider", "options"}
+        if unknown:
+            raise ValidationError(f"unknown runtime configuration fields: {sorted(unknown)}")
+        raw_provider = raw_runtime.get("provider")
+        raw_options = raw_runtime.get("options", {})
+        if not isinstance(raw_provider, str):
+            raise ValidationError("runtime provider must be a string")
+        if not isinstance(raw_options, Mapping):
+            raise ValidationError("runtime provider options must be an object")
+        if any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in raw_options.items()
+        ):
+            raise ValidationError("runtime provider options must map strings to strings")
+        configured_provider = validate_runtime_provider_name(raw_provider)
+        configured_options = cast(Mapping[str, str], raw_options)
+
+    provider_override = None if arguments is None else arguments.runtime_provider
+    raw_overrides = () if arguments is None else arguments.runtime_option
+    if not isinstance(raw_overrides, Sequence) or isinstance(raw_overrides, (str, bytes)):
+        raise ValidationError("runtime option overrides must be an array")
+    override_pairs = _runtime_option_pairs(cast(Sequence[str], raw_overrides))
+    if provider_override is None:
+        selected_provider = configured_provider
+        option_pairs = (*configured_options.items(), *override_pairs)
+    else:
+        selected_provider = validate_runtime_provider_name(provider_override)
+        # Options belong to a provider.  A deliberate provider override does not
+        # inherit options configured for a different implementation.
+        option_pairs = (
+            (*configured_options.items(), *override_pairs)
+            if not configured or selected_provider == configured_provider
+            else override_pairs
+        )
+    return selected_provider, validate_runtime_options(option_pairs)
+
+
+def _open_runtime(
+    config_path: Path,
+    config: Mapping[str, Any],
+    arguments: argparse.Namespace | None = None,
+    *,
+    production: bool = False,
+) -> RuntimeSession:
+    provider_name, options = _runtime_configuration(config, arguments)
+    manifest_digest = config.get("manifest_digest")
+    if manifest_digest is not None and not isinstance(manifest_digest, str):
+        raise ValidationError("manifest_digest must be a string")
+    context = RuntimeProviderContext(
+        config_path=config_path,
+        warden_id=_required_text(config, "warden_id"),
+        tenant_id=_required_text(config, "tenant_id"),
+        envelope_id=_required_text(config, "envelope_id"),
+        config_epoch=config.get("config_epoch", 1),
+        manifest_digest=manifest_digest,
+        options=options,
+        production=production,
+    )
+
+    def builtin_factory(runtime_context: RuntimeProviderContext) -> RuntimeBindings:
+        if runtime_context.options:
+            raise ValidationError("the built-in runtime provider does not accept options")
+        return RuntimeBindings(
+            warden_id=runtime_context.warden_id,
+            tenant_id=runtime_context.tenant_id,
+            signer=_signer(config_path, config),
+            authenticator=_client_authenticator(config),
+            production_capable=False,
+            authority_anchor=None,
+            audit_sink=None,
+        )
+
+    return open_runtime_provider(
+        provider_name,
+        context,
+        builtin_factory=builtin_factory,
+    )
 
 
 def _configured_peer_endpoints(
@@ -604,14 +793,14 @@ def _validate_peer_trust(
 
 def _trust_registry(
     config: Mapping[str, Any],
-    signer: Ed25519Signer,
+    signer: RuntimeSigner,
     *,
     clock: Clock | None = None,
 ) -> PublicKeyRegistry:
     from lets.manifest import ManifestPublicKey
 
     registry = PublicKeyRegistry(clock=clock)
-    registry.register_signer(signer)
+    registry.register(signer.warden_id, signer.key_id, signer.public_key_bytes)
     raw_peers = config.get("trusted_peers", [])
     if not isinstance(raw_peers, Sequence) or isinstance(raw_peers, (str, bytes)):
         raise ValidationError("trusted_peers must be an array")
@@ -647,7 +836,7 @@ def _trust_registry(
 
 def _manifest_trust_registry(
     config: Mapping[str, Any],
-    signer: Ed25519Signer,
+    signer: RuntimeSigner,
     *,
     clock: Clock,
 ) -> PublicKeyRegistry:
@@ -815,114 +1004,134 @@ def _manifest_trust_registry(
     return registry
 
 
-def _key(config_path: Path) -> int:
+def _key(config_path: Path, arguments: argparse.Namespace | None = None) -> int:
     resolved, config = _load_config(config_path)
-    signer = _signer(resolved, config)
-    print(
-        json.dumps(
-            {
-                "warden_id": signer.warden_id,
-                "key_id": signer.key_id,
-                "algorithm": "Ed25519",
-                "public_key": b64url_encode(signer.public_key_bytes),
-            },
-            indent=2,
-        )
-    )
+    with _open_runtime(resolved, config, arguments) as runtime:
+        signer = runtime.signer
+        document = {
+            "warden_id": signer.warden_id,
+            "key_id": signer.key_id,
+            "algorithm": "Ed25519",
+            "public_key": b64url_encode(signer.public_key_bytes),
+            "runtime_provider": runtime.provider_name,
+        }
+    print(json.dumps(document, indent=2))
     return 0
 
 
-def _info(config_path: Path) -> int:
+def _info(config_path: Path, arguments: argparse.Namespace | None = None) -> int:
     resolved, config = _load_config(config_path)
-    signer = _signer(resolved, config)
-    store = _storage(resolved, config, signer=signer)
-    try:
-        integrity = store.pragma_integrity_check()
-        foreign_keys = store.pragma_foreign_key_check()
-        document = {
-            "config": str(resolved),
-            "warden_id": signer.warden_id,
-            "key_id": signer.key_id,
-            "tenant_id": store.metadata.tenant_id,
-            "envelope_id": store.metadata.envelope_id,
-            "config_epoch": store.metadata.config_epoch,
-            "schema_version": store.schema_version,
-            "database": store.path,
-            "database_integrity": list(integrity),
-            "foreign_key_violations": len(foreign_keys),
-            "ready": integrity == ("ok",) and not foreign_keys,
-        }
-        if "manifest_digest" in config:
-            document["manifest_digest"] = config["manifest_digest"]
-    finally:
-        store.close()
+    with _open_runtime(resolved, config, arguments) as runtime:
+        signer = runtime.signer
+        store = _storage(
+            resolved,
+            config,
+            signer=signer,
+            authority_anchor=runtime.authority_anchor,
+        )
+        try:
+            integrity = store.pragma_integrity_check()
+            foreign_keys = store.pragma_foreign_key_check()
+            capacity = store.capacity_snapshot()
+            document = {
+                "config": str(resolved),
+                "warden_id": signer.warden_id,
+                "key_id": signer.key_id,
+                "tenant_id": store.metadata.tenant_id,
+                "envelope_id": store.metadata.envelope_id,
+                "config_epoch": store.metadata.config_epoch,
+                "schema_version": store.schema_version,
+                "database": store.path,
+                "database_integrity": list(integrity),
+                "foreign_key_violations": len(foreign_keys),
+                "storage_capacity": capacity.to_dict(),
+                "runtime_provider": runtime.provider_name,
+                "ready": integrity == ("ok",) and not foreign_keys and capacity.healthy,
+            }
+            if "manifest_digest" in config:
+                document["manifest_digest"] = config["manifest_digest"]
+        finally:
+            store.close()
     print(json.dumps(document, indent=2))
     return 0 if document["ready"] else 1
 
 
-def _backup(config_path: Path, output: Path) -> int:
+def _backup(
+    config_path: Path,
+    output: Path,
+    arguments: argparse.Namespace | None = None,
+) -> int:
     resolved, config = _load_config(config_path)
-    signer = _signer(resolved, config)
     destination = output.resolve()
     if destination.exists():
         raise ValidationError(f"backup destination already exists: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    store = _storage(resolved, config, signer=signer)
     descriptor = -1
     temporary = ""
-    try:
-        store.checkpoint()
-        descriptor, temporary = tempfile.mkstemp(
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            dir=destination.parent,
-        )
-        os.close(descriptor)
-        descriptor = -1
-        source = sqlite3.connect(store.path)
-        target = sqlite3.connect(temporary)
-        try:
-            source.backup(target)
-            target.commit()
-        finally:
-            target.close()
-            source.close()
-        verifier = _storage(
+    with _open_runtime(resolved, config, arguments) as runtime:
+        store = _storage(
             resolved,
             config,
-            signer=signer,
-            database_override=Path(temporary),
+            signer=runtime.signer,
+            authority_anchor=runtime.authority_anchor,
         )
         try:
-            integrity = verifier.pragma_integrity_check()
-            if integrity != ("ok",):
-                raise ValidationError(f"backup integrity check failed: {integrity!r}")
-        finally:
-            verifier.close()
-        with open(temporary, "r+b") as stream:
-            os.fsync(stream.fileno())
-        try:
-            os.link(temporary, destination)
-        except FileExistsError as exc:
-            raise ValidationError(
-                f"backup destination appeared during backup: {destination}"
-            ) from exc
-        os.unlink(temporary)
-        temporary = ""
-    finally:
-        if descriptor >= 0:
+            store.checkpoint()
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=f".{destination.name}.",
+                suffix=".tmp",
+                dir=destination.parent,
+            )
             os.close(descriptor)
-        if temporary:
-            with suppress(FileNotFoundError):
-                os.unlink(temporary)
-        store.close()
+            descriptor = -1
+            source = sqlite3.connect(store.path)
+            target = sqlite3.connect(temporary)
+            try:
+                source.backup(target)
+                target.commit()
+            finally:
+                target.close()
+                source.close()
+            verifier = _storage(
+                resolved,
+                config,
+                signer=runtime.signer,
+                database_override=Path(temporary),
+                authority_anchor=runtime.authority_anchor,
+            )
+            try:
+                integrity = verifier.pragma_integrity_check()
+                if integrity != ("ok",):
+                    raise ValidationError(f"backup integrity check failed: {integrity!r}")
+            finally:
+                verifier.close()
+            with open(temporary, "r+b") as stream:
+                os.fsync(stream.fileno())
+            try:
+                os.link(temporary, destination)
+            except FileExistsError as exc:
+                raise ValidationError(
+                    f"backup destination appeared during backup: {destination}"
+                ) from exc
+            os.unlink(temporary)
+            temporary = ""
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary:
+                with suppress(FileNotFoundError):
+                    os.unlink(temporary)
+            store.close()
     print(
         json.dumps(
             {
                 "backup": str(destination),
                 "bytes": destination.stat().st_size,
                 "scope": "database-only",
-                "warning": "Back up config and signing key separately as protected secrets.",
+                "warning": (
+                    "Back up config and runtime-provider recovery material separately "
+                    "as protected secrets."
+                ),
             },
             indent=2,
         )
@@ -936,8 +1145,10 @@ def _metrics_provider(
     identity: IdentityContext,
     *,
     peer_status: Callable[[], Mapping[str, object]] | None = None,
+    audit_status: Callable[[], Mapping[str, object]] | None = None,
 ) -> dict[str, object]:
     invariant = service.invariant_snapshot(identity=identity)
+    capacity = store.capacity_snapshot()
     with store.read() as transaction:
         connection = transaction.connection
         lease_rows = connection.execute(
@@ -992,6 +1203,7 @@ def _metrics_provider(
             "by_status": {str(row[0]): int(row[1]) for row in lease_rows},
         },
         "receipts": {"total": receipt_count},
+        "storage_capacity": capacity.to_dict(),
         "transfers": {
             "outgoing_streams": int(outgoing[0]),
             "outgoing_acked_high_water": int(outgoing[1]),
@@ -1011,6 +1223,14 @@ def _metrics_provider(
     }
     if peer_status is not None:
         result["peer_dispatcher"] = dict(peer_status())
+    if audit_status is not None:
+        status = dict(audit_status())
+        result["audit_exporter"] = status
+        result["ready"] = (
+            bool(result["ready"])
+            and status.get("running") is True
+            and status.get("last_error") is None
+        )
     return result
 
 
@@ -1021,6 +1241,43 @@ def _is_loopback(host: str) -> bool:
         return ipaddress.ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def _validate_production_admission(
+    config: Mapping[str, Any],
+    arguments: argparse.Namespace,
+    *,
+    provider_name: str,
+) -> None:
+    """Reject development trust and transport choices before opening resources."""
+
+    if provider_name == BUILTIN_RUNTIME_PROVIDER:
+        raise ValidationError(
+            "--production rejects the built-in file signer and static bearer authenticator"
+        )
+    if arguments.tls_cert is None or arguments.tls_key is None:
+        raise ValidationError("--production requires --tls-cert and --tls-key")
+    if arguments.allow_insecure_http or arguments.allow_insecure_peer_http:
+        raise ValidationError("--production rejects insecure client or peer HTTP opt-ins")
+    if config.get("allow_insecure_manifest") is not False:
+        raise ValidationError("--production requires a manifest admitted without insecure HTTP")
+    for field in ("manifest", "manifest_digest", "operator_trust"):
+        if field not in config:
+            raise ValidationError("--production requires an operator-signed cluster manifest")
+    bootstrap = config.get("bootstrap_identities")
+    if bootstrap not in (None, []):
+        raise ValidationError("--production rejects static bootstrap credentials")
+    for field in ("min_free_disk_bytes", "max_database_bytes", "reserve_pages"):
+        value = config.get(field)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or value <= 0
+            or value > MAX_RESOURCE
+        ):
+            raise ValidationError(
+                f"--production requires an explicit positive {field} capacity setting"
+            )
 
 
 def _serve(config_path: Path, arguments: argparse.Namespace) -> int:
@@ -1038,16 +1295,25 @@ def _serve(config_path: Path, arguments: argparse.Namespace) -> int:
         raise ValidationError(
             "non-loopback serving requires TLS or the explicit --allow-insecure-http flag"
         )
+
+    resolved, config = _load_config(config_path)
+    provider_name, _ = _runtime_configuration(config, arguments)
+    if arguments.production:
+        _validate_production_admission(
+            config,
+            arguments,
+            provider_name=provider_name,
+        )
     try:
         import uvicorn
     except ImportError as exc:
         raise ValidationError("install the project-local 'server' extra to use lets serve") from exc
 
     from lets.api import create_app
+    from lets.audit import AuditExporter
     from lets.auth import PeerMessageAuthenticator
     from lets.peer import PeerDispatcher
 
-    resolved, config = _load_config(config_path)
     configured_insecure = config.get("allow_insecure_manifest", False)
     if not isinstance(configured_insecure, bool):
         raise ValidationError("allow_insecure_manifest must be a boolean")
@@ -1055,17 +1321,18 @@ def _serve(config_path: Path, arguments: argparse.Namespace) -> int:
         config,
         allow_insecure_http=arguments.allow_insecure_peer_http or configured_insecure,
     )
-    signer = _signer(resolved, config)
-    store = _storage(resolved, config, signer=signer)
-    try:
-        # Deep scans are a one-time admission gate. Request-path readiness remains bounded.
-        integrity = store.pragma_integrity_check()
-        foreign_keys = store.pragma_foreign_key_check()
-        if integrity != ("ok",) or foreign_keys:
-            raise StorageError(
-                "startup database diagnostics failed: "
-                f"integrity={integrity!r}, foreign_key_violations={len(foreign_keys)}"
-            )
+    ssl_certfile = None if arguments.tls_cert is None else str(arguments.tls_cert.resolve())
+    ssl_keyfile = None if arguments.tls_key is None else str(arguments.tls_key.resolve())
+    ssl_ca_certs = None if arguments.client_ca is None else str(arguments.client_ca.resolve())
+    ssl_cert_reqs = ssl.CERT_REQUIRED if arguments.client_ca is not None else ssl.CERT_NONE
+
+    with _open_runtime(
+        resolved,
+        config,
+        arguments,
+        production=arguments.production,
+    ) as runtime:
+        signer = runtime.signer
         clock = SystemClock(
             declared_uncertainty_ns=int(config.get("max_clock_uncertainty_ns", 50_000_000))
         )
@@ -1075,90 +1342,113 @@ def _serve(config_path: Path, arguments: argparse.Namespace) -> int:
             registry,
             local_warden_id=signer.warden_id,
         )
-        replay = SQLitePeerReplayStore(_local_path(resolved, config, "replay_database"))
-        service = WardenService(
-            store,
+        store = _storage(
+            resolved,
+            config,
             signer=signer,
-            clock=clock,
-            trust_registry=registry,
-            signing_key_validity=registry.key_validity(signer.warden_id, signer.key_id),
-            allowed_peer_wardens=frozenset(peer_endpoints),
+            authority_anchor=runtime.authority_anchor,
         )
-        peer_verify: bool | str = (
-            True if arguments.peer_ca is None else str(arguments.peer_ca.resolve())
-        )
-        peer_cert: str | tuple[str, str] | None = (
-            None
-            if arguments.peer_cert is None
-            else (
-                str(arguments.peer_cert.resolve()),
-                str(arguments.peer_key.resolve()),
+        try:
+            # Deep scans are a one-time admission gate. Request-path readiness remains bounded.
+            integrity = store.pragma_integrity_check()
+            foreign_keys = store.pragma_foreign_key_check()
+            if integrity != ("ok",) or foreign_keys:
+                raise StorageError(
+                    "startup database diagnostics failed: "
+                    f"integrity={integrity!r}, foreign_key_violations={len(foreign_keys)}"
+                )
+            replay = SQLitePeerReplayStore(_local_path(resolved, config, "replay_database"))
+            service = WardenService(
+                store,
+                signer=signer,
+                clock=clock,
+                trust_registry=registry,
+                signing_key_validity=registry.key_validity(signer.warden_id, signer.key_id),
+                allowed_peer_wardens=frozenset(peer_endpoints),
             )
-        )
-        dispatcher = PeerDispatcher(
-            service,
-            store,
-            signer,
-            peer_endpoints,
-            verify=peer_verify,
-            cert=peer_cert,
-        )
-        peer_authenticator = PeerMessageAuthenticator(registry, replay)
-        metrics_identity = IdentityContext(
-            subject_id=signer.warden_id,
-            tenant_id=_required_text(config, "tenant_id"),
-            scopes=frozenset({"lets.admin", "lets.metrics.read"}),
-            authentication_method="local-metrics",
-        )
-
-        def ready() -> bool:
-            try:
-                return service.ready()
-            except (LETSError, sqlite3.Error):
-                return False
-
-        app = create_app(
-            service,
-            authenticator=_client_authenticator(config),
-            signer=signer,
-            peer_authenticator=peer_authenticator,
-            peer_tenant_id=_required_text(config, "tenant_id"),
-            readiness_check=ready,
-            metrics_provider=lambda: _metrics_provider(
+            peer_verify: bool | str = (
+                True if arguments.peer_ca is None else str(arguments.peer_ca.resolve())
+            )
+            peer_cert: str | tuple[str, str] | None = (
+                None
+                if arguments.peer_cert is None
+                else (
+                    str(arguments.peer_cert.resolve()),
+                    str(arguments.peer_key.resolve()),
+                )
+            )
+            dispatcher = PeerDispatcher(
                 service,
                 store,
-                metrics_identity,
-                peer_status=dispatcher.status,
-            ),
-            node_metadata={
-                "tenant_id": _required_text(config, "tenant_id"),
-                "envelope_id": _required_text(config, "envelope_id"),
-                "config_epoch": int(config.get("config_epoch", 1)),
-                "manifest_digest": config.get("manifest_digest"),
-            },
-        )
-    except BaseException:
-        store.close()
-        raise
-    ssl_certfile = None if arguments.tls_cert is None else str(arguments.tls_cert.resolve())
-    ssl_keyfile = None if arguments.tls_key is None else str(arguments.tls_key.resolve())
-    ssl_ca_certs = None if arguments.client_ca is None else str(arguments.client_ca.resolve())
-    ssl_cert_reqs = ssl.CERT_REQUIRED if arguments.client_ca is not None else ssl.CERT_NONE
-    dispatcher.start()
-    try:
-        uvicorn.run(
-            app,
-            host=arguments.host,
-            port=arguments.port,
-            log_level=arguments.log_level,
-            ssl_certfile=ssl_certfile,
-            ssl_keyfile=ssl_keyfile,
-            ssl_ca_certs=ssl_ca_certs,
-            ssl_cert_reqs=ssl_cert_reqs,
-        )
-    finally:
-        try:
-            dispatcher.stop()
+                cast(Ed25519Signer, signer),
+                peer_endpoints,
+                verify=peer_verify,
+                cert=peer_cert,
+            )
+            audit_exporter = (
+                None if runtime.audit_sink is None else AuditExporter(store, runtime.audit_sink)
+            )
+            peer_authenticator = PeerMessageAuthenticator(registry, replay)
+            metrics_identity = IdentityContext(
+                subject_id=signer.warden_id,
+                tenant_id=_required_text(config, "tenant_id"),
+                scopes=frozenset({"lets.admin", "lets.metrics.read"}),
+                authentication_method="local-metrics",
+            )
+
+            def ready() -> bool:
+                try:
+                    if not service.ready():
+                        return False
+                    if audit_exporter is None:
+                        return True
+                    audit_state = audit_exporter.status()
+                    return audit_state["running"] is True and audit_state["last_error"] is None
+                except (LETSError, sqlite3.Error):
+                    return False
+
+            app = create_app(
+                service,
+                authenticator=runtime.authenticator,
+                signer=signer,
+                peer_authenticator=peer_authenticator,
+                peer_tenant_id=_required_text(config, "tenant_id"),
+                readiness_check=ready,
+                metrics_provider=lambda: _metrics_provider(
+                    service,
+                    store,
+                    metrics_identity,
+                    peer_status=dispatcher.status,
+                    audit_status=(None if audit_exporter is None else audit_exporter.status),
+                ),
+                node_metadata={
+                    "tenant_id": _required_text(config, "tenant_id"),
+                    "envelope_id": _required_text(config, "envelope_id"),
+                    "config_epoch": int(config.get("config_epoch", 1)),
+                    "manifest_digest": config.get("manifest_digest"),
+                    "runtime_provider": runtime.provider_name,
+                },
+            )
+            dispatcher.start()
+            try:
+                if audit_exporter is not None:
+                    audit_exporter.start()
+                uvicorn.run(
+                    app,
+                    host=arguments.host,
+                    port=arguments.port,
+                    log_level=arguments.log_level,
+                    ssl_certfile=ssl_certfile,
+                    ssl_keyfile=ssl_keyfile,
+                    ssl_ca_certs=ssl_ca_certs,
+                    ssl_cert_reqs=ssl_cert_reqs,
+                )
+            finally:
+                try:
+                    if audit_exporter is not None:
+                        audit_exporter.stop()
+                finally:
+                    dispatcher.stop()
         finally:
             store.close()
     return 0
@@ -1178,11 +1468,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if arguments.command == "serve":
             return _serve(arguments.config, arguments)
         if arguments.command == "key":
-            return _key(arguments.config)
+            return _key(arguments.config, arguments)
         if arguments.command == "info":
-            return _info(arguments.config)
+            return _info(arguments.config, arguments)
         if arguments.command == "backup":
-            return _backup(arguments.config, arguments.output)
+            return _backup(arguments.config, arguments.output, arguments)
         parser.error(f"unknown command: {arguments.command}")
     except (LETSError, OSError, ValueError) as error:
         _fail(error)

@@ -3,6 +3,7 @@
 from lets.storage.schema import SCHEMA_VERSION
 from lets.storage.sqlite import (
     AuditRecord,
+    CapacitySnapshot,
     Record,
     SQLiteScalar,
     SQLiteStorage,
@@ -17,6 +18,7 @@ from lets.storage.sqlite import (
 __all__ = [
     "SCHEMA_VERSION",
     "AuditRecord",
+    "CapacitySnapshot",
     "Record",
     "SQLiteScalar",
     "SQLiteStorage",

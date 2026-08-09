@@ -7,8 +7,10 @@ from lets.cli import (
     _configured_peer_endpoints,
     _operator_keys,
     _parser,
+    _runtime_configuration,
     _serve,
     _validate_peer_trust,
+    _validate_production_admission,
 )
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
 from lets.errors import ValidationError
@@ -83,3 +85,95 @@ def test_operator_key_parser_rejects_aliases_for_one_public_key() -> None:
 
     with pytest.raises(ValidationError, match="aliases must not reuse"):
         _operator_keys([f"operator-a={encoded}", f"operator-b={encoded}"])
+
+
+def test_runtime_configuration_rejects_duplicate_options_and_scopes_overrides() -> None:
+    config = {
+        "runtime": {
+            "provider": "managed",
+            "options": {"issuer": "https://issuer.example"},
+        }
+    }
+    parsed = _parser().parse_args(["key", "--runtime-option", "audience=lets"])
+    provider, options = _runtime_configuration(config, parsed)
+    assert provider == "managed"
+    assert dict(options) == {
+        "issuer": "https://issuer.example",
+        "audience": "lets",
+    }
+
+    duplicate = _parser().parse_args(["key", "--runtime-option", "issuer=changed"])
+    with pytest.raises(ValidationError, match="duplicate"):
+        _runtime_configuration(config, duplicate)
+
+    override = _parser().parse_args(
+        [
+            "key",
+            "--runtime-provider",
+            "replacement",
+            "--runtime-option",
+            "endpoint=https://kms.example",
+        ]
+    )
+    provider, options = _runtime_configuration(config, override)
+    assert provider == "replacement"
+    assert dict(options) == {"endpoint": "https://kms.example"}
+
+
+def test_production_admission_rejects_every_development_trust_path() -> None:
+    config: dict[str, object] = {
+        "manifest": "cluster.json",
+        "manifest_digest": "sha256:" + "1" * 64,
+        "operator_trust": {"threshold": 1},
+        "allow_insecure_manifest": False,
+        "bootstrap_identities": [],
+        "min_free_disk_bytes": 1_000_000,
+        "max_database_bytes": 100_000_000,
+        "reserve_pages": 128,
+    }
+    parsed = _parser().parse_args(
+        [
+            "serve",
+            "--production",
+            "--tls-cert",
+            "server.pem",
+            "--tls-key",
+            "server.key",
+            "--runtime-provider",
+            "managed",
+        ]
+    )
+    _validate_production_admission(config, parsed, provider_name="managed")
+
+    with pytest.raises(ValidationError, match="built-in file signer"):
+        _validate_production_admission(config, parsed, provider_name="builtin")
+
+    parsed.tls_cert = None
+    with pytest.raises(ValidationError, match="requires --tls-cert"):
+        _validate_production_admission(config, parsed, provider_name="managed")
+    parsed.tls_cert = Path("server.pem")
+
+    parsed.allow_insecure_peer_http = True
+    with pytest.raises(ValidationError, match="insecure client or peer HTTP"):
+        _validate_production_admission(config, parsed, provider_name="managed")
+    parsed.allow_insecure_peer_http = False
+
+    without_manifest = dict(config)
+    without_manifest.pop("manifest_digest")
+    with pytest.raises(ValidationError, match="operator-signed cluster manifest"):
+        _validate_production_admission(without_manifest, parsed, provider_name="managed")
+
+    insecure_manifest = dict(config)
+    insecure_manifest["allow_insecure_manifest"] = True
+    with pytest.raises(ValidationError, match="without insecure HTTP"):
+        _validate_production_admission(insecure_manifest, parsed, provider_name="managed")
+
+    with_bootstrap = dict(config)
+    with_bootstrap["bootstrap_identities"] = [{"token_sha256": "unsafe"}]
+    with pytest.raises(ValidationError, match="static bootstrap credentials"):
+        _validate_production_admission(with_bootstrap, parsed, provider_name="managed")
+
+    unsafe_capacity = dict(config)
+    unsafe_capacity["min_free_disk_bytes"] = 0
+    with pytest.raises(ValidationError, match="positive min_free_disk_bytes"):
+        _validate_production_admission(unsafe_capacity, parsed, provider_name="managed")
