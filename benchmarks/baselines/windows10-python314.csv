@@ -1,33 +1,33 @@
 category,name,phase,operations_or_rows,median_ns,p95_ns,throughput_ops_per_second,production_semantics,notes
 main,warden.authorize.full_fsync,before,100,7881800,8776700,126.02472277396546,true,SQLite WAL synchronous=FULL
-main,warden.authorize.full_fsync,after,100,8286850,9299500,118.26052486149624,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2; production authority/capacity checks
+main,warden.authorize.full_fsync,after,100,8287700,9388700,119.23795973834899,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2; production authority/capacity checks
 main,transfer.prepare.full_fsync,before,100,7046650,8008700,141.06688319492793,true,SQLite WAL synchronous=FULL
-main,transfer.prepare.full_fsync,after,100,7393700,8485400,132.79808622021986,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2
+main,transfer.prepare.full_fsync,after,100,7480850,8647500,130.56771757575964,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2
 main,transfer.accept.full_fsync,before,100,6306200,7249100,156.65735808644916,true,SQLite WAL synchronous=FULL
-main,transfer.accept.full_fsync,after,100,6936500,7940400,140.6791680740445,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2
+main,transfer.accept.full_fsync,after,100,6983800,7802500,137.7408001886498,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2
 main,transfer.finalize.full_fsync,before,100,5935000,6670500,167.92997588693476,true,SQLite WAL synchronous=FULL
-main,transfer.finalize.full_fsync,after,100,6394750,7412900,154.0313231937594,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2
+main,transfer.finalize.full_fsync,after,100,6484000,7615000,151.56236548840062,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2
 main,transfer.round_trip.full_fsync,before,100,19243850,21253500,51.474600604713316,true,Three FULL transactions across two stores; excludes HTTP and network
-main,transfer.round_trip.full_fsync,after,100,20751400,22800100,47.3243118051253,true,Three FULL transactions across two stores; excludes HTTP and network; PyNaCl 1.6.2
+main,transfer.round_trip.full_fsync,after,100,21087450,23122100,46.47527343494749,true,Three FULL transactions across two stores; excludes HTTP and network; PyNaCl 1.6.2
 main,executor.verify.signature_only,before,100,179800,186400,5506.911173522771,true,No write
-main,executor.verify.signature_only,after,100,179350,185100,5521.140446770685,true,No write; PyNaCl 1.6.2
+main,executor.verify.signature_only,after,100,178050,182900,5577.089317085413,true,No write; PyNaCl 1.6.2
 main,executor.verify_and_claim.full_fsync,before,100,3947650,4890300,248.9545155121069,true,SQLite WAL synchronous=FULL
-main,executor.verify_and_claim.full_fsync,after,100,4445400,5436800,219.91946988851623,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2; monotonic executor anchor
+main,executor.verify_and_claim.full_fsync,after,100,4417650,5828700,219.337784135649,true,SQLite WAL synchronous=FULL; PyNaCl 1.6.2; monotonic executor anchor
 main,warden.authorize.concurrent_contention.full_fsync,before,100,11154950,32176900,102.99577634920347,true,Four workers; latency includes writer lock wait
-main,warden.authorize.concurrent_contention.full_fsync,after,100,60850700,70197900,46.65789498240997,true,Four workers; latency includes writer lock wait; PyNaCl 1.6.2
+main,warden.authorize.concurrent_contention.full_fsync,after,100,56461900,69516700,49.02172971506561,true,Four workers; latency includes writer lock wait; PyNaCl 1.6.2
 receipt_scaling,authorize.full_fsync,before,10,5722150,,,true,receipt rows
-receipt_scaling,authorize.full_fsync,after,10,7249200,,,true,receipt rows; PyNaCl 1.6.2
+receipt_scaling,authorize.full_fsync,after,10,6966350,,,true,receipt rows; PyNaCl 1.6.2
 receipt_scaling,authorize.full_fsync,before,100,6292800,,,true,receipt rows
-receipt_scaling,authorize.full_fsync,after,100,7587400,,,true,receipt rows; PyNaCl 1.6.2
+receipt_scaling,authorize.full_fsync,after,100,7174250,,,true,receipt rows; PyNaCl 1.6.2
 receipt_scaling,authorize.full_fsync,before,500,7957500,,,true,receipt rows
-receipt_scaling,authorize.full_fsync,after,500,9072150,,,true,receipt rows; PyNaCl 1.6.2
+receipt_scaling,authorize.full_fsync,after,500,8485150,,,true,receipt rows; PyNaCl 1.6.2
 receipt_scaling,authorize.full_fsync,before,1000,11283000,,,true,receipt rows
-receipt_scaling,authorize.full_fsync,after,1000,11249850,,,true,receipt rows; PyNaCl 1.6.2
+receipt_scaling,authorize.full_fsync,after,1000,10526450,,,true,receipt rows; PyNaCl 1.6.2
 invariant_scaling,invariant_snapshot,legacy_row_scan,10,1069550,,,true,lease rows; 100 samples
-invariant_scaling,invariant_snapshot,trigger_aggregate,10,1275950,1443500,,true,lease rows; 100 samples; PyNaCl 1.6.2
+invariant_scaling,invariant_snapshot,trigger_aggregate,10,1312100,1683100,,true,lease rows; 100 samples; PyNaCl 1.6.2
 invariant_scaling,invariant_snapshot,legacy_row_scan,100,1295000,,,true,lease rows; 100 samples
-invariant_scaling,invariant_snapshot,trigger_aggregate,100,1269600,1372100,,true,lease rows; 100 samples; PyNaCl 1.6.2
+invariant_scaling,invariant_snapshot,trigger_aggregate,100,1292350,1655000,,true,lease rows; 100 samples; PyNaCl 1.6.2
 invariant_scaling,invariant_snapshot,legacy_row_scan,1000,2902250,,,true,lease rows; 100 samples
-invariant_scaling,invariant_snapshot,trigger_aggregate,1000,1278550,1352100,,true,lease rows; 100 samples; PyNaCl 1.6.2
-anchor_experiment,authorize.full_fsync,no_anchor,400,7677625,,,true,median of four trial medians; PyNaCl 1.6.2
-anchor_experiment,authorize.full_fsync,keeper,400,8830450,,,true,rejected; 1.15015385617297 latency ratio; PyNaCl 1.6.2
+invariant_scaling,invariant_snapshot,trigger_aggregate,1000,1249400,1610300,,true,lease rows; 100 samples; PyNaCl 1.6.2
+anchor_experiment,authorize.full_fsync,no_anchor,400,7626375,,,true,median of four trial medians; PyNaCl 1.6.2
+anchor_experiment,authorize.full_fsync,keeper,400,8688250,,,true,rejected; 1.1392371867368178 latency ratio; PyNaCl 1.6.2
