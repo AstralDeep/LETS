@@ -5,7 +5,40 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
-## [1.0.2] - 2026-08-09
+## [1.0.3] - 2026-08-09
+
+### Fixed
+
+- Kept audit readiness fail-closed while allowing the sustained release soak to observe at most one
+  sampled, bounded archive-connect `SQLITE_BUSY`-family error and require a fully healthy recovery
+  within the remainder of the existing stall window. Any other, repeated, cross-node, over-bound,
+  blocked, or unresolved error still fails the run and prevents promotion.
+- Closed the audit archive connection when SQLite session setup fails, and retained only sanitized
+  SQLite error identity in exporter diagnostics so transient lock/I/O failures are actionable
+  without exposing storage paths.
+
+### Changed
+
+- The signed `v1.0.2` tag is retained as an unpromoted candidate. Its package, candidate-provenance,
+  and hardened acceptance jobs passed, but its mandatory soak stopped on a single exporter status
+  sampled 5.11 seconds into the configured 15-second recovery window. No `1.0.2` package or final
+  OCI tag was published and no GitHub release was created. Version 1.0.3 fixes forward without
+  moving or reusing either failed public candidate tag.
+- Carries forward every 1.0.1 and 1.0.2 candidate change, including the pre-authentication body
+  deadline, quiet disconnect handling, exact-candidate one-hour soak, cgroup-v2 resource proof,
+  bounded failure diagnostics, and release-governance checks.
+
+### Compatibility, migration, and rollback
+
+- LETS v1 wire/API compatibility, warden schema 2, executor schema 5, manifest semantics, and
+  authority/replay formats remain unchanged from 1.0.0 through 1.0.2. No database or executor
+  migration is required.
+- Drain peer and audit queues, verify an authority-safe recovery bundle, stop every old process, and
+  deploy only the exact 1.0.3 artifacts. Mixed-version operation remains unsupported.
+- A binary/configuration rollback remains schema-compatible, but never restore older database,
+  audit, replay, or anchor bytes. Preserve the live monotonic state or recover forward.
+
+## [1.0.2] - 2026-08-09 (unreleased candidate)
 
 ### Fixed
 
@@ -127,7 +160,8 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.2...HEAD
-[1.0.2]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.2
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.3
+[1.0.2]: https://github.com/AstralDeep/LETS/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/AstralDeep/LETS/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.0

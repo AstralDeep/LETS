@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import ssl
 import time
 from collections import deque
@@ -51,6 +52,12 @@ EXECUTOR_ANCHOR = EXECUTOR_AUTHORITY / "soak-replay.anchor.json"
 WORKLOAD_PAUSE = Path("/scenario/soak-workload-pause.json")
 WORKLOAD_PAUSE_ACK = Path("/scenario/soak-workload-pause-ack.json")
 MAX_RECORDED_HEALTH_SAMPLES = 512
+AUDIT_ERROR_MAX_BYTES = 4_096
+AUDIT_ERROR_SAMPLE_BUDGET = 1
+AUDIT_TRANSIENT_CONNECT_BUSY = re.compile(
+    r"\AStorageError: could not connect to the audit archive "
+    r"\(sqlite_errorname=(SQLITE_BUSY(?:_[A-Z0-9_]+)?), sqlite_errorcode=([0-9]+)\)\Z"
+)
 LATENCY_BUCKETS_MS = (
     5,
     10,
@@ -136,13 +143,26 @@ class ClusterClient:
         *,
         body: dict[str, Any] | None = None,
         expected: int = 200,
+        retry_timeout_s: float | None = None,
     ) -> dict[str, Any]:
-        deadline = time.monotonic() + self._retry_timeout_s
+        retry_window = (
+            self._retry_timeout_s
+            if retry_timeout_s is None
+            else min(self._retry_timeout_s, retry_timeout_s)
+        )
+        if not math.isfinite(retry_window) or retry_window <= 0:
+            raise RuntimeError("request retry timeout must be finite and positive")
+        deadline = time.monotonic() + retry_window
         last_error = "request was not attempted"
         while time.monotonic() < deadline:
             headers = {"authorization": f"Bearer {self._tokens.issue()}"}
+            request_timeout = max(0.001, min(10.0, deadline - time.monotonic()))
             try:
-                with httpx.Client(verify=self._tls, headers=headers, timeout=10) as client:
+                with httpx.Client(
+                    verify=self._tls,
+                    headers=headers,
+                    timeout=request_timeout,
+                ) as client:
                     response = client.request(method, f"{NODE_URLS[node]}{path}", json=body)
             except httpx.TransportError as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
@@ -156,7 +176,7 @@ class ClusterClient:
                 if response.status_code not in {429, 500, 502, 503, 504}:
                     raise RuntimeError(f"{method} {node}{path} failed: {last_error}")
             self.retry_count += 1
-            time.sleep(0.2)
+            time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
         raise RuntimeError(f"{method} {node}{path} did not recover: {last_error}")
 
 
@@ -371,6 +391,14 @@ def _finite_nonnegative(value: object, *, field: str, node: str) -> float:
     return float(value)
 
 
+def _allowed_transient_audit_error(value: str) -> bool:
+    match = AUDIT_TRANSIENT_CONNECT_BUSY.fullmatch(value)
+    if match is None or len(match.group(1)) > 64:
+        return False
+    error_code = int(match.group(2))
+    return error_code <= 0x7FFFFFFF and error_code & 0xFF == 5
+
+
 def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
     if not isinstance(status, dict):
         raise RuntimeError(f"{node} returned malformed audit exporter status: {status!r}")
@@ -405,14 +433,29 @@ def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
     archive_reconciled = status.get("archive_reconciled")
     publish_blocked = status.get("publish_blocked")
     sink_call_blocked = status.get("sink_call_blocked")
+    last_error = status.get("last_error")
+    last_success_ns = status.get("last_success_ns")
     if not all(
         isinstance(value, bool)
         for value in (healthy, running, archive_reconciled, publish_blocked, sink_call_blocked)
     ):
         raise RuntimeError(f"{node} returned malformed audit exporter flags: {status!r}")
+    if last_error is not None and (
+        not isinstance(last_error, str)
+        or not last_error.strip()
+        or len(last_error.encode("utf-8")) > AUDIT_ERROR_MAX_BYTES
+    ):
+        raise RuntimeError(f"{node} returned a malformed bounded audit exporter error: {status!r}")
+    if isinstance(last_error, str) and not _allowed_transient_audit_error(last_error):
+        raise RuntimeError(f"{node} returned a non-tolerable audit exporter error: {status!r}")
+    if last_error is not None and (
+        isinstance(last_success_ns, bool)
+        or not isinstance(last_success_ns, int)
+        or last_success_ns <= 0
+    ):
+        raise RuntimeError(f"{node} audit exporter error lacks a prior success: {status!r}")
     if (
         running is not True
-        or status.get("last_error") is not None
         or publish_blocked is not False
         or sink_call_blocked is not False
         or pending > maximum_pending
@@ -420,7 +463,9 @@ def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
         or (oldest_pending_age is not None and oldest_pending_age > maximum_stall)
     ):
         raise RuntimeError(f"{node} audit exporter is not making bounded progress: {status!r}")
-    expected_healthy = archive_reconciled is True and (pending == 0 or stalled_for <= maximum_stall)
+    if last_error is not None and archive_reconciled is not False:
+        raise RuntimeError(f"{node} returned a reconciled audit exporter error: {status!r}")
+    expected_healthy = last_error is None and archive_reconciled is True
     if healthy is not expected_healthy:
         raise RuntimeError(f"{node} returned inconsistent audit exporter health: {status!r}")
     return {
@@ -442,13 +487,127 @@ def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
     } | {"catching_up": healthy is False}
 
 
-def _health_sample(client: ClusterClient, *, elapsed_s: float) -> dict[str, Any]:
+@dataclass
+class AuditErrorBudget:
+    """Fail live after the single globally tolerated sampled exporter error."""
+
+    sample_budget: int = AUDIT_ERROR_SAMPLE_BUDGET
+    error_sample_count: int = 0
+    error_samples_by_node: dict[str, int] = field(
+        default_factory=lambda: {node: 0 for node in NODES}
+    )
+    recovered_error_sample_count: int = 0
+    unresolved_error_nodes: set[str] = field(default_factory=set)
+
+    def observe_error(self, node: str) -> None:
+        observed = self.error_sample_count + 1
+        if observed > self.sample_budget:
+            raise RuntimeError(
+                "sampled audit exporter transient error budget exceeded: "
+                f"budget={self.sample_budget} observed={observed} node={node!r}"
+            )
+        self.error_sample_count = observed
+        self.error_samples_by_node[node] += 1
+        self.unresolved_error_nodes.add(node)
+
+    def mark_recovered(self, node: str) -> None:
+        if node not in self.unresolved_error_nodes:
+            raise RuntimeError(f"audit exporter recovery had no sampled error: {node}")
+        self.unresolved_error_nodes.remove(node)
+        self.recovered_error_sample_count += 1
+
+
+def _audit_recovery_clean(document: object) -> bool:
+    if not isinstance(document, dict):
+        return False
+    exporter = document.get("audit_exporter")
+    outbox = document.get("audit_outbox")
+    return bool(
+        isinstance(exporter, dict)
+        and exporter.get("running") is True
+        and exporter.get("healthy") is True
+        and exporter.get("archive_reconciled") is True
+        and exporter.get("catching_up") is False
+        and exporter.get("last_error") is None
+        and exporter.get("pending") == 0
+        and exporter.get("publish_blocked") is False
+        and exporter.get("sink_call_blocked") is False
+        and isinstance(outbox, dict)
+        and outbox.get("unpublished_count") == 0
+        and document.get("ready") is True
+        and document.get("service_ready") is True
+    )
+
+
+def _poll_audit_error_recovery(
+    client: ClusterClient,
+    *,
+    node: str,
+    initial_exporter: dict[str, Any],
+    initial_elapsed_s: float,
+    initial_observed_monotonic: float,
+) -> dict[str, Any]:
+    stalled_for = float(initial_exporter["stalled_for_s"])
+    maximum_stall = float(initial_exporter["max_stall_s"])
+    remaining_window = maximum_stall - stalled_for
+    if not math.isfinite(remaining_window) or remaining_window <= 0:
+        raise RuntimeError(f"{node} audit exporter has no remaining recovery window")
+    deadline = initial_observed_monotonic + remaining_window
+    last: object = None
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        try:
+            metrics = client.request(
+                "GET",
+                node,
+                "/v1/metrics",
+                retry_timeout_s=max(0.001, remaining),
+            )
+        except RuntimeError as exc:
+            last = f"{type(exc).__name__}: {exc}"
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+            continue
+        exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
+        last = {
+            "audit_exporter": exporter,
+            "audit_outbox": metrics.get("audit_outbox"),
+            "ready": metrics.get("ready"),
+            "service_ready": metrics.get("service_ready"),
+        }
+        observed_at = time.monotonic()
+        if observed_at <= deadline and _audit_recovery_clean(last):
+            return {
+                **cast(dict[str, Any], last),
+                "elapsed_seconds": round(
+                    initial_elapsed_s + observed_at - initial_observed_monotonic,
+                    6,
+                ),
+                "node": node,
+                "remaining_stall_window_seconds": round(remaining_window, 3),
+            }
+        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+    raise RuntimeError(
+        f"{node} audit exporter did not recover within its remaining "
+        f"{remaining_window:.3f}s stall window: {last!r}"
+    )
+
+
+def _health_sample(
+    client: ClusterClient,
+    *,
+    elapsed_s: float,
+    audit_error_budget: AuditErrorBudget | None = None,
+) -> dict[str, Any]:
     nodes: dict[str, Any] = {}
     audit_catchup_nodes: list[str] = []
+    audit_error_recoveries: list[dict[str, Any]] = []
     for node in NODES:
         invariant = client.request("GET", node, "/v1/invariants")
         audit = client.request("GET", node, "/v1/audit/verify")
         metrics = client.request("GET", node, "/v1/metrics")
+        metrics_observed_monotonic = time.monotonic()
         audit_exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
         capacity = metrics.get("storage_capacity")
         if invariant.get("healthy") is not True or audit.get("valid") is not True:
@@ -483,11 +642,24 @@ def _health_sample(client: ClusterClient, *, elapsed_s: float) -> dict[str, Any]
             "storage_capacity": capacity,
             "transfers": metrics.get("transfers"),
         }
-    return {
+        if audit_error_budget is not None and audit_exporter.get("last_error") is not None:
+            audit_error_budget.observe_error(node)
+            recovery = _poll_audit_error_recovery(
+                client,
+                node=node,
+                initial_exporter=audit_exporter,
+                initial_elapsed_s=elapsed_s,
+                initial_observed_monotonic=metrics_observed_monotonic,
+            )
+            audit_error_budget.mark_recovered(node)
+            audit_error_recoveries.append(recovery)
+    sample = {
         "audit_catchup_nodes": audit_catchup_nodes,
+        "audit_error_recoveries": audit_error_recoveries,
         "elapsed_seconds": round(elapsed_s, 3),
         "nodes": nodes,
     }
+    return sample
 
 
 def _is_converged(sample: dict[str, Any]) -> bool:
@@ -508,6 +680,7 @@ def _is_converged(sample: dict[str, Any]) -> bool:
             or audit_exporter.get("healthy") is not True
             or audit_exporter.get("archive_reconciled") is not True
             or audit_exporter.get("catching_up") is not False
+            or audit_exporter.get("last_error") is not None
             or dispatcher.get("configured_peers") != len(NODES) - 1
             or dispatcher.get("failed_records") != 0
             or dispatcher.get("last_error") is not None
@@ -535,18 +708,40 @@ def _conservation_totals(sample: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _audit_progress_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
+def _audit_progress_summary(
+    samples: list[dict[str, Any]],
+    *,
+    audit_error_budget: AuditErrorBudget | None = None,
+) -> dict[str, Any]:
     maximum_pending = {node: 0 for node in NODES}
+    recorded_error_samples_by_node = {node: 0 for node in NODES}
     catchup_samples = 0
+    recorded_error_sample_count = 0
+    recorded_recovered_error_sample_count = 0
+    recorded_unresolved_error_nodes: set[str] = set()
     for sample in samples:
         catchup_nodes = sample.get("audit_catchup_nodes")
         if not isinstance(catchup_nodes, list):
             raise RuntimeError(f"health sample omitted audit catch-up evidence: {sample!r}")
         if catchup_nodes:
             catchup_samples += 1
+        recoveries = sample.get("audit_error_recoveries")
+        if not isinstance(recoveries, list):
+            raise RuntimeError(f"health sample omitted audit recovery evidence: {sample!r}")
+        recovery_by_node: dict[str, dict[str, Any]] = {}
+        for recovery in recoveries:
+            if not isinstance(recovery, dict) or recovery.get("node") not in NODES:
+                raise RuntimeError(f"health sample has malformed audit recovery: {sample!r}")
+            recovery_node = cast(str, recovery["node"])
+            if recovery_node in recovery_by_node:
+                raise RuntimeError(f"health sample duplicated {recovery_node} recovery: {sample!r}")
+            recovery_by_node[recovery_node] = cast(dict[str, Any], recovery)
         nodes = sample.get("nodes")
         if not isinstance(nodes, dict):
             raise RuntimeError(f"health sample omitted node evidence: {sample!r}")
+        sample_elapsed = sample.get("elapsed_seconds")
+        if isinstance(sample_elapsed, bool) or not isinstance(sample_elapsed, (int, float)):
+            raise RuntimeError(f"health sample omitted audit recovery time: {sample!r}")
         for node in NODES:
             document = nodes.get(node)
             if not isinstance(document, dict):
@@ -558,11 +753,71 @@ def _audit_progress_summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
             if isinstance(pending, bool) or not isinstance(pending, int) or pending < 0:
                 raise RuntimeError(f"health sample has invalid {node} audit backlog: {sample!r}")
             maximum_pending[node] = max(maximum_pending[node], pending)
+            if exporter.get("last_error") is not None:
+                recorded_error_sample_count += 1
+                recorded_error_samples_by_node[node] += 1
+                recorded_unresolved_error_nodes.add(node)
+                recovery = recovery_by_node.pop(node, None)
+                if recovery is not None:
+                    recovery_elapsed = recovery.get("elapsed_seconds")
+                    remaining_window = recovery.get("remaining_stall_window_seconds")
+                    if (
+                        isinstance(recovery_elapsed, bool)
+                        or not isinstance(recovery_elapsed, (int, float))
+                        or isinstance(remaining_window, bool)
+                        or not isinstance(remaining_window, (int, float))
+                        or not float(sample_elapsed) < float(recovery_elapsed)
+                        or float(recovery_elapsed) - float(sample_elapsed)
+                        > float(remaining_window) + 0.001
+                        or not _audit_recovery_clean(recovery)
+                    ):
+                        raise RuntimeError(
+                            f"health sample has invalid bounded {node} audit recovery: {sample!r}"
+                        )
+                    recorded_recovered_error_sample_count += 1
+                    recorded_unresolved_error_nodes.remove(node)
+            elif node in recovery_by_node:
+                raise RuntimeError(f"health sample recovered unfailed {node}: {sample!r}")
+        if recovery_by_node:
+            raise RuntimeError(f"health sample has unbound audit recoveries: {sample!r}")
+    if audit_error_budget is None:
+        error_sample_count = recorded_error_sample_count
+        error_samples_by_node = recorded_error_samples_by_node
+        recovered_error_sample_count = recorded_recovered_error_sample_count
+        unresolved_error_nodes = recorded_unresolved_error_nodes
+    else:
+        error_sample_count = audit_error_budget.error_sample_count
+        error_samples_by_node = dict(audit_error_budget.error_samples_by_node)
+        recovered_error_sample_count = audit_error_budget.recovered_error_sample_count
+        unresolved_error_nodes = set(audit_error_budget.unresolved_error_nodes)
+    error_evidence_complete = (
+        error_sample_count == recorded_error_sample_count
+        and error_samples_by_node == recorded_error_samples_by_node
+        and recovered_error_sample_count == recorded_recovered_error_sample_count
+        and unresolved_error_nodes == recorded_unresolved_error_nodes
+    )
+    error_recovery_passed = (
+        error_sample_count <= AUDIT_ERROR_SAMPLE_BUDGET
+        and recovered_error_sample_count == error_sample_count
+        and not unresolved_error_nodes
+        and error_evidence_complete
+    )
     return {
-        "bounded_progress": True,
+        "bounded_progress": error_recovery_passed,
         "catchup_sample_count": catchup_samples,
+        "error_evidence_complete": error_evidence_complete,
+        "error_recovery_passed": error_recovery_passed,
+        "error_sample_budget": AUDIT_ERROR_SAMPLE_BUDGET,
+        "error_sample_count": error_sample_count,
+        "error_samples_by_node": error_samples_by_node,
         "maximum_pending_by_node": maximum_pending,
+        "recorded_error_sample_count": recorded_error_sample_count,
+        "recorded_error_samples_by_node": recorded_error_samples_by_node,
+        "recorded_recovered_error_sample_count": recorded_recovered_error_sample_count,
+        "recorded_unresolved_error_nodes": sorted(recorded_unresolved_error_nodes),
+        "recovered_error_sample_count": recovered_error_sample_count,
         "sample_count": len(samples),
+        "unresolved_error_nodes": sorted(unresolved_error_nodes),
     }
 
 
@@ -580,6 +835,7 @@ def _validate_conservation(sample: dict[str, Any]) -> dict[str, Any]:
 def _wait_if_paused(
     client: ClusterClient,
     *,
+    audit_error_budget: AuditErrorBudget | None = None,
     health_interval_seconds: float,
     health_samples: deque[dict[str, Any]],
     next_health: float,
@@ -597,7 +853,13 @@ def _wait_if_paused(
         )
         now = time.monotonic()
         if now >= next_health:
-            health_samples.append(_health_sample(client, elapsed_s=now - started))
+            health_samples.append(
+                _health_sample(
+                    client,
+                    elapsed_s=now - started,
+                    audit_error_budget=audit_error_budget,
+                )
+            )
             sample_count += 1
             next_health = time.monotonic() + health_interval_seconds
         time.sleep(0.05)
@@ -609,6 +871,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
     policy = manifest.policies[0]
     client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
     executor = ExecutorBoundary(manifest)
+    audit_error_budget = AuditErrorBudget()
     health_samples: deque[dict[str, Any]] = deque(maxlen=MAX_RECORDED_HEALTH_SAMPLES)
     health_sample_count = 0
     counters = {
@@ -630,6 +893,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
         while time.monotonic() < deadline:
             next_health, pause_health_samples = _wait_if_paused(
                 client,
+                audit_error_budget=audit_error_budget,
                 health_interval_seconds=arguments.health_interval_seconds,
                 health_samples=health_samples,
                 next_health=next_health,
@@ -743,7 +1007,13 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                 executor.reopen()
             now = time.monotonic()
             if now >= next_health:
-                health_samples.append(_health_sample(client, elapsed_s=now - started))
+                health_samples.append(
+                    _health_sample(
+                        client,
+                        elapsed_s=now - started,
+                        audit_error_budget=audit_error_budget,
+                    )
+                )
                 health_sample_count += 1
                 next_health = now + arguments.health_interval_seconds
             latency.observe(time.monotonic() - cycle_started)
@@ -751,13 +1021,20 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             if remaining > 0:
                 time.sleep(min(arguments.cycle_interval_seconds, remaining))
 
-        final_health = _health_sample(client, elapsed_s=time.monotonic() - started)
+        final_health = _health_sample(
+            client,
+            elapsed_s=time.monotonic() - started,
+            audit_error_budget=audit_error_budget,
+        )
         health_samples.append(final_health)
         health_sample_count += 1
         recorded_health_samples = list(health_samples)
         conservation = _conservation_totals(final_health)
         return {
-            "audit_progress": _audit_progress_summary(recorded_health_samples),
+            "audit_progress": _audit_progress_summary(
+                recorded_health_samples,
+                audit_error_budget=audit_error_budget,
+            ),
             "configuration": {
                 "cycle_interval_seconds": arguments.cycle_interval_seconds,
                 "duration_seconds": arguments.duration_seconds,

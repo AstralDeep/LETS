@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -19,6 +20,28 @@ from lets.vector import MAX_RESOURCE
 
 _ARCHIVE_APPLICATION_ID = 0x4C455441  # ASCII "LETA"
 _ARCHIVE_SCHEMA_VERSION = 2
+
+
+def _sqlite_storage_error(message: str, exc: sqlite3.Error) -> StorageError:
+    """Return a stable error with bounded SQLite diagnostics, not raw messages."""
+
+    error_name = getattr(exc, "sqlite_errorname", None)
+    error_code = getattr(exc, "sqlite_errorcode", None)
+    details: list[str] = []
+    if (
+        type(error_name) is str
+        and error_name.startswith("SQLITE_")
+        and len(error_name) <= 64
+        and all(
+            character == "_" or "0" <= character <= "9" or "A" <= character <= "Z"
+            for character in error_name
+        )
+    ):
+        details.append(f"sqlite_errorname={error_name}")
+    if type(error_code) is int and 0 <= error_code <= 0x7FFFFFFF:
+        details.append(f"sqlite_errorcode={error_code}")
+    suffix = f" ({', '.join(details)})" if details else ""
+    return StorageError(f"{message}{suffix}")
 
 
 def _integer(value: object, field: str, *, positive: bool = False) -> int:
@@ -189,6 +212,7 @@ class SQLiteAuditSink:
         return self._path
 
     def _connect(self) -> sqlite3.Connection:
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(
                 f"{self._path.as_uri()}?mode=rw",
@@ -202,7 +226,10 @@ class SQLiteAuditSink:
             connection.execute("PRAGMA busy_timeout=5000")
             return connection
         except sqlite3.Error as exc:
-            raise StorageError("could not connect to the audit archive") from exc
+            if connection is not None:
+                with suppress(sqlite3.Error):
+                    connection.close()
+            raise _sqlite_storage_error("could not connect to the audit archive", exc) from exc
 
     @staticmethod
     def _admit(connection: sqlite3.Connection, *, create: bool) -> None:
@@ -399,7 +426,7 @@ class SQLiteAuditSink:
         except sqlite3.Error as exc:
             if connection.in_transaction:
                 connection.rollback()
-            raise StorageError("audit archive write failed") from exc
+            raise _sqlite_storage_error("audit archive write failed", exc) from exc
         except BaseException:
             if connection.in_transaction:
                 connection.rollback()

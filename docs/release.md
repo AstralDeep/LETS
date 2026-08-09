@@ -90,6 +90,18 @@ database, WAL, audit, and signer growth bounds. The soak uses the shipped 1 GiB 
 admits at most a 768 MiB retained cgroup peak, independently caps the LETS process, disables swap,
 and requires zero memory/OOM/PID limit events. It samples retained cgroup counters before every
 planned process replacement so a new container lifetime cannot erase an earlier pressure event.
+Across the full three-node workload it permits at most one sampled, bounded, subsequently recovered
+transient exporter error. Only a sanitized archive-connect `SQLITE_BUSY`-family diagnostic is
+tolerable; I/O, corruption, archive-write, schema, and undiagnosed errors fail immediately. That
+exporter must remain running and unblocked, must have a prior success, and must stay inside its
+backlog, record-age, and stall bounds. Any second sampled error fails live, including a repeat on the
+same node or a first error on another node. The affected node must later produce a fully clean
+recovery sample: the workload immediately polls only that node for `max_stall_s - stalled_for_s`,
+without restarting or extending the 15-second runtime window. The authoritative live error count
+must exactly match the retained observation and recovery evidence, so deque truncation cannot erase
+an incident. Final convergence requires every exporter to be reconciled, empty, and free of
+`last_error`. This evidence bounds sampled observations; it does not claim to count errors that
+begin and recover entirely between samples.
 Its machine record binds the exact OCI digest and config ID to the clean release commit,
 source-tree digest, and soak-harness hashes. A failed soak captures a final resource sample before
 cleanup, then atomically writes and uploads a bounded structured failure record that includes the

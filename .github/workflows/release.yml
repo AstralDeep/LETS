@@ -722,7 +722,9 @@ jobs:
         run: |
           python - <<'PY'
           import json
+          import math
           import os
+          import re
           from pathlib import Path
 
           evidence = json.loads(
@@ -756,6 +758,165 @@ jobs:
               failures.append("soak health sampling was not sustained")
           if workload_evaluation.get("checks", {}).get("health_cadence") is not True:
               failures.append("soak health samples did not cover every audit-stall window")
+          audit_progress = workload.get("audit_progress", {})
+          error_sample_budget = audit_progress.get("error_sample_budget")
+          error_sample_count = audit_progress.get("error_sample_count")
+          recovered_error_sample_count = audit_progress.get("recovered_error_sample_count")
+          unresolved_error_nodes = audit_progress.get("unresolved_error_nodes")
+          error_samples_by_node = audit_progress.get("error_samples_by_node")
+          recorded_error_sample_count = audit_progress.get("recorded_error_sample_count")
+          recorded_error_samples_by_node = audit_progress.get("recorded_error_samples_by_node")
+          recorded_recovered_error_sample_count = audit_progress.get(
+              "recorded_recovered_error_sample_count"
+          )
+          recorded_unresolved_error_nodes = audit_progress.get(
+              "recorded_unresolved_error_nodes"
+          )
+          expected_nodes = {"warden-a", "warden-b", "warden-c"}
+          audit_busy_pattern = re.compile(
+              r"\AStorageError: could not connect to the audit archive "
+              r"\(sqlite_errorname=(SQLITE_BUSY(?:_[A-Z0-9_]+)?), "
+              r"sqlite_errorcode=([0-9]+)\)\Z"
+          )
+          def finite_number(value):
+              return (
+                  isinstance(value, (int, float))
+                  and not isinstance(value, bool)
+                  and math.isfinite(float(value))
+              )
+
+          raw_error_evidence_valid = isinstance(workload.get("health_samples"), list)
+          raw_error_sample_count = 0
+          raw_error_samples_by_node = {node: 0 for node in expected_nodes}
+          raw_recovered_error_sample_count = 0
+          if raw_error_evidence_valid:
+              for sample in workload["health_samples"]:
+                  if not isinstance(sample, dict):
+                      raw_error_evidence_valid = False
+                      continue
+                  sample_elapsed = sample.get("elapsed_seconds")
+                  recoveries = sample.get("audit_error_recoveries")
+                  if not finite_number(sample_elapsed) or not isinstance(recoveries, list):
+                      raw_error_evidence_valid = False
+                      continue
+                  nodes = sample.get("nodes")
+                  if not isinstance(nodes, dict) or set(nodes) != expected_nodes:
+                      raw_error_evidence_valid = False
+                      continue
+                  error_remaining_by_node = {}
+                  for node in expected_nodes:
+                      document = nodes[node]
+                      exporter = (
+                          document.get("audit_exporter")
+                          if isinstance(document, dict)
+                          else None
+                      )
+                      if not isinstance(exporter, dict):
+                          raw_error_evidence_valid = False
+                          continue
+                      last_error = exporter.get("last_error")
+                      if last_error is None:
+                          continue
+                      raw_error_sample_count += 1
+                      raw_error_samples_by_node[node] += 1
+                      stalled_for = exporter.get("stalled_for_s")
+                      maximum_stall = exporter.get("max_stall_s")
+                      if not finite_number(stalled_for) or not finite_number(maximum_stall):
+                          raw_error_evidence_valid = False
+                      else:
+                          remaining_window = float(maximum_stall) - float(stalled_for)
+                          if remaining_window <= 0:
+                              raw_error_evidence_valid = False
+                          else:
+                              error_remaining_by_node[node] = remaining_window
+                      if not isinstance(last_error, str):
+                          raw_error_evidence_valid = False
+                          continue
+                      match = audit_busy_pattern.fullmatch(last_error)
+                      if (
+                          match is None
+                          or len(last_error.encode("utf-8")) > 4096
+                          or len(match.group(1)) > 64
+                          or int(match.group(2)) > 0x7FFFFFFF
+                          or int(match.group(2)) & 0xFF != 5
+                      ):
+                          raw_error_evidence_valid = False
+                  recovery_nodes = set()
+                  for recovery in recoveries:
+                      if not isinstance(recovery, dict):
+                          raw_error_evidence_valid = False
+                          continue
+                      node = recovery.get("node")
+                      if node not in expected_nodes or node in recovery_nodes:
+                          raw_error_evidence_valid = False
+                          continue
+                      recovery_nodes.add(node)
+                      raw_recovered_error_sample_count += 1
+                      expected_remaining = error_remaining_by_node.get(node)
+                      recovery_elapsed = recovery.get("elapsed_seconds")
+                      recorded_remaining = recovery.get("remaining_stall_window_seconds")
+                      recovery_exporter = recovery.get("audit_exporter")
+                      recovery_outbox = recovery.get("audit_outbox")
+                      if (
+                          expected_remaining is None
+                          or not finite_number(recovery_elapsed)
+                          or not finite_number(recorded_remaining)
+                          or float(recorded_remaining) != round(expected_remaining, 3)
+                          or not float(sample_elapsed) < float(recovery_elapsed)
+                          or float(recovery_elapsed) - float(sample_elapsed)
+                          > expected_remaining + 0.001
+                          or not isinstance(recovery_exporter, dict)
+                          or recovery_exporter.get("running") is not True
+                          or recovery_exporter.get("healthy") is not True
+                          or recovery_exporter.get("archive_reconciled") is not True
+                          or recovery_exporter.get("catching_up") is not False
+                          or recovery_exporter.get("last_error") is not None
+                          or type(recovery_exporter.get("pending")) is not int
+                          or recovery_exporter.get("pending") != 0
+                          or recovery_exporter.get("publish_blocked") is not False
+                          or recovery_exporter.get("sink_call_blocked") is not False
+                          or not isinstance(recovery_outbox, dict)
+                          or type(recovery_outbox.get("unpublished_count")) is not int
+                          or recovery_outbox.get("unpublished_count") != 0
+                          or recovery.get("ready") is not True
+                          or recovery.get("service_ready") is not True
+                      ):
+                          raw_error_evidence_valid = False
+                  if recovery_nodes != set(error_remaining_by_node):
+                      raw_error_evidence_valid = False
+          valid_error_samples_by_node = (
+              isinstance(error_samples_by_node, dict)
+              and set(error_samples_by_node) == expected_nodes
+              and all(
+                  isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                  for value in error_samples_by_node.values()
+              )
+          )
+          if (
+              error_sample_budget != 1
+              or isinstance(error_sample_budget, bool)
+              or not isinstance(error_sample_count, int)
+              or isinstance(error_sample_count, bool)
+              or not 0 <= error_sample_count <= 1
+              or not isinstance(recovered_error_sample_count, int)
+              or isinstance(recovered_error_sample_count, bool)
+              or recovered_error_sample_count != error_sample_count
+              or unresolved_error_nodes != []
+              or not valid_error_samples_by_node
+              or sum(error_samples_by_node.values()) != error_sample_count
+              or not raw_error_evidence_valid
+              or raw_error_sample_count != error_sample_count
+              or raw_error_samples_by_node != error_samples_by_node
+              or raw_recovered_error_sample_count != recovered_error_sample_count
+              or recorded_error_sample_count != error_sample_count
+              or recorded_error_samples_by_node != error_samples_by_node
+              or recorded_recovered_error_sample_count != recovered_error_sample_count
+              or recorded_unresolved_error_nodes != unresolved_error_nodes
+              or audit_progress.get("error_evidence_complete") is not True
+              or audit_progress.get("error_recovery_passed") is not True
+              or workload_evaluation.get("checks", {}).get("audit_error_recovery") is not True
+          ):
+              failures.append("soak audit exporter transient-error budget or recovery failed")
           pair_counts = workload.get("transfer_pair_counts", {})
           if len(pair_counts) != 6 or any(int(value) <= 0 for value in pair_counts.values()):
               failures.append("soak did not exercise all six directed transfer pairs")
@@ -872,6 +1033,20 @@ jobs:
           verification = evidence.get("verification", {})
           if verification.get("converged") is not True:
               failures.append("soak did not converge")
+          final_nodes = verification.get("final_health", {}).get("nodes")
+          if (
+              not isinstance(final_nodes, dict)
+              or set(final_nodes) != expected_nodes
+              or any(
+                  not isinstance(document, dict)
+                  or not isinstance(document.get("audit_exporter"), dict)
+                  or document["audit_exporter"].get("last_error") is not None
+                  for document in (
+                      final_nodes.values() if isinstance(final_nodes, dict) else ()
+                  )
+              )
+          ):
+              failures.append("soak final audit exporter state retained an error")
           if verification.get("conservation", {}).get("balanced") is not True:
               failures.append("soak conservation failed")
           if failures:
