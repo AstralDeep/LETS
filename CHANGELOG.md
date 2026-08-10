@@ -5,7 +5,61 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
-## [1.0.4] - 2026-08-09
+## [1.0.5] - 2026-08-10
+
+### Fixed
+
+- Decoupled sustained-soak health observation from the serial mixed-workload cycle. A dedicated
+  client now samples on an absolute monotonic schedule, retains explicit scheduling and
+  observation timing, shares one fail-closed audit-error budget for the whole run, and makes a
+  missed exporter-stall deadline a release failure instead of allowing a later healthy response
+  to hide the evidence gap.
+- Replaced the infeasible fixed 300-cycle and coupled 301-health-sample release floors with
+  independently verifiable evidence contracts. Workload adequacy is derived from host-bound
+  authorized active time at a bounded 15-second-per-cycle rate and requires three complete
+  rotations through all six directed transfer paths plus three executor reopen intervals (54 cycles
+  with the supplied frequencies); health adequacy is derived from the independent sampler's
+  interval and strict per-node observation coverage. Recorded pause episodes must bind the exact
+  orchestrator partition schedule before excluded time can reduce the workload-rate denominator.
+- Made release publication recompute the active-time, pause, sample-retention, per-node cadence,
+  and throughput relationships from raw soak evidence. A forged or truncated workload record, a
+  sampler failure, or a mismatch between the evaluator and release verifier remains
+  non-promotable.
+
+### Changed
+
+- The signed `v1.0.4` tag is retained as an unpromoted candidate. Its package, provenance,
+  hardened acceptance, full 3,601-second mixed workload, conservation, all six transfer paths, 26
+  durable partition recoveries, and resource/cleanup checks passed; its records also captured all
+  three planned `SIGKILL` operations. Promotion was nevertheless blocked because inline health
+  requests left an unobserved 26.45-second interval against a 15-second audit-stall bound, while the
+  same serial design made its fixed 300-cycle and 301-sample thresholds mathematically infeasible
+  under the injected pauses. No `1.0.4` package or final OCI tag was published and no GitHub release
+  was created.
+  Version 1.0.5 fixes the evidence design forward without moving or reusing that public tag.
+- Carries forward every 1.0.1 through 1.0.4 candidate change, including the pre-authentication body
+  deadline, exact-candidate sustained soak, cgroup-v2 resource proof, bounded audit-BUSY recovery,
+  serialized SQLite recovery, the bounded production peer deadline, full convergence budget, and
+  exact failed-run cleanup.
+
+### Compatibility, migration, and rollback
+
+- LETS v1 wire/API compatibility, warden schema 2, executor schema 5, manifest semantics, and
+  authority/replay formats remain unchanged from 1.0.0 through 1.0.4. No database or executor
+  migration is required. The top-level soak evidence and its nested workload record advance to the
+  non-runtime schemas `lets.production-profile-soak/v2` and
+  `lets.production-profile-soak-workload/v2`; their timing and planned-unavailability shapes are not
+  a runtime protocol or storage change.
+- Drain peer and audit queues, verify an authority-safe recovery bundle, stop every old process,
+  and deploy only the exact 1.0.5 artifacts. Mixed-version operation remains unsupported; retain
+  the 60-second peer request deadline and 120-second stop grace of the supplied profile.
+- Binary/schema compatibility does not make an unpublished candidate an approved rollback target.
+  Versions 1.0.1 through 1.0.4 were never promoted, while 1.0.0 lacks the later production defenses;
+  v1.0.5 therefore has no approved earlier binary rollback digest. Never restore older database,
+  audit, replay, or anchor bytes; preserve live monotonic state, fence the cluster, and recover
+  forward with a patch release.
+
+## [1.0.4] - 2026-08-09 (unreleased candidate)
 
 ### Fixed
 
@@ -216,8 +270,9 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.4...HEAD
-[1.0.4]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.4
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.5
+[1.0.4]: https://github.com/AstralDeep/LETS/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/AstralDeep/LETS/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/AstralDeep/LETS/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/AstralDeep/LETS/compare/v1.0.0...v1.0.1

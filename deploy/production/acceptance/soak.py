@@ -7,8 +7,9 @@ import json
 import math
 import re
 import ssl
+import threading
 import time
-from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from importlib import metadata
 from pathlib import Path
@@ -51,7 +52,11 @@ EXECUTOR_DATABASE = EXECUTOR_STATE / "soak-replay.sqlite3"
 EXECUTOR_ANCHOR = EXECUTOR_AUTHORITY / "soak-replay.anchor.json"
 WORKLOAD_PAUSE = Path("/scenario/soak-workload-pause.json")
 WORKLOAD_PAUSE_ACK = Path("/scenario/soak-workload-pause-ack.json")
-MAX_RECORDED_HEALTH_SAMPLES = 512
+WORKLOAD_RESTART = Path("/scenario/soak-workload-restart.json")
+WORKLOAD_RESTART_ACK = Path("/scenario/soak-workload-restart-ack.json")
+WORKLOAD_START = Path("/scenario/soak-workload-start.json")
+HEALTH_CADENCE_LIMIT_SECONDS = 15.0
+MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
 AUDIT_ERROR_MAX_BYTES = 4_096
 AUDIT_ERROR_SAMPLE_BUDGET = 1
 AUDIT_TRANSIENT_CONNECT_BUSY = re.compile(
@@ -80,6 +85,28 @@ def _object(path: Path) -> dict[str, Any]:
     value = strict_json_loads(path.read_bytes())
     if not isinstance(value, dict):
         raise RuntimeError(f"{path} is not a JSON object")
+    return cast(dict[str, Any], value)
+
+
+def _coordination_object(path: Path) -> dict[str, Any]:
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-finite coordination number is forbidden: {value}")
+
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate coordination key is forbidden: {key}")
+            result[key] = value
+        return result
+
+    value = json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=reject_duplicates,
+        parse_constant=reject_constant,
+    )
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{path} is not a coordination JSON object")
     return cast(dict[str, Any], value)
 
 
@@ -129,11 +156,22 @@ class TokenIssuer:
 
 
 class ClusterClient:
-    def __init__(self, *, seed: int, retry_timeout_s: float) -> None:
+    def __init__(
+        self,
+        *,
+        seed: int,
+        retry_timeout_s: float,
+        abort_event: threading.Event | None = None,
+    ) -> None:
         self._tokens = TokenIssuer(seed=seed)
         self._tls = _tls_context()
         self._retry_timeout_s = retry_timeout_s
+        self._abort_event = abort_event
         self.retry_count = 0
+
+    def _raise_if_aborted(self) -> None:
+        if self._abort_event is not None and self._abort_event.is_set():
+            raise RuntimeError("request aborted after the health monitor failed")
 
     def request(
         self,
@@ -145,7 +183,11 @@ class ClusterClient:
         expected: int = 200,
         retry_timeout_s: float | None = None,
         deadline_monotonic: float | None = None,
+        interrupt: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
+        self._raise_if_aborted()
+        if interrupt is not None:
+            interrupt()
         retry_window = (
             self._retry_timeout_s
             if retry_timeout_s is None
@@ -161,6 +203,9 @@ class ClusterClient:
             deadline = min(deadline, deadline_monotonic)
         last_error = "request was not attempted"
         while time.monotonic() < deadline:
+            self._raise_if_aborted()
+            if interrupt is not None:
+                interrupt()
             headers = {"authorization": f"Bearer {self._tokens.issue()}"}
             request_timeout = max(0.001, min(10.0, deadline - time.monotonic()))
             try:
@@ -172,6 +217,8 @@ class ClusterClient:
                     response = client.request(method, f"{NODE_URLS[node]}{path}", json=body)
             except httpx.TransportError as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
+                if interrupt is not None:
+                    interrupt()
             else:
                 if response.status_code == expected:
                     value = response.json()
@@ -180,12 +227,18 @@ class ClusterClient:
                     if time.monotonic() > deadline:
                         last_error = "response completed after the shared deadline"
                         break
+                    if interrupt is not None:
+                        interrupt()
                     return cast(dict[str, Any], value)
                 last_error = f"HTTP {response.status_code}: {response.text[:500]}"
                 if response.status_code not in {429, 500, 502, 503, 504}:
                     raise RuntimeError(f"{method} {node}{path} failed: {last_error}")
             self.retry_count += 1
-            time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+            delay = min(0.2, max(0.0, deadline - time.monotonic()))
+            if self._abort_event is None:
+                time.sleep(delay)
+            elif self._abort_event.wait(delay):
+                self._raise_if_aborted()
         raise RuntimeError(f"{method} {node}{path} did not recover: {last_error}")
 
 
@@ -556,6 +609,7 @@ def _poll_audit_error_recovery(
     initial_elapsed_s: float,
     initial_observed_monotonic: float,
     shared_deadline: float | None = None,
+    interrupt: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     stalled_for = float(initial_exporter["stalled_for_s"])
     maximum_stall = float(initial_exporter["max_stall_s"])
@@ -569,20 +623,25 @@ def _poll_audit_error_recovery(
     while time.monotonic() < deadline:
         remaining = deadline - time.monotonic()
         try:
+            request_options: dict[str, Any] = {
+                "retry_timeout_s": max(0.001, remaining),
+            }
+            if interrupt is not None:
+                request_options["interrupt"] = interrupt
             if shared_deadline is None:
                 metrics = client.request(
                     "GET",
                     node,
                     "/v1/metrics",
-                    retry_timeout_s=max(0.001, remaining),
+                    **request_options,
                 )
             else:
+                request_options["deadline_monotonic"] = deadline
                 metrics = client.request(
                     "GET",
                     node,
                     "/v1/metrics",
-                    retry_timeout_s=max(0.001, remaining),
-                    deadline_monotonic=deadline,
+                    **request_options,
                 )
         except RuntimeError as exc:
             last = f"{type(exc).__name__}: {exc}"
@@ -615,28 +674,291 @@ def _poll_audit_error_recovery(
     )
 
 
+class PlannedNodeUnavailableError(RuntimeError):
+    """Abort one node observation only for an exact orchestrated restart window."""
+
+    def __init__(self, window: dict[str, Any]) -> None:
+        self.window = window
+        super().__init__(
+            "planned node restart interrupted health observation: "
+            f"{window.get('service')} {window.get('restart_id')}"
+        )
+
+
+def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _restart_acknowledgement(
+    marker: dict[str, Any],
+    *,
+    acknowledged_monotonic: float | None = None,
+    recovered_monotonic: float | None = None,
+) -> dict[str, Any]:
+    acknowledgement: dict[str, Any] = {
+        "armed_monotonic_seconds": marker["armed_monotonic_seconds"],
+        "episode": marker["episode"],
+        "restart_id": marker["restart_id"],
+        "service": marker["service"],
+    }
+    if WORKLOAD_RESTART_ACK.exists():
+        try:
+            current = _coordination_object(WORKLOAD_RESTART_ACK)
+        except FileNotFoundError:
+            current = None
+        if current is not None:
+            if not all(current.get(key) == acknowledgement[key] for key in acknowledgement):
+                raise RuntimeError(f"planned restart acknowledgement identity changed: {current!r}")
+            acknowledgement.update(current)
+    if acknowledged_monotonic is not None:
+        acknowledgement.setdefault("acknowledged_monotonic_seconds", acknowledged_monotonic)
+    if recovered_monotonic is not None:
+        acknowledgement["completed_monotonic_seconds"] = marker.get("completed_monotonic_seconds")
+        acknowledgement.setdefault("recovered_monotonic_seconds", recovered_monotonic)
+    _write_json_atomic(WORKLOAD_RESTART_ACK, acknowledgement)
+    return acknowledgement
+
+
+def _planned_restart_window(
+    node: str,
+    *,
+    observation_started_monotonic: float,
+) -> dict[str, Any] | None:
+    """Return the durable exact restart marker only when it overlaps this observation."""
+
+    if not WORKLOAD_RESTART.exists():
+        return None
+    try:
+        marker = _coordination_object(WORKLOAD_RESTART)
+    except FileNotFoundError:
+        return None
+    restart_id = marker.get("restart_id")
+    episode = marker.get("episode")
+    service = marker.get("service")
+    state = marker.get("state")
+    armed = marker.get("armed_monotonic_seconds")
+    completed = marker.get("completed_monotonic_seconds")
+    if (
+        not isinstance(restart_id, str)
+        or not restart_id
+        or isinstance(episode, bool)
+        or not isinstance(episode, int)
+        or episode < 0
+        or service not in NODES
+        or state not in {"armed", "completed"}
+        or isinstance(armed, bool)
+        or not isinstance(armed, (int, float))
+        or not math.isfinite(float(armed))
+        or float(armed) <= 0
+        or (
+            state == "completed"
+            and (
+                isinstance(completed, bool)
+                or not isinstance(completed, (int, float))
+                or not math.isfinite(float(completed))
+                or float(completed) < float(armed)
+            )
+        )
+        or (state == "armed" and completed is not None)
+    ):
+        raise RuntimeError(f"malformed planned restart marker: {marker!r}")
+    if service != node:
+        return None
+    now = time.monotonic()
+    if state == "armed":
+        acknowledgement = _restart_acknowledgement(
+            marker,
+            acknowledged_monotonic=now,
+        )
+    else:
+        if not WORKLOAD_RESTART_ACK.exists():
+            raise RuntimeError("completed planned restart lacks its pre-SIGKILL acknowledgement")
+        try:
+            acknowledgement = _coordination_object(WORKLOAD_RESTART_ACK)
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "completed planned restart lost its pre-SIGKILL acknowledgement"
+            ) from exc
+    identity = ("armed_monotonic_seconds", "episode", "restart_id", "service")
+    acknowledged = acknowledgement.get("acknowledged_monotonic_seconds")
+    if (
+        any(acknowledgement.get(key) != marker.get(key) for key in identity)
+        or isinstance(acknowledged, bool)
+        or not isinstance(acknowledged, (int, float))
+        or not math.isfinite(float(acknowledged))
+        or not float(armed) <= float(acknowledged) <= now
+    ):
+        raise RuntimeError(
+            "planned restart acknowledgement is malformed or stale: "
+            f"marker={marker!r} acknowledgement={acknowledgement!r}"
+        )
+    if state == "armed" and now - float(acknowledged) > MAXIMUM_PLANNED_RESTART_SECONDS:
+        try:
+            refreshed = _coordination_object(WORKLOAD_RESTART)
+        except FileNotFoundError:
+            refreshed = {}
+        refreshed_completed = refreshed.get("completed_monotonic_seconds")
+        if (
+            any(refreshed.get(key) != marker.get(key) for key in identity)
+            or refreshed.get("state") != "completed"
+            or isinstance(refreshed_completed, bool)
+            or not isinstance(refreshed_completed, (int, float))
+            or not math.isfinite(float(refreshed_completed))
+            or not float(acknowledged) <= float(refreshed_completed)
+            or float(refreshed_completed) - float(acknowledged) > MAXIMUM_PLANNED_RESTART_SECONDS
+        ):
+            raise RuntimeError("acknowledged planned restart exceeded its live 30s window")
+        marker = refreshed
+        state = "completed"
+        completed = refreshed_completed
+    overlaps = state == "armed" or observation_started_monotonic <= float(
+        cast(int | float, completed)
+    )
+    if overlaps:
+        if state == "completed":
+            if not WORKLOAD_RESTART_ACK.exists():
+                raise RuntimeError(
+                    "completed planned restart lacks its pre-SIGKILL acknowledgement"
+                )
+            try:
+                acknowledgement = _coordination_object(WORKLOAD_RESTART_ACK)
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    "completed planned restart lost its pre-SIGKILL acknowledgement"
+                ) from exc
+        if (
+            any(acknowledgement.get(key) != marker.get(key) for key in identity)
+            or isinstance(acknowledged, bool)
+            or not isinstance(acknowledged, (int, float))
+            or not math.isfinite(float(acknowledged))
+            or not float(armed) <= float(acknowledged) <= now
+            or (
+                state == "completed"
+                and (
+                    float(cast(int | float, completed)) < float(acknowledged)
+                    or float(cast(int | float, completed)) - float(acknowledged)
+                    > MAXIMUM_PLANNED_RESTART_SECONDS
+                )
+            )
+        ):
+            raise RuntimeError(
+                "planned restart acknowledgement is malformed, stale, or expired: "
+                f"marker={marker!r} acknowledgement={acknowledgement!r}"
+            )
+        return marker
+    return None
+
+
+def _acknowledge_completed_restart(node: str, *, observed_monotonic: float) -> None:
+    if not WORKLOAD_RESTART.exists():
+        return
+    try:
+        marker = _coordination_object(WORKLOAD_RESTART)
+    except FileNotFoundError:
+        return
+    completed = marker.get("completed_monotonic_seconds")
+    if (
+        marker.get("service") == node
+        and marker.get("state") == "completed"
+        and isinstance(completed, (int, float))
+        and not isinstance(completed, bool)
+        and math.isfinite(float(completed))
+        and float(completed) <= observed_monotonic
+    ):
+        _restart_acknowledgement(marker, recovered_monotonic=observed_monotonic)
+
+
 def _health_sample(
     client: ClusterClient,
     *,
     elapsed_s: float,
     audit_error_budget: AuditErrorBudget | None = None,
     deadline: float | None = None,
+    observation_origin_monotonic: float | None = None,
+    planned_restart_reader: Callable[..., dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
-    def request(node: str, path: str) -> dict[str, Any]:
+    origin = (
+        time.monotonic() - elapsed_s
+        if observation_origin_monotonic is None
+        else observation_origin_monotonic
+    )
+
+    def request(
+        node: str,
+        path: str,
+        *,
+        observation_started: float,
+    ) -> dict[str, Any]:
+        def interrupt() -> None:
+            interrupt_planned_restart(node, observation_started)
+
+        request_options: dict[str, Any] = {}
+        if planned_restart_reader is not None:
+            request_options["interrupt"] = interrupt
         if deadline is None:
-            return client.request("GET", node, path)
+            return client.request("GET", node, path, **request_options)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError("cluster health sample exhausted its shared deadline")
-        return client.request("GET", node, path, deadline_monotonic=deadline)
+        request_options["deadline_monotonic"] = deadline
+        return client.request(
+            "GET",
+            node,
+            path,
+            **request_options,
+        )
+
+    def interrupt_planned_restart(node: str, observation_started: float) -> None:
+        if planned_restart_reader is None:
+            return
+        window = planned_restart_reader(
+            node,
+            observation_started_monotonic=observation_started,
+        )
+        if window is not None:
+            raise PlannedNodeUnavailableError(window)
 
     nodes: dict[str, Any] = {}
     audit_catchup_nodes: list[str] = []
     audit_error_recoveries: list[dict[str, Any]] = []
+    planned_unavailable_nodes: list[str] = []
     for node in NODES:
-        invariant = request(node, "/v1/invariants")
-        audit = request(node, "/v1/audit/verify")
-        metrics = request(node, "/v1/metrics")
+        observation_started = time.monotonic()
+        retry_count_before = int(getattr(client, "retry_count", 0))
+        try:
+            invariant = request(
+                node,
+                "/v1/invariants",
+                observation_started=observation_started,
+            )
+            audit = request(
+                node,
+                "/v1/audit/verify",
+                observation_started=observation_started,
+            )
+            metrics = request(
+                node,
+                "/v1/metrics",
+                observation_started=observation_started,
+            )
+        except PlannedNodeUnavailableError as exc:
+            observation_completed = time.monotonic()
+            nodes[node] = {
+                "observation": {
+                    "completed_elapsed_seconds": round(
+                        observation_completed - origin,
+                        6,
+                    ),
+                    "metrics_observed_elapsed_seconds": None,
+                    "request_retries": int(getattr(client, "retry_count", 0)) - retry_count_before,
+                    "started_elapsed_seconds": round(observation_started - origin, 6),
+                },
+                "planned_unavailable": exc.window,
+            }
+            planned_unavailable_nodes.append(node)
+            continue
         metrics_observed_monotonic = time.monotonic()
         audit_exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
         capacity = metrics.get("storage_capacity")
@@ -679,6 +1001,15 @@ def _health_sample(
                     "workload error budget"
                 )
             audit_error_budget.observe_error(node)
+            audit_interrupt: Callable[[], None] | None = None
+            if planned_restart_reader is not None:
+
+                def audit_interrupt(
+                    observed_node: str = node,
+                    observed_started: float = observation_started,
+                ) -> None:
+                    interrupt_planned_restart(observed_node, observed_started)
+
             recovery = _poll_audit_error_recovery(
                 client,
                 node=node,
@@ -686,16 +1017,412 @@ def _health_sample(
                 initial_elapsed_s=elapsed_s,
                 initial_observed_monotonic=metrics_observed_monotonic,
                 shared_deadline=deadline,
+                interrupt=audit_interrupt,
             )
             audit_error_budget.mark_recovered(node)
             audit_error_recoveries.append(recovery)
+        observation_completed = time.monotonic()
+        _acknowledge_completed_restart(
+            node,
+            observed_monotonic=observation_completed,
+        )
+        nodes[node]["observation"] = {
+            "completed_elapsed_seconds": round(observation_completed - origin, 6),
+            "metrics_observed_elapsed_seconds": round(
+                metrics_observed_monotonic - origin,
+                6,
+            ),
+            "request_retries": int(getattr(client, "retry_count", 0)) - retry_count_before,
+            "started_elapsed_seconds": round(observation_started - origin, 6),
+        }
     sample = {
         "audit_catchup_nodes": audit_catchup_nodes,
         "audit_error_recoveries": audit_error_recoveries,
         "elapsed_seconds": round(elapsed_s, 3),
         "nodes": nodes,
+        "planned_unavailable_nodes": planned_unavailable_nodes,
     }
     return sample
+
+
+class HealthSampler:
+    """Observe health on an absolute schedule independent of mixed-workload latency."""
+
+    def __init__(
+        self,
+        *,
+        started_monotonic: float,
+        interval_seconds: float,
+        retry_timeout_seconds: float,
+        seed: int,
+        failure_event: threading.Event,
+    ) -> None:
+        if (
+            not math.isfinite(started_monotonic)
+            or started_monotonic <= 0
+            or not math.isfinite(interval_seconds)
+            or interval_seconds <= 0
+            or interval_seconds > HEALTH_CADENCE_LIMIT_SECONDS
+        ):
+            raise ValueError("health monitor schedule is invalid")
+        self._started = started_monotonic
+        self._interval = interval_seconds
+        self._client = ClusterClient(seed=seed, retry_timeout_s=retry_timeout_seconds)
+        self._audit_error_budget = AuditErrorBudget()
+        self._failure_event = failure_event
+        self._cancel_event = threading.Event()
+        self._schedule_changed = threading.Event()
+        self._lock = threading.Lock()
+        self._finish_at: float | None = None
+        self._finished_at: float | None = None
+        self._error: BaseException | None = None
+        self._failure_schedule: dict[str, Any] | None = None
+        self._current_schedule: dict[str, Any] | None = None
+        self._attempted_sample_count = 0
+        self._samples: list[dict[str, Any]] = []
+        self._last_observed_monotonic: dict[str, float] = {}
+        self._thread = threading.Thread(
+            target=self._run,
+            name="lets-production-soak-health-monitor",
+            daemon=True,
+        )
+
+    @property
+    def failure_event(self) -> threading.Event:
+        return self._failure_event
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def raise_if_failed(self) -> None:
+        with self._lock:
+            error = self._error
+        if error is not None:
+            raise RuntimeError(f"independent health monitor failed: {error}") from error
+
+    def _deadline_for(self, scheduled: float) -> float:
+        deadline = scheduled + HEALTH_CADENCE_LIMIT_SECONDS
+        with self._lock:
+            prior_observations = dict(self._last_observed_monotonic)
+        marker: dict[str, Any] | None = None
+        acknowledgement: dict[str, Any] | None = None
+        if WORKLOAD_RESTART.exists():
+            try:
+                marker = _coordination_object(WORKLOAD_RESTART)
+            except FileNotFoundError:
+                marker = None
+        if WORKLOAD_RESTART_ACK.exists():
+            try:
+                acknowledgement = _coordination_object(WORKLOAD_RESTART_ACK)
+            except FileNotFoundError:
+                acknowledgement = None
+        for node, observed in prior_observations.items():
+            node_deadline = observed + HEALTH_CADENCE_LIMIT_SECONDS
+            if isinstance(marker, dict) and marker.get("service") == node:
+                marker_started = marker.get("armed_monotonic_seconds")
+                marker_completed = marker.get("completed_monotonic_seconds")
+                if (
+                    isinstance(marker_started, (int, float))
+                    and not isinstance(marker_started, bool)
+                    and math.isfinite(float(marker_started))
+                ):
+                    acknowledged_at = (
+                        acknowledgement.get("acknowledged_monotonic_seconds")
+                        if isinstance(acknowledgement, dict)
+                        else None
+                    )
+                    marker_acknowledged = bool(
+                        isinstance(acknowledgement, dict)
+                        and acknowledgement.get("restart_id") == marker.get("restart_id")
+                        and acknowledgement.get("episode") == marker.get("episode")
+                        and acknowledgement.get("service") == marker.get("service")
+                        and acknowledgement.get("armed_monotonic_seconds") == marker_started
+                        and isinstance(acknowledged_at, (int, float))
+                        and not isinstance(acknowledged_at, bool)
+                        and math.isfinite(float(acknowledged_at))
+                        and observed
+                        <= float(acknowledged_at)
+                        <= observed + HEALTH_CADENCE_LIMIT_SECONDS
+                        and float(marker_started) <= float(acknowledged_at)
+                    )
+                    if (
+                        marker.get("state") == "armed"
+                        and marker_completed is None
+                        and marker_acknowledged
+                    ):
+                        if (
+                            time.monotonic() - float(cast(int | float, acknowledged_at))
+                            > MAXIMUM_PLANNED_RESTART_SECONDS
+                        ):
+                            try:
+                                refreshed = _coordination_object(WORKLOAD_RESTART)
+                            except FileNotFoundError:
+                                refreshed = {}
+                            refreshed_completed = refreshed.get("completed_monotonic_seconds")
+                            identity = (
+                                "armed_monotonic_seconds",
+                                "episode",
+                                "restart_id",
+                                "service",
+                            )
+                            if (
+                                any(refreshed.get(key) != marker.get(key) for key in identity)
+                                or refreshed.get("state") != "completed"
+                                or isinstance(refreshed_completed, bool)
+                                or not isinstance(refreshed_completed, (int, float))
+                                or not math.isfinite(float(refreshed_completed))
+                                or not float(cast(int | float, acknowledged_at))
+                                <= float(refreshed_completed)
+                                or float(refreshed_completed)
+                                - float(cast(int | float, acknowledged_at))
+                                > MAXIMUM_PLANNED_RESTART_SECONDS
+                            ):
+                                raise RuntimeError(
+                                    "acknowledged planned restart exceeded its live 30s window"
+                                )
+                            marker = refreshed
+                            marker_completed = refreshed_completed
+                        else:
+                            continue
+                    if (
+                        marker.get("state") == "completed"
+                        and marker_acknowledged
+                        and isinstance(marker_completed, (int, float))
+                        and not isinstance(marker_completed, bool)
+                        and float(marker_completed) >= float(marker_started)
+                        and float(marker_completed) >= float(cast(int | float, acknowledged_at))
+                        and float(marker_completed) - float(cast(int | float, acknowledged_at))
+                        <= MAXIMUM_PLANNED_RESTART_SECONDS
+                    ):
+                        node_deadline = float(marker_completed) + HEALTH_CADENCE_LIMIT_SECONDS
+            deadline = min(deadline, node_deadline)
+        return deadline
+
+    def _sample(self, *, index: int, scheduled: float) -> None:
+        deadline = self._deadline_for(scheduled)
+        sample_started = time.monotonic()
+        with self._lock:
+            self._current_schedule = {
+                "deadline_elapsed_seconds": round(deadline - self._started, 6),
+                "schedule_index": index,
+                "scheduled_elapsed_seconds": round(scheduled - self._started, 6),
+                "started_elapsed_seconds": round(sample_started - self._started, 6),
+            }
+        if sample_started > deadline:
+            raise RuntimeError(
+                f"health sample {index} missed its deadline before starting: "
+                f"started={sample_started:.6f} deadline={deadline:.6f}"
+            )
+        sample = _health_sample(
+            self._client,
+            elapsed_s=sample_started - self._started,
+            audit_error_budget=self._audit_error_budget,
+            deadline=deadline,
+            observation_origin_monotonic=self._started,
+            planned_restart_reader=_planned_restart_window,
+        )
+        completed = time.monotonic()
+        if completed > deadline:
+            raise RuntimeError(
+                f"health sample {index} completed after its deadline: "
+                f"completed={completed:.6f} deadline={deadline:.6f}"
+            )
+        sample.update(
+            {
+                "completed_elapsed_seconds": round(completed - self._started, 6),
+                "deadline_elapsed_seconds": round(deadline - self._started, 6),
+                "deadline_missed": False,
+                "schedule_index": index,
+                "scheduled_elapsed_seconds": round(scheduled - self._started, 6),
+                "started_elapsed_seconds": round(sample_started - self._started, 6),
+            }
+        )
+        with self._lock:
+            self._samples.append(sample)
+            self._current_schedule = None
+            for node in NODES:
+                document = sample["nodes"][node]
+                observation = document.get("observation")
+                observed_elapsed = (
+                    observation.get("metrics_observed_elapsed_seconds")
+                    if isinstance(observation, dict)
+                    else None
+                )
+                if isinstance(observed_elapsed, (int, float)) and not isinstance(
+                    observed_elapsed,
+                    bool,
+                ):
+                    self._last_observed_monotonic[node] = self._started + float(observed_elapsed)
+
+    def _run(self) -> None:
+        regular_index = 0
+        sample_index = 0
+        try:
+            while not self._cancel_event.is_set():
+                with self._lock:
+                    finish_at = self._finish_at
+                regular_due = self._started + regular_index * self._interval
+                is_final = finish_at is not None and regular_due >= finish_at
+                scheduled = finish_at if is_final else regular_due
+                if scheduled is None:
+                    raise RuntimeError("health monitor lost its schedule")
+                delay = scheduled - time.monotonic()
+                if delay > 0:
+                    self._schedule_changed.wait(delay)
+                    self._schedule_changed.clear()
+                    continue
+                with self._lock:
+                    self._attempted_sample_count += 1
+                    self._current_schedule = {
+                        "deadline_elapsed_seconds": round(
+                            scheduled + HEALTH_CADENCE_LIMIT_SECONDS - self._started,
+                            6,
+                        ),
+                        "schedule_index": sample_index,
+                        "scheduled_elapsed_seconds": round(
+                            scheduled - self._started,
+                            6,
+                        ),
+                        "started_elapsed_seconds": None,
+                    }
+                self._sample(index=sample_index, scheduled=scheduled)
+                sample_index += 1
+                if is_final:
+                    break
+                regular_index += 1
+        except BaseException as exc:
+            with self._lock:
+                self._error = exc
+                self._failure_schedule = (
+                    None if self._current_schedule is None else dict(self._current_schedule)
+                )
+            self._failure_event.set()
+        finally:
+            with self._lock:
+                self._finished_at = time.monotonic()
+
+    def finish(self, *, workload_ended_monotonic: float) -> None:
+        if not math.isfinite(workload_ended_monotonic) or workload_ended_monotonic < self._started:
+            raise RuntimeError("health monitor finish time is invalid")
+        with self._lock:
+            if self._finish_at is not None:
+                raise RuntimeError("health monitor was already finished")
+            self._finish_at = workload_ended_monotonic
+        self._schedule_changed.set()
+        self._thread.join(timeout=2 * HEALTH_CADENCE_LIMIT_SECONDS + 5)
+        if self._thread.is_alive():
+            self._cancel_event.set()
+            self._schedule_changed.set()
+            error = RuntimeError("independent health monitor did not join inside its bound")
+            with self._lock:
+                self._error = error
+                self._failure_schedule = (
+                    None if self._current_schedule is None else dict(self._current_schedule)
+                )
+            self._failure_event.set()
+            self.raise_if_failed()
+        self.raise_if_failed()
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
+        self._schedule_changed.set()
+        if self._thread.ident is not None:
+            self._thread.join(timeout=HEALTH_CADENCE_LIMIT_SECONDS + 5)
+        if self._thread.is_alive():
+            error = RuntimeError("independent health monitor remained alive after cancellation")
+            with self._lock:
+                self._error = error
+                self._failure_schedule = (
+                    None if self._current_schedule is None else dict(self._current_schedule)
+                )
+            self._failure_event.set()
+            raise error
+
+    def result(self, *, workload_ended_monotonic: float) -> dict[str, Any]:
+        if self._thread.is_alive():
+            raise RuntimeError("health monitor result requested before join")
+        self.raise_if_failed()
+        with self._lock:
+            samples = list(self._samples)
+            finished_at = self._finished_at
+        window = workload_ended_monotonic - self._started
+        expected = math.ceil(window / self._interval) + 1
+        return {
+            "audit_error_budget": self._audit_error_budget,
+            "health_monitor": {
+                "actual_sample_count": len(samples),
+                "audit_error_budget_instances": 1,
+                "deadline_miss_count": 0,
+                "expected_sample_count": expected,
+                "finished_elapsed_seconds": (
+                    None if finished_at is None else round(finished_at - self._started, 6)
+                ),
+                "interval_seconds": self._interval,
+                "joined": True,
+                "request_retry_count": self._client.retry_count,
+                "retained_sample_count": len(samples),
+                "samples_truncated": 0,
+                "schedule": "absolute_monotonic",
+                "status": "passed",
+            },
+            "samples": samples,
+        }
+
+    def failure_snapshot(self, *, workload_ended_monotonic: float) -> dict[str, Any]:
+        with self._lock:
+            samples = list(self._samples)
+            error = self._error
+            failure_schedule = (
+                None if self._failure_schedule is None else dict(self._failure_schedule)
+            )
+            finished_at = self._finished_at
+            attempted = self._attempted_sample_count
+        window = max(0.0, workload_ended_monotonic - self._started)
+        expected = math.ceil(window / self._interval) + 1
+        return {
+            "health_monitor": {
+                "actual_sample_count": len(samples),
+                "attempted_sample_count": attempted,
+                "audit_error_budget_instances": 1,
+                "deadline_miss_count": (
+                    1 if error is not None and "deadline" in str(error).lower() else 0
+                ),
+                "error": (
+                    None
+                    if error is None
+                    else {
+                        "message": str(error),
+                        "type": f"{type(error).__module__}.{type(error).__qualname__}",
+                    }
+                ),
+                "expected_sample_count": expected,
+                "failure_schedule": failure_schedule,
+                "finished_elapsed_seconds": (
+                    None if finished_at is None else round(finished_at - self._started, 6)
+                ),
+                "interval_seconds": self._interval,
+                "joined": not self._thread.is_alive(),
+                "request_retry_count": self._client.retry_count,
+                "retained_sample_count": len(samples),
+                "samples_truncated": 0,
+                "schedule": "absolute_monotonic",
+                "status": "failed",
+            },
+            "health_sample_count": len(samples),
+            "health_samples": samples,
+            "workload_window_seconds": round(
+                window,
+                6,
+            ),
+        }
+
+
+class WorkloadMonitorError(RuntimeError):
+    """Carry structured partial sampler evidence to the CLI failure writer."""
+
+    def __init__(self, message: str, *, result: dict[str, Any]) -> None:
+        self.result = result
+        super().__init__(message)
 
 
 def _is_converged(sample: dict[str, Any]) -> bool:
@@ -783,6 +1510,12 @@ def _audit_progress_summary(
             if not isinstance(document, dict):
                 raise RuntimeError(f"health sample omitted {node}: {sample!r}")
             exporter = document.get("audit_exporter")
+            if exporter is None and isinstance(document.get("planned_unavailable"), dict):
+                if node in recovery_by_node:
+                    raise RuntimeError(
+                        f"health sample recovered planned-unavailable {node}: {sample!r}"
+                    )
+                continue
             if not isinstance(exporter, dict):
                 raise RuntimeError(f"health sample omitted {node} audit status: {sample!r}")
             pending = exporter.get("pending")
@@ -869,47 +1602,122 @@ def _validate_conservation(sample: dict[str, Any]) -> dict[str, Any]:
 
 
 def _wait_if_paused(
-    client: ClusterClient,
     *,
-    audit_error_budget: AuditErrorBudget | None = None,
-    health_interval_seconds: float,
-    health_samples: deque[dict[str, Any]],
-    next_health: float,
+    failure_event: threading.Event,
+    raise_monitor_error: Callable[[], None],
     started: float,
-) -> tuple[float, int]:
-    sample_count = 0
+) -> dict[str, Any] | None:
+    if not WORKLOAD_PAUSE.exists():
+        return None
+    request = _coordination_object(WORKLOAD_PAUSE)
+    episode = request.get("episode")
+    pause_id = request.get("pause_id")
+    requested_monotonic = request.get("requested_monotonic_seconds")
+    if (
+        isinstance(episode, bool)
+        or not isinstance(episode, int)
+        or episode < 0
+        or not isinstance(pause_id, str)
+        or not pause_id
+        or isinstance(requested_monotonic, bool)
+        or not isinstance(requested_monotonic, (int, float))
+        or not math.isfinite(float(requested_monotonic))
+        or float(requested_monotonic) <= 0
+    ):
+        raise RuntimeError(f"invalid workload pause request: {request!r}")
+    observed = time.monotonic()
+    acknowledgement = {
+        "episode": episode,
+        "observed_monotonic_seconds": observed,
+        "pause_id": pause_id,
+        "paused": True,
+        "requested_monotonic_seconds": float(requested_monotonic),
+    }
+    WORKLOAD_PAUSE_ACK.write_text(
+        json.dumps(acknowledgement, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     while WORKLOAD_PAUSE.exists():
-        request = _object(WORKLOAD_PAUSE)
-        episode = request.get("episode")
-        if not isinstance(episode, int) or episode < 0:
-            raise RuntimeError(f"invalid workload pause request: {request!r}")
-        WORKLOAD_PAUSE_ACK.write_text(
-            json.dumps({"episode": episode, "paused": True}, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        now = time.monotonic()
-        if now >= next_health:
-            health_samples.append(
-                _health_sample(
-                    client,
-                    elapsed_s=now - started,
-                    audit_error_budget=audit_error_budget,
-                )
+        raise_monitor_error()
+        try:
+            current = _coordination_object(WORKLOAD_PAUSE)
+        except FileNotFoundError:
+            break
+        if current != request:
+            raise RuntimeError(
+                f"workload pause marker changed before resume: {request!r} -> {current!r}"
             )
-            sample_count += 1
-            next_health = time.monotonic() + health_interval_seconds
-        time.sleep(0.05)
-    return next_health, sample_count
+        if failure_event.wait(0.05):
+            raise_monitor_error()
+    resumed = time.monotonic()
+    return {
+        "duration_seconds": round(resumed - observed, 6),
+        "episode": episode,
+        "observed_elapsed_seconds": round(observed - started, 6),
+        "observed_monotonic_seconds": observed,
+        "pause_id": pause_id,
+        "requested_monotonic_seconds": float(requested_monotonic),
+        "resumed_elapsed_seconds": round(resumed - started, 6),
+        "resumed_monotonic_seconds": resumed,
+    }
+
+
+def _workload_time_evidence(
+    pause_intervals: list[dict[str, Any]],
+    *,
+    started_monotonic: float,
+    measurement_window_seconds: float,
+) -> dict[str, Any]:
+    measurement_end = started_monotonic + measurement_window_seconds
+    prior_end = started_monotonic
+    paused_seconds = 0.0
+    for expected_episode, interval in enumerate(pause_intervals):
+        observed = float(interval["observed_monotonic_seconds"])
+        resumed = float(interval["resumed_monotonic_seconds"])
+        if (
+            interval.get("episode") != expected_episode
+            or observed < prior_end
+            or resumed < observed
+        ):
+            raise RuntimeError(
+                f"invalid or overlapping workload pause evidence: {pause_intervals!r}"
+            )
+        clipped_start = max(started_monotonic, min(measurement_end, observed))
+        clipped_end = max(clipped_start, min(measurement_end, resumed))
+        clipped_duration = clipped_end - clipped_start
+        interval["measurement_clipped_duration_seconds"] = round(clipped_duration, 6)
+        interval["measurement_clipped_end_elapsed_seconds"] = round(
+            clipped_end - started_monotonic,
+            6,
+        )
+        interval["measurement_clipped_start_elapsed_seconds"] = round(
+            clipped_start - started_monotonic,
+            6,
+        )
+        paused_seconds += clipped_duration
+        prior_end = resumed
+    active_seconds = measurement_window_seconds - paused_seconds
+    if active_seconds < 0:
+        raise RuntimeError("workload pause evidence exceeds the measurement window")
+    return {
+        "active_workload_seconds": round(active_seconds, 6),
+        "measurement_window_seconds": round(measurement_window_seconds, 6),
+        "pause_interval_count": len(pause_intervals),
+        "pause_intervals": pause_intervals,
+        "paused_workload_seconds": round(paused_seconds, 6),
+    }
 
 
 def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
     manifest = _verified_manifest()
     policy = manifest.policies[0]
-    client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
+    failure_event = threading.Event()
+    client = ClusterClient(
+        seed=arguments.seed,
+        retry_timeout_s=arguments.retry_timeout_seconds,
+        abort_event=failure_event,
+    )
     executor = ExecutorBoundary(manifest)
-    audit_error_budget = AuditErrorBudget()
-    health_samples: deque[dict[str, Any]] = deque(maxlen=MAX_RECORDED_HEALTH_SAMPLES)
-    health_sample_count = 0
     counters = {
         "authorizations": 0,
         "closed": 0,
@@ -921,28 +1729,60 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
     }
     transfer_pair_counts = {f"{source}->{target}": 0 for source, target in TRANSFER_PAIRS}
     latency = LatencyHistogram()
+    pause_intervals: list[dict[str, Any]] = []
     started = time.monotonic()
+    run_id = str(arguments.run_id)
+    if not run_id or len(run_id.encode("utf-8")) > 256:
+        raise RuntimeError("workload run identity is invalid")
+    _write_json_atomic(
+        WORKLOAD_START,
+        {
+            "cycle_interval_seconds": arguments.cycle_interval_seconds,
+            "duration_seconds": arguments.duration_seconds,
+            "executor_reopen_every_cycles": arguments.executor_reopen_every_cycles,
+            "health_interval_seconds": arguments.health_interval_seconds,
+            "retry_timeout_seconds": arguments.retry_timeout_seconds,
+            "run_id": run_id,
+            "schema": "lets.production-profile-soak-workload-start/v1",
+            "seed": arguments.seed,
+            "started_monotonic_seconds": started,
+            "transfer_every_cycles": arguments.transfer_every_cycles,
+        },
+    )
     deadline = started + arguments.duration_seconds
-    next_health = started
+    health_sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=arguments.health_interval_seconds,
+        retry_timeout_seconds=arguments.retry_timeout_seconds,
+        seed=arguments.seed + 1_000_000_000,
+        failure_event=failure_event,
+    )
     cycle = 0
+
+    def request(*request_arguments: Any, **request_options: Any) -> dict[str, Any]:
+        health_sampler.raise_if_failed()
+        response = client.request(*request_arguments, **request_options)
+        health_sampler.raise_if_failed()
+        return response
+
     try:
+        health_sampler.start()
         while time.monotonic() < deadline:
-            next_health, pause_health_samples = _wait_if_paused(
-                client,
-                audit_error_budget=audit_error_budget,
-                health_interval_seconds=arguments.health_interval_seconds,
-                health_samples=health_samples,
-                next_health=next_health,
+            health_sampler.raise_if_failed()
+            pause = _wait_if_paused(
+                failure_event=failure_event,
+                raise_monitor_error=health_sampler.raise_if_failed,
                 started=started,
             )
-            health_sample_count += pause_health_samples
+            if pause is not None:
+                pause_intervals.append(pause)
             if time.monotonic() >= deadline:
                 break
             cycle_started = time.monotonic()
             plan = operation_plan(cycle)
             node = cast(str, plan["node"])
             prefix = f"soak-{arguments.seed}-{cycle:012d}"
-            root = client.request(
+            root = request(
                 "POST",
                 node,
                 "/v1/roots",
@@ -961,7 +1801,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             counters["issued_roots"] += 1
             lease_id = str(root["lease_id"])
 
-            first = client.request(
+            first = request(
                 "POST",
                 node,
                 f"/v1/leases/{lease_id}/transitions",
@@ -973,23 +1813,24 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                 },
             )
             executor.claim(Receipt.from_dict(first))
+            health_sampler.raise_if_failed()
             counters["authorizations"] += 1
 
-            client.request(
+            request(
                 "POST",
                 node,
                 f"/v1/leases/{lease_id}/quiesce",
                 body={"request_id": f"{prefix}-quiesce"},
             )
             counters["quiesced"] += 1
-            client.request(
+            request(
                 "POST",
                 node,
                 f"/v1/leases/{lease_id}/resume",
                 body={"request_id": f"{prefix}-resume"},
             )
             counters["resumed"] += 1
-            client.request(
+            request(
                 "POST",
                 node,
                 f"/v1/leases/{lease_id}/renew",
@@ -997,7 +1838,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             )
             counters["renewed"] += 1
 
-            second = client.request(
+            second = request(
                 "POST",
                 node,
                 f"/v1/leases/{lease_id}/transitions",
@@ -1009,8 +1850,9 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                 },
             )
             executor.claim(Receipt.from_dict(second))
+            health_sampler.raise_if_failed()
             counters["authorizations"] += 1
-            client.request(
+            request(
                 "POST",
                 node,
                 f"/v1/leases/{lease_id}/close",
@@ -1021,7 +1863,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             transfer_pair = scheduled_transfer_pair(cycle, arguments.transfer_every_cycles)
             if transfer_pair is not None:
                 transfer_source, transfer_target = transfer_pair
-                client.request(
+                request(
                     "POST",
                     transfer_source,
                     "/v1/transfers/prepare",
@@ -1041,31 +1883,30 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             cycle += 1
             if cycle % arguments.executor_reopen_every_cycles == 0:
                 executor.reopen()
-            now = time.monotonic()
-            if now >= next_health:
-                health_samples.append(
-                    _health_sample(
-                        client,
-                        elapsed_s=now - started,
-                        audit_error_budget=audit_error_budget,
-                    )
-                )
-                health_sample_count += 1
-                next_health = now + arguments.health_interval_seconds
+                health_sampler.raise_if_failed()
             latency.observe(time.monotonic() - cycle_started)
             remaining = deadline - time.monotonic()
-            if remaining > 0:
-                time.sleep(min(arguments.cycle_interval_seconds, remaining))
+            if remaining > 0 and failure_event.wait(
+                min(arguments.cycle_interval_seconds, remaining)
+            ):
+                health_sampler.raise_if_failed()
 
-        final_health = _health_sample(
-            client,
-            elapsed_s=time.monotonic() - started,
-            audit_error_budget=audit_error_budget,
+        workload_ended = time.monotonic()
+        health_sampler.finish(workload_ended_monotonic=workload_ended)
+        monitor_result = health_sampler.result(
+            workload_ended_monotonic=workload_ended,
         )
-        health_samples.append(final_health)
-        health_sample_count += 1
-        recorded_health_samples = list(health_samples)
+        recorded_health_samples = cast(list[dict[str, Any]], monitor_result["samples"])
+        if not recorded_health_samples:
+            raise RuntimeError("independent health monitor retained no observations")
+        final_health = recorded_health_samples[-1]
         conservation = _conservation_totals(final_health)
+        audit_error_budget = cast(AuditErrorBudget, monitor_result["audit_error_budget"])
+        time_evidence = _workload_time_evidence(
+            pause_intervals,
+            started_monotonic=started,
+            measurement_window_seconds=arguments.duration_seconds,
+        )
         return {
             "audit_progress": _audit_progress_summary(
                 recorded_health_samples,
@@ -1083,22 +1924,79 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             "conservation": conservation,
             "counters": counters,
             "cycles": cycle,
-            "duration_seconds": round(time.monotonic() - started, 3),
+            "duration_seconds": round(workload_ended - started, 6),
             "executor": {
                 "claims": executor.claims,
                 "reopen_count": executor.reopen_count,
                 "replay_rejections": executor.replay_rejections,
                 "status": executor.status(),
             },
-            "health_sample_count": health_sample_count,
+            "health_monitor": monitor_result["health_monitor"],
+            "health_sample_count": len(recorded_health_samples),
             "health_samples": recorded_health_samples,
             "latency": latency.to_dict(),
             "package_version": metadata.version("lets-agent"),
             "request_retry_count": client.retry_count,
-            "schema": "lets.production-profile-soak-workload/v1",
+            "run_id": run_id,
+            "schema": "lets.production-profile-soak-workload/v2",
+            "started_monotonic_seconds": started,
             "status": "passed",
+            **time_evidence,
             "transfer_pair_counts": transfer_pair_counts,
         }
+    except BaseException as error:
+        monitor_error: BaseException | None = None
+        cancel_error: BaseException | None = None
+        try:
+            health_sampler.cancel()
+        except BaseException as exc:
+            cancel_error = exc
+        try:
+            health_sampler.raise_if_failed()
+        except BaseException as exc:
+            monitor_error = exc
+        if cancel_error is not None:
+            error.add_note(f"secondary health-monitor cancellation error: {cancel_error}")
+        if monitor_error is not None:
+            monitor_induced = isinstance(error, RuntimeError) and (
+                str(error).startswith("request aborted after the health monitor failed")
+                or str(error).startswith("independent health monitor")
+                or error is monitor_error
+            )
+            if monitor_induced:
+                ended = time.monotonic()
+                partial = {
+                    "configuration": {
+                        "cycle_interval_seconds": arguments.cycle_interval_seconds,
+                        "duration_seconds": arguments.duration_seconds,
+                        "executor_reopen_every_cycles": (arguments.executor_reopen_every_cycles),
+                        "health_interval_seconds": arguments.health_interval_seconds,
+                        "retry_timeout_seconds": arguments.retry_timeout_seconds,
+                        "seed": arguments.seed,
+                        "transfer_every_cycles": arguments.transfer_every_cycles,
+                    },
+                    "counters": counters,
+                    "cycles": cycle,
+                    "duration_seconds": round(ended - started, 6),
+                    "error": {
+                        "message": str(monitor_error),
+                        "type": (
+                            f"{type(monitor_error).__module__}.{type(monitor_error).__qualname__}"
+                        ),
+                    },
+                    "pause_interval_count": len(pause_intervals),
+                    "pause_intervals": pause_intervals,
+                    "schema": "lets.production-profile-soak-workload/v2",
+                    "run_id": run_id,
+                    "started_monotonic_seconds": started,
+                    "status": "failed",
+                    **health_sampler.failure_snapshot(
+                        workload_ended_monotonic=ended,
+                    ),
+                }
+                raise WorkloadMonitorError(str(monitor_error), result=partial) from error
+            error.add_note(f"secondary health-monitor failure: {monitor_error}")
+        raise
     finally:
         executor.close()
 
@@ -1270,7 +2168,7 @@ def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
 
 def _positive(value: str) -> float:
     parsed = float(value)
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         raise argparse.ArgumentTypeError("value must be positive")
     return parsed
 
@@ -1293,6 +2191,7 @@ def _arguments() -> argparse.Namespace:
     workload.add_argument("--transfer-every-cycles", type=_positive_int, default=3)
     workload.add_argument("--executor-reopen-every-cycles", type=_positive_int, default=10)
     workload.add_argument("--seed", type=int, default=20260809)
+    workload.add_argument("--run-id", default="standalone-production-soak")
     workload.add_argument("--output", type=Path, required=True)
 
     verify = subcommands.add_parser("verify")
@@ -1318,14 +2217,19 @@ def _arguments() -> argparse.Namespace:
 
 def main() -> int:
     arguments = _arguments()
-    if arguments.command == "run":
-        result = run_workload(arguments)
-    elif arguments.command == "partition-probe":
-        result = run_partition_probe(arguments)
-    elif arguments.command == "settle":
-        result = wait_converged(arguments)
-    else:
-        result = verify_final(arguments)
+    workload_error: WorkloadMonitorError | None = None
+    try:
+        if arguments.command == "run":
+            result = run_workload(arguments)
+        elif arguments.command == "partition-probe":
+            result = run_partition_probe(arguments)
+        elif arguments.command == "settle":
+            result = wait_converged(arguments)
+        else:
+            result = verify_final(arguments)
+    except WorkloadMonitorError as exc:
+        result = exc.result
+        workload_error = exc
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     arguments.output.write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n",
@@ -1342,6 +2246,8 @@ def main() -> int:
             sort_keys=True,
         )
     )
+    if workload_error is not None:
+        raise workload_error
     return 0
 
 

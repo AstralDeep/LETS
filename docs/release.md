@@ -84,22 +84,59 @@ BuildKit invocations must produce the same index digest. The workflow runs the t
 production profile against that exact candidate digest with the generic external provider through a
 partition and process restart. A separate mandatory one-hour soak drives mixed lease lifecycle,
 authorization, anchored executor replay, and transfer traffic while repeatedly partitioning peer
-links and replacing warden processes with `SIGKILL`. It continuously checks invariants, audit and
-dispatcher health, final conservation and backlog convergence, and explicit RSS, file-descriptor,
-database, WAL, audit, and signer growth bounds. The soak uses the shipped 1 GiB container limit but
-admits at most a 768 MiB retained cgroup peak, independently caps the LETS process, disables swap,
-and requires zero memory/OOM/PID limit events. It samples retained cgroup counters before every
-planned process replacement so a new container lifetime cannot erase an earlier pressure event.
+links and replacing warden processes with `SIGKILL`. An independent monitor, with its own cluster
+client and an absolute schedule anchored to workload start, records raw per-node observation
+timing. The release verifier enforces a hard 15-second maximum gap for each node independently of
+sample-batch timing or a runtime-reported stall bound. A planned `SIGKILL` may exclude only the
+exact killed node's sampler-acknowledged, host-authorized restart interval. Merely arming a marker
+grants no exclusion: the prior live observation through the first exact monitor acknowledgment must
+remain within 15 seconds. The acknowledgment-to-completion exclusion window is capped at 30
+seconds, while arming-to-ack remains inside that prior 15-second cadence; the first
+validated post-completion observation is due within 15 seconds, and the marker identity must bind
+all three records. Every other node remains continuously observed. Missed monitor deadlines,
+monitor errors, or retained-sample truncation fail the soak.
+
+The workload records its exact acknowledged pause intervals. The host requires a unique one-to-one
+binding between every workload interval and its own recorded partition-coordination window. A
+successful record uses top-level schema `lets.production-profile-soak/v2` and nested workload
+schema `lets.production-profile-soak-workload/v2`. A host-generated run ID first binds an atomic
+workload-clock start record containing the measurement
+origin, duration, seed, and workload frequencies; the host retains it before chaos, and the final
+workload, evaluator, and publication verifier must match it exactly. After the host receives the
+exact acknowledgment and before it disables the links, an in-container check
+records a token-bound workload-clock authorization start. After link restoration and immediately
+before resume, another in-container check records the matching authorization end. Only that
+workload-clock interval, clipped to the exact measurement window, may lower the active-time
+denominator, and the independently recomputed host acknowledgment-to-resume duration caps the
+amount removed. The acknowledgment and both boundaries must echo the host-issued pause token and
+workload-clock request timestamp; a self-reported pause has no authority to lower the denominator,
+and unexplained idle time is not removed. Required cycles are
+`max(3 * 6 * transfer_every_cycles, 3 * executor_reopen_every_cycles, ceil(active_workload_seconds / 15))`.
+With the default transfer and reopen frequencies, the path-coverage floor is 54 cycles. Exact
+workload-counter relationships, directed-pair counts, executor evidence, and per-cycle latency
+bounds remain mandatory. Cluster settle and final convergence poll only until success; the
+configured 180 seconds is a maximum deadline, not a fixed wait or an extension to the soak duration.
+
+The soak also checks invariants, audit and dispatcher health, final conservation and backlog
+convergence, and explicit RSS, file-descriptor, database, WAL, audit, and signer growth bounds. It
+uses the shipped 1 GiB container limit but admits at most a 768 MiB retained cgroup peak,
+independently caps the LETS process, disables swap, and requires zero memory/OOM/PID limit events.
+It samples retained cgroup counters before every planned process replacement so a new container
+lifetime cannot erase an earlier pressure event. The independent timing and active-time accounting
+do not weaken any fault episode, resource ceiling, audit-error budget, or final-convergence gate.
+
 Across the full three-node workload it permits at most one sampled, bounded, subsequently recovered
 transient exporter error. Only a sanitized archive-connect `SQLITE_BUSY`-family diagnostic is
 tolerable; I/O, corruption, archive-write, schema, and undiagnosed errors fail immediately. That
 exporter must remain running and unblocked, must have a prior success, and must stay inside its
 backlog, record-age, and stall bounds. Any second sampled error fails live, including a repeat on the
 same node or a first error on another node. The affected node must later produce a fully clean
-recovery sample: the workload immediately polls only that node for `max_stall_s - stalled_for_s`,
+recovery sample: the independent monitor immediately polls only that node for
+`max_stall_s - stalled_for_s`,
 without restarting or extending the 15-second runtime window. The authoritative live error count
-must exactly match the retained observation and recovery evidence, so deque truncation cannot erase
-an incident. Final convergence requires every exporter to be reconciled, empty, and free of
+must exactly match the retained observation and recovery evidence, while expected, actual, and
+retained sample counts must agree with zero truncation. Final convergence requires every exporter
+to be reconciled, empty, and free of
 `last_error`. This evidence bounds sampled observations; it does not claim to count errors that
 begin and recover entirely between samples.
 Its machine record binds the exact OCI digest and config ID to the clean release commit,
@@ -271,36 +308,46 @@ completion LETS removes that exact quarantine and reports that it was not retain
 `lets info --production`, reconcile the incident and peers, then explicitly activate; never treat
 a successful file copy as authority-safe recovery or a transient quarantine as a rollback point.
 
-## Rolling upgrade
+## Stop-the-world upgrade
 
 Test the exact digest against a restored, fenced copy of production data before touching a live
 warden. Verify free space, database integrity, peer reachability, certificate/key validity, outbox
 lag, and the authority checkpoint. Preserve at least the database, config, signed manifest, release
 digest, and a separately captured monotonic authority checkpoint.
 
-Upgrade one failure domain at a time:
+LETS v1 does not support a live mixed-version cluster. Upgrade every failure domain through one
+coordinated stop-the-world window; do not restart any warden until every old process is stopped and
+the pre-upgrade recovery evidence is complete:
 
-1. Run `lets drain`, remove external mutation traffic from the node, and wait for prepared
-   transfers, peer delivery, and audit export to settle. Readiness becoming false is expected.
-2. Stop the node gracefully and confirm the process exited before changing its image.
-3. Create and verify a production recovery bundle on `/var/lib/lets-backup`. Record the authority
-   checkpoint separately; never copy the anchor into the database backup set or rewind it.
+1. Run `lets drain` on every warden, remove all external mutation traffic, and wait for prepared
+   transfers, peer delivery, and audit export to settle cluster-wide. Readiness becoming false is
+   expected.
+2. Stop every warden gracefully and prove every old process exited before changing any image or
+   configuration.
+3. Create and verify a separate production recovery bundle for every stopped warden on its backup
+   domain. Record each authority checkpoint separately; never copy an anchor into a database backup
+   set or rewind it.
 4. If the release notes require a schema transition, run `lets migrate --production --dry-run`
-   first and then the explicit stop-the-world migration with a new backup destination. LETS does
-   not claim rolling schema migration support.
-5. Set `LETS_IMAGE` to the verified digest, pull, render Compose, and start the node without `--wait`;
-   the durable drain state intentionally keeps readiness false.
-6. Run `lets info --production`, inspect invariant/capacity/peer/audit status, then run
-   `lets activate --reason "verified upgrade to vX.Y.Z"`. Require authenticated readiness and
-   successful canary operations through at least one receipt TTL before continuing.
+   first and then the explicit migration on every stopped node with a new backup destination. LETS
+   does not claim rolling schema migration support.
+5. Set every node's `LETS_IMAGE` to the same verified digest, pull and render every Compose profile,
+   then start all wardens without `--wait`; durable drain state intentionally keeps readiness false.
+6. Before activation, prove every running node reports the exact intended version/configuration,
+   healthy invariants and capacity, valid audit state, and mutually reachable peers with no queue
+   divergence.
+7. Activate the now-uniform cluster, require authenticated readiness, and run canary operations
+   through at least one receipt TTL before restoring normal traffic.
 
 Do not roll back across an irreversible schema migration. A binary rollback is permitted only when
-the release notes explicitly guarantee backward compatibility with the current schema; drain and
-stop the new binary before starting the old digest, inspect it while still drained, then explicitly
-activate it. A database rollback requires fencing the old and new node instances and proving that no
-authority transition committed after the backup. `recovery restore` reconciles against the live
-monotonic anchor and fails closed when that proof is absent. In that case, keep the node fenced and
-recover forward.
+the release notes name an approved, published digest and explicitly guarantee compatibility with
+the current schema; drain and stop the entire new cluster before starting that one old version,
+inspect every node while still drained, then activate only after the cluster is uniform. The signed
+v1.0.1 through v1.0.4 tags are unpromoted candidates, not approved rollback artifacts, and v1.0.0
+lacks later production defenses. Consequently v1.0.5 has no approved earlier binary rollback target:
+fence affected nodes and recover forward with a patch release. A database rollback additionally
+requires fencing the old and new node instances and proving that no authority transition committed
+after the backup. `recovery restore` reconciles against the live monotonic anchor and fails closed
+when that proof is absent.
 
 Treat the staged `LETS_CONFIG_FILE` as a release input. Do not edit it in place. If an approved
 upgrade changes provider options or another configuration field, stage an exclusive new file with
