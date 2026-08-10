@@ -166,7 +166,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          SOURCE_DATE_EPOCH="$(
+            git log -1 --format=%ct HEAD -- \
+              pyproject.toml uv.lock README.md LICENSE NOTICE src \
+              CHANGELOG.md \
+              deploy/production/.env.example \
+              deploy/production/README.md \
+              deploy/production/compose.yaml \
+              deploy/production/healthcheck.py \
+              deploy/production/maintenance-compose.yaml \
+              deploy/production/provision-compose.yaml \
+              deploy/production/stage_config.py \
+              deploy/production/validate.py \
+              docs/operations.md docs/release.md docs/runtime-providers.md \
+              docs/upgrade-recovery.md examples/runtime_provider.py
+          )"
+          test -n "$SOURCE_DATE_EPOCH"
           export SOURCE_DATE_EPOCH
           uv build --out-dir dist-first
           uv build --out-dir dist

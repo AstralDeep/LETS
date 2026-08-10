@@ -2297,6 +2297,8 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert "deploy/production/maintenance-compose.yaml" in workflow
     assert "examples/runtime_provider.py" in workflow
     assert "git archive --format=tar" in workflow
+    assert "git log -1 --format=%ct HEAD --" in workflow
+    assert 'test -n "$SOURCE_DATE_EPOCH"' in workflow
     assert '--mtime="@$SOURCE_DATE_EPOCH"' in workflow
     assert '"HEAD^{tree}" --' in workflow
     assert "gzip -n" in workflow
