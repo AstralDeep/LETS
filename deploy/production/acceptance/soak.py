@@ -39,6 +39,7 @@ from lets.executor_authority import (
 )
 from lets.manifest import ClusterManifest
 from lets.models import Receipt
+from lets.observation import OBSERVATION_CAPTURE_INTERVAL_SECONDS
 
 TENANT_ID = "production-acceptance-tenant"
 ENVELOPE_ID = "production-acceptance-envelope"
@@ -73,6 +74,12 @@ WORKLOAD_JOURNAL_CYCLE_SECONDS = 5.0
 OBSERVATION_RESPONSE_MAX_BYTES = 20 * 1024
 GENERAL_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
+# A terminal sample may be scheduled milliseconds after the last regular sample
+# when the workload duration lands on a cadence boundary.  Wait for one full
+# publisher sleep plus bounded scheduling/capture margin so the one permitted
+# metrics request observes a new coherent snapshot.  The original cadence
+# deadline remains authoritative and still fails closed if publication stalls.
+FINAL_HEALTH_OBSERVATION_ADVANCE_SECONDS = OBSERVATION_CAPTURE_INTERVAL_SECONDS + 1.0
 MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
 MAXIMUM_PLANNED_FENCE_PREPARATION_SECONDS = 120.0
 AUTHORITY_FAILURE_DIAGNOSTIC_SECONDS = 7.0
@@ -2999,6 +3006,7 @@ class HealthSampler:
         seed: int,
         failure_event: threading.Event,
         on_sample: Callable[[], None] | None = None,
+        final_observation_advance_seconds: float = FINAL_HEALTH_OBSERVATION_ADVANCE_SECONDS,
     ) -> None:
         if (
             not math.isfinite(started_monotonic)
@@ -3008,8 +3016,15 @@ class HealthSampler:
             or interval_seconds > HEALTH_CADENCE_LIMIT_SECONDS
         ):
             raise ValueError("health monitor schedule is invalid")
+        if (
+            not math.isfinite(final_observation_advance_seconds)
+            or final_observation_advance_seconds <= 0
+            or final_observation_advance_seconds >= HEALTH_CADENCE_LIMIT_SECONDS
+        ):
+            raise ValueError("terminal health observation advance bound is invalid")
         self._started = started_monotonic
         self._interval = interval_seconds
+        self._final_observation_advance = float(final_observation_advance_seconds)
         self._client = ClusterClient(seed=seed, retry_timeout_s=retry_timeout_seconds)
         self._audit_error_budget = AuditErrorBudget()
         self._failure_event = failure_event
@@ -3200,6 +3215,18 @@ class HealthSampler:
             prior_observation=prior_observation,
         )
 
+    def _final_sample_not_before(self, scheduled: float) -> float:
+        """Leave time for one new cache publication before the terminal request."""
+
+        with self._lock:
+            prior_observations = tuple(self._last_observed_monotonic.values())
+        if not prior_observations:
+            return scheduled
+        return max(
+            scheduled,
+            max(prior_observations) + self._final_observation_advance,
+        )
+
     def _sample(self, *, index: int, scheduled: float) -> None:
         deadline = self._deadline_for(scheduled)
         sample_started = time.monotonic()
@@ -3375,7 +3402,8 @@ class HealthSampler:
                 scheduled = finish_at if is_final else regular_due
                 if scheduled is None:
                     raise RuntimeError("health monitor lost its schedule")
-                delay = scheduled - time.monotonic()
+                not_before = self._final_sample_not_before(scheduled) if is_final else scheduled
+                delay = not_before - time.monotonic()
                 if delay > 0:
                     self._schedule_changed.wait(delay)
                     self._schedule_changed.clear()
