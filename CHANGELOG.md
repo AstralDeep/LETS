@@ -23,6 +23,11 @@ image together; the Git tag is the package version prefixed with `v`.
   exporter state machine. A clean exporter that is still reconciling its archive is valid bounded
   catch-up evidence but remains unhealthy and unready; healthy requires both no retained error and
   a reconciled archive, while any retained error requires the archive to remain unreconciled.
+- Aligned those independent validators with the peer dispatcher's exact partition state as well.
+  A live core observation may be aggregate-unready while an intentional partition leaves the peer
+  dispatcher on a bounded, class-only durable retry; the host and workflow now accept only that
+  exact typed retry relationship and continue to reject missing, self-targeted, oversized,
+  malformed, or readiness-inconsistent peer errors.
 - Corrected restart-cadence verification to recognize an exact `armed` health attempt anywhere
   inside its bound restart window. The prior live observation, exact marker, overlap, exclusion,
   replacement, and recovery bindings remain mandatory; the millisecond-scale metrics attempt no
@@ -199,6 +204,31 @@ image together; the Git tag is the package version prefixed with `v`.
   cleanup proved zero remaining containers, networks, and volumes. The bounded terminal-sample
   advance above closes this harness race, but the record remains failure diagnostics and a fresh
   exact-source mandatory soak is still required.
+- A seventh unpublished exact candidate used merged source
+  `173f8ba6f5de3ce6bf1c7a5c4710b7090cc4d18d` and local amd64 manifest
+  `sha256:897afb3c0a264f17447b7816874d76421e5a804d8d2e279452f774ee46f92668`.
+  Production acceptance passed in 39.179 seconds; its retained record has raw SHA-256
+  `a4438fa50b6da95891fb9268ebaba449f330e31945ab2c3014f8c40c314b1845`.
+  After one operator-interrupted diagnostic run, a fresh sole soak completed all 3,600 workload
+  seconds, 565 cycles, 362/362 health samples, 27 partition episodes, and three planned
+  replacements with zero deadline misses or request retries. Independent admission nevertheless
+  rejected nine raw observations taken during intentional partitions because the offline
+  validators required `peer_dispatcher.healthy=true` even though the producer-valid bounded
+  `ConnectError` retry correctly made aggregate readiness false. The 24,409,880-byte failed record
+  has raw SHA-256 `b3a69afc1f7bd7226f15a9937a79dc4467eb973722327264772fa30d26d5c1d7`
+  and canonical payload
+  `sha256:e2007e3c4ed5d14003230ea5ead8ce8778c2b83bc2a6f9dacb0549adf4924d4f`;
+  cleanup was zero. With the parity fix above, the retained workload independently re-evaluates
+  with no violations and a 10.027558-second maximum available-node gap, but the historical record
+  remains failed evidence and a new exact-source candidate is mandatory.
+- The final pre-tag reproducible-package audit for that merged source used two independent clean
+  offline archives and produced byte-identical artifacts. SHA-256 values are wheel
+  `8a2c1ffbfdab27b14aee1c71bbbbf4e22a21c66070c0e23c798a32c8fec8965c`, sdist
+  `ede7d0945476b574607a021cdd09a957feb29f36e87cc3b2674e5fdb066db347`, and deployment bundle
+  `570d0561315ca7700ee4eeb83b78da97372e831a78a64b98ea57b23bd357372d`.
+  Twine, wheel contents, RECORD/source parity, path/link checks, and isolated wheel/server/client and
+  sdist installations passed. A source-changing fix requires rebuilding and re-auditing the final
+  candidate before tag publication.
 - Carries forward every 1.0.1 through 1.0.4 candidate change, including the pre-authentication body
   deadline, exact-candidate sustained soak, cgroup-v2 resource proof, bounded audit-BUSY recovery,
   serialized SQLite recovery, the bounded production peer deadline, full convergence budget, and
