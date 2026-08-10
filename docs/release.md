@@ -254,7 +254,8 @@ It contains the production/provisioning Compose files, environment template, con
 validator/stager, and the matching operations, provider, recovery, and release runbooks. Deploy
 from that bundle and the verified OCI digest; do not copy deployment files from a mutable branch
 checkout. Its tar input is the exact Git tree with an explicit source-date timestamp; unrelated
-commit metadata is deliberately excluded from the bundle bytes.
+commit metadata is deliberately excluded from the bundle bytes. That timestamp comes from the
+newest actual Python-package or operator-bundle input, not from an unrelated merge or paper edit.
 
 Read `image-digest.txt`, then verify the immutable image, its keyless signature, and the
 SLSA/in-toto candidate provenance attached to that same digest. The certificate identity is
