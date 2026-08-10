@@ -2482,11 +2482,15 @@ def test_planned_unavailable_is_per_node_and_must_overlap_exact_restart_window()
             "request_path": "/v1/metrics",
             "request_retries": 0,
             "retry_errors": {"first_error": None, "last_error": None},
-            "started_elapsed_seconds": 10.0,
+            "started_elapsed_seconds": 11.0,
         },
         "planned_unavailable": armed_marker,
     }
     samples[1]["planned_unavailable_nodes"] = ["warden-a"]
+    assert (
+        restart_evidence["bindings"][armed_marker["restart_id"]]["start_elapsed_seconds"]
+        < samples[1]["nodes"]["warden-a"]["observation"]["started_elapsed_seconds"]
+    )
     assert (
         evaluate_health_cadence(
             samples,

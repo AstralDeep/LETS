@@ -1603,6 +1603,104 @@ def test_release_soak_verifier_requires_exact_planned_fence_wrapper() -> None:
     }
 
 
+def test_release_soak_verifier_accepts_armed_health_attempt_inside_restart_window() -> None:
+    soak_tests = runpy.run_path(str(REPOSITORY / "tests" / "unit" / "test_production_soak.py"))
+    run_soak = runpy.run_path(str(PRODUCTION / "run_soak.py"))
+    restart = soak_tests["_restart_record"]()
+    restart_evidence = soak_tests["_evaluate_restart_records"]([restart])
+    samples = soak_tests["_timed_health_samples"](
+        duration_seconds=30.0,
+        interval_seconds=10.0,
+    )
+    armed_marker = restart["workload_coordination"]["armed"]["marker"]
+    samples[1]["completed_elapsed_seconds"] = 11.3
+    samples[1]["nodes"]["warden-a"] = {
+        "observation": {
+            "completed_elapsed_seconds": 11.2,
+            "metrics_observed_elapsed_seconds": None,
+            "request_count": 0,
+            "request_path": "/v1/metrics",
+            "request_retries": 0,
+            "retry_errors": {"first_error": None, "last_error": None},
+            "started_elapsed_seconds": 11.0,
+        },
+        "planned_unavailable": armed_marker,
+    }
+    samples[1]["planned_unavailable_nodes"] = ["warden-a"]
+    cadence = run_soak["evaluate_health_cadence"](
+        samples,
+        duration_seconds=30.0,
+        interval_seconds=10.0,
+        restart_evidence=restart_evidence,
+    )
+    assert cadence["passed"] is True
+    assert (
+        restart_evidence["bindings"][armed_marker["restart_id"]]["start_elapsed_seconds"]
+        < samples[1]["nodes"]["warden-a"]["observation"]["started_elapsed_seconds"]
+    )
+
+    monitor = {
+        "actual_sample_count": len(samples),
+        "audit_error_budget_instances": 1,
+        "deadline_miss_count": 0,
+        "expected_sample_count": len(samples),
+        "interval_seconds": 10.0,
+        "joined": True,
+        "request_retry_count": 0,
+        "retained_sample_count": len(samples),
+        "samples_truncated": 0,
+        "schedule": "absolute_monotonic",
+        "status": "passed",
+    }
+    workload = {
+        "duration_seconds": 30.0,
+        "health_monitor": monitor,
+        "health_sample_count": len(samples),
+        "health_samples": samples,
+    }
+    workflow = _release_soak_verifier_script()
+    health_block = (
+        "health_samples_value = workload.get"
+        + workflow.split(
+            "health_samples_value = workload.get",
+            maxsplit=1,
+        )[1].split("raw_error_evidence_valid =", maxsplit=1)[0]
+    )
+    finite_number = run_soak["_finite_number"]
+    namespace: dict[str, Any] = {
+        "close_number": lambda left, right, tolerance=0.002: (
+            finite_number(left)
+            and finite_number(right)
+            and math.isclose(
+                float(left),
+                float(right),
+                rel_tol=0.0,
+                abs_tol=tolerance,
+            )
+        ),
+        "configuration": {"health_interval_seconds": 10.0},
+        "expected_nodes": {"warden-a", "warden-b", "warden-c"},
+        "failures": [],
+        "finite_number": finite_number,
+        "math": math,
+        "raw_restart_valid": True,
+        "restart_bindings": restart_evidence["bindings"],
+        "restart_windows": restart_evidence["windows_by_node"],
+        "workload": workload,
+        "workload_metrics": {
+            "actual_health_request_retries": 0,
+            "actual_health_samples": len(samples),
+            "health_cadence": cadence,
+            "raw_health_request_retries": 0,
+            "required_health_samples": len(samples),
+        },
+    }
+    exec(compile(health_block, "release-raw-health-verifier", "exec"), namespace)
+
+    assert namespace["raw_health_valid"] is True
+    assert namespace["failures"] == []
+
+
 def test_release_soak_verifier_accepts_exact_observation_and_terminal_proofs() -> None:
     namespace = _release_soak_verifier_namespace()
     snapshot = _release_observation(namespace)
