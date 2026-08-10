@@ -1911,6 +1911,54 @@ def test_release_soak_verifier_accepts_only_consistent_bounded_audit_catchup() -
     assert namespace["valid_audit_exporter_status"](inconsistent_fault) is False
 
 
+def test_release_soak_verifier_accepts_exact_transient_peer_partition() -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    retry = {
+        "attempt_count": 7,
+        "exception_class": "ConnectError",
+        "next_retry_delay_seconds": 15.486,
+        "record_kind": "transfer",
+        "target_warden": "warden-b",
+    }
+    transient = {
+        "durable_retry": retry,
+        "failed_records": 1,
+        "healthy": False,
+        "last_error": "ConnectError",
+        "pending_records": 1,
+        "prepared_transfers": 1,
+    }
+    snapshot["peer_dispatcher"].update(transient)
+    snapshot["ready"] = False
+    _reseal_release_observation(namespace, snapshot)
+
+    assert (
+        namespace["valid_peer_status"](
+            snapshot["peer_dispatcher"],
+            node="warden-a",
+            published_at_ns=snapshot["published_at_ns"],
+        )
+        is True
+    )
+    assert namespace["valid_observation_snapshot"](snapshot, node="warden-a") is True
+
+    for mutation in (
+        lambda value: value.__setitem__("durable_retry", None),
+        lambda value: value.__setitem__("healthy", True),
+        lambda value: value.__setitem__("last_error", "ConnectError: secret"),
+        lambda value: value.__setitem__("pending_records", 0),
+        lambda value: value["durable_retry"].__setitem__("attempt_count", 0),
+        lambda value: value["durable_retry"].__setitem__("next_retry_delay_seconds", 30.001),
+        lambda value: value["durable_retry"].__setitem__("record_kind", "unknown"),
+        lambda value: value["durable_retry"].__setitem__("target_warden", "warden-a"),
+    ):
+        forged = copy.deepcopy(snapshot)
+        mutation(forged["peer_dispatcher"])
+        _reseal_release_observation(namespace, forged)
+        assert namespace["valid_observation_snapshot"](forged, node="warden-a") is False
+
+
 def test_release_soak_verifier_enforces_observation_lineage() -> None:
     namespace = _release_soak_verifier_namespace()
     first = _release_observation(namespace, revision=1)
