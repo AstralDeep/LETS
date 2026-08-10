@@ -19,28 +19,44 @@ from datetime import UTC, datetime
 from importlib import metadata
 from itertools import pairwise
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT_PREFIX = "lets-production-soak"
 COMPOSE_FILE = ROOT / "deploy" / "production" / "acceptance-compose.yaml"
 WARDENS = ("warden-a", "warden-b", "warden-c")
+TRANSFER_PAIRS_FOR_EVALUATION = (
+    ("warden-a", "warden-b"),
+    ("warden-b", "warden-a"),
+    ("warden-a", "warden-c"),
+    ("warden-c", "warden-a"),
+    ("warden-b", "warden-c"),
+    ("warden-c", "warden-b"),
+)
 TOXIPROXY = "http://127.0.0.1:28474"
 WORKLOAD_PAUSE_PATH = "/scenario/soak-workload-pause.json"
 WORKLOAD_PAUSE_ACK_PATH = "/scenario/soak-workload-pause-ack.json"
+WORKLOAD_RESTART_PATH = "/scenario/soak-workload-restart.json"
+WORKLOAD_RESTART_ACK_PATH = "/scenario/soak-workload-restart-ack.json"
+WORKLOAD_START_PATH = "/scenario/soak-workload-start.json"
 DEFAULT_EVIDENCE = ROOT / "results" / "generated" / "production-profile-soak.json"
 IMAGE_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 CONTAINER_ID = re.compile(r"\A[0-9a-f]{12,64}\Z")
 CONTAINER_NAME = re.compile(r"\A[a-z0-9][a-z0-9_.-]{0,127}\Z")
 DEFAULT_RESTART_INTERVAL_SECONDS = 900.0
 MIN_RESTART_EPISODES = len(WARDENS)
-RELEASE_MINIMUM_CYCLES = 300
-SMOKE_MINIMUM_CYCLES = 3
-TARGET_MAXIMUM_SECONDS_PER_CYCLE = 12.0
+TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE = 15.0
+HEALTH_CADENCE_LIMIT_SECONDS = 15.0
+MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
+RELEASE_PATH_ROTATIONS = MIN_RESTART_EPISODES
+SMOKE_PATH_ROTATIONS = 1
 MINIMUM_RETRY_ALLOWANCE = 24
 MAXIMUM_RETRIES_PER_CYCLE = 4
+MAXIMUM_RETRIES_PER_HEALTH_SAMPLE = 4
 MAXIMUM_CYCLE_LATENCY_SECONDS = 120.0
-CHAOS_START_SHUTDOWN_MARGIN_SECONDS = 10.0
+CHAOS_START_SHUTDOWN_MARGIN_SECONDS = (
+    2 * HEALTH_CADENCE_LIMIT_SECONDS + MAXIMUM_PLANNED_RESTART_SECONDS
+)
 FAILED_EVIDENCE_MAX_CHAOS_EVENTS = 256
 FAILED_EVIDENCE_MAX_RESOURCE_SAMPLES = 2_048
 FAILED_EVIDENCE_MAX_TEXT_BYTES = 16_384
@@ -311,7 +327,9 @@ class SoakConfiguration:
             "retry_timeout_seconds": self.retry_timeout_seconds,
             "convergence_timeout_seconds": self.convergence_timeout_seconds,
         }
-        invalid = [name for name, value in positive.items() if value <= 0]
+        invalid = [
+            name for name, value in positive.items() if not math.isfinite(value) or value <= 0
+        ]
         if invalid:
             raise ValueError(f"soak durations must be positive: {invalid}")
         if self.partition_duration_seconds >= self.partition_interval_seconds:
@@ -325,12 +343,23 @@ class SoakConfiguration:
                 raise ValueError("a smoke soak must run for at least 10 seconds")
         elif self.duration_seconds < 300:
             raise ValueError("a sustained soak must run for at least 300 seconds")
-        if self.duration_seconds < 2 * self.partition_interval_seconds:
-            raise ValueError("duration must permit at least two partition episodes")
-        if self.duration_seconds < MIN_RESTART_EPISODES * self.restart_interval_seconds:
+        shutdown_margin = chaos_start_shutdown_margin_seconds(self)
+        minimum_partition_schedule = (
+            2 * self.partition_interval_seconds + self.partition_duration_seconds + shutdown_margin
+        )
+        if self.duration_seconds <= minimum_partition_schedule:
+            raise ValueError("duration must permit two bounded partition episodes")
+        minimum_restart_schedule = (
+            MIN_RESTART_EPISODES * self.restart_interval_seconds + shutdown_margin
+        )
+        if self.duration_seconds <= minimum_restart_schedule:
             raise ValueError("duration must permit a SIGKILL episode for every warden")
         if self.retry_timeout_seconds > 90:
             raise ValueError("retry timeout must be at most 90 seconds")
+        if self.health_interval_seconds > HEALTH_CADENCE_LIMIT_SECONDS:
+            raise ValueError("health interval must not exceed the 15-second release bound")
+        if self.duration_seconds < semantic_cycle_floor(self) * self.cycle_interval_seconds:
+            raise ValueError("duration cannot theoretically cover the semantic cycle floor")
 
 
 class WorkloadExitedError(RuntimeError):
@@ -372,27 +401,60 @@ def _require_workload_running(workload: subprocess.Popen[str], *, context: str) 
     )
 
 
-def minimum_cycle_count(configuration: SoakConfiguration) -> int:
-    duration_target = math.ceil(configuration.duration_seconds / TARGET_MAXIMUM_SECONDS_PER_CYCLE)
-    floor = SMOKE_MINIMUM_CYCLES if configuration.smoke else RELEASE_MINIMUM_CYCLES
-    return max(floor, duration_target)
+def semantic_cycle_floor(configuration: SoakConfiguration) -> int:
+    rotations = SMOKE_PATH_ROTATIONS if configuration.smoke else RELEASE_PATH_ROTATIONS
+    if configuration.smoke:
+        transfer_floor = (
+            len(TRANSFER_PAIRS_FOR_EVALUATION) - 1
+        ) * configuration.transfer_every_cycles + 1
+        reopen_floor = configuration.executor_reopen_every_cycles
+    else:
+        transfer_floor = (
+            rotations * len(TRANSFER_PAIRS_FOR_EVALUATION) * configuration.transfer_every_cycles
+        )
+        reopen_floor = rotations * configuration.executor_reopen_every_cycles
+    return max(transfer_floor, reopen_floor)
+
+
+def minimum_cycle_count(
+    configuration: SoakConfiguration,
+    *,
+    active_workload_seconds: float | None = None,
+) -> int:
+    active_seconds = (
+        configuration.duration_seconds
+        if active_workload_seconds is None
+        else active_workload_seconds
+    )
+    if not math.isfinite(active_seconds) or active_seconds < 0:
+        raise ValueError("active workload seconds must be finite and non-negative")
+    throughput_floor = math.ceil(active_seconds / TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE)
+    return max(semantic_cycle_floor(configuration), throughput_floor)
 
 
 def minimum_health_sample_count(configuration: SoakConfiguration) -> int:
-    interval_target = (
-        math.ceil(
-            configuration.duration_seconds
-            / max(configuration.health_interval_seconds, TARGET_MAXIMUM_SECONDS_PER_CYCLE)
-        )
-        + 1
+    return math.ceil(configuration.duration_seconds / configuration.health_interval_seconds) + 1
+
+
+def chaos_start_shutdown_margin_seconds(configuration: SoakConfiguration) -> float:
+    """Reserve enough live workload time for an in-flight cycle or restart handshake."""
+
+    maximum_cycle_latency = min(
+        MAXIMUM_CYCLE_LATENCY_SECONDS,
+        configuration.retry_timeout_seconds + 30.0,
     )
-    return max(2, min(minimum_cycle_count(configuration) + 1, interval_target))
+    return max(
+        CHAOS_START_SHUTDOWN_MARGIN_SECONDS,
+        maximum_cycle_latency + 30.0,
+    )
 
 
 def may_start_chaos_episode(configuration: SoakConfiguration, *, elapsed_s: float) -> bool:
     """Keep the workload alive long enough to durably acknowledge a new fault episode."""
 
-    return configuration.duration_seconds - elapsed_s > CHAOS_START_SHUTDOWN_MARGIN_SECONDS
+    return configuration.duration_seconds - elapsed_s > chaos_start_shutdown_margin_seconds(
+        configuration
+    )
 
 
 def _next_restart_deadline(
@@ -421,68 +483,613 @@ def _expected_transfer_pair_counts(*, cycles: int, transfer_every_cycles: int) -
     return counts
 
 
-def evaluate_health_cadence(samples: object, *, duration_seconds: float) -> dict[str, Any]:
-    """Prove health observations cover the run more tightly than exporter stall bounds."""
+def _finite_number(value: object) -> TypeGuard[int | float]:
+    return bool(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
 
-    if not isinstance(samples, list) or not samples or not math.isfinite(duration_seconds):
-        return {"passed": False, "reason": "missing or invalid health samples"}
-    timestamps: list[float] = []
-    stall_bounds: list[float] = []
-    for sample in samples:
+
+def evaluate_restart_evidence(
+    restarts: object,
+    *,
+    workload_started_monotonic: float,
+) -> dict[str, Any]:
+    """Bind each cadence exclusion to one exact host-executed planned restart."""
+
+    if not isinstance(restarts, list) or not _finite_number(workload_started_monotonic):
+        return {"passed": False, "reason": "missing restart evidence"}
+    bindings: dict[str, dict[str, Any]] = {}
+    windows_by_node: dict[str, list[dict[str, Any]]] = {node: [] for node in WARDENS}
+    global_windows: list[dict[str, Any]] = []
+    host_intervals: list[tuple[float, float]] = []
+    for expected_episode, restart in enumerate(restarts):
+        if not isinstance(restart, dict):
+            return {"passed": False, "reason": "malformed restart record"}
+        service = restart.get("service")
+        host_started = restart.get("host_operation_started_monotonic_seconds")
+        host_completed = restart.get("host_operation_completed_monotonic_seconds")
+        coordination = restart.get("workload_coordination")
+        if (
+            service not in WARDENS
+            or service != WARDENS[expected_episode % len(WARDENS)]
+            or not _finite_number(host_started)
+            or not _finite_number(host_completed)
+            or not float(host_started) < float(host_completed)
+            or float(host_completed) - float(host_started) > MAXIMUM_PLANNED_RESTART_SECONDS
+            or not isinstance(coordination, dict)
+        ):
+            return {"passed": False, "reason": "unbounded or malformed host restart"}
+        armed = coordination.get("armed")
+        completed = coordination.get("completed")
+        if not isinstance(armed, dict) or not isinstance(completed, dict):
+            return {"passed": False, "reason": "restart coordination is incomplete"}
+        armed_marker = armed.get("marker")
+        armed_ack = armed.get("acknowledgement")
+        completed_marker = completed.get("marker")
+        recovery_ack = completed.get("recovery_acknowledgement")
+        if not all(
+            isinstance(item, dict)
+            for item in (armed_marker, armed_ack, completed_marker, recovery_ack)
+        ):
+            return {"passed": False, "reason": "restart marker lifecycle is incomplete"}
+        host_armed_started = armed.get("host_armed_started_monotonic_seconds")
+        host_monitor_acknowledged = armed.get("host_monitor_acknowledged_monotonic_seconds")
+        host_completed_marker = completed.get("host_completed_marker_monotonic_seconds")
+        host_monitor_recovered = completed.get("host_monitor_recovered_monotonic_seconds")
+        if not all(
+            _finite_number(value)
+            for value in (
+                host_armed_started,
+                host_monitor_acknowledged,
+                host_completed_marker,
+                host_monitor_recovered,
+            )
+        ) or not float(cast(int | float, host_armed_started)) <= float(
+            cast(int | float, host_monitor_acknowledged)
+        ) <= float(host_started) < float(host_completed) <= float(
+            cast(int | float, host_completed_marker)
+        ) <= float(cast(int | float, host_monitor_recovered)):
+            return {"passed": False, "reason": "host restart lifecycle is unbound"}
+        typed_armed = cast(dict[str, Any], armed_marker)
+        typed_ack = cast(dict[str, Any], armed_ack)
+        typed_completed = cast(dict[str, Any], completed_marker)
+        typed_recovery = cast(dict[str, Any], recovery_ack)
+        restart_id = typed_armed.get("restart_id")
+        identity = ("armed_monotonic_seconds", "episode", "restart_id", "service")
+        if (
+            not isinstance(restart_id, str)
+            or not restart_id
+            or restart_id in bindings
+            or typed_armed.get("episode") != expected_episode
+            or typed_armed.get("service") != service
+            or typed_armed.get("state") != "armed"
+            or typed_armed.get("completed_monotonic_seconds") is not None
+            or typed_completed.get("state") != "completed"
+            or any(typed_completed.get(key) != typed_armed.get(key) for key in identity)
+            or any(typed_ack.get(key) != typed_armed.get(key) for key in identity)
+            or any(typed_recovery.get(key) != typed_armed.get(key) for key in identity)
+        ):
+            return {"passed": False, "reason": "restart marker identity is inconsistent"}
+        acknowledged = typed_ack.get("acknowledged_monotonic_seconds")
+        completed_at = typed_completed.get("completed_monotonic_seconds")
+        recovered = typed_recovery.get("recovered_monotonic_seconds")
+        if (
+            not _finite_number(typed_armed.get("armed_monotonic_seconds"))
+            or not _finite_number(acknowledged)
+            or not _finite_number(completed_at)
+            or not _finite_number(recovered)
+            or typed_recovery.get("acknowledged_monotonic_seconds") != acknowledged
+            or typed_recovery.get("completed_monotonic_seconds") != completed_at
+            or not float(typed_armed["armed_monotonic_seconds"])
+            <= float(acknowledged)
+            <= float(completed_at)
+            <= float(recovered)
+            or float(completed_at) - float(acknowledged) > MAXIMUM_PLANNED_RESTART_SECONDS
+            or float(recovered) - float(completed_at) > HEALTH_CADENCE_LIMIT_SECONDS
+        ):
+            return {"passed": False, "reason": "restart acknowledgement timing is invalid"}
+        window = {
+            "end_elapsed_seconds": float(completed_at) - workload_started_monotonic,
+            "episode": expected_episode,
+            "restart_id": restart_id,
+            "service": service,
+            "start_elapsed_seconds": float(acknowledged) - workload_started_monotonic,
+        }
+        if (
+            window["start_elapsed_seconds"] < 0
+            or float(typed_armed["armed_monotonic_seconds"]) < workload_started_monotonic
+            or window["end_elapsed_seconds"] < window["start_elapsed_seconds"]
+        ):
+            return {"passed": False, "reason": "restart window predates the workload"}
+        bindings[restart_id] = {
+            **window,
+            "armed_marker": typed_armed,
+            "completed_marker": typed_completed,
+        }
+        windows_by_node[cast(str, service)].append(window)
+        global_windows.append(window)
+        host_intervals.append((float(host_started), float(host_completed)))
+    for windows in windows_by_node.values():
+        windows.sort(key=lambda item: float(item["start_elapsed_seconds"]))
+        if any(
+            float(right["start_elapsed_seconds"]) < float(left["end_elapsed_seconds"])
+            for left, right in pairwise(windows)
+        ):
+            return {"passed": False, "reason": "restart windows overlap for one node"}
+    global_windows.sort(key=lambda item: float(item["start_elapsed_seconds"]))
+    if any(
+        float(right["start_elapsed_seconds"]) < float(left["end_elapsed_seconds"])
+        for left, right in pairwise(global_windows)
+    ):
+        return {"passed": False, "reason": "restart windows overlap globally"}
+    host_intervals.sort()
+    if any(right[0] < left[1] for left, right in pairwise(host_intervals)):
+        return {"passed": False, "reason": "host restart operations overlap globally"}
+    return {
+        "binding_count": len(bindings),
+        "bindings": bindings,
+        "host_maximum_restart_seconds": max(
+            (
+                float(item["host_operation_completed_monotonic_seconds"])
+                - float(item["host_operation_started_monotonic_seconds"])
+                for item in restarts
+            ),
+            default=0.0,
+        ),
+        "passed": True,
+        "windows_by_node": windows_by_node,
+    }
+
+
+def _maximum_available_gap(
+    observations: list[float],
+    *,
+    duration_seconds: float,
+    exclusions: list[dict[str, Any]],
+) -> float:
+    points = [0.0, *sorted(set(max(0.0, min(duration_seconds, item)) for item in observations))]
+    if points[-1] != duration_seconds:
+        points.append(duration_seconds)
+    maximum = 0.0
+    for left, right in pairwise(points):
+        cursor = left
+        for exclusion in exclusions:
+            excluded_start = max(left, float(exclusion["start_elapsed_seconds"]))
+            excluded_end = min(right, float(exclusion["end_elapsed_seconds"]))
+            if excluded_end <= cursor or excluded_start >= right:
+                continue
+            maximum = max(maximum, max(0.0, excluded_start - cursor))
+            cursor = max(cursor, excluded_end)
+        maximum = max(maximum, max(0.0, right - cursor))
+    return maximum
+
+
+def evaluate_health_cadence(
+    samples: object,
+    *,
+    duration_seconds: float,
+    interval_seconds: float,
+    restart_evidence: dict[str, Any],
+) -> dict[str, Any]:
+    """Prove real per-node observations cover every non-excluded 15-second window."""
+
+    if (
+        not isinstance(samples, list)
+        or not samples
+        or not _finite_number(duration_seconds)
+        or float(duration_seconds) <= 0
+        or not _finite_number(interval_seconds)
+        or not 0 < float(interval_seconds) <= HEALTH_CADENCE_LIMIT_SECONDS
+        or restart_evidence.get("passed") is not True
+    ):
+        return {"passed": False, "reason": "missing or invalid health cadence inputs"}
+    duration = float(duration_seconds)
+    interval = float(interval_seconds)
+    expected_schedule: list[float] = []
+    scheduled = 0.0
+    while scheduled < duration:
+        expected_schedule.append(scheduled)
+        scheduled += interval
+    expected_schedule.append(duration)
+    if len(samples) != len(expected_schedule):
+        return {"passed": False, "reason": "health sample schedule count is incomplete"}
+    bindings = restart_evidence.get("bindings")
+    windows_by_node = restart_evidence.get("windows_by_node")
+    if not isinstance(bindings, dict) or not isinstance(windows_by_node, dict):
+        return {"passed": False, "reason": "restart bindings are malformed"}
+    observations: dict[str, list[float]] = {node: [] for node in WARDENS}
+    unavailable_counts = {node: 0 for node in WARDENS}
+    acknowledged_unavailable_restart_ids: set[str] = set()
+    prior_started = -math.inf
+    prior_completed = -math.inf
+    scheduled_samples = zip(samples, expected_schedule, strict=True)
+    for index, (sample, expected_scheduled) in enumerate(scheduled_samples):
         if not isinstance(sample, dict):
             return {"passed": False, "reason": "malformed health sample"}
-        elapsed = sample.get("elapsed_seconds")
+        fields = {
+            name: sample.get(name)
+            for name in (
+                "scheduled_elapsed_seconds",
+                "started_elapsed_seconds",
+                "completed_elapsed_seconds",
+                "deadline_elapsed_seconds",
+            )
+        }
         if (
-            isinstance(elapsed, bool)
-            or not isinstance(elapsed, (int, float))
-            or not math.isfinite(float(elapsed))
-            or float(elapsed) < 0
+            sample.get("schedule_index") != index
+            or sample.get("deadline_missed") is not False
+            or not all(_finite_number(value) for value in fields.values())
         ):
-            return {"passed": False, "reason": "invalid health-sample timestamp"}
-        timestamps.append(float(elapsed))
+            return {"passed": False, "reason": "health sample deadline evidence is invalid"}
+        scheduled_at = float(cast(int | float, fields["scheduled_elapsed_seconds"]))
+        started_at = float(cast(int | float, fields["started_elapsed_seconds"]))
+        completed_at = float(cast(int | float, fields["completed_elapsed_seconds"]))
+        deadline_at = float(cast(int | float, fields["deadline_elapsed_seconds"]))
+        if (
+            abs(scheduled_at - expected_scheduled) > 0.002
+            or scheduled_at < 0
+            or started_at < scheduled_at
+            or completed_at < started_at
+            or deadline_at < completed_at
+            or deadline_at - scheduled_at > HEALTH_CADENCE_LIMIT_SECONDS + 0.002
+            or started_at <= prior_started
+            or completed_at <= prior_completed
+        ):
+            return {"passed": False, "reason": "health samples collapsed or missed cadence"}
+        prior_started = started_at
+        prior_completed = completed_at
         nodes = sample.get("nodes")
-        if not isinstance(nodes, dict) or set(nodes) != set(WARDENS):
-            return {"passed": False, "reason": "health sample omitted a warden"}
+        planned_nodes = sample.get("planned_unavailable_nodes")
+        if (
+            not isinstance(nodes, dict)
+            or set(nodes) != set(WARDENS)
+            or not isinstance(planned_nodes, list)
+            or len(planned_nodes) != len(set(planned_nodes))
+            or len(planned_nodes) > 1
+            or any(node not in WARDENS for node in planned_nodes)
+        ):
+            return {"passed": False, "reason": "health sample node set is invalid"}
+        if (
+            not _finite_number(sample.get("elapsed_seconds"))
+            or abs(float(sample["elapsed_seconds"]) - started_at) > 0.001
+        ):
+            return {"passed": False, "reason": "health sample elapsed origin is inconsistent"}
+        actual_planned: list[str] = []
         for node in WARDENS:
-            document = nodes.get(node)
-            exporter = document.get("audit_exporter") if isinstance(document, dict) else None
-            maximum_stall = exporter.get("max_stall_s") if isinstance(exporter, dict) else None
+            document = nodes[node]
+            if not isinstance(document, dict):
+                return {"passed": False, "reason": "health node document is malformed"}
+            observation = document.get("observation")
+            if not isinstance(observation, dict):
+                return {"passed": False, "reason": "health node observation is missing"}
+            observed_started = observation.get("started_elapsed_seconds")
+            observed_metrics = observation.get("metrics_observed_elapsed_seconds")
+            observed_completed = observation.get("completed_elapsed_seconds")
+            retries = observation.get("request_retries")
             if (
-                isinstance(maximum_stall, bool)
-                or not isinstance(maximum_stall, (int, float))
-                or not math.isfinite(float(maximum_stall))
-                or float(maximum_stall) <= 0
+                not _finite_number(observed_started)
+                or not _finite_number(observed_completed)
+                or float(observed_started) < started_at
+                or float(observed_completed) < float(observed_started)
+                or float(observed_completed) > completed_at + 0.002
+                or isinstance(retries, bool)
+                or not isinstance(retries, int)
+                or retries < 0
             ):
-                return {"passed": False, "reason": "health sample omitted an audit stall bound"}
-            stall_bounds.append(float(maximum_stall))
-    strictly_increasing = all(right > left for left, right in pairwise(timestamps))
-    duration_covered = 0 <= timestamps[-1] <= duration_seconds + 0.01
-    gaps = [timestamps[0], *[right - left for left, right in pairwise(timestamps)]]
-    if duration_covered:
-        gaps.append(max(0.0, duration_seconds - timestamps[-1]))
-    maximum_gap = max(gaps, default=math.inf)
-    maximum_allowed_gap = min(stall_bounds, default=0.0)
-    passed = (
-        strictly_increasing
-        and duration_covered
-        and maximum_allowed_gap > 0
-        and maximum_gap <= maximum_allowed_gap
-    )
+                return {"passed": False, "reason": "health node timing is invalid"}
+            planned = document.get("planned_unavailable")
+            if planned is not None:
+                if not isinstance(planned, dict) or observed_metrics is not None:
+                    return {"passed": False, "reason": "planned unavailability is malformed"}
+                restart_id = planned.get("restart_id")
+                binding = bindings.get(restart_id)
+                expected_marker = (
+                    binding.get(f"{planned.get('state')}_marker")
+                    if isinstance(binding, dict)
+                    else None
+                )
+                if (
+                    not isinstance(binding, dict)
+                    or binding.get("service") != node
+                    or binding.get("episode") != planned.get("episode")
+                    or planned.get("service") != node
+                    or planned != expected_marker
+                    or float(observed_completed)
+                    < float(binding.get("start_elapsed_seconds", math.inf))
+                    or float(observed_started)
+                    > float(binding.get("end_elapsed_seconds", -math.inf))
+                    or (
+                        planned.get("state") == "completed"
+                        and float(binding.get("end_elapsed_seconds", math.inf))
+                        > float(observed_completed) + 0.002
+                    )
+                ):
+                    return {"passed": False, "reason": "unavailable node lacks an exact restart"}
+                actual_planned.append(node)
+                unavailable_counts[node] += 1
+                if planned.get("state") == "armed" and (
+                    float(observed_started)
+                    <= float(binding["start_elapsed_seconds"])
+                    <= float(observed_completed)
+                ):
+                    acknowledged_unavailable_restart_ids.add(cast(str, restart_id))
+                continue
+            exporter = document.get("audit_exporter")
+            if (
+                not isinstance(exporter, dict)
+                or not _finite_number(exporter.get("max_stall_s"))
+                or float(exporter["max_stall_s"]) != HEALTH_CADENCE_LIMIT_SECONDS
+                or not _finite_number(observed_metrics)
+                or not float(observed_started)
+                <= float(observed_metrics)
+                <= float(observed_completed)
+            ):
+                return {"passed": False, "reason": "health node observation is not live"}
+            observations[node].append(float(observed_metrics))
+        if sorted(actual_planned) != sorted(cast(list[str], planned_nodes)):
+            return {"passed": False, "reason": "planned-unavailable node list is inconsistent"}
+    if acknowledged_unavailable_restart_ids != set(bindings):
+        return {
+            "passed": False,
+            "reason": "restart acknowledgement lacks an interrupted health observation",
+        }
+    maximum_gaps: dict[str, float] = {}
+    for node in WARDENS:
+        node_windows = windows_by_node.get(node)
+        if not isinstance(node_windows, list) or not observations[node]:
+            return {"passed": False, "reason": f"{node} lacks cadence evidence"}
+        maximum_gaps[node] = _maximum_available_gap(
+            observations[node],
+            duration_seconds=duration,
+            exclusions=cast(list[dict[str, Any]], node_windows),
+        )
+    maximum_gap = max(maximum_gaps.values(), default=math.inf)
     return {
-        "first_sample_seconds": timestamps[0],
-        "last_sample_seconds": timestamps[-1],
-        "maximum_allowed_gap_seconds": maximum_allowed_gap,
-        "maximum_gap_seconds": round(maximum_gap, 3),
-        "passed": passed,
-        "sample_count": len(timestamps),
-        "strictly_increasing": strictly_increasing,
+        "expected_sample_count": len(expected_schedule),
+        "maximum_allowed_gap_seconds": HEALTH_CADENCE_LIMIT_SECONDS,
+        "maximum_gap_by_node_seconds": {
+            node: round(value, 6) for node, value in maximum_gaps.items()
+        },
+        "maximum_gap_seconds": round(maximum_gap, 6),
+        "passed": maximum_gap <= HEALTH_CADENCE_LIMIT_SECONDS + 0.002,
+        "planned_unavailable_samples_by_node": unavailable_counts,
+        "sample_count": len(samples),
+        "strictly_increasing": True,
+    }
+
+
+def evaluate_pause_evidence(
+    result: dict[str, Any],
+    *,
+    configuration: SoakConfiguration,
+    partitions: object,
+    workload_start: object,
+) -> dict[str, Any]:
+    """Cross-bind workload pause records to conservative host-authorized intervals."""
+
+    pause_intervals = result.get("pause_intervals")
+    if not isinstance(pause_intervals, list) or not isinstance(partitions, list):
+        return {"passed": False, "reason": "pause or partition evidence is missing"}
+    if (
+        result.get("pause_interval_count") != len(pause_intervals)
+        or len(pause_intervals) != len(partitions)
+        or not _finite_number(result.get("measurement_window_seconds"))
+        or abs(float(result["measurement_window_seconds"]) - configuration.duration_seconds) > 0.002
+    ):
+        return {"passed": False, "reason": "pause counts or measurement window disagree"}
+    workload_paused = 0.0
+    authorized_paused = 0.0
+    prior_workload_end = -math.inf
+    prior_host_end = -math.inf
+    workload_started = result.get("started_monotonic_seconds")
+    if (
+        not isinstance(workload_start, dict)
+        or workload_start.get("run_id") != result.get("run_id")
+        or workload_start.get("started_monotonic_seconds") != workload_started
+        or workload_start.get("duration_seconds") != configuration.duration_seconds
+        or workload_start.get("schema") != "lets.production-profile-soak-workload-start/v1"
+        or workload_start.get("seed") != configuration.seed
+        or workload_start.get("cycle_interval_seconds") != configuration.cycle_interval_seconds
+        or workload_start.get("health_interval_seconds") != configuration.health_interval_seconds
+        or workload_start.get("retry_timeout_seconds") != configuration.retry_timeout_seconds
+        or workload_start.get("transfer_every_cycles") != configuration.transfer_every_cycles
+        or workload_start.get("executor_reopen_every_cycles")
+        != configuration.executor_reopen_every_cycles
+        or not _finite_number(workload_started)
+    ):
+        return {"passed": False, "reason": "workload monotonic origin is missing"}
+    seen_pause_ids: set[str] = set()
+    bindings: list[dict[str, Any]] = []
+    for expected_episode, (pause, partition) in enumerate(
+        zip(pause_intervals, partitions, strict=True)
+    ):
+        if not isinstance(pause, dict) or not isinstance(partition, dict):
+            return {"passed": False, "reason": "pause binding is malformed"}
+        coordination = partition.get("workload_coordination")
+        if not isinstance(coordination, dict):
+            return {"passed": False, "reason": "partition lacks workload coordination"}
+        marker = coordination.get("marker")
+        acknowledgement = coordination.get("acknowledgement")
+        authorized_start = coordination.get("authorized_start")
+        authorized_end = coordination.get("authorized_end")
+        if not all(
+            isinstance(item, dict)
+            for item in (marker, acknowledgement, authorized_start, authorized_end)
+        ):
+            return {"passed": False, "reason": "partition pause token is incomplete"}
+        typed_marker = cast(dict[str, Any], marker)
+        typed_ack = cast(dict[str, Any], acknowledgement)
+        typed_start = cast(dict[str, Any], authorized_start)
+        typed_end = cast(dict[str, Any], authorized_end)
+        identity_matches = bool(
+            pause.get("episode") == expected_episode == partition.get("episode")
+            and typed_marker.get("episode") == expected_episode
+            and typed_ack.get("episode") == expected_episode
+            and typed_start.get("episode") == expected_episode
+            and pause.get("pause_id")
+            == typed_marker.get("pause_id")
+            == typed_ack.get("pause_id")
+            == typed_start.get("pause_id")
+            == typed_end.get("pause_id")
+            and pause.get("requested_monotonic_seconds")
+            == typed_marker.get("requested_monotonic_seconds")
+            == typed_ack.get("requested_monotonic_seconds")
+            == typed_start.get("requested_monotonic_seconds")
+            == typed_end.get("requested_monotonic_seconds")
+            == coordination.get("requested_monotonic_seconds")
+            and coordination.get("episode") == expected_episode
+            and typed_end.get("episode") == expected_episode
+            and coordination.get("pause_id") == pause.get("pause_id")
+            and pause.get("observed_monotonic_seconds")
+            == typed_ack.get("observed_monotonic_seconds")
+            and typed_ack.get("paused") is True
+        )
+        numeric_fields = (
+            typed_marker.get("requested_monotonic_seconds"),
+            typed_start.get("authorized_start_monotonic_seconds"),
+            typed_start.get("host_boundary_started_monotonic_seconds"),
+            typed_start.get("host_boundary_completed_monotonic_seconds"),
+            typed_end.get("authorized_end_monotonic_seconds"),
+            pause.get("observed_monotonic_seconds"),
+            pause.get("resumed_monotonic_seconds"),
+            pause.get("observed_elapsed_seconds"),
+            pause.get("resumed_elapsed_seconds"),
+            pause.get("duration_seconds"),
+            pause.get("measurement_clipped_duration_seconds"),
+            coordination.get("host_acknowledged_monotonic_seconds"),
+            coordination.get("host_request_started_monotonic_seconds"),
+            coordination.get("host_resume_started_monotonic_seconds"),
+            coordination.get("host_resume_completed_monotonic_seconds"),
+            typed_end.get("host_boundary_started_monotonic_seconds"),
+            typed_end.get("host_boundary_completed_monotonic_seconds"),
+            coordination.get("workload_resume_requested_monotonic_seconds"),
+            coordination.get("host_pause_duration_seconds"),
+            partition.get("disabled_monotonic_seconds"),
+            partition.get("restored_monotonic_seconds"),
+        )
+        if not identity_matches or not all(_finite_number(value) for value in numeric_fields):
+            return {"passed": False, "reason": "pause token or timing is invalid"}
+        observed = float(pause["observed_monotonic_seconds"])
+        resumed = float(pause["resumed_monotonic_seconds"])
+        observed_elapsed = float(pause["observed_elapsed_seconds"])
+        resumed_elapsed = float(pause["resumed_elapsed_seconds"])
+        recomputed_clipped = max(
+            0.0,
+            min(configuration.duration_seconds, resumed_elapsed)
+            - max(0.0, min(configuration.duration_seconds, observed_elapsed)),
+        )
+        clipped = float(pause["measurement_clipped_duration_seconds"])
+        host_acknowledged = float(coordination["host_acknowledged_monotonic_seconds"])
+        host_resume_started = float(coordination["host_resume_started_monotonic_seconds"])
+        host_resume_completed = float(coordination["host_resume_completed_monotonic_seconds"])
+        workload_resume_requested = float(
+            coordination["workload_resume_requested_monotonic_seconds"]
+        )
+        workload_authorized_start = float(typed_start["authorized_start_monotonic_seconds"])
+        workload_authorized_end = float(typed_end["authorized_end_monotonic_seconds"])
+        host_boundary_started = float(typed_end["host_boundary_started_monotonic_seconds"])
+        host_boundary_completed = float(typed_end["host_boundary_completed_monotonic_seconds"])
+        host_start_boundary_started = float(typed_start["host_boundary_started_monotonic_seconds"])
+        host_start_boundary_completed = float(
+            typed_start["host_boundary_completed_monotonic_seconds"]
+        )
+        host_request_started = float(coordination["host_request_started_monotonic_seconds"])
+        disabled = float(partition["disabled_monotonic_seconds"])
+        restored = float(partition["restored_monotonic_seconds"])
+        host_duration = host_resume_started - host_acknowledged
+        if (
+            not isinstance(pause.get("pause_id"), str)
+            or not pause["pause_id"]
+            or pause["pause_id"] in seen_pause_ids
+            or observed < prior_workload_end
+            or resumed < observed
+            or abs(observed_elapsed - (observed - float(workload_started))) > 0.002
+            or abs(resumed_elapsed - (resumed - float(workload_started))) > 0.002
+            or not float(typed_marker["requested_monotonic_seconds"]) >= float(workload_started)
+            or not float(typed_marker["requested_monotonic_seconds"])
+            <= observed
+            <= workload_authorized_start
+            <= workload_authorized_end
+            <= workload_resume_requested
+            <= resumed
+            or abs(float(pause["duration_seconds"]) - (resumed - observed)) > 0.002
+            or abs(clipped - recomputed_clipped) > 0.002
+            or not 0 <= clipped <= resumed - observed + 0.002
+            or host_acknowledged < prior_host_end
+            or not host_request_started
+            <= host_acknowledged
+            <= host_start_boundary_started
+            <= host_start_boundary_completed
+            <= disabled
+            <= restored
+            <= host_boundary_started
+            <= host_boundary_completed
+            <= host_resume_started
+            <= host_resume_completed
+            or abs(float(coordination["host_pause_duration_seconds"]) - host_duration) > 0.002
+        ):
+            return {"passed": False, "reason": "pause intervals overlap or lack containment"}
+        seen_pause_ids.add(cast(str, pause["pause_id"]))
+        authorized_container_clipped = max(
+            0.0,
+            min(
+                float(workload_started) + configuration.duration_seconds,
+                workload_authorized_end,
+            )
+            - max(float(workload_started), workload_authorized_start),
+        )
+        authorized = min(authorized_container_clipped, host_duration)
+        workload_paused += clipped
+        authorized_paused += authorized
+        prior_workload_end = resumed
+        prior_host_end = host_resume_started
+        bindings.append(
+            {
+                "authorized_pause_seconds": round(authorized, 6),
+                "episode": expected_episode,
+                "host_pause_seconds": round(host_duration, 6),
+                "pause_id": pause["pause_id"],
+                "workload_authorized_clipped_pause_seconds": round(
+                    authorized_container_clipped,
+                    6,
+                ),
+                "workload_clipped_pause_seconds": round(clipped, 6),
+            }
+        )
+    reported_paused = result.get("paused_workload_seconds")
+    reported_active = result.get("active_workload_seconds")
+    active_seconds = configuration.duration_seconds - authorized_paused
+    if (
+        not _finite_number(reported_paused)
+        or not _finite_number(reported_active)
+        or abs(float(reported_paused) - workload_paused) > 0.002
+        or abs(float(reported_active) - (configuration.duration_seconds - workload_paused)) > 0.002
+        or active_seconds < 0
+    ):
+        return {"passed": False, "reason": "reported active-time arithmetic is forged"}
+    return {
+        "active_workload_seconds": round(active_seconds, 6),
+        "authorized_paused_seconds": round(authorized_paused, 6),
+        "bindings": bindings,
+        "passed": True,
+        "workload_reported_paused_seconds": round(workload_paused, 6),
     }
 
 
 def evaluate_workload_result(
-    result: dict[str, Any], configuration: SoakConfiguration
+    result: dict[str, Any],
+    configuration: SoakConfiguration,
+    *,
+    chaos_completed_monotonic: object,
+    chaos_started_monotonic: object,
+    partitions: object,
+    restarts: object,
+    workload_start: object,
 ) -> dict[str, Any]:
-    cycles = int(result.get("cycles", -1))
+    raw_cycles = result.get("cycles")
+    cycles = raw_cycles if isinstance(raw_cycles, int) and not isinstance(raw_cycles, bool) else -1
     counters = result.get("counters")
     executor = result.get("executor")
     latency = result.get("latency")
@@ -520,8 +1127,39 @@ def evaluate_workload_result(
         cycles=max(0, cycles),
         transfer_every_cycles=configuration.transfer_every_cycles,
     )
-    required_cycles = minimum_cycle_count(configuration)
-    required_health_samples = minimum_health_sample_count(configuration)
+    workload_started = result.get("started_monotonic_seconds")
+    restart_evidence = evaluate_restart_evidence(
+        restarts,
+        workload_started_monotonic=(
+            float(workload_started) if _finite_number(workload_started) else math.nan
+        ),
+    )
+    pause_evidence = evaluate_pause_evidence(
+        result,
+        configuration=configuration,
+        partitions=partitions,
+        workload_start=workload_start,
+    )
+    validated_active_seconds = (
+        float(pause_evidence["active_workload_seconds"])
+        if pause_evidence.get("passed") is True
+        else configuration.duration_seconds
+    )
+    semantic_floor = semantic_cycle_floor(configuration)
+    active_time_floor = math.ceil(
+        validated_active_seconds / TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE
+    )
+    required_cycles = minimum_cycle_count(
+        configuration,
+        active_workload_seconds=validated_active_seconds,
+    )
+    result_duration = result.get("duration_seconds")
+    duration_seconds = float(result_duration) if _finite_number(result_duration) else -1.0
+    required_health_samples = (
+        math.ceil(duration_seconds / configuration.health_interval_seconds) + 1
+        if duration_seconds > 0
+        else 1
+    )
     maximum_retries = max(
         MINIMUM_RETRY_ALLOWANCE,
         MAXIMUM_RETRIES_PER_CYCLE * max(0, cycles),
@@ -533,12 +1171,59 @@ def evaluate_workload_result(
         )
         * 1_000
     )
-    actual_retries = int(result.get("request_retry_count", -1))
-    actual_health_samples = int(result.get("health_sample_count", -1))
+    raw_request_retries = result.get("request_retry_count")
+    actual_retries = (
+        raw_request_retries
+        if isinstance(raw_request_retries, int) and not isinstance(raw_request_retries, bool)
+        else -1
+    )
+    raw_health_sample_count = result.get("health_sample_count")
+    actual_health_samples = (
+        raw_health_sample_count
+        if isinstance(raw_health_sample_count, int)
+        and not isinstance(raw_health_sample_count, bool)
+        else -1
+    )
     recorded_health_samples = result.get("health_samples")
+    health_monitor = result.get("health_monitor")
+    health_monitor_retry_value = (
+        health_monitor.get("request_retry_count") if isinstance(health_monitor, dict) else None
+    )
+    health_monitor_retries = (
+        health_monitor_retry_value
+        if isinstance(health_monitor_retry_value, int)
+        and not isinstance(health_monitor_retry_value, bool)
+        else -1
+    )
+    raw_health_retries = -1
+    if isinstance(recorded_health_samples, list):
+        raw_health_retries = 0
+        for sample in recorded_health_samples:
+            nodes = sample.get("nodes") if isinstance(sample, dict) else None
+            if not isinstance(nodes, dict) or set(nodes) != set(WARDENS):
+                raw_health_retries = -1
+                break
+            for node in WARDENS:
+                document = nodes.get(node)
+                observation = document.get("observation") if isinstance(document, dict) else None
+                retries = (
+                    observation.get("request_retries") if isinstance(observation, dict) else None
+                )
+                if not isinstance(retries, int) or isinstance(retries, bool) or retries < 0:
+                    raw_health_retries = -1
+                    break
+                raw_health_retries += retries
+            if raw_health_retries < 0:
+                break
+    maximum_health_retries = max(
+        MINIMUM_RETRY_ALLOWANCE,
+        MAXIMUM_RETRIES_PER_HEALTH_SAMPLE * max(0, actual_health_samples),
+    )
     health_cadence = evaluate_health_cadence(
         recorded_health_samples,
-        duration_seconds=float(result.get("duration_seconds", -1.0)),
+        duration_seconds=duration_seconds,
+        interval_seconds=configuration.health_interval_seconds,
+        restart_evidence=restart_evidence,
     )
     maximum_pending = typed_audit_progress.get("maximum_pending_by_node")
     error_sample_budget = typed_audit_progress.get("error_sample_budget")
@@ -576,6 +1261,90 @@ def evaluate_workload_result(
         and typed_audit_progress.get("error_evidence_complete") is True
         and typed_audit_progress.get("error_recovery_passed") is True
     )
+    required_rotations = SMOKE_PATH_ROTATIONS if configuration.smoke else RELEASE_PATH_ROTATIONS
+    expected_workload_configuration = {
+        "cycle_interval_seconds": configuration.cycle_interval_seconds,
+        "duration_seconds": configuration.duration_seconds,
+        "executor_reopen_every_cycles": (configuration.executor_reopen_every_cycles),
+        "health_interval_seconds": configuration.health_interval_seconds,
+        "retry_timeout_seconds": configuration.retry_timeout_seconds,
+        "seed": configuration.seed,
+        "transfer_every_cycles": configuration.transfer_every_cycles,
+    }
+    chaos_timing = bool(
+        isinstance(workload_start, dict)
+        and _finite_number(chaos_started_monotonic)
+        and _finite_number(chaos_completed_monotonic)
+        and float(chaos_started_monotonic) <= float(chaos_completed_monotonic)
+        and _finite_number(workload_start.get("host_wait_started_monotonic_seconds"))
+        and _finite_number(workload_start.get("host_received_monotonic_seconds"))
+        and float(workload_start["host_wait_started_monotonic_seconds"])
+        <= float(workload_start["host_received_monotonic_seconds"])
+        <= float(chaos_started_monotonic)
+        and isinstance(partitions, list)
+        and all(
+            isinstance(partition, dict)
+            and isinstance(partition.get("workload_coordination"), dict)
+            and _finite_number(
+                partition["workload_coordination"].get("host_request_started_monotonic_seconds")
+            )
+            and float(partition["workload_coordination"]["host_request_started_monotonic_seconds"])
+            >= float(chaos_started_monotonic)
+            and _finite_number(
+                partition["workload_coordination"].get("host_resume_completed_monotonic_seconds")
+            )
+            and float(partition["workload_coordination"]["host_resume_completed_monotonic_seconds"])
+            <= float(chaos_completed_monotonic)
+            for partition in partitions
+        )
+        and isinstance(restarts, list)
+        and all(
+            isinstance(restart, dict)
+            and isinstance(restart.get("workload_coordination"), dict)
+            and isinstance(restart["workload_coordination"].get("armed"), dict)
+            and isinstance(restart["workload_coordination"].get("completed"), dict)
+            and _finite_number(
+                restart["workload_coordination"]["armed"].get(
+                    "host_armed_started_monotonic_seconds"
+                )
+            )
+            and float(
+                restart["workload_coordination"]["armed"]["host_armed_started_monotonic_seconds"]
+            )
+            >= float(chaos_started_monotonic)
+            and _finite_number(restart.get("host_operation_started_monotonic_seconds"))
+            and _finite_number(restart.get("host_operation_completed_monotonic_seconds"))
+            and float(restart["host_operation_started_monotonic_seconds"])
+            >= float(chaos_started_monotonic)
+            and float(restart["host_operation_completed_monotonic_seconds"])
+            <= float(chaos_completed_monotonic)
+            and _finite_number(
+                restart["workload_coordination"]["completed"].get(
+                    "host_monitor_recovered_monotonic_seconds"
+                )
+            )
+            and float(
+                restart["workload_coordination"]["completed"][
+                    "host_monitor_recovered_monotonic_seconds"
+                ]
+            )
+            <= float(chaos_completed_monotonic)
+            and isinstance(restart.get("resource_checkpoint"), dict)
+            and _finite_number(
+                restart["resource_checkpoint"].get("host_observed_monotonic_seconds")
+            )
+            and float(restart["resource_checkpoint"]["host_observed_monotonic_seconds"])
+            >= float(chaos_started_monotonic)
+            for restart in restarts
+        )
+    )
+    pair_path_coverage = bool(
+        set(typed_pair_counts) == set(expected_pairs)
+        and all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= required_rotations
+            for value in typed_pair_counts.values()
+        )
+    )
     checks = {
         "audit_error_recovery": audit_error_recovery,
         "audit_progress": (
@@ -591,6 +1360,7 @@ def evaluate_workload_result(
             )
         ),
         "counter_relationships": typed_counters == expected_counters,
+        "chaos_start_binding": chaos_timing,
         "cycle_latency_bounded": (
             int(typed_latency.get("count", -1)) == cycles
             and float(typed_latency.get("maximum_ms", math.inf)) <= maximum_cycle_latency_ms
@@ -601,17 +1371,47 @@ def evaluate_workload_result(
         "executor_reopens": int(typed_executor.get("reopen_count", -1)) == expected_reopens,
         "executor_replay_rejections": int(typed_executor.get("replay_rejections", -1))
         == 2 * cycles + expected_reopens,
+        "health_monitor": (
+            isinstance(health_monitor, dict)
+            and health_monitor.get("status") == "passed"
+            and health_monitor.get("schedule") == "absolute_monotonic"
+            and health_monitor.get("joined") is True
+            and health_monitor.get("deadline_miss_count") == 0
+            and health_monitor.get("samples_truncated") == 0
+            and health_monitor.get("audit_error_budget_instances") == 1
+            and health_monitor.get("interval_seconds") == configuration.health_interval_seconds
+            and health_monitor.get("expected_sample_count") == required_health_samples
+            and health_monitor.get("actual_sample_count") == actual_health_samples
+            and health_monitor.get("retained_sample_count") == actual_health_samples
+            and health_monitor_retries == raw_health_retries
+        ),
         "health_samples": (
-            actual_health_samples >= required_health_samples
+            actual_health_samples == required_health_samples
             and isinstance(recorded_health_samples, list)
             and len(recorded_health_samples) == actual_health_samples
         ),
         "health_cadence": health_cadence.get("passed") is True,
+        "pause_partition_binding": pause_evidence.get("passed") is True,
+        "restart_window_binding": restart_evidence.get("passed") is True,
         "minimum_cycles": cycles >= required_cycles,
-        "requested_duration": float(result.get("duration_seconds", -1.0))
-        >= configuration.duration_seconds,
+        "requested_duration": duration_seconds >= configuration.duration_seconds,
         "retry_budget": 0 <= actual_retries <= maximum_retries,
+        "health_retry_budget": 0 <= health_monitor_retries <= maximum_health_retries,
+        "semantic_path_coverage": (
+            cycles >= semantic_floor
+            and pair_path_coverage
+            and int(typed_executor.get("reopen_count", -1)) >= required_rotations
+        ),
         "transfer_pair_rotation": typed_pair_counts == expected_pairs,
+        "workload_identity": (
+            result.get("schema") == "lets.production-profile-soak-workload/v2"
+            and result.get("status") == "passed"
+            and result.get("configuration") == expected_workload_configuration
+            and isinstance(workload_start, dict)
+            and workload_start.get("run_id") == result.get("run_id")
+            and workload_start.get("started_monotonic_seconds")
+            == result.get("started_monotonic_seconds")
+        ),
     }
     violations = sorted(name for name, passed in checks.items() if not passed)
     return {
@@ -619,7 +1419,11 @@ def evaluate_workload_result(
         "metrics": {
             "actual_cycles": cycles,
             "actual_health_samples": actual_health_samples,
+            "actual_health_request_retries": health_monitor_retries,
+            "raw_health_request_retries": raw_health_retries,
             "actual_request_retries": actual_retries,
+            "active_time_cycle_floor": active_time_floor,
+            "active_workload_seconds": round(validated_active_seconds, 6),
             "audit_error_recovery": {
                 "error_sample_budget": error_sample_budget,
                 "error_sample_count": error_sample_count,
@@ -632,9 +1436,13 @@ def evaluate_workload_result(
                 "unresolved_error_nodes": unresolved_error_nodes,
             },
             "maximum_cycle_latency_ms": maximum_cycle_latency_ms,
+            "maximum_health_request_retries": maximum_health_retries,
             "maximum_request_retries": maximum_retries,
+            "pause_evidence": pause_evidence,
             "required_cycles": required_cycles,
             "required_health_samples": required_health_samples,
+            "restart_evidence": restart_evidence,
+            "semantic_cycle_floor": semantic_floor,
             "health_cadence": health_cadence,
         },
         "passed": not violations,
@@ -760,13 +1568,16 @@ class Harness:
         deadline = time.monotonic() + timeout_s
         last: dict[str, Any] = {}
         while time.monotonic() < deadline:
-            last = self.state(service)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            last = self.state(service, timeout=max(0.001, remaining))
             health = last.get("Health")
             if isinstance(health, dict) and health.get("Status") == "healthy":
                 return
             if last.get("Status") == "exited":
                 raise RuntimeError(f"{service} exited before becoming healthy: {last}")
-            time.sleep(0.5)
+            time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
         raise RuntimeError(f"{service} did not become healthy: {last}")
 
 
@@ -1128,6 +1939,7 @@ def _resource_sample(
         nodes[service] = resource
     sample: dict[str, Any] = {
         "elapsed_seconds": round(elapsed_s, 3),
+        "host_observed_monotonic_seconds": time.monotonic(),
         "nodes": nodes,
         "reason": reason,
     }
@@ -1475,6 +2287,7 @@ def _pre_sigkill_resource_checkpoint(
         raise RuntimeError(f"pre-SIGKILL resource bounds failed: {evaluation['violations']!r}")
     return {
         "evaluation_passed": True,
+        "host_observed_monotonic_seconds": samples[-1]["host_observed_monotonic_seconds"],
         "sample_index": len(samples) - 1,
         "sample_reason": "pre_sigkill",
         "service": service,
@@ -1530,20 +2343,87 @@ def _container_json(
         raise RuntimeError(f"{service} returned malformed SQLite probe output: {output}") from exc
 
 
+def _wait_workload_start(
+    harness: Harness,
+    *,
+    expected_run_id: str,
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
+    script = (
+        "import sys; from pathlib import Path; "
+        f"path=Path({WORKLOAD_START_PATH!r}); "
+        "sys.stdout.write(path.read_text() if path.exists() else '')"
+    )
+    host_wait_started = time.monotonic()
+    deadline = host_wait_started + HEALTH_CADENCE_LIMIT_SECONDS
+    last = ""
+    while time.monotonic() < deadline:
+        _require_workload_running(workload, context="before workload startup acknowledgement")
+        process = harness.run(
+            [
+                "docker",
+                "exec",
+                harness.workload_container,
+                "python",
+                "-c",
+                script,
+            ],
+            check=False,
+            timeout=FAILURE_COMMAND_TIMEOUT_SECONDS,
+        )
+        last = process.stdout.strip()
+        if process.returncode == 0 and last:
+            try:
+                document = json.loads(last)
+            except json.JSONDecodeError:
+                document = None
+            if (
+                isinstance(document, dict)
+                and document.get("run_id") == expected_run_id
+                and _finite_number(document.get("started_monotonic_seconds"))
+                and document.get("duration_seconds") == harness.configuration.duration_seconds
+                and document.get("cycle_interval_seconds")
+                == harness.configuration.cycle_interval_seconds
+                and document.get("health_interval_seconds")
+                == harness.configuration.health_interval_seconds
+                and document.get("retry_timeout_seconds")
+                == harness.configuration.retry_timeout_seconds
+                and document.get("transfer_every_cycles")
+                == harness.configuration.transfer_every_cycles
+                and document.get("executor_reopen_every_cycles")
+                == harness.configuration.executor_reopen_every_cycles
+                and document.get("seed") == harness.configuration.seed
+                and document.get("schema") == "lets.production-profile-soak-workload-start/v1"
+            ):
+                return {
+                    **document,
+                    "host_received_monotonic_seconds": time.monotonic(),
+                    "host_wait_started_monotonic_seconds": host_wait_started,
+                }
+        time.sleep(0.05)
+    _require_workload_running(workload, context="waiting for workload startup acknowledgement")
+    raise RuntimeError(f"workload startup identity was not acknowledged: {last!r}")
+
+
 def _pause_workload(
     harness: Harness,
     episode: int,
     workload: subprocess.Popen[str],
 ) -> dict[str, Any]:
-    write_script = (
-        "import json,sys; from pathlib import Path; "
-        f"target=Path({WORKLOAD_PAUSE_PATH!r}); temporary=target.with_suffix('.tmp'); "
-        "temporary.write_text(json.dumps({'episode':int(sys.argv[1])},sort_keys=True)+'\\n'); "
-        "temporary.replace(target)"
-    )
     _require_workload_running(workload, context=f"before partition pause {episode}")
+    pause_id = f"{harness.project}-partition-pause-{episode:06d}"
+    write_script = (
+        "import json,sys,time; from pathlib import Path; "
+        f"target=Path({WORKLOAD_PAUSE_PATH!r}); temporary=target.with_suffix('.tmp'); "
+        f"Path({WORKLOAD_PAUSE_ACK_PATH!r}).unlink(missing_ok=True); "
+        "document={'episode':int(sys.argv[1]),'pause_id':sys.argv[2],"
+        "'requested_monotonic_seconds':time.monotonic()}; "
+        "temporary.write_text(json.dumps(document,sort_keys=True)+'\\n'); "
+        "temporary.replace(target); print(json.dumps(document,sort_keys=True))"
+    )
+    host_request_started = time.monotonic()
     try:
-        harness.run(
+        marker_process = harness.run(
             [
                 "docker",
                 "exec",
@@ -1552,12 +2432,27 @@ def _pause_workload(
                 "-c",
                 write_script,
                 str(episode),
+                pause_id,
             ],
             timeout=30,
         )
     except Exception:
         _require_workload_running(workload, context=f"during partition pause {episode}")
         raise
+    try:
+        marker = json.loads(marker_process.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"workload pause marker was malformed: {marker_process.stdout!r}"
+        ) from exc
+    if (
+        not isinstance(marker, dict)
+        or marker.get("episode") != episode
+        or marker.get("pause_id") != pause_id
+        or not isinstance(marker.get("requested_monotonic_seconds"), (int, float))
+        or isinstance(marker.get("requested_monotonic_seconds"), bool)
+    ):
+        raise RuntimeError(f"workload pause marker identity mismatch: {marker!r}")
     read_script = (
         "import sys; from pathlib import Path; "
         f"path=Path({WORKLOAD_PAUSE_ACK_PATH!r}); "
@@ -1585,23 +2480,388 @@ def _pause_workload(
                 acknowledgement = json.loads(last)
             except json.JSONDecodeError:
                 acknowledgement = None
-            if acknowledgement == {"episode": episode, "paused": True}:
-                return cast(dict[str, Any], acknowledgement)
+            if (
+                isinstance(acknowledgement, dict)
+                and acknowledgement.get("episode") == episode
+                and acknowledgement.get("pause_id") == pause_id
+                and acknowledgement.get("paused") is True
+                and acknowledgement.get("requested_monotonic_seconds")
+                == marker["requested_monotonic_seconds"]
+                and isinstance(
+                    acknowledgement.get("observed_monotonic_seconds"),
+                    (int, float),
+                )
+                and not isinstance(
+                    acknowledgement.get("observed_monotonic_seconds"),
+                    bool,
+                )
+            ):
+                host_acknowledged = time.monotonic()
+                boundary_script = (
+                    "import json,time; from pathlib import Path; "
+                    f"marker=json.loads(Path({WORKLOAD_PAUSE_PATH!r}).read_text()); "
+                    f"ack=json.loads(Path({WORKLOAD_PAUSE_ACK_PATH!r}).read_text()); "
+                    "identity=('episode','pause_id','requested_monotonic_seconds'); "
+                    "assert all(marker[k]==ack[k] for k in identity); "
+                    "document={k:marker[k] for k in identity}; "
+                    "document['authorized_start_monotonic_seconds']=time.monotonic(); "
+                    "print(json.dumps(document,sort_keys=True))"
+                )
+                host_boundary_started = time.monotonic()
+                boundary_process = harness.run(
+                    [
+                        "docker",
+                        "exec",
+                        harness.workload_container,
+                        "python",
+                        "-c",
+                        boundary_script,
+                    ],
+                    timeout=30,
+                )
+                host_boundary_completed = time.monotonic()
+                try:
+                    authorized_start = json.loads(boundary_process.stdout)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(
+                        "workload pause authorization boundary was malformed: "
+                        f"{boundary_process.stdout!r}"
+                    ) from exc
+                if (
+                    not isinstance(authorized_start, dict)
+                    or any(
+                        authorized_start.get(key) != marker.get(key)
+                        for key in ("episode", "pause_id", "requested_monotonic_seconds")
+                    )
+                    or not isinstance(
+                        authorized_start.get("authorized_start_monotonic_seconds"),
+                        (int, float),
+                    )
+                    or isinstance(
+                        authorized_start.get("authorized_start_monotonic_seconds"),
+                        bool,
+                    )
+                ):
+                    raise RuntimeError(
+                        f"workload pause authorization identity mismatch: {authorized_start!r}"
+                    )
+                return {
+                    **marker,
+                    "acknowledgement": acknowledgement,
+                    "authorized_start": {
+                        **authorized_start,
+                        "host_boundary_completed_monotonic_seconds": (host_boundary_completed),
+                        "host_boundary_started_monotonic_seconds": (host_boundary_started),
+                    },
+                    "host_acknowledged_monotonic_seconds": host_acknowledged,
+                    "host_request_started_monotonic_seconds": host_request_started,
+                    "marker": marker,
+                }
         time.sleep(0.1)
     _require_workload_running(workload, context=f"during partition pause {episode}")
     raise RuntimeError(f"workload did not acknowledge partition pause {episode}: {last}")
 
 
-def _resume_workload(harness: Harness, *, timeout: float = 30) -> None:
+def _authorize_pause_end(harness: Harness, *, timeout: float = 30) -> dict[str, Any]:
     script = (
-        "from pathlib import Path; "
-        f"Path({WORKLOAD_PAUSE_PATH!r}).unlink(missing_ok=True); "
-        f"Path({WORKLOAD_PAUSE_ACK_PATH!r}).unlink(missing_ok=True)"
+        "import json,time; from pathlib import Path; "
+        f"marker=json.loads(Path({WORKLOAD_PAUSE_PATH!r}).read_text()); "
+        f"ack=json.loads(Path({WORKLOAD_PAUSE_ACK_PATH!r}).read_text()); "
+        "identity=('episode','pause_id','requested_monotonic_seconds'); "
+        "assert all(marker[k]==ack[k] for k in identity); "
+        "document={k:marker[k] for k in identity}; "
+        "document['authorized_end_monotonic_seconds']=time.monotonic(); "
+        "print(json.dumps(document,sort_keys=True))"
     )
-    harness.run(
+    host_started = time.monotonic()
+    process = harness.run(
         ["docker", "exec", harness.workload_container, "python", "-c", script],
         timeout=timeout,
     )
+    host_completed = time.monotonic()
+    try:
+        boundary = json.loads(process.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"workload pause end boundary was malformed: {process.stdout!r}"
+        ) from exc
+    if (
+        not isinstance(boundary, dict)
+        or not _finite_number(boundary.get("authorized_end_monotonic_seconds"))
+        or not isinstance(boundary.get("pause_id"), str)
+        or not isinstance(boundary.get("episode"), int)
+    ):
+        raise RuntimeError(f"workload pause end boundary was invalid: {boundary!r}")
+    return {
+        **boundary,
+        "host_boundary_completed_monotonic_seconds": host_completed,
+        "host_boundary_started_monotonic_seconds": host_started,
+    }
+
+
+def _resume_workload(
+    harness: Harness,
+    *,
+    authorized_end: dict[str, Any] | None = None,
+    timeout: float = 30,
+) -> dict[str, Any]:
+    script = (
+        "import json,sys,time; from pathlib import Path; "
+        f"marker=Path({WORKLOAD_PAUSE_PATH!r}); ack=Path({WORKLOAD_PAUSE_ACK_PATH!r}); "
+        "request=json.loads(marker.read_text()); acknowledgement=json.loads(ack.read_text()); "
+        "identity=('episode','pause_id','requested_monotonic_seconds'); "
+        "assert all(request[k]==acknowledgement[k] for k in identity); "
+        "assert sys.argv[1]=='emergency' or (request['episode']==int(sys.argv[1]) "
+        "and request['pause_id']==sys.argv[2] "
+        "and str(request['requested_monotonic_seconds'])==sys.argv[3]); "
+        "document={k:request[k] for k in identity}; "
+        "document['resume_requested_monotonic_seconds']=time.monotonic(); "
+        "marker.unlink(); ack.unlink(); "
+        "print(json.dumps(document,sort_keys=True))"
+    )
+    started = time.monotonic()
+    identity_arguments = (
+        ["emergency", "", ""]
+        if authorized_end is None
+        else [
+            str(authorized_end["episode"]),
+            str(authorized_end["pause_id"]),
+            str(authorized_end["requested_monotonic_seconds"]),
+        ]
+    )
+    process = harness.run(
+        [
+            "docker",
+            "exec",
+            harness.workload_container,
+            "python",
+            "-c",
+            script,
+            *identity_arguments,
+        ],
+        timeout=timeout,
+    )
+    try:
+        workload_boundary = json.loads(process.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"workload resume boundary was malformed: {process.stdout!r}") from exc
+    resume_requested = (
+        workload_boundary.get("resume_requested_monotonic_seconds")
+        if isinstance(workload_boundary, dict)
+        else None
+    )
+    if not isinstance(resume_requested, (int, float)) or isinstance(resume_requested, bool):
+        raise RuntimeError(f"workload resume boundary was invalid: {workload_boundary!r}")
+    return {
+        **cast(dict[str, Any], workload_boundary),
+        "host_resume_completed_monotonic_seconds": time.monotonic(),
+        "host_resume_started_monotonic_seconds": started,
+        "workload_resume_requested_monotonic_seconds": float(resume_requested),
+    }
+
+
+def _wait_restart_acknowledgement(
+    harness: Harness,
+    *,
+    marker: dict[str, Any],
+    required_field: str,
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
+    read_script = (
+        "import sys; from pathlib import Path; "
+        f"path=Path({WORKLOAD_RESTART_ACK_PATH!r}); "
+        "sys.stdout.write(path.read_text() if path.exists() else '')"
+    )
+    deadline = time.monotonic() + HEALTH_CADENCE_LIMIT_SECONDS
+    last = ""
+    while time.monotonic() < deadline:
+        _require_workload_running(workload, context=f"waiting for restart {required_field}")
+        process = harness.run(
+            [
+                "docker",
+                "exec",
+                harness.workload_container,
+                "python",
+                "-c",
+                read_script,
+            ],
+            check=False,
+            timeout=FAILURE_COMMAND_TIMEOUT_SECONDS,
+        )
+        last = process.stdout.strip()
+        if process.returncode == 0 and last:
+            try:
+                acknowledgement = json.loads(last)
+            except json.JSONDecodeError:
+                acknowledgement = None
+            identity = ("restart_id", "episode", "service", "armed_monotonic_seconds")
+            if (
+                isinstance(acknowledgement, dict)
+                and all(acknowledgement.get(key) == marker.get(key) for key in identity)
+                and isinstance(acknowledgement.get(required_field), (int, float))
+                and not isinstance(acknowledgement.get(required_field), bool)
+            ):
+                if required_field == "recovered_monotonic_seconds" and (
+                    acknowledgement.get("completed_monotonic_seconds")
+                    != marker.get("completed_monotonic_seconds")
+                    or not isinstance(
+                        acknowledgement.get("acknowledged_monotonic_seconds"),
+                        (int, float),
+                    )
+                    or float(acknowledgement["recovered_monotonic_seconds"])
+                    < float(acknowledgement["acknowledged_monotonic_seconds"])
+                ):
+                    acknowledgement = None
+                if acknowledgement is not None:
+                    return cast(dict[str, Any], acknowledgement)
+        time.sleep(0.1)
+    _require_workload_running(workload, context=f"waiting for restart {required_field}")
+    raise RuntimeError(
+        f"workload did not provide exact restart {required_field}: marker={marker!r} last={last!r}"
+    )
+
+
+def _arm_restart_window(
+    harness: Harness,
+    *,
+    episode: int,
+    service: str,
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
+    restart_id = f"{harness.project}-planned-restart-{episode:06d}-{service}"
+    script = (
+        "import json,sys,time; from pathlib import Path; "
+        f"target=Path({WORKLOAD_RESTART_PATH!r}); temporary=target.with_suffix('.tmp'); "
+        f"Path({WORKLOAD_RESTART_ACK_PATH!r}).unlink(missing_ok=True); "
+        "document={'armed_monotonic_seconds':time.monotonic(),"
+        "'episode':int(sys.argv[1]),'restart_id':sys.argv[2],"
+        "'service':sys.argv[3],'state':'armed'}; "
+        "temporary.write_text(json.dumps(document,sort_keys=True)+'\\n'); "
+        "temporary.replace(target); print(json.dumps(document,sort_keys=True))"
+    )
+    _require_workload_running(workload, context=f"before arming planned restart {episode}")
+    host_armed_started = time.monotonic()
+    process = harness.run(
+        [
+            "docker",
+            "exec",
+            harness.workload_container,
+            "python",
+            "-c",
+            script,
+            str(episode),
+            restart_id,
+            service,
+        ],
+        timeout=30,
+    )
+    try:
+        marker = json.loads(process.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"planned restart marker was malformed: {process.stdout!r}") from exc
+    if (
+        not isinstance(marker, dict)
+        or marker.get("episode") != episode
+        or marker.get("restart_id") != restart_id
+        or marker.get("service") != service
+        or marker.get("state") != "armed"
+        or not isinstance(marker.get("armed_monotonic_seconds"), (int, float))
+        or isinstance(marker.get("armed_monotonic_seconds"), bool)
+    ):
+        raise RuntimeError(f"planned restart marker identity mismatch: {marker!r}")
+    acknowledgement = _wait_restart_acknowledgement(
+        harness,
+        marker=marker,
+        required_field="acknowledged_monotonic_seconds",
+        workload=workload,
+    )
+    return {
+        "acknowledgement": acknowledgement,
+        "host_armed_started_monotonic_seconds": host_armed_started,
+        "host_monitor_acknowledged_monotonic_seconds": time.monotonic(),
+        "marker": marker,
+    }
+
+
+def _complete_restart_window(
+    harness: Harness,
+    *,
+    armed: dict[str, Any],
+    completion_deadline_monotonic: float,
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
+    marker = cast(dict[str, Any], armed["marker"])
+    script = (
+        "import json,sys,time; from pathlib import Path; "
+        f"target=Path({WORKLOAD_RESTART_PATH!r}); document=json.loads(target.read_text()); "
+        "assert document['restart_id']==sys.argv[1] and document['state']=='armed'; "
+        "document['completed_monotonic_seconds']=time.monotonic(); "
+        "document['state']='completed'; temporary=target.with_suffix('.tmp'); "
+        "temporary.write_text(json.dumps(document,sort_keys=True)+'\\n'); "
+        "temporary.replace(target); print(json.dumps(document,sort_keys=True))"
+    )
+    host_completion_started = time.monotonic()
+    remaining = completion_deadline_monotonic - host_completion_started
+    if remaining <= 0:
+        raise RuntimeError("planned restart exceeded its 30s completion-marker budget")
+    process = harness.run(
+        [
+            "docker",
+            "exec",
+            harness.workload_container,
+            "python",
+            "-c",
+            script,
+            str(marker["restart_id"]),
+        ],
+        timeout=remaining,
+    )
+    try:
+        completed_marker = json.loads(process.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"completed restart marker was malformed: {process.stdout!r}") from exc
+    if (
+        not isinstance(completed_marker, dict)
+        or any(
+            completed_marker.get(key) != marker.get(key)
+            for key in ("armed_monotonic_seconds", "episode", "restart_id", "service")
+        )
+        or completed_marker.get("state") != "completed"
+        or not isinstance(completed_marker.get("completed_monotonic_seconds"), (int, float))
+        or isinstance(completed_marker.get("completed_monotonic_seconds"), bool)
+    ):
+        raise RuntimeError(f"completed restart marker identity mismatch: {completed_marker!r}")
+    recovery = _wait_restart_acknowledgement(
+        harness,
+        marker=completed_marker,
+        required_field="recovered_monotonic_seconds",
+        workload=workload,
+    )
+    cleanup_script = (
+        "import json,sys; from pathlib import Path; "
+        f"marker=Path({WORKLOAD_RESTART_PATH!r}); ack=Path({WORKLOAD_RESTART_ACK_PATH!r}); "
+        "document=json.loads(marker.read_text()); acknowledgement=json.loads(ack.read_text()); "
+        "assert document['restart_id']==sys.argv[1]==acknowledgement['restart_id']; "
+        "marker.unlink(); ack.unlink()"
+    )
+    harness.run(
+        [
+            "docker",
+            "exec",
+            harness.workload_container,
+            "python",
+            "-c",
+            cleanup_script,
+            str(marker["restart_id"]),
+        ],
+        timeout=30,
+    )
+    return {
+        "host_completed_marker_monotonic_seconds": host_completion_started,
+        "host_monitor_recovered_monotonic_seconds": time.monotonic(),
+        "marker": completed_marker,
+        "recovery_acknowledgement": recovery,
+    }
 
 
 def _settle_cluster(harness: Harness, episode: int) -> dict[str, Any]:
@@ -1999,21 +3259,42 @@ def _remove_failed_workload_container(
     return cleanup_result
 
 
-def _restart(harness: Harness, service: str, *, elapsed_s: float) -> dict[str, Any]:
+def _restart(
+    harness: Harness,
+    service: str,
+    *,
+    completion_deadline_monotonic: float,
+    elapsed_s: float,
+) -> dict[str, Any]:
     operation_started = time.monotonic()
-    prior_container = harness.container(service)
-    prior = harness.container_state(prior_container)
+    if completion_deadline_monotonic <= operation_started:
+        raise RuntimeError("planned restart began after its 30s completion budget")
+
+    def remaining() -> float:
+        value = completion_deadline_monotonic - time.monotonic()
+        if value <= 0:
+            raise RuntimeError("planned restart exceeded its 30s completion budget")
+        return value
+
+    prior_container = harness.container(service, timeout=remaining())
+    prior = harness.container_state(prior_container, timeout=remaining())
     prior_pid = int(prior["Pid"])
-    prior_restart_count = harness.container_restart_count(prior_container)
+    prior_restart_count = harness.container_restart_count(
+        prior_container,
+        timeout=remaining(),
+    )
     if (
         prior.get("Status") != "running"
         or prior.get("OOMKilled") is not False
         or prior_restart_count != 0
     ):
         raise RuntimeError(f"{service} was unhealthy before planned SIGKILL: {prior!r}")
-    harness.compose("kill", "--signal", "SIGKILL", service)
-    killed = harness.container_state(prior_container)
-    killed_restart_count = harness.container_restart_count(prior_container)
+    harness.compose("kill", "--signal", "SIGKILL", service, timeout=remaining())
+    killed = harness.container_state(prior_container, timeout=remaining())
+    killed_restart_count = harness.container_restart_count(
+        prior_container,
+        timeout=remaining(),
+    )
     if (
         killed.get("Status") != "exited"
         or int(killed.get("ExitCode", -1)) != 137
@@ -2021,23 +3302,37 @@ def _restart(harness: Harness, service: str, *, elapsed_s: float) -> dict[str, A
         or killed_restart_count != 0
     ):
         raise RuntimeError(f"{service} did not stop only by planned SIGKILL: {killed!r}")
-    harness.compose("up", "-d", "--no-deps", service)
-    harness.wait_healthy(service)
-    restarted_container = harness.container(service)
-    restarted = harness.container_state(restarted_container)
+    harness.compose(
+        "up",
+        "-d",
+        "--no-deps",
+        "--force-recreate",
+        service,
+        timeout=remaining(),
+    )
+    harness.wait_healthy(service, timeout_s=remaining())
+    restarted_container = harness.container(service, timeout=remaining())
+    restarted = harness.container_state(restarted_container, timeout=remaining())
     restarted_pid = int(restarted["Pid"])
-    restarted_count = harness.container_restart_count(restarted_container)
+    restarted_count = harness.container_restart_count(
+        restarted_container,
+        timeout=remaining(),
+    )
     if (
-        restarted_pid == prior_pid
+        restarted_container == prior_container
+        or restarted_pid == prior_pid
         or restarted.get("Status") != "running"
         or restarted.get("OOMKilled") is not False
         or restarted_count != 0
     ):
         raise RuntimeError(f"{service} restart did not replace process {prior_pid}")
     operation_seconds = time.monotonic() - operation_started
+    operation_completed = operation_started + operation_seconds
     return {
         "completed_at_seconds": round(elapsed_s + operation_seconds, 3),
         "elapsed_seconds": round(elapsed_s, 3),
+        "host_operation_completed_monotonic_seconds": operation_completed,
+        "host_operation_started_monotonic_seconds": operation_started,
         "new_container_id": restarted_container,
         "new_pid": restarted_pid,
         "planned_exit_code": int(killed["ExitCode"]),
@@ -2057,7 +3352,8 @@ def _restart_integrity(
     harness: Harness,
     restarts: list[dict[str, Any]],
     *,
-    chaos_duration_seconds: float,
+    chaos_completed_monotonic_seconds: float,
+    chaos_started_monotonic_seconds: float,
 ) -> dict[str, Any]:
     killed_services = {str(item.get("service")) for item in restarts}
     missing_services = sorted(set(WARDENS) - killed_services)
@@ -2085,9 +3381,34 @@ def _restart_integrity(
             "restart_count": restart_count,
             "status": state.get("Status"),
         }
-    restart_points = sorted(float(item["elapsed_seconds"]) for item in restarts)
-    boundaries = [0.0, *restart_points, chaos_duration_seconds]
-    gaps = [max(0.0, right - left) for left, right in pairwise(boundaries)]
+    if not chaos_started_monotonic_seconds < chaos_completed_monotonic_seconds:
+        raise RuntimeError("chaos lifetime boundaries are invalid")
+    chaos_duration_seconds = chaos_completed_monotonic_seconds - chaos_started_monotonic_seconds
+    restart_operations = sorted(
+        (
+            float(item["host_operation_started_monotonic_seconds"])
+            - chaos_started_monotonic_seconds,
+            float(item["host_operation_completed_monotonic_seconds"])
+            - chaos_started_monotonic_seconds,
+        )
+        for item in restarts
+    )
+    if not all(
+        0 <= started < completed <= chaos_duration_seconds
+        for started, completed in restart_operations
+    ) or any(right[0] < left[1] for left, right in pairwise(restart_operations)):
+        raise RuntimeError("planned SIGKILL lies outside the chaos lifetime")
+
+    def process_lifetimes(operations: list[tuple[float, float]]) -> list[float]:
+        lifetimes: list[float] = []
+        prior_completed = 0.0
+        for operation_started, operation_completed in operations:
+            lifetimes.append(max(0.0, operation_started - prior_completed))
+            prior_completed = operation_completed
+        lifetimes.append(max(0.0, chaos_duration_seconds - prior_completed))
+        return lifetimes
+
+    gaps = process_lifetimes(restart_operations)
     longest = max(gaps, default=0.0)
     required = harness.configuration.restart_interval_seconds * 0.8
     if longest < required:
@@ -2096,11 +3417,17 @@ def _restart_integrity(
         )
     per_warden_lifetimes: dict[str, Any] = {}
     for service in WARDENS:
-        service_restarts = sorted(
-            float(item["elapsed_seconds"]) for item in restarts if item.get("service") == service
+        service_operations = sorted(
+            (
+                float(item["host_operation_started_monotonic_seconds"])
+                - chaos_started_monotonic_seconds,
+                float(item["host_operation_completed_monotonic_seconds"])
+                - chaos_started_monotonic_seconds,
+            )
+            for item in restarts
+            if item.get("service") == service
         )
-        service_boundaries = [0.0, *service_restarts, chaos_duration_seconds]
-        lifetimes = [max(0.0, right - left) for left, right in pairwise(service_boundaries)]
+        lifetimes = process_lifetimes(service_operations)
         longest_lifetime = max(lifetimes, default=0.0)
         if longest_lifetime < required:
             raise RuntimeError(
@@ -2110,11 +3437,12 @@ def _restart_integrity(
         per_warden_lifetimes[service] = {
             "longest_seconds": round(longest_lifetime, 3),
             "passed": True,
-            "planned_sigkill_seconds": [round(item, 3) for item in service_restarts],
+            "planned_sigkill_seconds": [round(started, 3) for started, _ in service_operations],
             "segments_seconds": [round(item, 3) for item in lifetimes],
         }
     return {
         "all_wardens_sigkilled": True,
+        "chaos_duration_seconds": round(chaos_duration_seconds, 3),
         "final_container_state": final,
         "longest_sigkill_free_seconds": round(longest, 3),
         "minimum_sigkill_free_seconds": round(required, 3),
@@ -2147,8 +3475,11 @@ def run_soak(
     resource_evaluation: dict[str, Any] | None = None
     partition_recovery: list[dict[str, Any]] = []
     restart_integrity: dict[str, Any] | None = None
+    verification: dict[str, Any] | None = None
+    package_identity: dict[str, Any] | None = None
     workload_result: dict[str, Any] = {}
     workload_evaluation: dict[str, Any] | None = None
+    workload_start: dict[str, Any] | None = None
     workload: subprocess.Popen[str] | None = None
     workload_stdout = ""
     workload_stderr = ""
@@ -2160,6 +3491,7 @@ def run_soak(
     cleanup: dict[str, Any] = {"performed": False, "reason": "not yet attempted"}
     preflight: dict[str, Any] = {"status": "not_run"}
     chaos_started: float | None = None
+    chaos_completed: float | None = None
     phase = "configuration"
     try:
         output.unlink(missing_ok=True)
@@ -2211,6 +3543,8 @@ def run_soak(
             str(configuration.executor_reopen_every_cycles),
             "--seed",
             str(configuration.seed),
+            "--run-id",
+            f"{harness.project}-workload-run",
             "--output",
             "/scenario/soak-workload.json",
         ]
@@ -2221,6 +3555,11 @@ def run_soak(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+        )
+        workload_start = _wait_workload_start(
+            harness,
+            expected_run_id=f"{harness.project}-workload-run",
+            workload=workload,
         )
         chaos_started = time.monotonic()
         next_partition = chaos_started + configuration.partition_interval_seconds
@@ -2238,17 +3577,23 @@ def run_soak(
             ):
                 episode = len(partitions)
                 workload_paused = True
-                pause_acknowledgement = _pause_workload(harness, episode, workload)
+                pause_coordination = _pause_workload(harness, episode, workload)
+                pause_coordination["host_acknowledged_at_seconds"] = round(
+                    float(pause_coordination["host_acknowledged_monotonic_seconds"])
+                    - chaos_started,
+                    6,
+                )
                 settled = _settle_cluster(harness, episode)
                 _set_partition(enabled=False)
                 partitioned = True
                 disabled_at = time.monotonic()
                 partition = {
                     "disabled_at_seconds": round(disabled_at - chaos_started, 3),
+                    "disabled_monotonic_seconds": disabled_at,
                     "episode": episode,
                     "links": ["a_to_b", "b_to_a"],
                     "workload_coordination": {
-                        "acknowledgement": pause_acknowledgement,
+                        **pause_coordination,
                         "settled_before_disable": settled,
                     },
                 }
@@ -2262,10 +3607,51 @@ def run_soak(
                 elapsed = now - chaos_started
             if partitioned and restore_partition_at is not None and now >= restore_partition_at:
                 _set_partition(enabled=True)
+                restored_monotonic = time.monotonic()
                 partitioned = False
-                _resume_workload(harness)
+                authorized_end = _authorize_pause_end(harness)
+                resume_coordination = _resume_workload(
+                    harness,
+                    authorized_end=authorized_end,
+                )
                 workload_paused = False
-                partitions[-1]["restored_at_seconds"] = round(elapsed, 3)
+                partitions[-1]["workload_coordination"].update(resume_coordination)
+                partitions[-1]["workload_coordination"]["authorized_end"] = authorized_end
+                partitions[-1]["workload_coordination"]["host_resume_completed_at_seconds"] = round(
+                    float(resume_coordination["host_resume_completed_monotonic_seconds"])
+                    - chaos_started,
+                    6,
+                )
+                partitions[-1]["workload_coordination"]["host_pause_duration_seconds"] = round(
+                    float(resume_coordination["host_resume_started_monotonic_seconds"])
+                    - float(
+                        partitions[-1]["workload_coordination"][
+                            "host_acknowledged_monotonic_seconds"
+                        ]
+                    ),
+                    6,
+                )
+                pause_start = max(
+                    0.0,
+                    float(partitions[-1]["workload_coordination"]["host_acknowledged_at_seconds"]),
+                )
+                pause_end = min(
+                    configuration.duration_seconds,
+                    float(
+                        partitions[-1]["workload_coordination"][
+                            "host_resume_started_monotonic_seconds"
+                        ]
+                    )
+                    - chaos_started,
+                )
+                partitions[-1]["workload_coordination"][
+                    "host_measurement_clipped_pause_seconds"
+                ] = round(max(0.0, pause_end - pause_start), 6)
+                partitions[-1]["restored_at_seconds"] = round(
+                    restored_monotonic - chaos_started,
+                    3,
+                )
+                partitions[-1]["restored_monotonic_seconds"] = restored_monotonic
                 partitions[-1]["duration_seconds"] = round(
                     float(partitions[-1]["restored_at_seconds"])
                     - float(partitions[-1]["disabled_at_seconds"]),
@@ -2289,8 +3675,33 @@ def run_soak(
                     workload,
                     context=f"before planned SIGKILL of {service}",
                 )
-                restart = _restart(harness, service, elapsed_s=checkpoint_elapsed)
+                armed_restart = _arm_restart_window(
+                    harness,
+                    episode=restart_index,
+                    service=service,
+                    workload=workload,
+                )
+                restart_completion_deadline = (
+                    float(armed_restart["host_monitor_acknowledged_monotonic_seconds"])
+                    + MAXIMUM_PLANNED_RESTART_SECONDS
+                )
+                restart = _restart(
+                    harness,
+                    service,
+                    completion_deadline_monotonic=restart_completion_deadline,
+                    elapsed_s=checkpoint_elapsed,
+                )
+                completed_restart = _complete_restart_window(
+                    harness,
+                    armed=armed_restart,
+                    completion_deadline_monotonic=restart_completion_deadline,
+                    workload=workload,
+                )
                 restart["resource_checkpoint"] = resource_checkpoint
+                restart["workload_coordination"] = {
+                    "armed": armed_restart,
+                    "completed": completed_restart,
+                }
                 restarts.append(restart)
                 restart_index += 1
                 next_restart = _next_restart_deadline(
@@ -2306,8 +3717,13 @@ def run_soak(
             time.sleep(0.2)
 
         workload_stdout, workload_stderr = workload.communicate(timeout=30)
-        workload_chaos_duration = time.monotonic() - chaos_started
         if workload.returncode != 0:
+            chaos_completed = time.monotonic()
+            with suppress(Exception):
+                workload_result = _scenario_result(
+                    harness,
+                    "/scenario/soak-workload.json",
+                )
             raise RuntimeError(
                 f"soak workload failed ({workload.returncode})\n{workload_stdout}{workload_stderr}"
             )
@@ -2316,26 +3732,65 @@ def run_soak(
                 while time.monotonic() < restore_partition_at:
                     time.sleep(min(0.2, restore_partition_at - time.monotonic()))
             _set_partition(enabled=True)
+            restored_monotonic = time.monotonic()
             partitioned = False
-            _resume_workload(harness)
+            authorized_end = _authorize_pause_end(harness)
+            resume_coordination = _resume_workload(
+                harness,
+                authorized_end=authorized_end,
+            )
             workload_paused = False
-            restored = time.monotonic() - chaos_started
+            partitions[-1]["workload_coordination"].update(resume_coordination)
+            partitions[-1]["workload_coordination"]["authorized_end"] = authorized_end
+            partitions[-1]["workload_coordination"]["host_resume_completed_at_seconds"] = round(
+                float(resume_coordination["host_resume_completed_monotonic_seconds"])
+                - chaos_started,
+                6,
+            )
+            partitions[-1]["workload_coordination"]["host_pause_duration_seconds"] = round(
+                float(resume_coordination["host_resume_started_monotonic_seconds"])
+                - float(
+                    partitions[-1]["workload_coordination"]["host_acknowledged_monotonic_seconds"]
+                ),
+                6,
+            )
+            pause_start = max(
+                0.0,
+                float(partitions[-1]["workload_coordination"]["host_acknowledged_at_seconds"]),
+            )
+            pause_end = min(
+                configuration.duration_seconds,
+                float(
+                    partitions[-1]["workload_coordination"]["host_resume_started_monotonic_seconds"]
+                )
+                - chaos_started,
+            )
+            partitions[-1]["workload_coordination"]["host_measurement_clipped_pause_seconds"] = (
+                round(max(0.0, pause_end - pause_start), 6)
+            )
+            restored = restored_monotonic - chaos_started
             partitions[-1]["restored_at_seconds"] = round(restored, 3)
+            partitions[-1]["restored_monotonic_seconds"] = restored_monotonic
             partitions[-1]["duration_seconds"] = round(
                 restored - float(partitions[-1]["disabled_at_seconds"]),
                 3,
             )
+        chaos_completed = time.monotonic()
         for service in WARDENS:
             harness.wait_healthy(service)
         phase = "recovery_and_verification"
         partition_recovery = _wait_partition_recovery(harness, partitions)
         verification = _final_verify(harness)
         workload_result = _scenario_result(harness, "/scenario/soak-workload.json")
-        workload_evaluation = evaluate_workload_result(workload_result, configuration)
-        if not workload_evaluation["passed"]:
-            raise RuntimeError(
-                f"soak workload bounds failed: {workload_evaluation['violations']!r}"
-            )
+        workload_evaluation = evaluate_workload_result(
+            workload_result,
+            configuration,
+            chaos_completed_monotonic=chaos_completed,
+            chaos_started_monotonic=chaos_started,
+            partitions=partitions,
+            restarts=restarts,
+            workload_start=workload_start,
+        )
         package_identity = validate_package_identity(
             host_version=package_version,
             image=image,
@@ -2356,23 +3811,28 @@ def run_soak(
             cycles=int(workload_result["cycles"]),
             bounds=resource_bounds,
         )
-        if not resource_evaluation["passed"]:
-            raise RuntimeError(
-                f"soak resource bounds failed: {resource_evaluation['violations']!r}"
-            )
-        if len(partitions) < 2 or not all(
+        partition_adequacy = len(partitions) >= 2 and all(
             cast(dict[str, Any], item.get("observation", {})).get("durably_pending_observed")
             is True
             for item in partitions
-        ):
-            raise RuntimeError(
-                "soak did not complete at least two proven durable partition episodes"
-            )
+        )
         restart_integrity = _restart_integrity(
             harness,
             restarts,
-            chaos_duration_seconds=workload_chaos_duration,
+            chaos_completed_monotonic_seconds=chaos_completed,
+            chaos_started_monotonic_seconds=chaos_started,
         )
+        adequacy_failures: list[str] = []
+        if not workload_evaluation["passed"]:
+            adequacy_failures.append(f"workload={workload_evaluation['violations']!r}")
+        if not resource_evaluation["passed"]:
+            adequacy_failures.append(f"resources={resource_evaluation['violations']!r}")
+        if not partition_adequacy:
+            adequacy_failures.append("partitions=incomplete durable partition coverage")
+        if restart_integrity.get("passed") is not True:
+            adequacy_failures.append("restarts=integrity verification failed")
+        if adequacy_failures:
+            raise RuntimeError("soak adequacy failed: " + "; ".join(adequacy_failures))
         source_after = _source_tree_digest(harness.environment)
         if source_after != source_before:
             raise RuntimeError("source tree changed while the production soak was running")
@@ -2408,9 +3868,12 @@ def run_soak(
             "duration_seconds": round(time.monotonic() - started_monotonic, 3),
             "image": image,
             "orchestration": {
+                "chaos_completed_monotonic_seconds": chaos_completed,
+                "chaos_started_monotonic_seconds": chaos_started,
                 "compose_project": harness.project,
                 "phase": "completed",
                 "preflight": preflight,
+                "workload_start": workload_start,
             },
             "package": {
                 "host_lets_agent": package_version,
@@ -2423,7 +3886,7 @@ def run_soak(
                 "sample_count": len(resource_samples),
                 "samples": resource_samples,
             },
-            "schema": "lets.production-profile-soak/v1",
+            "schema": "lets.production-profile-soak/v2",
             "source": source_before,
             "started_at": started_at.isoformat().replace("+00:00", "Z"),
             "verification": verification,
@@ -2467,6 +3930,8 @@ def run_soak(
             stderr=workload_stderr,
             error=error,
         )
+        if chaos_started is not None and chaos_completed is None:
+            chaos_completed = time.monotonic()
         if started_cluster:
             if partitioned:
                 with suppress(Exception):
@@ -2573,15 +4038,23 @@ def run_soak(
             },
             "image": image,
             "orchestration": {
+                "chaos_completed_monotonic_seconds": chaos_completed,
+                "chaos_started_monotonic_seconds": chaos_started,
                 "compose_project": harness.project,
                 "phase": phase,
                 "preflight": preflight,
+                "workload_start": workload_start,
             },
             "passed": False,
+            "package": {
+                "host_lets_agent": metadata.version("lets-agent"),
+                "identity": package_identity,
+            },
             "resources": partial_resources,
-            "schema": "lets.production-profile-soak/v1",
+            "schema": "lets.production-profile-soak/v2",
             "source": source_before,
             "started_at": started_at.isoformat().replace("+00:00", "Z"),
+            "verification": verification,
             "workload": workload_result,
             "workload_evaluation": workload_evaluation,
             "workload_status": workload_status,
@@ -2610,7 +4083,7 @@ def run_soak(
 
 def _positive_float(value: str) -> float:
     parsed = float(value)
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         raise argparse.ArgumentTypeError("value must be positive")
     return parsed
 

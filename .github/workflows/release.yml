@@ -100,6 +100,7 @@ jobs:
             "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$GITHUB_SHA&event=push&status=completed&per_page=100" \
             > "$runs"
           RUNS="$runs" python - <<'PY'
+          import hashlib
           import json
           import os
           from pathlib import Path
@@ -721,44 +722,123 @@ jobs:
             ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
         run: |
           python - <<'PY'
+          import hashlib
           import json
           import math
           import os
           import re
           from pathlib import Path
 
+          def reject_constant(value):
+              raise ValueError(f"non-finite JSON number is forbidden: {value}")
+
+          def unique_object(pairs):
+              document = {}
+              for key, value in pairs:
+                  if key in document:
+                      raise ValueError(f"duplicate JSON key is forbidden: {key}")
+                  document[key] = value
+              return document
+
           evidence = json.loads(
               Path("results/generated/production-profile-soak.json").read_text(
                   encoding="utf-8"
-              )
+              ),
+              object_pairs_hook=unique_object,
+              parse_constant=reject_constant,
           )
+          if not isinstance(evidence, dict):
+              raise SystemExit("soak evidence root is malformed")
           failures = []
+
+          def required_mapping(value, label):
+              if isinstance(value, dict):
+                  return value
+              failures.append(f"{label} is malformed")
+              return {}
+
+          def required_list(value, label):
+              if isinstance(value, list):
+                  return value
+              failures.append(f"{label} is malformed")
+              return []
+
+          claimed_evidence_digest = evidence.get("evidence_payload_sha256")
+          canonical_evidence = dict(evidence)
+          canonical_evidence.pop("evidence_payload_sha256", None)
+          computed_evidence_digest = "sha256:" + hashlib.sha256(
+              json.dumps(
+                  canonical_evidence,
+                  ensure_ascii=True,
+                  separators=(",", ":"),
+                  sort_keys=True,
+              ).encode("utf-8")
+          ).hexdigest()
+          if (
+              not isinstance(claimed_evidence_digest, str)
+              or re.fullmatch(r"sha256:[0-9a-f]{64}", claimed_evidence_digest) is None
+              or claimed_evidence_digest != computed_evidence_digest
+          ):
+              failures.append("soak evidence payload digest is invalid")
           if evidence.get("passed") is not True:
               failures.append("soak did not pass")
-          if evidence.get("image", {}).get("configured_digest") != os.environ["EXPECTED_IMAGE"]:
+          image_evidence = required_mapping(evidence.get("image"), "soak image evidence")
+          if image_evidence.get("configured_digest") != os.environ["EXPECTED_IMAGE"]:
               failures.append("soak used the wrong image digest")
-          source = evidence.get("source", {})
+          source = required_mapping(evidence.get("source"), "soak source evidence")
           if source.get("git_commit") != os.environ["GITHUB_SHA"] or source.get("dirty") is not False:
               failures.append("soak source was not the exact clean release commit")
-          configuration = evidence.get("configuration", {})
-          workload = evidence.get("workload", {})
-          if float(configuration.get("duration_seconds", 0)) < 3600:
-              failures.append("soak was not sustained for one hour")
-          if float(workload.get("duration_seconds", 0)) < 3600:
+          configuration = required_mapping(
+              evidence.get("configuration"), "soak configuration"
+          )
+          workload = required_mapping(evidence.get("workload"), "soak workload evidence")
+          expected_release_configuration = {
+              "convergence_timeout_seconds": 180.0,
+              "cycle_interval_seconds": 0.5,
+              "duration_seconds": 3600.0,
+              "executor_reopen_every_cycles": 10,
+              "health_interval_seconds": 10.0,
+              "image": os.environ["EXPECTED_IMAGE"],
+              "initial_share": 1_000_000,
+              "partition_duration_seconds": 20.0,
+              "partition_interval_seconds": 90.0,
+              "resource_interval_seconds": 5.0,
+              "restart_interval_seconds": 900.0,
+              "retry_timeout_seconds": 90.0,
+              "seed": 20260809,
+              "smoke": False,
+              "transfer_every_cycles": 3,
+          }
+          if configuration != expected_release_configuration or any(
+              type(configuration.get(name)) is not type(expected)
+              for name, expected in expected_release_configuration.items()
+          ):
+              failures.append("soak did not use the exact one-hour release profile")
+          workload_duration_value = workload.get("duration_seconds")
+          if (
+              not isinstance(workload_duration_value, (int, float))
+              or isinstance(workload_duration_value, bool)
+              or not math.isfinite(float(workload_duration_value))
+              or float(workload_duration_value) < 3600
+          ):
               failures.append("mixed workload stopped before one hour")
-          workload_evaluation = evidence.get("workload_evaluation", {})
+          workload_evaluation = required_mapping(
+              evidence.get("workload_evaluation"), "soak workload evaluation"
+          )
           if workload_evaluation.get("passed") is not True:
               failures.append("soak workload adequacy checks did not pass")
-          workload_metrics = workload_evaluation.get("metrics", {})
-          if int(workload_metrics.get("actual_cycles", 0)) < 300:
-              failures.append("soak completed fewer than 300 mixed-workload cycles")
-          if int(workload_metrics.get("actual_health_samples", 0)) < int(
-              workload_metrics.get("required_health_samples", 1)
-          ):
-              failures.append("soak health sampling was not sustained")
-          if workload_evaluation.get("checks", {}).get("health_cadence") is not True:
+          workload_metrics = required_mapping(
+              workload_evaluation.get("metrics"), "soak workload metrics"
+          )
+          workload_checks = required_mapping(
+              workload_evaluation.get("checks"), "soak workload checks"
+          )
+          if workload_checks.get("health_cadence") is not True:
               failures.append("soak health samples did not cover every audit-stall window")
-          audit_progress = workload.get("audit_progress", {})
+          audit_progress = workload.get("audit_progress")
+          if not isinstance(audit_progress, dict):
+              failures.append("soak audit progress is malformed")
+              audit_progress = {}
           error_sample_budget = audit_progress.get("error_sample_budget")
           error_sample_count = audit_progress.get("error_sample_count")
           recovered_error_sample_count = audit_progress.get("recovered_error_sample_count")
@@ -785,12 +865,854 @@ jobs:
                   and math.isfinite(float(value))
               )
 
-          raw_error_evidence_valid = isinstance(workload.get("health_samples"), list)
+          def close_number(left, right, tolerance=0.002):
+              return (
+                  finite_number(left)
+                  and finite_number(right)
+                  and abs(float(left) - float(right)) <= tolerance
+              )
+
+          configured_duration = (
+              float(configuration["duration_seconds"])
+              if finite_number(configuration.get("duration_seconds"))
+              else 0.0
+          )
+
+          chaos = required_mapping(evidence.get("chaos"), "soak chaos evidence")
+          partitions = required_list(chaos.get("partitions"), "soak partition evidence")
+          restarts = required_list(chaos.get("restarts"), "soak restart evidence")
+          orchestration = required_mapping(
+              evidence.get("orchestration"), "soak orchestration evidence"
+          )
+          workload_start = orchestration.get("workload_start")
+          chaos_started = orchestration.get("chaos_started_monotonic_seconds")
+          chaos_completed = orchestration.get("chaos_completed_monotonic_seconds")
+          expected_workload_configuration = {
+              "cycle_interval_seconds": configuration.get("cycle_interval_seconds"),
+              "duration_seconds": configuration.get("duration_seconds"),
+              "executor_reopen_every_cycles": configuration.get(
+                  "executor_reopen_every_cycles"
+              ),
+              "health_interval_seconds": configuration.get("health_interval_seconds"),
+              "retry_timeout_seconds": configuration.get("retry_timeout_seconds"),
+              "seed": configuration.get("seed"),
+              "transfer_every_cycles": configuration.get("transfer_every_cycles"),
+          }
+          workload_identity_valid = (
+              evidence.get("schema") == "lets.production-profile-soak/v2"
+              and workload.get("schema") == "lets.production-profile-soak-workload/v2"
+              and workload.get("status") == "passed"
+              and workload.get("configuration") == expected_workload_configuration
+              and isinstance(workload_start, dict)
+              and isinstance(workload.get("run_id"), str)
+              and bool(workload.get("run_id"))
+              and workload_start.get("run_id") == workload.get("run_id")
+              and workload_start.get("schema")
+              == "lets.production-profile-soak-workload-start/v1"
+              and workload_start.get("started_monotonic_seconds")
+              == workload.get("started_monotonic_seconds")
+              and workload_start.get("duration_seconds")
+              == configuration.get("duration_seconds")
+              and workload_start.get("cycle_interval_seconds")
+              == configuration.get("cycle_interval_seconds")
+              and workload_start.get("health_interval_seconds")
+              == configuration.get("health_interval_seconds")
+              and workload_start.get("retry_timeout_seconds")
+              == configuration.get("retry_timeout_seconds")
+              and workload_start.get("transfer_every_cycles")
+              == configuration.get("transfer_every_cycles")
+              and workload_start.get("executor_reopen_every_cycles")
+              == configuration.get("executor_reopen_every_cycles")
+              and workload_start.get("seed") == configuration.get("seed")
+              and finite_number(workload_start.get("started_monotonic_seconds"))
+              and finite_number(workload_start.get("host_wait_started_monotonic_seconds"))
+              and finite_number(workload_start.get("host_received_monotonic_seconds"))
+              and finite_number(chaos_started)
+              and finite_number(chaos_completed)
+              and float(workload_start["host_wait_started_monotonic_seconds"])
+              <= float(workload_start["host_received_monotonic_seconds"])
+              <= float(chaos_started)
+              <= float(chaos_completed)
+          )
+          if not workload_identity_valid:
+              failures.append("soak workload/startup identity or configuration is inconsistent")
+          if (
+              workload_checks.get("workload_identity") is not True
+              or workload_checks.get("chaos_start_binding") is not True
+          ):
+              failures.append("soak evaluator did not bind workload and chaos startup")
+
+          raw_restart_valid = workload_identity_valid and len(restarts) >= 3
+          restart_bindings = {}
+          restart_windows = {node: [] for node in expected_nodes}
+          raw_restart_services = []
+          if raw_restart_valid:
+              for episode, restart in enumerate(restarts):
+                  if not isinstance(restart, dict):
+                      raw_restart_valid = False
+                      continue
+                  service = restart.get("service")
+                  host_started = restart.get("host_operation_started_monotonic_seconds")
+                  host_completed = restart.get("host_operation_completed_monotonic_seconds")
+                  coordination = restart.get("workload_coordination")
+                  if (
+                      service not in expected_nodes
+                      or service != ("warden-a", "warden-b", "warden-c")[episode % 3]
+                      or restart.get("signal") != "SIGKILL"
+                      or restart.get("planned_exit_code") != 137
+                      or not isinstance(restart.get("prior_container_id"), str)
+                      or not isinstance(restart.get("new_container_id"), str)
+                      or re.fullmatch(
+                          r"[0-9a-f]{12,64}",
+                          restart.get("prior_container_id", ""),
+                      )
+                      is None
+                      or re.fullmatch(
+                          r"[0-9a-f]{12,64}",
+                          restart.get("new_container_id", ""),
+                      )
+                      is None
+                      or restart.get("prior_container_id") == restart.get("new_container_id")
+                      or not isinstance(restart.get("prior_pid"), int)
+                      or isinstance(restart.get("prior_pid"), bool)
+                      or not isinstance(restart.get("new_pid"), int)
+                      or isinstance(restart.get("new_pid"), bool)
+                      or restart.get("prior_pid") <= 1
+                      or restart.get("new_pid") <= 1
+                      or restart.get("prior_pid") == restart.get("new_pid")
+                      or restart.get("restart_counts")
+                      != {"after": 0, "killed": 0, "prior": 0}
+                      or not finite_number(restart.get("elapsed_seconds"))
+                      or float(restart.get("elapsed_seconds")) < 0
+                      or not finite_number(host_started)
+                      or not finite_number(host_completed)
+                      or not float(host_started) < float(host_completed)
+                      or float(host_completed) - float(host_started) > 30.0
+                      or not float(chaos_started)
+                      <= float(host_started)
+                      < float(host_completed)
+                      <= float(chaos_completed)
+                      or not isinstance(coordination, dict)
+                  ):
+                      raw_restart_valid = False
+                      continue
+                  raw_restart_services.append(service)
+                  armed = coordination.get("armed")
+                  completed = coordination.get("completed")
+                  if not isinstance(armed, dict) or not isinstance(completed, dict):
+                      raw_restart_valid = False
+                      continue
+                  armed_marker = armed.get("marker")
+                  acknowledgement = armed.get("acknowledgement")
+                  completed_marker = completed.get("marker")
+                  recovery = completed.get("recovery_acknowledgement")
+                  if not all(
+                      isinstance(item, dict)
+                      for item in (
+                          armed_marker,
+                          acknowledgement,
+                          completed_marker,
+                          recovery,
+                      )
+                  ):
+                      raw_restart_valid = False
+                      continue
+                  identity = (
+                      "armed_monotonic_seconds",
+                      "episode",
+                      "restart_id",
+                      "service",
+                  )
+                  restart_id = armed_marker.get("restart_id")
+                  identity_valid = (
+                      isinstance(restart_id, str)
+                      and bool(restart_id)
+                      and restart_id not in restart_bindings
+                      and armed_marker.get("episode") == episode
+                      and armed_marker.get("service") == service
+                      and armed_marker.get("state") == "armed"
+                      and armed_marker.get("completed_monotonic_seconds") is None
+                      and completed_marker.get("state") == "completed"
+                      and all(
+                          completed_marker.get(key) == armed_marker.get(key)
+                          for key in identity
+                      )
+                      and all(
+                          acknowledgement.get(key) == armed_marker.get(key)
+                          for key in identity
+                      )
+                      and all(
+                          recovery.get(key) == armed_marker.get(key)
+                          for key in identity
+                      )
+                  )
+                  acknowledged = acknowledgement.get("acknowledged_monotonic_seconds")
+                  completed_at = completed_marker.get("completed_monotonic_seconds")
+                  recovered = recovery.get("recovered_monotonic_seconds")
+                  container_timing_valid = (
+                      finite_number(armed_marker.get("armed_monotonic_seconds"))
+                      and finite_number(acknowledged)
+                      and finite_number(completed_at)
+                      and finite_number(recovered)
+                      and recovery.get("acknowledged_monotonic_seconds") == acknowledged
+                      and recovery.get("completed_monotonic_seconds") == completed_at
+                      and float(armed_marker["armed_monotonic_seconds"])
+                      <= float(acknowledged)
+                      <= float(completed_at)
+                      <= float(recovered)
+                      and float(completed_at) - float(acknowledged) <= 30.0
+                      and float(recovered) - float(completed_at) <= 15.0
+                  )
+                  host_values = (
+                      armed.get("host_armed_started_monotonic_seconds"),
+                      armed.get("host_monitor_acknowledged_monotonic_seconds"),
+                      completed.get("host_completed_marker_monotonic_seconds"),
+                      completed.get("host_monitor_recovered_monotonic_seconds"),
+                  )
+                  host_timing_valid = (
+                      all(finite_number(value) for value in host_values)
+                      and float(host_values[0])
+                      >= float(chaos_started)
+                      and float(host_values[0])
+                      <= float(host_values[1])
+                      <= float(host_started)
+                      < float(host_completed)
+                      <= float(host_values[2])
+                      <= float(host_values[3])
+                      <= float(chaos_completed)
+                  )
+                  if not identity_valid or not container_timing_valid or not host_timing_valid:
+                      raw_restart_valid = False
+                      continue
+                  start_elapsed = float(acknowledged) - float(
+                      workload_start["started_monotonic_seconds"]
+                  )
+                  end_elapsed = float(completed_at) - float(
+                      workload_start["started_monotonic_seconds"]
+                  )
+                  if start_elapsed < 0 or end_elapsed < start_elapsed:
+                      raw_restart_valid = False
+                      continue
+                  if float(armed_marker["armed_monotonic_seconds"]) < float(
+                      workload_start["started_monotonic_seconds"]
+                  ):
+                      raw_restart_valid = False
+                      continue
+                  binding = {
+                      "armed_marker": armed_marker,
+                      "completed_marker": completed_marker,
+                      "end_elapsed_seconds": end_elapsed,
+                      "episode": episode,
+                      "restart_id": restart_id,
+                      "service": service,
+                      "start_elapsed_seconds": start_elapsed,
+                  }
+                  restart_bindings[restart_id] = binding
+                  restart_windows[service].append(
+                      {
+                          key: binding[key]
+                          for key in (
+                              "end_elapsed_seconds",
+                              "episode",
+                              "restart_id",
+                              "service",
+                              "start_elapsed_seconds",
+                          )
+                      }
+                  )
+          for node, windows in restart_windows.items():
+              ordered = sorted(windows, key=lambda item: item["start_elapsed_seconds"])
+              if any(
+                  right["start_elapsed_seconds"] < left["end_elapsed_seconds"]
+                  for left, right in zip(ordered, ordered[1:])
+              ):
+                  raw_restart_valid = False
+              restart_windows[node] = ordered
+          if set(raw_restart_services) != expected_nodes:
+              raw_restart_valid = False
+          global_restart_windows = sorted(
+              (
+                  window
+                  for windows in restart_windows.values()
+                  for window in windows
+              ),
+              key=lambda item: item["start_elapsed_seconds"],
+          )
+          if any(
+              right["start_elapsed_seconds"] < left["end_elapsed_seconds"]
+              for left, right in zip(
+                  global_restart_windows,
+                  global_restart_windows[1:],
+              )
+          ):
+              raw_restart_valid = False
+          host_restart_operations = sorted(
+              (
+                  float(item["host_operation_started_monotonic_seconds"]),
+                  float(item["host_operation_completed_monotonic_seconds"]),
+              )
+              for item in restarts
+              if isinstance(item, dict)
+              and finite_number(item.get("host_operation_started_monotonic_seconds"))
+              and finite_number(item.get("host_operation_completed_monotonic_seconds"))
+          )
+          if any(
+              right[0] < left[1]
+              for left, right in zip(
+                  host_restart_operations,
+                  host_restart_operations[1:],
+              )
+          ):
+              raw_restart_valid = False
+          restart_metrics = workload_metrics.get("restart_evidence", {})
+          raw_restart_valid = (
+              raw_restart_valid
+              and isinstance(restart_metrics, dict)
+              and restart_metrics.get("passed") is True
+              and restart_metrics.get("binding_count") == len(restart_bindings)
+              and restart_metrics.get("bindings") == restart_bindings
+              and restart_metrics.get("windows_by_node") == restart_windows
+          )
+          if not raw_restart_valid:
+              failures.append("soak restart cadence exclusions are not raw-bound")
+
+          pause_intervals_value = workload.get("pause_intervals")
+          pause_intervals = (
+              pause_intervals_value if isinstance(pause_intervals_value, list) else []
+          )
+          raw_pause_valid = (
+              isinstance(pause_intervals_value, list)
+              and workload.get("pause_interval_count")
+              == len(pause_intervals)
+              == len(partitions)
+              and close_number(
+                  workload.get("measurement_window_seconds"),
+                  configuration.get("duration_seconds"),
+              )
+              and workload_identity_valid
+          )
+          workload_pause_seconds = 0.0
+          authorized_pause_seconds = 0.0
+          raw_pause_bindings = []
+          seen_pause_ids = set()
+          prior_workload_end = -math.inf
+          prior_host_end = -math.inf
+          if raw_pause_valid:
+              origin = float(workload_start["started_monotonic_seconds"])
+              measurement_duration = float(configuration["duration_seconds"])
+              for episode, (pause, partition) in enumerate(
+                  zip(pause_intervals, partitions, strict=True)
+              ):
+                  if not isinstance(pause, dict) or not isinstance(partition, dict):
+                      raw_pause_valid = False
+                      continue
+                  coordination = partition.get("workload_coordination")
+                  if not isinstance(coordination, dict):
+                      raw_pause_valid = False
+                      continue
+                  marker = coordination.get("marker")
+                  acknowledgement = coordination.get("acknowledgement")
+                  start_boundary = coordination.get("authorized_start")
+                  end_boundary = coordination.get("authorized_end")
+                  if not all(
+                      isinstance(item, dict)
+                      for item in (marker, acknowledgement, start_boundary, end_boundary)
+                  ):
+                      raw_pause_valid = False
+                      continue
+                  identity = ("episode", "pause_id", "requested_monotonic_seconds")
+                  pause_id = pause.get("pause_id")
+                  identity_valid = (
+                      isinstance(pause_id, str)
+                      and bool(pause_id)
+                      and pause_id not in seen_pause_ids
+                      and partition.get("episode") == episode
+                      and pause.get("episode") == episode
+                      and all(marker.get(key) == pause.get(key) for key in identity)
+                      and all(
+                          acknowledgement.get(key) == pause.get(key) for key in identity
+                      )
+                      and all(
+                          start_boundary.get(key) == pause.get(key) for key in identity
+                      )
+                      and all(
+                          end_boundary.get(key) == pause.get(key) for key in identity
+                      )
+                      and all(
+                          coordination.get(key) == pause.get(key) for key in identity
+                      )
+                      and acknowledgement.get("paused") is True
+                      and acknowledgement.get("observed_monotonic_seconds")
+                      == pause.get("observed_monotonic_seconds")
+                  )
+                  numeric = (
+                      pause.get("requested_monotonic_seconds"),
+                      pause.get("observed_monotonic_seconds"),
+                      pause.get("resumed_monotonic_seconds"),
+                      pause.get("observed_elapsed_seconds"),
+                      pause.get("resumed_elapsed_seconds"),
+                      pause.get("duration_seconds"),
+                      pause.get("measurement_clipped_duration_seconds"),
+                      start_boundary.get("authorized_start_monotonic_seconds"),
+                      start_boundary.get("host_boundary_started_monotonic_seconds"),
+                      start_boundary.get("host_boundary_completed_monotonic_seconds"),
+                      end_boundary.get("authorized_end_monotonic_seconds"),
+                      end_boundary.get("host_boundary_started_monotonic_seconds"),
+                      end_boundary.get("host_boundary_completed_monotonic_seconds"),
+                      coordination.get("host_request_started_monotonic_seconds"),
+                      coordination.get("host_acknowledged_monotonic_seconds"),
+                      coordination.get("host_resume_started_monotonic_seconds"),
+                      coordination.get("host_resume_completed_monotonic_seconds"),
+                      coordination.get("workload_resume_requested_monotonic_seconds"),
+                      coordination.get("host_pause_duration_seconds"),
+                      partition.get("disabled_monotonic_seconds"),
+                      partition.get("restored_monotonic_seconds"),
+                  )
+                  if not identity_valid or not all(finite_number(value) for value in numeric):
+                      raw_pause_valid = False
+                      continue
+                  requested = float(pause["requested_monotonic_seconds"])
+                  observed = float(pause["observed_monotonic_seconds"])
+                  resumed = float(pause["resumed_monotonic_seconds"])
+                  observed_elapsed = float(pause["observed_elapsed_seconds"])
+                  resumed_elapsed = float(pause["resumed_elapsed_seconds"])
+                  authorized_start = float(
+                      start_boundary["authorized_start_monotonic_seconds"]
+                  )
+                  authorized_end = float(end_boundary["authorized_end_monotonic_seconds"])
+                  resume_requested = float(
+                      coordination["workload_resume_requested_monotonic_seconds"]
+                  )
+                  host_request = float(
+                      coordination["host_request_started_monotonic_seconds"]
+                  )
+                  host_ack = float(coordination["host_acknowledged_monotonic_seconds"])
+                  host_resume = float(
+                      coordination["host_resume_started_monotonic_seconds"]
+                  )
+                  host_resume_completed = float(
+                      coordination["host_resume_completed_monotonic_seconds"]
+                  )
+                  host_duration = host_resume - host_ack
+                  clipped_pause = max(
+                      0.0,
+                      min(measurement_duration, resumed_elapsed)
+                      - max(0.0, min(measurement_duration, observed_elapsed)),
+                  )
+                  clipped_bridge = max(
+                      0.0,
+                      min(origin + measurement_duration, authorized_end)
+                      - max(origin, authorized_start),
+                  )
+                  authorized = min(clipped_bridge, host_duration)
+                  causal_valid = (
+                      observed >= prior_workload_end
+                      and resumed >= observed
+                      and close_number(observed_elapsed, observed - origin)
+                      and close_number(resumed_elapsed, resumed - origin)
+                      and origin
+                      <= requested
+                      <= observed
+                      <= authorized_start
+                      <= authorized_end
+                      <= resume_requested
+                      <= resumed
+                      and close_number(pause.get("duration_seconds"), resumed - observed)
+                      and close_number(
+                          pause.get("measurement_clipped_duration_seconds"),
+                          clipped_pause,
+                      )
+                      and host_ack >= prior_host_end
+                      and host_request
+                      >= float(chaos_started)
+                      and host_request
+                      <= host_ack
+                      <= float(start_boundary["host_boundary_started_monotonic_seconds"])
+                      <= float(start_boundary["host_boundary_completed_monotonic_seconds"])
+                      <= float(partition["disabled_monotonic_seconds"])
+                      <= float(partition["restored_monotonic_seconds"])
+                      <= float(end_boundary["host_boundary_started_monotonic_seconds"])
+                      <= float(end_boundary["host_boundary_completed_monotonic_seconds"])
+                      <= host_resume
+                      <= host_resume_completed
+                      <= float(chaos_completed)
+                      and close_number(
+                          coordination.get("host_pause_duration_seconds"),
+                          host_duration,
+                      )
+                  )
+                  if not causal_valid:
+                      raw_pause_valid = False
+                      continue
+                  seen_pause_ids.add(pause_id)
+                  workload_pause_seconds += clipped_pause
+                  authorized_pause_seconds += authorized
+                  prior_workload_end = resumed
+                  prior_host_end = host_resume
+                  raw_pause_bindings.append(
+                      {
+                          "authorized_pause_seconds": round(authorized, 6),
+                          "episode": episode,
+                          "host_pause_seconds": round(host_duration, 6),
+                          "pause_id": pause_id,
+                          "workload_authorized_clipped_pause_seconds": round(
+                              clipped_bridge,
+                              6,
+                          ),
+                          "workload_clipped_pause_seconds": round(clipped_pause, 6),
+                      }
+                  )
+          active_seconds = configured_duration - authorized_pause_seconds
+          pause_metrics = workload_metrics.get("pause_evidence", {})
+          raw_pause_valid = (
+              raw_pause_valid
+              and active_seconds >= 0
+              and close_number(workload.get("paused_workload_seconds"), workload_pause_seconds)
+              and close_number(
+                  workload.get("active_workload_seconds"),
+                  configured_duration - workload_pause_seconds,
+              )
+              and isinstance(pause_metrics, dict)
+              and pause_metrics.get("passed") is True
+              and pause_metrics.get("bindings") == raw_pause_bindings
+              and close_number(
+                  pause_metrics.get("authorized_paused_seconds"),
+                  authorized_pause_seconds,
+              )
+              and close_number(
+                  pause_metrics.get("active_workload_seconds"),
+                  active_seconds,
+              )
+          )
+          if not raw_pause_valid:
+              failures.append("soak pause intervals or active-time denominator are not raw-bound")
+
+          transfer_every = configuration.get("transfer_every_cycles")
+          reopen_every = configuration.get("executor_reopen_every_cycles")
+          cycles = workload.get("cycles")
+          cycle_metrics_valid = (
+              isinstance(transfer_every, int)
+              and not isinstance(transfer_every, bool)
+              and transfer_every > 0
+              and isinstance(reopen_every, int)
+              and not isinstance(reopen_every, bool)
+              and reopen_every > 0
+              and isinstance(cycles, int)
+              and not isinstance(cycles, bool)
+              and cycles >= 0
+          )
+          if cycle_metrics_valid:
+              semantic_cycle_floor = max(3 * 6 * transfer_every, 3 * reopen_every)
+              active_time_cycle_floor = math.ceil(active_seconds / 15.0)
+              required_cycles = max(semantic_cycle_floor, active_time_cycle_floor)
+              expected_transfers = (cycles + transfer_every - 1) // transfer_every
+              expected_reopens = cycles // reopen_every
+              pair_names = (
+                  "warden-a->warden-b",
+                  "warden-b->warden-a",
+                  "warden-a->warden-c",
+                  "warden-c->warden-a",
+                  "warden-b->warden-c",
+                  "warden-c->warden-b",
+              )
+              expected_pairs = {name: 0 for name in pair_names}
+              for ordinal in range(expected_transfers):
+                  expected_pairs[pair_names[ordinal % len(pair_names)]] += 1
+              expected_counters = {
+                  "authorizations": 2 * cycles,
+                  "closed": cycles,
+                  "issued_roots": cycles,
+                  "quiesced": cycles,
+                  "renewed": cycles,
+                  "resumed": cycles,
+                  "transfers_prepared": expected_transfers,
+              }
+              executor = workload.get("executor", {})
+              cycle_metrics_valid = (
+                  cycles >= required_cycles
+                  and semantic_cycle_floor == 54
+                  and workload.get("transfer_pair_counts") == expected_pairs
+                  and all(value >= 3 for value in expected_pairs.values())
+                  and workload.get("counters") == expected_counters
+                  and isinstance(executor, dict)
+                  and executor.get("claims") == 2 * cycles
+                  and executor.get("reopen_count") == expected_reopens
+                  and executor.get("replay_rejections") == 2 * cycles + expected_reopens
+                  and isinstance(executor.get("status"), dict)
+                  and executor["status"].get("claim_sequence") == 2 * cycles
+                  and workload_metrics.get("actual_cycles") == cycles
+                  and workload_metrics.get("required_cycles") == required_cycles
+                  and workload_metrics.get("semantic_cycle_floor") == semantic_cycle_floor
+                  and workload_metrics.get("active_time_cycle_floor")
+                  == active_time_cycle_floor
+                  and close_number(
+                      workload_metrics.get("active_workload_seconds"),
+                      active_seconds,
+                  )
+                  and workload_checks.get("minimum_cycles") is True
+                  and workload_checks.get("semantic_path_coverage") is True
+                  and workload_checks.get("transfer_pair_rotation") is True
+              )
+          if not cycle_metrics_valid:
+              failures.append("soak evaluator-derived active-time throughput is inconsistent")
+
+          health_samples_value = workload.get("health_samples")
+          health_samples = (
+              health_samples_value if isinstance(health_samples_value, list) else []
+          )
+          raw_health_valid = (
+              isinstance(health_samples_value, list)
+              and finite_number(workload.get("duration_seconds"))
+              and finite_number(configuration.get("health_interval_seconds"))
+              and 0 < float(configuration.get("health_interval_seconds")) <= 15.0
+              and raw_restart_valid
+          )
+          expected_schedule = []
+          observations = {node: [] for node in expected_nodes}
+          unavailable_counts = {node: 0 for node in expected_nodes}
+          acknowledged_unavailable_restart_ids = set()
+          raw_health_retries = 0
+          maximum_gaps = {}
+          if raw_health_valid:
+              workload_duration = float(workload["duration_seconds"])
+              interval = float(configuration["health_interval_seconds"])
+              scheduled = 0.0
+              while scheduled < workload_duration:
+                  expected_schedule.append(scheduled)
+                  scheduled += interval
+              expected_schedule.append(workload_duration)
+              raw_health_valid = len(health_samples) == len(expected_schedule)
+              prior_started = -math.inf
+              prior_completed = -math.inf
+              for index, (sample, expected_scheduled) in enumerate(
+                  zip(health_samples, expected_schedule)
+              ):
+                  if not isinstance(sample, dict):
+                      raw_health_valid = False
+                      continue
+                  scheduled_at = sample.get("scheduled_elapsed_seconds")
+                  started_at = sample.get("started_elapsed_seconds")
+                  completed_at = sample.get("completed_elapsed_seconds")
+                  deadline_at = sample.get("deadline_elapsed_seconds")
+                  timing_valid = (
+                      sample.get("schedule_index") == index
+                      and sample.get("deadline_missed") is False
+                      and finite_number(sample.get("elapsed_seconds"))
+                      and all(
+                          finite_number(value)
+                          for value in (
+                              scheduled_at,
+                              started_at,
+                              completed_at,
+                              deadline_at,
+                          )
+                      )
+                  )
+                  if timing_valid:
+                      timing_valid = (
+                          abs(float(scheduled_at) - expected_scheduled) <= 0.002
+                          and float(scheduled_at) >= 0
+                          and float(started_at) >= float(scheduled_at)
+                          and float(completed_at) >= float(started_at)
+                          and float(deadline_at) >= float(completed_at)
+                          and float(deadline_at) - float(scheduled_at) <= 15.002
+                          and abs(float(sample["elapsed_seconds"]) - float(started_at))
+                          <= 0.001
+                          and float(started_at) > prior_started
+                          and float(completed_at) > prior_completed
+                      )
+                  if not timing_valid:
+                      raw_health_valid = False
+                      continue
+                  prior_started = float(started_at)
+                  prior_completed = float(completed_at)
+                  nodes = sample.get("nodes")
+                  planned_nodes = sample.get("planned_unavailable_nodes")
+                  if (
+                      not isinstance(nodes, dict)
+                      or set(nodes) != expected_nodes
+                      or not isinstance(planned_nodes, list)
+                      or len(planned_nodes) != len(set(planned_nodes))
+                      or len(planned_nodes) > 1
+                      or any(node not in expected_nodes for node in planned_nodes)
+                  ):
+                      raw_health_valid = False
+                      continue
+                  actual_planned = []
+                  for node in expected_nodes:
+                      document = nodes[node]
+                      observation = (
+                          document.get("observation")
+                          if isinstance(document, dict)
+                          else None
+                      )
+                      if not isinstance(observation, dict):
+                          raw_health_valid = False
+                          continue
+                      observed_started = observation.get("started_elapsed_seconds")
+                      observed_metrics = observation.get("metrics_observed_elapsed_seconds")
+                      observed_completed = observation.get("completed_elapsed_seconds")
+                      retries = observation.get("request_retries")
+                      observation_valid = (
+                          finite_number(observed_started)
+                          and finite_number(observed_completed)
+                          and float(observed_started) >= float(started_at)
+                          and float(observed_completed) >= float(observed_started)
+                          and float(observed_completed) <= float(completed_at) + 0.002
+                          and isinstance(retries, int)
+                          and not isinstance(retries, bool)
+                          and retries >= 0
+                      )
+                      if not observation_valid:
+                          raw_health_valid = False
+                          continue
+                      raw_health_retries += retries
+                      planned = document.get("planned_unavailable")
+                      if planned is not None:
+                          binding = (
+                              restart_bindings.get(planned.get("restart_id"))
+                              if isinstance(planned, dict)
+                              else None
+                          )
+                          expected_marker = (
+                              binding.get(f"{planned.get('state')}_marker")
+                              if isinstance(binding, dict)
+                              else None
+                          )
+                          if (
+                              not isinstance(binding, dict)
+                              or planned != expected_marker
+                              or binding.get("service") != node
+                              or observed_metrics is not None
+                              or float(observed_completed)
+                              < float(binding["start_elapsed_seconds"])
+                              or float(observed_started)
+                              > float(binding["end_elapsed_seconds"])
+                              or (
+                                  planned.get("state") == "completed"
+                                  and float(binding["end_elapsed_seconds"])
+                                  > float(observed_completed) + 0.002
+                              )
+                          ):
+                              raw_health_valid = False
+                              continue
+                          actual_planned.append(node)
+                          unavailable_counts[node] += 1
+                          if planned.get("state") == "armed" and (
+                              float(observed_started)
+                              <= float(binding["start_elapsed_seconds"])
+                              <= float(observed_completed)
+                          ):
+                              acknowledged_unavailable_restart_ids.add(
+                                  planned["restart_id"]
+                              )
+                          continue
+                      exporter = document.get("audit_exporter")
+                      if (
+                          not isinstance(exporter, dict)
+                          or not close_number(exporter.get("max_stall_s"), 15.0, 0.0)
+                          or not finite_number(observed_metrics)
+                          or not float(observed_started)
+                          <= float(observed_metrics)
+                          <= float(observed_completed)
+                      ):
+                          raw_health_valid = False
+                          continue
+                      observations[node].append(float(observed_metrics))
+                  if sorted(actual_planned) != sorted(planned_nodes):
+                      raw_health_valid = False
+              for node in expected_nodes:
+                  points = [
+                      0.0,
+                      *sorted(
+                          set(
+                              max(0.0, min(workload_duration, value))
+                              for value in observations[node]
+                          )
+                      ),
+                  ]
+                  if not observations[node]:
+                      raw_health_valid = False
+                      continue
+                  if points[-1] != workload_duration:
+                      points.append(workload_duration)
+                  maximum_gap = 0.0
+                  for left, right in zip(points, points[1:]):
+                      cursor = left
+                      for exclusion in restart_windows[node]:
+                          excluded_start = max(
+                              left,
+                              float(exclusion["start_elapsed_seconds"]),
+                          )
+                          excluded_end = min(
+                              right,
+                              float(exclusion["end_elapsed_seconds"]),
+                          )
+                          if excluded_end <= cursor or excluded_start >= right:
+                              continue
+                          maximum_gap = max(
+                              maximum_gap,
+                              max(0.0, excluded_start - cursor),
+                          )
+                          cursor = max(cursor, excluded_end)
+                      maximum_gap = max(maximum_gap, max(0.0, right - cursor))
+                  maximum_gaps[node] = maximum_gap
+                  if maximum_gap > 15.002:
+                      raw_health_valid = False
+              if acknowledged_unavailable_restart_ids != set(restart_bindings):
+                  raw_health_valid = False
+          monitor = workload.get("health_monitor")
+          required_health_samples = len(expected_schedule)
+          cadence_metrics = workload_metrics.get("health_cadence", {})
+          rounded_gaps = {
+              node: round(value, 6) for node, value in maximum_gaps.items()
+          }
+          raw_health_valid = (
+              raw_health_valid
+              and isinstance(monitor, dict)
+              and monitor.get("status") == "passed"
+              and monitor.get("schedule") == "absolute_monotonic"
+              and monitor.get("joined") is True
+              and monitor.get("deadline_miss_count") == 0
+              and monitor.get("samples_truncated") == 0
+              and monitor.get("audit_error_budget_instances") == 1
+              and monitor.get("interval_seconds")
+              == configuration.get("health_interval_seconds")
+              and monitor.get("expected_sample_count") == required_health_samples
+              and monitor.get("actual_sample_count") == len(health_samples)
+              and monitor.get("retained_sample_count") == len(health_samples)
+              and workload.get("health_sample_count") == len(health_samples)
+              and monitor.get("request_retry_count") == raw_health_retries
+              and workload_metrics.get("actual_health_samples") == len(health_samples)
+              and workload_metrics.get("required_health_samples")
+              == required_health_samples
+              and workload_metrics.get("actual_health_request_retries")
+              == raw_health_retries
+              and workload_metrics.get("raw_health_request_retries")
+              == raw_health_retries
+              and isinstance(cadence_metrics, dict)
+              and cadence_metrics.get("passed") is True
+              and cadence_metrics.get("sample_count") == len(health_samples)
+              and cadence_metrics.get("expected_sample_count") == required_health_samples
+              and cadence_metrics.get("maximum_allowed_gap_seconds") == 15.0
+              and cadence_metrics.get("maximum_gap_by_node_seconds") == rounded_gaps
+              and close_number(
+                  cadence_metrics.get("maximum_gap_seconds"),
+                  max(maximum_gaps.values(), default=math.inf),
+              )
+              and cadence_metrics.get("planned_unavailable_samples_by_node")
+              == unavailable_counts
+              and cadence_metrics.get("strictly_increasing") is True
+          )
+          if not raw_health_valid:
+              failures.append("soak raw per-node health cadence or retention is invalid")
+
+          raw_error_evidence_valid = isinstance(health_samples_value, list)
           raw_error_sample_count = 0
           raw_error_samples_by_node = {node: 0 for node in expected_nodes}
           raw_recovered_error_sample_count = 0
           if raw_error_evidence_valid:
-              for sample in workload["health_samples"]:
+              for sample in health_samples:
                   if not isinstance(sample, dict):
                       raw_error_evidence_valid = False
                       continue
@@ -806,6 +1728,11 @@ jobs:
                   error_remaining_by_node = {}
                   for node in expected_nodes:
                       document = nodes[node]
+                      if (
+                          isinstance(document, dict)
+                          and document.get("planned_unavailable") is not None
+                      ):
+                          continue
                       exporter = (
                           document.get("audit_exporter")
                           if isinstance(document, dict)
@@ -821,7 +1748,15 @@ jobs:
                       raw_error_samples_by_node[node] += 1
                       stalled_for = exporter.get("stalled_for_s")
                       maximum_stall = exporter.get("max_stall_s")
-                      if not finite_number(stalled_for) or not finite_number(maximum_stall):
+                      if (
+                          not finite_number(stalled_for)
+                          or not finite_number(maximum_stall)
+                          or float(maximum_stall) != 15.0
+                          or not 0 <= float(stalled_for) <= float(maximum_stall)
+                          or not isinstance(exporter.get("pending"), int)
+                          or isinstance(exporter.get("pending"), bool)
+                          or exporter.get("pending") < 0
+                      ):
                           raw_error_evidence_valid = False
                       else:
                           remaining_window = float(maximum_stall) - float(stalled_for)
@@ -857,12 +1792,33 @@ jobs:
                       recorded_remaining = recovery.get("remaining_stall_window_seconds")
                       recovery_exporter = recovery.get("audit_exporter")
                       recovery_outbox = recovery.get("audit_outbox")
+                      node_document = nodes.get(node)
+                      node_observation = (
+                          node_document.get("observation")
+                          if isinstance(node_document, dict)
+                          else None
+                      )
+                      metrics_observed = (
+                          node_observation.get("metrics_observed_elapsed_seconds")
+                          if isinstance(node_observation, dict)
+                          else None
+                      )
+                      observation_completed = (
+                          node_observation.get("completed_elapsed_seconds")
+                          if isinstance(node_observation, dict)
+                          else None
+                      )
                       if (
                           expected_remaining is None
                           or not finite_number(recovery_elapsed)
                           or not finite_number(recorded_remaining)
                           or float(recorded_remaining) != round(expected_remaining, 3)
                           or not float(sample_elapsed) < float(recovery_elapsed)
+                          or not finite_number(metrics_observed)
+                          or not finite_number(observation_completed)
+                          or not float(metrics_observed)
+                          <= float(recovery_elapsed)
+                          <= float(observation_completed)
                           or float(recovery_elapsed) - float(sample_elapsed)
                           > expected_remaining + 0.001
                           or not isinstance(recovery_exporter, dict)
@@ -914,39 +1870,146 @@ jobs:
               or recorded_unresolved_error_nodes != unresolved_error_nodes
               or audit_progress.get("error_evidence_complete") is not True
               or audit_progress.get("error_recovery_passed") is not True
-              or workload_evaluation.get("checks", {}).get("audit_error_recovery") is not True
+              or workload_checks.get("audit_error_recovery") is not True
           ):
               failures.append("soak audit exporter transient-error budget or recovery failed")
           pair_counts = workload.get("transfer_pair_counts", {})
-          if len(pair_counts) != 6 or any(int(value) <= 0 for value in pair_counts.values()):
+          if (
+              not isinstance(pair_counts, dict)
+              or len(pair_counts) != 6
+              or any(
+                  not isinstance(value, int)
+                  or isinstance(value, bool)
+                  or value < 3
+                  for value in pair_counts.values()
+              )
+          ):
               failures.append("soak did not exercise all six directed transfer pairs")
-          chaos = evidence.get("chaos", {})
-          partitions = chaos.get("partitions", [])
           if len(partitions) < 2:
               failures.append("soak did not complete repeated partitions")
           elif any(
-              item.get("observation", {}).get("durably_pending_observed") is not True
-              or item.get("observation", {}).get("durable_sql", {}).get("status") != "PREPARED"
+              not isinstance(item, dict)
+              or not isinstance(item.get("observation"), dict)
+              or item["observation"].get("durably_pending_observed") is not True
+              or not isinstance(item["observation"].get("durable_sql"), dict)
+              or item["observation"]["durable_sql"].get("status") != "PREPARED"
               for item in partitions
           ):
               failures.append("partition evidence did not bind exact durable failed transfers")
-          recovery = chaos.get("partition_recovery", [])
-          if len(recovery) != len(partitions) or any(item.get("passed") is not True for item in recovery):
+          recovery_value = chaos.get("partition_recovery")
+          recovery = recovery_value if isinstance(recovery_value, list) else []
+          if (
+              not isinstance(recovery_value, list)
+              or len(recovery) != len(partitions)
+              or any(
+                  not isinstance(item, dict) or item.get("passed") is not True
+                  for item in recovery
+              )
+          ):
               failures.append("partition transfer streams did not recover exactly")
-          restart_integrity = chaos.get("restart_integrity", {})
+          restart_integrity = required_mapping(
+              chaos.get("restart_integrity"), "soak restart-integrity evidence"
+          )
+          chaos_duration = (
+              float(chaos_completed) - float(chaos_started)
+              if finite_number(chaos_started) and finite_number(chaos_completed)
+              else 0.0
+          )
+          restart_operations = (
+              sorted(
+                  (
+                      float(item["host_operation_started_monotonic_seconds"])
+                      - float(chaos_started),
+                      float(item["host_operation_completed_monotonic_seconds"])
+                      - float(chaos_started),
+                      item["service"],
+                  )
+                  for item in restarts
+                  if isinstance(item, dict)
+                  and finite_number(item.get("host_operation_started_monotonic_seconds"))
+                  and finite_number(item.get("host_operation_completed_monotonic_seconds"))
+                  and item.get("service") in expected_nodes
+              )
+              if finite_number(chaos_started)
+              else []
+          )
+
+          def lifetime_segments(operations):
+              segments = []
+              prior_completed = 0.0
+              for operation_started, operation_completed, _service in operations:
+                  segments.append(max(0.0, operation_started - prior_completed))
+                  prior_completed = operation_completed
+              segments.append(max(0.0, chaos_duration - prior_completed))
+              return segments
+
+          global_segments = lifetime_segments(restart_operations)
+          required_lifetime = (
+              float(configuration["restart_interval_seconds"]) * 0.8
+              if finite_number(configuration.get("restart_interval_seconds"))
+              else 0.0
+          )
+          expected_per_warden_lifetimes = {}
+          for node in expected_nodes:
+              node_operations = [
+                  operation for operation in restart_operations if operation[2] == node
+              ]
+              node_segments = lifetime_segments(node_operations)
+              expected_per_warden_lifetimes[node] = {
+                  "longest_seconds": round(max(node_segments, default=0.0), 3),
+                  "passed": True,
+                  "planned_sigkill_seconds": [
+                      round(operation[0], 3) for operation in node_operations
+                  ],
+                  "segments_seconds": [round(value, 3) for value in node_segments],
+              }
+          final_restart_state = restart_integrity.get("final_container_state")
+          final_restart_state_valid = (
+              isinstance(final_restart_state, dict)
+              and set(final_restart_state) == expected_nodes
+              and all(
+                  isinstance(state, dict)
+                  and state.get("status") == "running"
+                  and state.get("oom_killed") is False
+                  and state.get("restart_count") == 0
+                  and isinstance(state.get("exit_code"), int)
+                  and not isinstance(state.get("exit_code"), bool)
+                  and state.get("exit_code") >= 0
+                  for state in final_restart_state.values()
+              )
+          )
           if (
               restart_integrity.get("passed") is not True
               or restart_integrity.get("all_wardens_sigkilled") is not True
-              or int(restart_integrity.get("planned_sigkills", 0)) < 3
-              or len(restart_integrity.get("per_warden_lifetimes", {})) != 3
+              or restart_integrity.get("planned_sigkills") != len(restarts)
+              or not close_number(
+                  restart_integrity.get("chaos_duration_seconds"),
+                  round(chaos_duration, 3),
+              )
+              or not close_number(
+                  restart_integrity.get("minimum_sigkill_free_seconds"),
+                  round(required_lifetime, 3),
+              )
+              or not close_number(
+                  restart_integrity.get("longest_sigkill_free_seconds"),
+                  round(max(global_segments, default=0.0), 3),
+              )
+              or max(global_segments, default=0.0) < required_lifetime
+              or restart_integrity.get("per_warden_lifetimes")
+              != expected_per_warden_lifetimes
+              or not final_restart_state_valid
+              or restart_integrity.get("restart_count_policy")
+              != "all samples and final states equal zero"
               or any(
-                  item.get("passed") is not True
-                  for item in restart_integrity.get("per_warden_lifetimes", {}).values()
+                  item["longest_seconds"] < required_lifetime
+                  for item in expected_per_warden_lifetimes.values()
               )
           ):
               failures.append("soak SIGKILL or per-warden lifetime evidence is incomplete")
-          resources = evidence.get("resources", {})
-          resource_evaluation = resources.get("evaluation", {})
+          resources = required_mapping(evidence.get("resources"), "soak resource evidence")
+          resource_evaluation = required_mapping(
+              resources.get("evaluation"), "soak resource evaluation"
+          )
           if resource_evaluation.get("passed") is not True:
               failures.append("soak resource bounds did not pass")
           expected_resource_bounds = {
@@ -958,7 +2021,9 @@ jobs:
               "max_rss_bytes": 256 * 1024 * 1024,
               "max_rss_growth_bytes": 128 * 1024 * 1024,
           }
-          actual_resource_bounds = resource_evaluation.get("bounds", {})
+          actual_resource_bounds = required_mapping(
+              resource_evaluation.get("bounds"), "soak resource bounds"
+          )
           if any(
               actual_resource_bounds.get(name) != value
               for name, value in expected_resource_bounds.items()
@@ -978,7 +2043,9 @@ jobs:
               "rss",
               "rss_growth",
           }
-          resource_measurements = resource_evaluation.get("measurements", {})
+          resource_measurements = required_mapping(
+              resource_evaluation.get("measurements"), "soak resource measurements"
+          )
           if not isinstance(resource_measurements, dict) or set(resource_measurements) != {
               "warden-a",
               "warden-b",
@@ -995,19 +2062,37 @@ jobs:
               )
           ):
               failures.append("soak cgroup v2 or LETS-child resource checks are incomplete")
-          resource_samples = resources.get("samples", [])
-          if not isinstance(resource_samples, list) or int(
-              resources.get("sample_count", -1)
-          ) != len(resource_samples):
+          resource_samples_value = resources.get("samples")
+          resource_samples = (
+              resource_samples_value if isinstance(resource_samples_value, list) else []
+          )
+          resource_sample_count = resources.get("sample_count")
+          if (
+              not isinstance(resource_samples_value, list)
+              or not isinstance(resource_sample_count, int)
+              or isinstance(resource_sample_count, bool)
+              or resource_sample_count != len(resource_samples)
+          ):
               failures.append("soak resource sample count is inconsistent")
-              resource_samples = []
-          for restart in chaos.get("restarts", []):
+          for restart in restarts:
+              if not isinstance(restart, dict):
+                  failures.append("planned SIGKILL resource checkpoint is malformed")
+                  continue
               checkpoint = restart.get("resource_checkpoint", {})
+              if not isinstance(checkpoint, dict):
+                  failures.append("planned SIGKILL resource checkpoint is malformed")
+                  continue
               sample_index = checkpoint.get("sample_index")
               if (
                   checkpoint.get("evaluation_passed") is not True
                   or checkpoint.get("sample_reason") != "pre_sigkill"
                   or checkpoint.get("service") != restart.get("service")
+                  or not finite_number(
+                      checkpoint.get("host_observed_monotonic_seconds")
+                  )
+                  or not finite_number(chaos_started)
+                  or float(checkpoint["host_observed_monotonic_seconds"])
+                  < float(chaos_started)
                   or isinstance(sample_index, bool)
                   or not isinstance(sample_index, int)
                   or not 0 <= sample_index < len(resource_samples)
@@ -1016,13 +2101,21 @@ jobs:
                   continue
               sample = resource_samples[sample_index]
               if (
+                  not isinstance(sample, dict)
+                  or
                   sample.get("reason") != "pre_sigkill"
                   or sample.get("planned_sigkill_service") != restart.get("service")
+                  or sample.get("host_observed_monotonic_seconds")
+                  != checkpoint.get("host_observed_monotonic_seconds")
               ):
                   failures.append("planned SIGKILL resource checkpoint is not bound to its sample")
-          if evidence.get("package", {}).get("identity", {}).get("passed") is not True:
+          package = required_mapping(evidence.get("package"), "soak package evidence")
+          package_identity = required_mapping(
+              package.get("identity"), "soak package identity evidence"
+          )
+          if package_identity.get("passed") is not True:
               failures.append("soak package/OCI identity checks did not pass")
-          cleanup = evidence.get("cleanup", {})
+          cleanup = required_mapping(evidence.get("cleanup"), "soak cleanup evidence")
           if (
               cleanup.get("performed") is not True
               or cleanup.get("remaining_containers") != 0
@@ -1030,10 +2123,15 @@ jobs:
               or cleanup.get("remaining_networks") != 0
           ):
               failures.append("soak did not prove complete Docker cleanup")
-          verification = evidence.get("verification", {})
+          verification = required_mapping(
+              evidence.get("verification"), "soak final verification"
+          )
           if verification.get("converged") is not True:
               failures.append("soak did not converge")
-          final_nodes = verification.get("final_health", {}).get("nodes")
+          final_health = required_mapping(
+              verification.get("final_health"), "soak final health evidence"
+          )
+          final_nodes = final_health.get("nodes")
           if (
               not isinstance(final_nodes, dict)
               or set(final_nodes) != expected_nodes
@@ -1047,7 +2145,10 @@ jobs:
               )
           ):
               failures.append("soak final audit exporter state retained an error")
-          if verification.get("conservation", {}).get("balanced") is not True:
+          conservation = required_mapping(
+              verification.get("conservation"), "soak conservation evidence"
+          )
+          if conservation.get("balanced") is not True:
               failures.append("soak conservation failed")
           if failures:
               raise SystemExit("; ".join(failures))

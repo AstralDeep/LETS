@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import textwrap
-from collections import deque
+import threading
+import time
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +21,7 @@ from deploy.production.acceptance.soak import (
     NODES,
     TRANSFER_PAIRS,
     AuditErrorBudget,
+    HealthSampler,
     _audit_progress_summary,
     _bounded_audit_exporter,
     _health_sample,
@@ -41,13 +45,17 @@ from deploy.production.run_soak import (
     _pre_sigkill_resource_checkpoint,
     _preflight_zero,
     _restart_integrity,
+    _wait_restart_acknowledgement,
     evaluate_health_cadence,
+    evaluate_pause_evidence,
     evaluate_resource_bounds,
+    evaluate_restart_evidence,
     evaluate_workload_result,
     may_start_chaos_episode,
     minimum_cycle_count,
     minimum_health_sample_count,
     run_soak,
+    semantic_cycle_floor,
     validate_image_labels,
     validate_package_identity,
 )
@@ -76,10 +84,105 @@ def test_release_soak_evidence_verifier_compiles_with_regex_dependency() -> None
     compile(source, "release-soak-evidence.py", "exec")
 
 
+def test_release_soak_evidence_verifier_executes_and_recomputes_digest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workflow = (Path(__file__).parents[2] / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+    step = workflow.split(
+        "      - name: Require sustained evidence to bind the exact candidate and source\n",
+        maxsplit=1,
+    )[1].split("      - name: Archive failed production-profile soak diagnostics\n", maxsplit=1)[0]
+    source = textwrap.dedent(
+        step.split("          python - <<'PY'\n", maxsplit=1)[1].split(
+            "\n          PY",
+            maxsplit=1,
+        )[0]
+    )
+    evidence = {
+        "configuration": {},
+        "evidence_payload_sha256": "sha256:" + "0" * 64,
+        "image": {},
+        "passed": False,
+        "source": {},
+        "workload": {},
+    }
+    evidence_path = tmp_path / "results" / "generated" / "production-profile-soak.json"
+    evidence_path.parent.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EXPECTED_IMAGE", EXACT_IMAGE)
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    with pytest.raises(SystemExit, match="evidence payload digest is invalid"):
+        exec(compile(source, "release-soak-evidence.py", "exec"), {})
+
+    canonical = dict(evidence)
+    canonical.pop("evidence_payload_sha256")
+    evidence["evidence_payload_sha256"] = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                canonical,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+    )
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    with pytest.raises(SystemExit) as failure:
+        exec(compile(source, "release-soak-evidence.py", "exec"), {})
+    assert "evidence payload digest is invalid" not in str(failure.value)
+
+    for malformed_root in ("null", "false", '"not-an-object"'):
+        evidence_path.write_text(malformed_root, encoding="utf-8")
+        with pytest.raises(SystemExit, match="evidence root is malformed"):
+            exec(compile(source, "release-soak-evidence.py", "exec"), {})
+
+    for malformed_fields in (
+        {"chaos": None, "orchestration": "invalid"},
+        {"resources": False, "verification": None},
+        {
+            "workload_evaluation": {
+                "checks": False,
+                "metrics": None,
+                "passed": False,
+            }
+        },
+        {"configuration": {"duration_seconds": False}},
+    ):
+        malformed = {**evidence, **malformed_fields}
+        malformed.pop("evidence_payload_sha256", None)
+        malformed["evidence_payload_sha256"] = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    malformed,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+        evidence_path.write_text(json.dumps(malformed), encoding="utf-8")
+        with pytest.raises(SystemExit):
+            exec(compile(source, "release-soak-evidence.py", "exec"), {})
+
+    evidence_path.write_text('{"passed":false,"passed":true}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        exec(compile(source, "release-soak-evidence.py", "exec"), {})
+
+    evidence_path.write_text('{"duration_seconds":NaN}', encoding="utf-8")
+    with pytest.raises(ValueError, match="non-finite JSON number"):
+        exec(compile(source, "release-soak-evidence.py", "exec"), {})
+
+
 def _configuration() -> SoakConfiguration:
     return SoakConfiguration(
         image=EXACT_IMAGE,
-        duration_seconds=30,
+        duration_seconds=120,
         cycle_interval_seconds=0.1,
         health_interval_seconds=2,
         resource_interval_seconds=1,
@@ -94,6 +197,164 @@ def _configuration() -> SoakConfiguration:
         seed=7,
         smoke=True,
     )
+
+
+def _timed_health_samples(
+    *,
+    duration_seconds: float = 30.0,
+    interval_seconds: float = 2.0,
+) -> list[dict[str, Any]]:
+    schedule: list[float] = []
+    due = 0.0
+    while due < duration_seconds:
+        schedule.append(due)
+        due += interval_seconds
+    schedule.append(duration_seconds)
+    return [
+        {
+            "audit_catchup_nodes": [],
+            "audit_error_recoveries": [],
+            "completed_elapsed_seconds": scheduled + 0.3,
+            "deadline_elapsed_seconds": scheduled + 15.0,
+            "deadline_missed": False,
+            "elapsed_seconds": scheduled,
+            "nodes": {
+                node: {
+                    "audit_exporter": {"max_stall_s": 15.0},
+                    "observation": {
+                        "completed_elapsed_seconds": scheduled + 0.2,
+                        "metrics_observed_elapsed_seconds": scheduled + 0.1,
+                        "request_retries": 0,
+                        "started_elapsed_seconds": scheduled + 0.01,
+                    },
+                }
+                for node in NODES
+            },
+            "planned_unavailable_nodes": [],
+            "schedule_index": index,
+            "scheduled_elapsed_seconds": scheduled,
+            "started_elapsed_seconds": scheduled,
+        }
+        for index, scheduled in enumerate(schedule)
+    ]
+
+
+def _valid_workload_result(
+    configuration: SoakConfiguration,
+    *,
+    cycles: int = 11,
+) -> dict[str, Any]:
+    samples = _timed_health_samples(
+        duration_seconds=configuration.duration_seconds,
+        interval_seconds=configuration.health_interval_seconds,
+    )
+    expected_transfers = (
+        cycles + configuration.transfer_every_cycles - 1
+    ) // configuration.transfer_every_cycles
+    expected_reopens = cycles // configuration.executor_reopen_every_cycles
+    return {
+        "active_workload_seconds": configuration.duration_seconds,
+        "audit_progress": {
+            "bounded_progress": True,
+            "catchup_sample_count": 0,
+            "error_evidence_complete": True,
+            "error_recovery_passed": True,
+            "error_sample_budget": 1,
+            "error_sample_count": 0,
+            "error_samples_by_node": {node: 0 for node in NODES},
+            "maximum_pending_by_node": {node: 0 for node in NODES},
+            "recorded_error_sample_count": 0,
+            "recorded_error_samples_by_node": {node: 0 for node in NODES},
+            "recorded_recovered_error_sample_count": 0,
+            "recorded_unresolved_error_nodes": [],
+            "recovered_error_sample_count": 0,
+            "sample_count": len(samples),
+            "unresolved_error_nodes": [],
+        },
+        "counters": {
+            "authorizations": 2 * cycles,
+            "closed": cycles,
+            "issued_roots": cycles,
+            "quiesced": cycles,
+            "renewed": cycles,
+            "resumed": cycles,
+            "transfers_prepared": expected_transfers,
+        },
+        "configuration": {
+            "cycle_interval_seconds": configuration.cycle_interval_seconds,
+            "duration_seconds": configuration.duration_seconds,
+            "executor_reopen_every_cycles": (configuration.executor_reopen_every_cycles),
+            "health_interval_seconds": configuration.health_interval_seconds,
+            "retry_timeout_seconds": configuration.retry_timeout_seconds,
+            "seed": configuration.seed,
+            "transfer_every_cycles": configuration.transfer_every_cycles,
+        },
+        "cycles": cycles,
+        "duration_seconds": configuration.duration_seconds,
+        "executor": {
+            "claims": 2 * cycles,
+            "reopen_count": expected_reopens,
+            "replay_rejections": 2 * cycles + expected_reopens,
+            "status": {"claim_sequence": 2 * cycles},
+        },
+        "health_monitor": {
+            "actual_sample_count": len(samples),
+            "audit_error_budget_instances": 1,
+            "deadline_miss_count": 0,
+            "expected_sample_count": len(samples),
+            "interval_seconds": configuration.health_interval_seconds,
+            "joined": True,
+            "request_retry_count": 0,
+            "retained_sample_count": len(samples),
+            "samples_truncated": 0,
+            "schedule": "absolute_monotonic",
+            "status": "passed",
+        },
+        "health_sample_count": len(samples),
+        "health_samples": samples,
+        "latency": {"buckets_ms": {"overflow": 0}, "count": cycles, "maximum_ms": 500},
+        "measurement_window_seconds": configuration.duration_seconds,
+        "pause_interval_count": 0,
+        "pause_intervals": [],
+        "paused_workload_seconds": 0.0,
+        "request_retry_count": 0,
+        "run_id": "unit-workload-run",
+        "schema": "lets.production-profile-soak-workload/v2",
+        "started_monotonic_seconds": 100.0,
+        "status": "passed",
+        "transfer_pair_counts": _expected_transfer_pair_counts(
+            cycles=cycles,
+            transfer_every_cycles=configuration.transfer_every_cycles,
+        ),
+    }
+
+
+def _workload_start(
+    result: dict[str, Any],
+    configuration: SoakConfiguration,
+) -> dict[str, Any]:
+    return {
+        "cycle_interval_seconds": configuration.cycle_interval_seconds,
+        "duration_seconds": configuration.duration_seconds,
+        "executor_reopen_every_cycles": configuration.executor_reopen_every_cycles,
+        "health_interval_seconds": configuration.health_interval_seconds,
+        "host_received_monotonic_seconds": 999.0,
+        "host_wait_started_monotonic_seconds": 998.0,
+        "retry_timeout_seconds": configuration.retry_timeout_seconds,
+        "run_id": result["run_id"],
+        "schema": "lets.production-profile-soak-workload-start/v1",
+        "seed": configuration.seed,
+        "started_monotonic_seconds": result["started_monotonic_seconds"],
+        "transfer_every_cycles": configuration.transfer_every_cycles,
+    }
+
+
+def _chaos_started() -> float:
+    return 1_000.0
+
+
+def _chaos_completed() -> float:
+    return 1_120.0
 
 
 def _resource_node(*, rss: int, fds: int, database: int, audit: int) -> dict[str, object]:
@@ -209,7 +470,7 @@ def test_configuration_requires_exact_digest_and_repeated_chaos_window() -> None
 
     with pytest.raises(ValueError, match="exact name@sha256"):
         replace(configuration, image="ghcr.io/astraldeep/lets:latest").validate()
-    with pytest.raises(ValueError, match="every warden"):
+    with pytest.raises(ValueError, match="partition episodes"):
         replace(configuration, duration_seconds=10).validate()
     with pytest.raises(ValueError, match="at least 300"):
         replace(configuration, smoke=False).validate()
@@ -220,102 +481,129 @@ def test_configuration_requires_exact_digest_and_repeated_chaos_window() -> None
         duration_seconds=3_600,
         partition_interval_seconds=90,
         restart_interval_seconds=900,
+        retry_timeout_seconds=90,
         smoke=False,
     )
     release.validate()
-    assert minimum_cycle_count(release) == 300
-    assert minimum_health_sample_count(release) == 301
-    assert may_start_chaos_episode(configuration, elapsed_s=19.99) is True
-    assert may_start_chaos_episode(configuration, elapsed_s=20.0) is False
+    assert semantic_cycle_floor(release) == 36
+    assert minimum_cycle_count(release) == 240
+    assert minimum_health_sample_count(release) == 1_801
+    assert soak_runner.chaos_start_shutdown_margin_seconds(release) == 150.0
+    assert may_start_chaos_episode(release, elapsed_s=3_449.999) is True
+    assert may_start_chaos_episode(release, elapsed_s=3_450.0) is False
+    assert may_start_chaos_episode(configuration, elapsed_s=29.99) is True
     assert may_start_chaos_episode(configuration, elapsed_s=30.0) is False
+    assert may_start_chaos_episode(configuration, elapsed_s=90.0) is False
     assert _next_restart_deadline(prior_deadline=30, interval_s=30, completed_at=40) == 60
     assert _next_restart_deadline(prior_deadline=30, interval_s=30, completed_at=80) == 87.5
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("duration_seconds", float("nan")),
+        ("duration_seconds", float("inf")),
+        ("health_interval_seconds", float("nan")),
+        ("health_interval_seconds", float("inf")),
+    ),
+)
+def test_configuration_rejects_nonfinite_schedule_values(
+    field: str,
+    value: float,
+) -> None:
+    with pytest.raises(ValueError, match="positive"):
+        replace(_configuration(), **{field: value}).validate()
+
+    with pytest.raises(Exception, match="positive"):
+        soak_runner._positive_float(str(value))
+
+
+def test_configuration_rejects_exactly_impossible_chaos_boundaries() -> None:
+    configuration = _configuration()
+    restart_boundary = (
+        3 * configuration.restart_interval_seconds
+        + soak_runner.chaos_start_shutdown_margin_seconds(configuration)
+    )
+    with pytest.raises(ValueError, match="SIGKILL episode"):
+        replace(configuration, duration_seconds=restart_boundary).validate()
+
+    partition_boundary = (
+        2 * configuration.partition_interval_seconds
+        + configuration.partition_duration_seconds
+        + soak_runner.chaos_start_shutdown_margin_seconds(configuration)
+    )
+    with pytest.raises(ValueError, match="partition episodes"):
+        replace(configuration, duration_seconds=partition_boundary).validate()
+
+
 def test_workload_evaluation_enforces_exact_load_and_executor_relationships() -> None:
     configuration = _configuration()
-    cycles = 3
-    health_samples = [
-        {
-            "elapsed_seconds": elapsed,
-            "nodes": {node: {"audit_exporter": {"max_stall_s": 15.0}} for node in NODES},
-        }
-        for elapsed in (5.0, 10.0, 20.0, 30.0)
-    ]
-    result: dict[str, Any] = {
-        "audit_progress": {
-            "bounded_progress": True,
-            "catchup_sample_count": 1,
-            "error_evidence_complete": True,
-            "error_recovery_passed": True,
-            "error_sample_budget": 1,
-            "error_sample_count": 0,
-            "error_samples_by_node": {node: 0 for node in NODES},
-            "maximum_pending_by_node": {node: 5 for node in NODES},
-            "recorded_error_sample_count": 0,
-            "recorded_error_samples_by_node": {node: 0 for node in NODES},
-            "recorded_recovered_error_sample_count": 0,
-            "recorded_unresolved_error_nodes": [],
-            "recovered_error_sample_count": 0,
-            "sample_count": 4,
-            "unresolved_error_nodes": [],
-        },
-        "counters": {
-            "authorizations": 6,
-            "closed": 3,
-            "issued_roots": 3,
-            "quiesced": 3,
-            "renewed": 3,
-            "resumed": 3,
-            "transfers_prepared": 2,
-        },
-        "cycles": cycles,
-        "duration_seconds": 30.0,
-        "executor": {
-            "claims": 6,
-            "reopen_count": 1,
-            "replay_rejections": 7,
-            "status": {"claim_sequence": 6},
-        },
-        "health_sample_count": 4,
-        "health_samples": health_samples,
-        "latency": {"buckets_ms": {"overflow": 0}, "count": 3, "maximum_ms": 500},
-        "request_retry_count": 2,
-        "transfer_pair_counts": _expected_transfer_pair_counts(
-            cycles=cycles,
-            transfer_every_cycles=configuration.transfer_every_cycles,
-        ),
-    }
-    evaluation = evaluate_workload_result(result, configuration)
+    result = _valid_workload_result(configuration)
+    evaluation = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
     assert evaluation["passed"] is True
-    assert evaluation["metrics"]["required_cycles"] == 3
-    assert evaluation["metrics"]["required_health_samples"] == 4
-    assert evaluation["metrics"]["health_cadence"]["maximum_gap_seconds"] == 10.0
+    assert evaluation["metrics"]["required_cycles"] == 11
+    assert evaluation["metrics"]["required_health_samples"] == 61
+    assert evaluation["metrics"]["health_cadence"]["maximum_gap_seconds"] == 2.0
 
     valid_audit_progress = dict(result["audit_progress"])
     result["audit_progress"] = {
         **valid_audit_progress,
         "error_sample_count": 1,
     }
-    error_evidence_failed = evaluate_workload_result(result, configuration)
+    error_evidence_failed = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
     assert error_evidence_failed["passed"] is False
     assert "audit_error_recovery" in error_evidence_failed["violations"]
     result["audit_progress"] = valid_audit_progress
 
-    result["health_samples"] = [{**sample, "elapsed_seconds": 0.0} for sample in health_samples]
-    cadence_failed = evaluate_workload_result(result, configuration)
+    health_samples = result["health_samples"]
+    result["health_samples"] = [
+        {**sample, "scheduled_elapsed_seconds": 0.0} for sample in health_samples
+    ]
+    cadence_failed = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
     assert cadence_failed["passed"] is False
     assert "health_cadence" in cadence_failed["violations"]
     result["health_samples"] = health_samples
 
-    result["counters"] = {**result["counters"], "closed": 2}
-    result["request_retry_count"] = 25
+    result["counters"] = {**result["counters"], "closed": 10}
+    result["request_retry_count"] = 45
     result["latency"] = {
         "buckets_ms": {"overflow": 1},
-        "count": 3,
+        "count": 11,
         "maximum_ms": 61_000,
     }
-    failed = evaluate_workload_result(result, configuration)
+    failed = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
     assert failed["passed"] is False
     assert set(failed["violations"]) >= {
         "counter_relationships",
@@ -324,17 +612,838 @@ def test_workload_evaluation_enforces_exact_load_and_executor_relationships() ->
     }
 
 
+@pytest.mark.parametrize(
+    ("mutation", "violation"),
+    (
+        ({"schema": "lets.production-profile-soak-workload/v1"}, "workload_identity"),
+        ({"status": "failed"}, "workload_identity"),
+    ),
+)
+def test_workload_evaluation_rejects_wrong_envelope_identity(
+    mutation: dict[str, Any],
+    violation: str,
+) -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    result.update(mutation)
+    evaluation = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
+    assert evaluation["passed"] is False
+    assert violation in evaluation["violations"]
+
+
+def test_workload_start_handshake_rejects_origin_shift() -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    workload_start = _workload_start(result, configuration)
+    result["started_monotonic_seconds"] = 110.0
+    evaluation = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=workload_start,
+    )
+    assert evaluation["passed"] is False
+    assert "workload_identity" in evaluation["violations"]
+    assert "pause_partition_binding" in evaluation["violations"]
+
+
 def test_health_cadence_rejects_gaps_larger_than_the_exporter_stall_bound() -> None:
-    samples = [
+    samples = _timed_health_samples(duration_seconds=30.0, interval_seconds=10.0)
+    samples[2]["nodes"]["warden-b"]["observation"].update(
         {
-            "elapsed_seconds": elapsed,
-            "nodes": {node: {"audit_exporter": {"max_stall_s": 15.0}} for node in NODES},
+            "completed_elapsed_seconds": 26.1,
+            "metrics_observed_elapsed_seconds": 26.0,
         }
-        for elapsed in (5.0, 10.0, 26.0, 30.0)
-    ]
-    result = evaluate_health_cadence(samples, duration_seconds=30.0)
+    )
+    samples[2]["completed_elapsed_seconds"] = 26.2
+    result = evaluate_health_cadence(
+        samples,
+        duration_seconds=30.0,
+        interval_seconds=10.0,
+        restart_evidence={
+            "bindings": {},
+            "passed": True,
+            "windows_by_node": {node: [] for node in NODES},
+        },
+    )
     assert result["passed"] is False
-    assert result["maximum_gap_seconds"] == 16.0
+    assert result["maximum_gap_seconds"] == 15.9
+
+
+def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str, Any]:
+    restart_id = f"restart-{episode}-{service}"
+    armed = {
+        "armed_monotonic_seconds": 110.0,
+        "episode": episode,
+        "restart_id": restart_id,
+        "service": service,
+        "state": "armed",
+    }
+    completed = {
+        **armed,
+        "completed_monotonic_seconds": 125.0,
+        "state": "completed",
+    }
+    acknowledgement = {
+        key: armed[key] for key in ("armed_monotonic_seconds", "episode", "restart_id", "service")
+    } | {"acknowledged_monotonic_seconds": 111.0}
+    recovery = {
+        **acknowledgement,
+        "completed_monotonic_seconds": 125.0,
+        "recovered_monotonic_seconds": 126.0,
+    }
+    return {
+        "host_operation_completed_monotonic_seconds": 1_010.0,
+        "host_operation_started_monotonic_seconds": 1_002.0,
+        "service": service,
+        "workload_coordination": {
+            "armed": {
+                "acknowledgement": acknowledgement,
+                "host_armed_started_monotonic_seconds": 1_000.0,
+                "host_monitor_acknowledged_monotonic_seconds": 1_001.0,
+                "marker": armed,
+            },
+            "completed": {
+                "host_completed_marker_monotonic_seconds": 1_011.0,
+                "host_monitor_recovered_monotonic_seconds": 1_012.0,
+                "marker": completed,
+                "recovery_acknowledgement": recovery,
+            },
+        },
+    }
+
+
+def _pause_binding(
+    result: dict[str, Any],
+    *,
+    configuration: SoakConfiguration,
+) -> list[dict[str, Any]]:
+    pause = {
+        "duration_seconds": 15.0,
+        "episode": 0,
+        "measurement_clipped_duration_seconds": 15.0,
+        "observed_elapsed_seconds": 5.0,
+        "observed_monotonic_seconds": 105.0,
+        "pause_id": "pause-0",
+        "requested_monotonic_seconds": 104.0,
+        "resumed_elapsed_seconds": 20.0,
+        "resumed_monotonic_seconds": 120.0,
+    }
+    result.update(
+        {
+            "active_workload_seconds": configuration.duration_seconds - 15.0,
+            "pause_interval_count": 1,
+            "pause_intervals": [pause],
+            "paused_workload_seconds": 15.0,
+        }
+    )
+    marker = {
+        "episode": 0,
+        "pause_id": "pause-0",
+        "requested_monotonic_seconds": 104.0,
+    }
+    acknowledgement = {
+        **marker,
+        "observed_monotonic_seconds": 105.0,
+        "paused": True,
+    }
+    return [
+        {
+            "disabled_monotonic_seconds": 1_002.0,
+            "episode": 0,
+            "restored_monotonic_seconds": 1_011.0,
+            "workload_coordination": {
+                **marker,
+                "acknowledgement": acknowledgement,
+                "authorized_end": {
+                    **marker,
+                    "authorized_end_monotonic_seconds": 119.0,
+                    "host_boundary_completed_monotonic_seconds": 1_011.5,
+                    "host_boundary_started_monotonic_seconds": 1_011.0,
+                },
+                "authorized_start": {
+                    **marker,
+                    "authorized_start_monotonic_seconds": 106.0,
+                    "host_boundary_completed_monotonic_seconds": 1_001.75,
+                    "host_boundary_started_monotonic_seconds": 1_001.5,
+                },
+                "host_acknowledged_monotonic_seconds": 1_001.0,
+                "host_pause_duration_seconds": 11.0,
+                "host_request_started_monotonic_seconds": 1_000.0,
+                "host_resume_completed_monotonic_seconds": 1_012.5,
+                "host_resume_started_monotonic_seconds": 1_012.0,
+                "marker": marker,
+                "workload_resume_requested_monotonic_seconds": 119.5,
+            },
+        }
+    ]
+
+
+def test_pause_evidence_uses_exact_token_bound_workload_clock_bridge() -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    partitions = _pause_binding(result, configuration=configuration)
+    evidence = evaluate_pause_evidence(
+        result,
+        configuration=configuration,
+        partitions=partitions,
+        workload_start=_workload_start(result, configuration),
+    )
+    assert evidence["passed"] is True
+    assert evidence["authorized_paused_seconds"] == 11.0
+    assert evidence["active_workload_seconds"] == 109.0
+
+    partitions[0]["workload_coordination"]["pause_id"] = "swapped-token"
+    assert (
+        evaluate_pause_evidence(
+            result,
+            configuration=configuration,
+            partitions=partitions,
+            workload_start=_workload_start(result, configuration),
+        )["passed"]
+        is False
+    )
+
+
+def test_pause_evidence_recomputes_measurement_edge_and_rejects_forged_active_time() -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    partitions = _pause_binding(result, configuration=configuration)
+    result["pause_intervals"][0]["measurement_clipped_duration_seconds"] = 20.0
+    assert (
+        evaluate_pause_evidence(
+            result,
+            configuration=configuration,
+            partitions=partitions,
+            workload_start=_workload_start(result, configuration),
+        )["passed"]
+        is False
+    )
+    result["pause_intervals"][0]["measurement_clipped_duration_seconds"] = 15.0
+    result["active_workload_seconds"] = 1.0
+    assert (
+        evaluate_pause_evidence(
+            result,
+            configuration=configuration,
+            partitions=partitions,
+            workload_start=_workload_start(result, configuration),
+        )["passed"]
+        is False
+    )
+
+
+def test_pause_evidence_rejects_a_marker_before_the_workload_origin() -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    partitions = _pause_binding(result, configuration=configuration)
+    pause = result["pause_intervals"][0]
+    coordination = partitions[0]["workload_coordination"]
+    pause["requested_monotonic_seconds"] = 99.0
+    coordination["requested_monotonic_seconds"] = 99.0
+    for document in (
+        coordination["marker"],
+        coordination["acknowledgement"],
+        coordination["authorized_start"],
+        coordination["authorized_end"],
+    ):
+        document["requested_monotonic_seconds"] = 99.0
+
+    assert (
+        evaluate_pause_evidence(
+            result,
+            configuration=configuration,
+            partitions=partitions,
+            workload_start=_workload_start(result, configuration),
+        )["passed"]
+        is False
+    )
+
+
+def test_workload_evaluator_rejects_chaos_before_startup_or_pause_request() -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    workload_start = _workload_start(result, configuration)
+    partitions = _pause_binding(result, configuration=configuration)
+    valid = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=partitions,
+        restarts=[],
+        workload_start=workload_start,
+    )
+    assert valid["passed"] is True
+
+    early_start = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=998.5,
+        partitions=partitions,
+        restarts=[],
+        workload_start=workload_start,
+    )
+    assert "chaos_start_binding" in early_start["violations"]
+
+    partitions[0]["workload_coordination"]["host_request_started_monotonic_seconds"] = 999.5
+    early_pause = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=partitions,
+        restarts=[],
+        workload_start=workload_start,
+    )
+    assert "chaos_start_binding" in early_pause["violations"]
+
+
+def test_restart_evidence_requires_exact_ack_lifecycle_and_bounded_recovery() -> None:
+    restart = _restart_record()
+    evidence = evaluate_restart_evidence([restart], workload_started_monotonic=100.0)
+    assert evidence["passed"] is True
+    assert evidence["windows_by_node"]["warden-a"] == [
+        {
+            "end_elapsed_seconds": 25.0,
+            "episode": 0,
+            "restart_id": "restart-0-warden-a",
+            "service": "warden-a",
+            "start_elapsed_seconds": 11.0,
+        }
+    ]
+
+    restart["workload_coordination"]["armed"]["acknowledgement"]["restart_id"] = "stale"
+    assert evaluate_restart_evidence([restart], workload_started_monotonic=100.0)["passed"] is False
+
+
+def test_restart_evidence_rejects_pre_origin_and_overlapping_host_operations() -> None:
+    pre_origin = _restart_record()
+    coordination = pre_origin["workload_coordination"]
+    for document in (
+        coordination["armed"]["marker"],
+        coordination["armed"]["acknowledgement"],
+        coordination["completed"]["marker"],
+        coordination["completed"]["recovery_acknowledgement"],
+    ):
+        document["armed_monotonic_seconds"] = 99.0
+    assert (
+        evaluate_restart_evidence([pre_origin], workload_started_monotonic=100.0)["passed"] is False
+    )
+
+    first = _restart_record()
+    second = _restart_record(service="warden-b", episode=1)
+    second_coordination = second["workload_coordination"]
+    for document in (
+        second_coordination["armed"]["marker"],
+        second_coordination["armed"]["acknowledgement"],
+        second_coordination["completed"]["marker"],
+        second_coordination["completed"]["recovery_acknowledgement"],
+    ):
+        document["armed_monotonic_seconds"] = 140.0
+    second_coordination["armed"]["acknowledgement"]["acknowledged_monotonic_seconds"] = 141.0
+    second_coordination["completed"]["marker"]["completed_monotonic_seconds"] = 155.0
+    second_coordination["completed"]["recovery_acknowledgement"].update(
+        {
+            "acknowledged_monotonic_seconds": 141.0,
+            "completed_monotonic_seconds": 155.0,
+            "recovered_monotonic_seconds": 156.0,
+        }
+    )
+    second.update(
+        {
+            "host_operation_completed_monotonic_seconds": 1_009.0,
+            "host_operation_started_monotonic_seconds": 1_005.0,
+        }
+    )
+    second_coordination["armed"].update(
+        {
+            "host_armed_started_monotonic_seconds": 1_003.0,
+            "host_monitor_acknowledged_monotonic_seconds": 1_004.0,
+        }
+    )
+    second_coordination["completed"].update(
+        {
+            "host_completed_marker_monotonic_seconds": 1_010.0,
+            "host_monitor_recovered_monotonic_seconds": 1_011.0,
+        }
+    )
+    evidence = evaluate_restart_evidence(
+        [first, second],
+        workload_started_monotonic=100.0,
+    )
+    assert evidence == {
+        "passed": False,
+        "reason": "host restart operations overlap globally",
+    }
+
+
+def test_planned_unavailable_is_per_node_and_must_overlap_exact_restart_window() -> None:
+    restart = _restart_record()
+    restart_evidence = evaluate_restart_evidence(
+        [restart],
+        workload_started_monotonic=100.0,
+    )
+    samples = _timed_health_samples(duration_seconds=30.0, interval_seconds=10.0)
+    armed_marker = restart["workload_coordination"]["armed"]["marker"]
+    samples[1]["completed_elapsed_seconds"] = 11.3
+    samples[1]["nodes"]["warden-a"] = {
+        "observation": {
+            "completed_elapsed_seconds": 11.2,
+            "metrics_observed_elapsed_seconds": None,
+            "request_retries": 1,
+            "started_elapsed_seconds": 10.01,
+        },
+        "planned_unavailable": armed_marker,
+    }
+    samples[1]["planned_unavailable_nodes"] = ["warden-a"]
+    assert (
+        evaluate_health_cadence(
+            samples,
+            duration_seconds=30.0,
+            interval_seconds=10.0,
+            restart_evidence=restart_evidence,
+        )["passed"]
+        is True
+    )
+
+    samples[1]["nodes"]["warden-a"]["planned_unavailable"] = restart["workload_coordination"][
+        "completed"
+    ]["marker"]
+    assert (
+        evaluate_health_cadence(
+            samples,
+            duration_seconds=30.0,
+            interval_seconds=10.0,
+            restart_evidence=restart_evidence,
+        )["passed"]
+        is False
+    )
+    samples[1]["nodes"]["warden-a"]["planned_unavailable"] = armed_marker
+
+    samples[0]["nodes"]["warden-a"] = samples[1]["nodes"]["warden-a"]
+    samples[0]["planned_unavailable_nodes"] = ["warden-a"]
+    assert (
+        evaluate_health_cadence(
+            samples,
+            duration_seconds=30.0,
+            interval_seconds=10.0,
+            restart_evidence=restart_evidence,
+        )["passed"]
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "violation"),
+    (
+        ("samples_truncated", 1, "health_monitor"),
+        ("deadline_miss_count", 1, "health_monitor"),
+        ("audit_error_budget_instances", 2, "health_monitor"),
+    ),
+)
+def test_workload_evaluator_rejects_truncated_missed_or_multiple_budget_monitors(
+    field: str,
+    value: int,
+    violation: str,
+) -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    result["health_monitor"][field] = value
+    evaluation = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
+    assert evaluation["passed"] is False
+    assert violation in evaluation["violations"]
+
+
+def test_workload_evaluator_recomputes_raw_health_retry_total() -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    result["health_samples"][0]["nodes"]["warden-a"]["observation"]["request_retries"] = 1
+    evaluation = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
+    assert evaluation["passed"] is False
+    assert "health_monitor" in evaluation["violations"]
+    assert evaluation["metrics"]["raw_health_request_retries"] == 1
+
+
+def test_active_time_throughput_floor_passes_and_fails_at_exact_boundary() -> None:
+    configuration = replace(
+        _configuration(),
+        duration_seconds=180.0,
+        partition_interval_seconds=30.0,
+        restart_interval_seconds=20.0,
+    )
+    configuration.validate()
+    result = _valid_workload_result(configuration, cycles=12)
+    passed = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
+    assert passed["passed"] is True
+    assert passed["metrics"]["active_time_cycle_floor"] == 12
+
+    failed_result = _valid_workload_result(configuration, cycles=11)
+    failed = evaluate_workload_result(
+        failed_result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(failed_result, configuration),
+    )
+    assert failed["passed"] is False
+    assert "minimum_cycles" in failed["violations"]
+
+
+def test_independent_sampler_is_not_starved_by_a_long_inline_workload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    def sample(
+        _client: object,
+        *,
+        elapsed_s: float,
+        observation_origin_monotonic: float,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        observed = time.monotonic() - observation_origin_monotonic
+        return {
+            "audit_catchup_nodes": [],
+            "audit_error_recoveries": [],
+            "elapsed_seconds": elapsed_s,
+            "nodes": {
+                node: {
+                    "audit_exporter": {"max_stall_s": 15.0},
+                    "observation": {
+                        "completed_elapsed_seconds": observed,
+                        "metrics_observed_elapsed_seconds": observed,
+                        "request_retries": 0,
+                        "started_elapsed_seconds": observed,
+                    },
+                }
+                for node in NODES
+            },
+            "planned_unavailable_nodes": [],
+        }
+
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    monkeypatch.setattr(soak_scenario, "_health_sample", sample)
+    started = time.monotonic()
+    sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=0.02,
+        retry_timeout_seconds=1.0,
+        seed=1,
+        failure_event=threading.Event(),
+    )
+    sampler.start()
+    time.sleep(0.075)
+    ended = time.monotonic()
+    sampler.finish(workload_ended_monotonic=ended)
+    monitor = sampler.result(workload_ended_monotonic=ended)
+    assert monitor["health_monitor"]["actual_sample_count"] >= 4
+    scheduled = [item["scheduled_elapsed_seconds"] for item in monitor["samples"]]
+    assert scheduled[:4] == pytest.approx([0.0, 0.02, 0.04, 0.06], abs=0.005)
+
+
+def test_monitor_error_sets_abort_and_retains_structured_failure_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    monkeypatch.setattr(
+        soak_scenario,
+        "_health_sample",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("injected monitor")),
+    )
+    failure_event = threading.Event()
+    started = time.monotonic()
+    sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=0.02,
+        retry_timeout_seconds=1.0,
+        seed=2,
+        failure_event=failure_event,
+    )
+    sampler.start()
+    assert failure_event.wait(1.0) is True
+    sampler.cancel()
+    with pytest.raises(RuntimeError, match="injected monitor"):
+        sampler.raise_if_failed()
+    snapshot = sampler.failure_snapshot(workload_ended_monotonic=time.monotonic())
+    assert snapshot["health_monitor"]["status"] == "failed"
+    assert snapshot["health_monitor"]["joined"] is True
+    assert snapshot["health_monitor"]["samples_truncated"] == 0
+    assert snapshot["health_monitor"]["attempted_sample_count"] == 1
+    assert snapshot["health_monitor"]["expected_sample_count"] >= 1
+    assert snapshot["health_monitor"]["failure_schedule"] == {
+        "deadline_elapsed_seconds": pytest.approx(15.0, abs=0.01),
+        "schedule_index": 0,
+        "scheduled_elapsed_seconds": 0.0,
+        "started_elapsed_seconds": pytest.approx(0.0, abs=0.01),
+    }
+
+
+def test_monitor_join_timeout_is_structured_and_daemonized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    class StuckThread:
+        daemon = True
+        ident = 1
+
+        def is_alive(self) -> bool:
+            return True
+
+        def join(self, timeout: float | None = None) -> None:
+            assert timeout is not None
+
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    started = time.monotonic()
+    sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=1.0,
+        retry_timeout_seconds=1.0,
+        seed=3,
+        failure_event=threading.Event(),
+    )
+    sampler._thread = StuckThread()  # type: ignore[assignment]
+    sampler._current_schedule = {  # type: ignore[attr-defined]
+        "deadline_elapsed_seconds": 15.0,
+        "schedule_index": 0,
+        "scheduled_elapsed_seconds": 0.0,
+        "started_elapsed_seconds": 0.0,
+    }
+    with pytest.raises(RuntimeError, match="did not join"):
+        sampler.finish(workload_ended_monotonic=started + 1.0)
+    snapshot = sampler.failure_snapshot(workload_ended_monotonic=started + 1.0)
+    assert snapshot["health_monitor"]["joined"] is False
+    assert snapshot["health_monitor"]["failure_schedule"]["schedule_index"] == 0
+
+
+def test_planned_restart_live_window_expires_only_before_completion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    marker_path = tmp_path / "restart.json"
+    acknowledgement_path = tmp_path / "restart-ack.json"
+    marker = {
+        "armed_monotonic_seconds": 100.0,
+        "episode": 0,
+        "restart_id": "restart-0-warden-a",
+        "service": "warden-a",
+        "state": "armed",
+    }
+    acknowledgement = {
+        **{
+            key: marker[key]
+            for key in (
+                "armed_monotonic_seconds",
+                "episode",
+                "restart_id",
+                "service",
+            )
+        },
+        "acknowledged_monotonic_seconds": 111.0,
+    }
+    marker_path.write_text(soak_scenario.json.dumps(marker), encoding="utf-8")
+    acknowledgement_path.write_text(
+        soak_scenario.json.dumps(acknowledgement),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(soak_scenario, "WORKLOAD_RESTART", marker_path)
+    monkeypatch.setattr(soak_scenario, "WORKLOAD_RESTART_ACK", acknowledgement_path)
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 141.001)
+    with pytest.raises(RuntimeError, match="live 30s"):
+        soak_scenario._planned_restart_window(
+            "warden-a",
+            observation_started_monotonic=140.0,
+        )
+
+    completed = {
+        **marker,
+        "completed_monotonic_seconds": 141.0,
+        "state": "completed",
+    }
+    marker_path.write_text(soak_scenario.json.dumps(completed), encoding="utf-8")
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 141.5)
+    assert (
+        soak_scenario._planned_restart_window(
+            "warden-a",
+            observation_started_monotonic=140.0,
+        )
+        == completed
+    )
+
+
+def test_restart_deadline_accepts_ack_after_a_post_arm_live_observation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeClient:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    marker_path = tmp_path / "restart.json"
+    acknowledgement_path = tmp_path / "restart-ack.json"
+    marker = {
+        "armed_monotonic_seconds": 104.0,
+        "completed_monotonic_seconds": 120.0,
+        "episode": 0,
+        "restart_id": "restart-0-warden-a",
+        "service": "warden-a",
+        "state": "completed",
+    }
+    acknowledgement = {
+        "acknowledged_monotonic_seconds": 106.0,
+        "armed_monotonic_seconds": 104.0,
+        "episode": 0,
+        "restart_id": "restart-0-warden-a",
+        "service": "warden-a",
+    }
+    marker_path.write_text(soak_scenario.json.dumps(marker), encoding="utf-8")
+    acknowledgement_path.write_text(
+        soak_scenario.json.dumps(acknowledgement),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    monkeypatch.setattr(soak_scenario, "WORKLOAD_RESTART", marker_path)
+    monkeypatch.setattr(soak_scenario, "WORKLOAD_RESTART_ACK", acknowledgement_path)
+    sampler = HealthSampler(
+        started_monotonic=100.0,
+        interval_seconds=10.0,
+        retry_timeout_seconds=1.0,
+        seed=3,
+        failure_event=threading.Event(),
+    )
+    sampler._last_observed_monotonic = {"warden-a": 105.0}  # type: ignore[attr-defined]
+
+    assert sampler._deadline_for(120.0) == 135.0  # type: ignore[attr-defined]
+
+
+def test_restart_ack_wait_and_host_operations_use_hard_deadlines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Clock:
+        current = 0.0
+
+        @classmethod
+        def monotonic(cls) -> float:
+            cls.current += 5.0
+            return cls.current
+
+    class Process:
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    class Result:
+        returncode = 0
+        stdout = ""
+
+    class AckHarness:
+        workload_container = "workload"
+
+        @staticmethod
+        def run(*_args: Any, **_kwargs: Any) -> Result:
+            return Result()
+
+    marker = {
+        "armed_monotonic_seconds": 100.0,
+        "episode": 0,
+        "restart_id": "restart-0-warden-a",
+        "service": "warden-a",
+        "state": "armed",
+    }
+    monkeypatch.setattr(soak_runner.time, "monotonic", Clock.monotonic)
+    monkeypatch.setattr(soak_runner.time, "sleep", lambda _seconds: None)
+    with pytest.raises(RuntimeError, match="did not provide exact restart"):
+        _wait_restart_acknowledgement(
+            AckHarness(),  # type: ignore[arg-type]
+            marker=marker,
+            required_field="acknowledged_monotonic_seconds",
+            workload=Process(),  # type: ignore[arg-type]
+        )
+
+    with pytest.raises(RuntimeError, match="began after its 30s"):
+        soak_runner._restart(
+            object(),  # type: ignore[arg-type]
+            "warden-a",
+            completion_deadline_monotonic=Clock.current - 1.0,
+            elapsed_s=0.0,
+        )
+
+
+def test_wait_healthy_propagates_remaining_deadline_to_inspect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Clock:
+        current = 100.0
+
+        @classmethod
+        def monotonic(cls) -> float:
+            cls.current += 0.1
+            return cls.current
+
+    harness = object.__new__(Harness)
+    timeouts: list[float] = []
+
+    def state(_service: str, *, timeout: float) -> dict[str, Any]:
+        timeouts.append(timeout)
+        return {"Health": {"Status": "healthy"}, "Status": "running"}
+
+    harness.state = state  # type: ignore[method-assign]
+    monkeypatch.setattr(soak_runner.time, "monotonic", Clock.monotonic)
+    harness.wait_healthy("warden-a", timeout_s=2.0)
+    assert len(timeouts) == 1
+    assert 0 < timeouts[0] <= 2.0
 
 
 def test_resource_bounds_accept_bounded_growth_and_report_leaks() -> None:
@@ -466,7 +1575,15 @@ def test_pre_sigkill_checkpoint_is_sampled_and_evaluated_before_restart(
             reason=reason,
             service=planned_sigkill_service,
         )
-        return _sample(rss=65_000_000, fds=21, database=2_100_000, audit=1_100_000)
+        return {
+            **_sample(
+                rss=65_000_000,
+                fds=21,
+                database=2_100_000,
+                audit=1_100_000,
+            ),
+            "host_observed_monotonic_seconds": 1_001.0,
+        }
 
     def fake_evaluate(
         actual: list[dict[str, Any]], *, cycles: int, bounds: ResourceBounds
@@ -489,6 +1606,7 @@ def test_pre_sigkill_checkpoint_is_sampled_and_evaluated_before_restart(
     assert captured["sample_count"] == 2
     assert checkpoint == {
         "evaluation_passed": True,
+        "host_observed_monotonic_seconds": 1_001.0,
         "sample_index": 1,
         "sample_reason": "pre_sigkill",
         "service": "warden-b",
@@ -1454,33 +2572,47 @@ def test_audit_catchup_rejects_errors_blocks_stalls_and_inconsistent_health(
         _bounded_audit_exporter(_audit_status(**overrides), node="warden-a")
 
 
-def test_workload_pause_acknowledges_and_preserves_health_cadence(
+def test_workload_pause_acknowledges_and_records_exact_interval(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     pause = tmp_path / "pause.json"
     acknowledgement = tmp_path / "pause-ack.json"
-    pause.write_text('{"episode":4}\n', encoding="utf-8")
+    pause.write_text(
+        '{"episode":4,"pause_id":"pause-4","requested_monotonic_seconds":90.0}\n',
+        encoding="utf-8",
+    )
     monkeypatch.setattr(soak_scenario, "WORKLOAD_PAUSE", pause)
     monkeypatch.setattr(soak_scenario, "WORKLOAD_PAUSE_ACK", acknowledgement)
     monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(
-        soak_scenario,
-        "_health_sample",
-        lambda _client, *, elapsed_s, audit_error_budget=None: {"elapsed_seconds": elapsed_s},
-    )
-    monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: pause.unlink())
-    samples: deque[dict[str, Any]] = deque(maxlen=512)
-    next_health, count = soak_scenario._wait_if_paused(
-        object(),  # type: ignore[arg-type]
-        health_interval_seconds=10,
-        health_samples=samples,
-        next_health=99,
+
+    class ResumeEvent:
+        @staticmethod
+        def wait(_timeout: float) -> bool:
+            pause.unlink()
+            return False
+
+    interval = soak_scenario._wait_if_paused(
+        failure_event=ResumeEvent(),  # type: ignore[arg-type]
+        raise_monitor_error=lambda: None,
         started=50,
     )
-    assert count == 1
-    assert next_health == 110
-    assert list(samples) == [{"elapsed_seconds": 50.0}]
-    assert acknowledgement.read_text(encoding="utf-8") == ('{"episode": 4, "paused": true}\n')
+    assert interval == {
+        "duration_seconds": 0.0,
+        "episode": 4,
+        "observed_elapsed_seconds": 50.0,
+        "observed_monotonic_seconds": 100.0,
+        "pause_id": "pause-4",
+        "requested_monotonic_seconds": 90.0,
+        "resumed_elapsed_seconds": 50.0,
+        "resumed_monotonic_seconds": 100.0,
+    }
+    assert soak_scenario.json.loads(acknowledgement.read_text(encoding="utf-8")) == {
+        "episode": 4,
+        "observed_monotonic_seconds": 100.0,
+        "pause_id": "pause-4",
+        "paused": True,
+        "requested_monotonic_seconds": 90.0,
+    }
 
 
 def test_workload_pause_fails_immediately_with_exited_workload_diagnostics() -> None:
@@ -2069,35 +3201,48 @@ def test_unique_project_preflight_and_restart_integrity_fail_closed(
             return 0
 
     restarts = [
-        {"elapsed_seconds": 6.0, "service": "warden-a"},
-        {"elapsed_seconds": 12.0, "service": "warden-b"},
-        {"elapsed_seconds": 18.0, "service": "warden-c"},
+        {
+            "host_operation_completed_monotonic_seconds": 1_007.0,
+            "host_operation_started_monotonic_seconds": 1_006.0,
+            "service": "warden-a",
+        },
+        {
+            "host_operation_completed_monotonic_seconds": 1_013.0,
+            "host_operation_started_monotonic_seconds": 1_012.0,
+            "service": "warden-b",
+        },
+        {
+            "host_operation_completed_monotonic_seconds": 1_019.0,
+            "host_operation_started_monotonic_seconds": 1_018.0,
+            "service": "warden-c",
+        },
     ]
     integrity = _restart_integrity(
         RestartHarness(),
         restarts,
-        chaos_duration_seconds=30.0,  # type: ignore[arg-type]
+        chaos_completed_monotonic_seconds=1_030.0,
+        chaos_started_monotonic_seconds=1_000.0,
     )
     assert integrity["all_wardens_sigkilled"] is True
-    assert integrity["longest_sigkill_free_seconds"] == 12.0
+    assert integrity["longest_sigkill_free_seconds"] == 11.0
     assert integrity["per_warden_lifetimes"] == {
         "warden-a": {
-            "longest_seconds": 24.0,
+            "longest_seconds": 23.0,
             "passed": True,
             "planned_sigkill_seconds": [6.0],
-            "segments_seconds": [6.0, 24.0],
+            "segments_seconds": [6.0, 23.0],
         },
         "warden-b": {
-            "longest_seconds": 18.0,
+            "longest_seconds": 17.0,
             "passed": True,
             "planned_sigkill_seconds": [12.0],
-            "segments_seconds": [12.0, 18.0],
+            "segments_seconds": [12.0, 17.0],
         },
         "warden-c": {
             "longest_seconds": 18.0,
             "passed": True,
             "planned_sigkill_seconds": [18.0],
-            "segments_seconds": [18.0, 12.0],
+            "segments_seconds": [18.0, 11.0],
         },
     }
 
@@ -2110,5 +3255,6 @@ def test_unique_project_preflight_and_restart_integrity_fail_closed(
         _restart_integrity(
             RestartedHarness(),  # type: ignore[arg-type]
             restarts,
-            chaos_duration_seconds=30.0,
+            chaos_completed_monotonic_seconds=1_030.0,
+            chaos_started_monotonic_seconds=1_000.0,
         )

@@ -947,7 +947,16 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert 'source.get("dirty") is not False' in workflow
     assert 'workload_evaluation.get("passed") is not True' in workflow
     assert 'get("health_cadence") is not True' in workflow
-    assert 'int(workload_metrics.get("actual_cycles", 0)) < 300' in workflow
+    assert "required_cycles = max(semantic_cycle_floor, active_time_cycle_floor)" in workflow
+    assert 'workload_metrics.get("required_cycles") == required_cycles' in workflow
+    assert 'monitor.get("request_retry_count") == raw_health_retries' in workflow
+    assert "expected_release_configuration = {" in workflow
+    assert "type(configuration.get(name)) is not type(expected)" in workflow
+    assert "right[0] < left[1]" in workflow
+    assert 'float(armed_marker["armed_monotonic_seconds"]) < float(' in workflow
+    assert "<= requested\n                      <= observed" in workflow
+    assert 'float(exporter["max_stall_s"])' not in workflow
+    assert 'close_number(exporter.get("max_stall_s"), 15.0, 0.0)' in workflow
     assert "len(pair_counts) != 6" in workflow
     assert 'get("durably_pending_observed") is not True' in workflow
     assert 'get("all_wardens_sigkilled") is not True' in workflow
@@ -964,7 +973,7 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
         "${{ github.run_id }}-${{ github.run_attempt }}" in workflow
     )
     assert workflow.count("release-production-soak-${{ needs.verify.outputs.version }}") == 1
-    assert 'get("identity", {}).get("passed") is not True' in workflow
+    assert 'package_identity.get("passed") is not True' in workflow
     assert 'cleanup.get("remaining_containers") != 0' in workflow
     assert (
         "tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
