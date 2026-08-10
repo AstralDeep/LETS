@@ -66,6 +66,7 @@ from lets.policy import (
     EvidenceRule,
     evaluate_evidence,
 )
+from lets.storage.sqlite import audit_event_hash
 from lets.vector import (
     MAX_RESOURCE,
     ResourceVector,
@@ -91,7 +92,8 @@ _MAX_ATOMIC_CASCADE_DESCENDANTS = 64
 
 
 class _Transaction(Protocol):
-    connection: sqlite3.Connection
+    @property
+    def connection(self) -> sqlite3.Connection: ...
 
 
 class Storage(Protocol):
@@ -551,6 +553,54 @@ class WardenService:
         ):
             return False
         return True
+
+    def observation_facts(
+        self,
+        transaction: _Transaction,
+        *,
+        identity: IdentityContext,
+    ) -> dict[str, object]:
+        """Capture all core readiness facts from one caller-owned read snapshot."""
+
+        identity_tenant, _, scopes = self._identity_fields(identity)
+        if not self._has_scope(scopes, _ADMIN_SCOPES | frozenset({"lets.metrics.read"})):
+            raise PolicyError("metrics read scope is required")
+        connection = self._connection(transaction)
+        self._verify_database_identity(connection)
+        envelope = self._singleton_envelope(connection)
+        if identity_tenant != _row_value(envelope, "tenant_id"):
+            raise PolicyError("identity tenant does not match envelope tenant")
+        checked_at_ns = self._clock.now_ns()
+        runtime = self._runtime_status(connection)
+        invariant = self._invariant_snapshot(connection, envelope, checked_at_ns)
+        signing_key_healthy = True
+        clock_healthy = True
+        try:
+            self._require_signing_key_current()
+        except (ClockUncertainError, SignatureError, ValidationError):
+            signing_key_healthy = False
+        try:
+            self._clock_is_safe(
+                connection,
+                envelope,
+                now_ns=checked_at_ns,
+                advance_floor=False,
+            )
+        except (ClockUncertainError, StorageError, ValidationError):
+            clock_healthy = False
+        return {
+            "checked_at_ns": checked_at_ns,
+            "clock_healthy": clock_healthy,
+            "core_healthy": (
+                signing_key_healthy
+                and clock_healthy
+                and runtime.mode is RuntimeMode.ACTIVE
+                and invariant.healthy
+            ),
+            "invariant": invariant,
+            "runtime": runtime,
+            "signing_key_healthy": signing_key_healthy,
+        }
 
     @staticmethod
     def _peer_replay_seconds(value: object, field: str) -> int:
@@ -4907,12 +4957,12 @@ class WardenService:
             )
             return wire
 
-    def verify_audit(
+    def verify_audit_head(
         self,
         *,
         identity: IdentityContext,
-    ) -> bool:
-        """Verify the complete durable audit hash chain and every event signature."""
+    ) -> tuple[int, bytes]:
+        """Verify and return the exact complete durable audit head."""
 
         identity_tenant, _, scopes = self._identity_fields(identity)
         if not self._has_scope(
@@ -4936,6 +4986,7 @@ class WardenService:
                 (tenant_id, envelope_id),
             )
             expected_previous = bytes(32)
+            verified_sequence = -1
             for expected_sequence, row in enumerate(rows):
                 sequence = int(_row_value(row, "sequence"))
                 if sequence != expected_sequence:
@@ -4976,7 +5027,77 @@ class WardenService:
                 ):
                     raise InvariantError(f"audit payload/row mismatch at sequence {sequence}")
                 expected_previous = event_hash
-            return True
+                verified_sequence = sequence
+            return verified_sequence, expected_previous
+
+    def verify_audit(
+        self,
+        *,
+        identity: IdentityContext,
+    ) -> bool:
+        """Verify the complete durable audit hash chain and every event signature."""
+
+        self.verify_audit_head(identity=identity)
+        return True
+
+    def verify_audit_rows(
+        self,
+        rows: Sequence[sqlite3.Row | Mapping[str, Any]],
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        expected_sequence: int,
+        expected_previous_hash: bytes,
+    ) -> tuple[int, bytes]:
+        """Verify one copied audit page without holding a storage transaction."""
+
+        sequence_cursor = expected_sequence
+        previous_cursor = bytes(expected_previous_hash)
+        if len(previous_cursor) != 32:
+            raise ValidationError("expected audit previous hash must contain 32 bytes")
+        for row in rows:
+            sequence = int(_row_value(row, "sequence"))
+            if sequence != sequence_cursor:
+                raise InvariantError(
+                    f"audit sequence gap: got {sequence}, expected {sequence_cursor}"
+                )
+            previous = bytes(_row_value(row, "previous_hash"))
+            if previous != previous_cursor:
+                raise InvariantError(f"audit previous hash mismatch at sequence {sequence}")
+            payload_bytes = bytes(_row_value(row, "payload"))
+            event_type = str(_row_value(row, "event_type"))
+            entity_type_value = _row_value(row, "entity_type")
+            entity_id_value = _row_value(row, "entity_id")
+            entity_type = None if entity_type_value is None else str(entity_type_value)
+            entity_id = None if entity_id_value is None else str(entity_id_value)
+            created_at_ns = int(_row_value(row, "created_at_ns"))
+            computed = audit_event_hash(
+                previous,
+                sequence,
+                event_type,
+                entity_type,
+                entity_id,
+                payload_bytes,
+                created_at_ns,
+            )
+            event_hash = bytes(_row_value(row, "event_hash"))
+            if computed != event_hash:
+                raise InvariantError(f"audit event hash mismatch at sequence {sequence}")
+            signed = _json_object(payload_bytes)
+            self._verify_signed("audit-event/v1", signed, warden_id=self.warden_id)
+            if (
+                signed.get("sequence") != sequence
+                or signed.get("event_type") != event_type
+                or signed.get("tenant_id") != tenant_id
+                or signed.get("envelope_id") != envelope_id
+                or signed.get("entity_type") != entity_type
+                or signed.get("entity_id") != entity_id
+                or signed.get("occurred_at_ns") != created_at_ns
+            ):
+                raise InvariantError(f"audit payload/row mismatch at sequence {sequence}")
+            previous_cursor = event_hash
+            sequence_cursor += 1
+        return sequence_cursor - 1, previous_cursor
 
     def list_audit(
         self,

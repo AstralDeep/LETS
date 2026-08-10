@@ -94,6 +94,348 @@
         ],
         "type": "object"
       },
+      "AuthorityAnchorFirstFault": {
+        "additionalProperties": false,
+        "properties": {
+          "helper_exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "helper_pid": {
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mutation_uncertain": {
+            "type": "boolean"
+          },
+          "operation": {
+            "enum": [
+              "read",
+              "initialize",
+              "compare-and-set",
+              "confirm"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "deadline",
+              "helper_eof",
+              "helper_pipe",
+              "helper_start",
+              "helper_start_deadline",
+              "helper_start_in_progress",
+              "process_lock_deadline"
+            ],
+            "type": "string"
+          },
+          "request_flushed": {
+            "type": "boolean"
+          },
+          "stage": {
+            "enum": [
+              "pre_begin",
+              "post_commit",
+              "fence"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "stage",
+          "operation",
+          "request_flushed",
+          "mutation_uncertain",
+          "helper_pid",
+          "helper_exit_code"
+        ],
+        "type": "object"
+      },
+      "AuthorityAnchorStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_fenced": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "fault_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fault_stage": {
+            "enum": [
+              null,
+              "pre_begin",
+              "post_commit",
+              "fence"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fence_id": {
+            "maxLength": 128,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fenced_at_monotonic_ns": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "first_fault": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthorityAnchorFirstFault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "namespace_process_id": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "permanent_faults": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retry_not_before_monotonic_ns": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "healthy",
+              "recoverable_transport_fault",
+              "permanent_fault"
+            ],
+            "type": "string"
+          },
+          "transport_fault_episodes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport_faults": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport_recoveries": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport_recovery_attempts": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unresolved_transport_faults": {
+            "enum": [
+              0,
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "state",
+          "healthy",
+          "lifetime_id",
+          "namespace_process_id",
+          "admission_fenced",
+          "fence_id",
+          "fenced_at_monotonic_ns",
+          "transport_faults",
+          "transport_fault_episodes",
+          "transport_recovery_attempts",
+          "transport_recoveries",
+          "unresolved_transport_faults",
+          "permanent_faults",
+          "fault_stage",
+          "fault_reason",
+          "retry_not_before_monotonic_ns",
+          "first_fault"
+        ],
+        "type": "object"
+      },
+      "AuthorityCheckpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_hash": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "audit_sequence": {
+            "maximum": 9223372036854775807,
+            "minimum": -1,
+            "type": "integer"
+          },
+          "clock_floor_ns": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "database_instance_id": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "format": {
+            "const": "LETS-AUTHORITY-ANCHOR/1"
+          },
+          "schema_version": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "signing_key_id": {
+            "$ref": "#/components/schemas/KeyId"
+          },
+          "signing_public_key_sha256": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "state_digest": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "state_revision": {
+            "maximum": 9223372036854775807,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "warden_id": {
+            "$ref": "#/components/schemas/WardenId"
+          }
+        },
+        "required": [
+          "format",
+          "warden_id",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "schema_version",
+          "signing_key_id",
+          "signing_public_key_sha256",
+          "database_instance_id",
+          "audit_sequence",
+          "audit_hash",
+          "state_revision",
+          "state_digest",
+          "clock_floor_ns"
+        ],
+        "type": "object"
+      },
+      "AuthorityFenceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "full_audit_verification": {
+            "default": false,
+            "type": "boolean"
+          },
+          "restart_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "restart_id",
+          "expected_lifetime_id"
+        ],
+        "type": "object"
+      },
+      "AuthorityFenceSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "authority_anchor": {
+            "$ref": "#/components/schemas/AuthorityAnchorStatus"
+          },
+          "authority_checkpoint": {
+            "$ref": "#/components/schemas/AuthorityCheckpoint"
+          },
+          "fenced_at_monotonic_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "namespace_process_id": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "restart_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema": {
+            "const": "lets.authority-admission-fence/v1"
+          },
+          "terminal_audit_proof": {
+            "$ref": "#/components/schemas/TerminalAuditProof"
+          },
+          "warden_id": {
+            "$ref": "#/components/schemas/WardenId"
+          }
+        },
+        "required": [
+          "schema",
+          "restart_id",
+          "warden_id",
+          "namespace_process_id",
+          "lifetime_id",
+          "fenced_at_monotonic_ns",
+          "authority_anchor",
+          "authority_checkpoint",
+          "terminal_audit_proof"
+        ],
+        "type": "object"
+      },
       "BranchRevocation": {
         "additionalProperties": false,
         "properties": {
@@ -590,6 +932,16 @@
         ],
         "type": "object"
       },
+      "LegacyMetricsSnapshot": {
+        "additionalProperties": true,
+        "description": "Implementation-defined non-production diagnostic metrics.",
+        "not": {
+          "required": [
+            "schema"
+          ]
+        },
+        "type": "object"
+      },
       "MachineSpec": {
         "additionalProperties": false,
         "properties": {
@@ -619,8 +971,644 @@
         "type": "object"
       },
       "MetricsSnapshot": {
-        "additionalProperties": true,
-        "description": "Implementation-defined node metrics snapshot.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ProductionMetricsSnapshot"
+          },
+          {
+            "$ref": "#/components/schemas/LegacyMetricsSnapshot"
+          }
+        ]
+      },
+      "ObservationAuditExporter": {
+        "additionalProperties": false,
+        "properties": {
+          "archive_reconciled": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "last_error": {
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_success_ns": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_pending": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_stall_s": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "oldest_pending_age_s": {
+            "minimum": 0,
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pending": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "publish_blocked": {
+            "type": "boolean"
+          },
+          "publish_timeout_s": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "sink_call_blocked": {
+            "type": "boolean"
+          },
+          "stalled_for_s": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "archive_reconciled",
+          "configured",
+          "healthy",
+          "last_error",
+          "last_success_ns",
+          "max_pending",
+          "max_stall_s",
+          "oldest_pending_age_s",
+          "pending",
+          "publish_blocked",
+          "publish_timeout_s",
+          "running",
+          "sink_call_blocked",
+          "stalled_for_s"
+        ],
+        "type": "object"
+      },
+      "ObservationAuditOutbox": {
+        "additionalProperties": false,
+        "properties": {
+          "oldest_unpublished_age_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unpublished_count": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "oldest_unpublished_age_ns",
+          "unpublished_count"
+        ],
+        "type": "object"
+      },
+      "ObservationAuditVerification": {
+        "additionalProperties": false,
+        "properties": {
+          "captured_head_hash": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "captured_head_sequence": {
+            "minimum": -1,
+            "type": "integer"
+          },
+          "catching_up": {
+            "type": "boolean"
+          },
+          "error_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lag": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_full_verification_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "page_size": {
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "schema_definition_sha256": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "sticky_failure": {
+            "type": "boolean"
+          },
+          "sweep_cursor_sequence": {
+            "minimum": -1,
+            "type": "integer"
+          },
+          "sweep_last_completed_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sweep_last_completed_head_hash": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "sweep_last_completed_head_sequence": {
+            "minimum": -1,
+            "type": "integer"
+          },
+          "sweep_target_sequence": {
+            "minimum": -1,
+            "type": "integer"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "verified_through_hash": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "verified_through_sequence": {
+            "minimum": -1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "captured_head_hash",
+          "captured_head_sequence",
+          "catching_up",
+          "error_type",
+          "lag",
+          "last_full_verification_at_ns",
+          "page_size",
+          "schema_definition_sha256",
+          "sticky_failure",
+          "sweep_cursor_sequence",
+          "sweep_last_completed_at_ns",
+          "sweep_last_completed_head_hash",
+          "sweep_last_completed_head_sequence",
+          "sweep_target_sequence",
+          "valid",
+          "verified_through_hash",
+          "verified_through_sequence"
+        ],
+        "type": "object"
+      },
+      "ObservationCaptureStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "capture_in_progress": {
+            "type": "boolean"
+          },
+          "last_attempt_monotonic_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_error_type": {
+            "maxLength": 256,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_successful_attempt_sequence": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attempt_sequence",
+          "capture_in_progress",
+          "last_attempt_monotonic_ns",
+          "last_error_type",
+          "last_successful_attempt_sequence"
+        ],
+        "type": "object"
+      },
+      "ObservationInvariant": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "config_epoch": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "consumed": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "envelope_id": {
+            "type": "string"
+          },
+          "free_pool": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "initial_share": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "lease_residual": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "transferred_in": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "transferred_out": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          }
+        },
+        "required": [
+          "checked_at_ns",
+          "config_epoch",
+          "consumed",
+          "envelope_id",
+          "free_pool",
+          "healthy",
+          "initial_share",
+          "lease_residual",
+          "tenant_id",
+          "transferred_in",
+          "transferred_out"
+        ],
+        "type": "object"
+      },
+      "ObservationLeases": {
+        "additionalProperties": false,
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "by_status",
+          "total"
+        ],
+        "type": "object"
+      },
+      "ObservationPeerDispatcher": {
+        "additionalProperties": false,
+        "properties": {
+          "configured_peers": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "delivered_records": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "durable_retry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObservationPeerRetry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed_records": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "last_cycle_ns": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "last_error": {
+            "maxLength": 128,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pending_records": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prepared_transfers": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "superseded_records": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "configured_peers",
+          "delivered_records",
+          "durable_retry",
+          "failed_records",
+          "healthy",
+          "last_cycle_ns",
+          "last_error",
+          "pending_records",
+          "prepared_transfers",
+          "running",
+          "superseded_records"
+        ],
+        "type": "object"
+      },
+      "ObservationPeerRetry": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "exception_class": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "next_retry_delay_seconds": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "record_kind": {
+            "type": "string"
+          },
+          "target_warden": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_count",
+          "exception_class",
+          "next_retry_delay_seconds",
+          "record_kind",
+          "target_warden"
+        ],
+        "type": "object"
+      },
+      "ObservationReceipts": {
+        "additionalProperties": false,
+        "properties": {
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total"
+        ],
+        "type": "object"
+      },
+      "ObservationResourceVector": {
+        "items": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxItems": 128,
+        "minItems": 1,
+        "type": "array"
+      },
+      "ObservationResources": {
+        "additionalProperties": false,
+        "properties": {
+          "consumed": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "free_pool": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "initial_share": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "lease_residual": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "transferred_in": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          },
+          "transferred_out": {
+            "$ref": "#/components/schemas/ObservationResourceVector"
+          }
+        },
+        "required": [
+          "consumed",
+          "free_pool",
+          "initial_share",
+          "lease_residual",
+          "transferred_in",
+          "transferred_out"
+        ],
+        "type": "object"
+      },
+      "ObservationStorageCapacity": {
+        "additionalProperties": false,
+        "properties": {
+          "additional_shared_memory_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "database_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "effective_database_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "filesystem_free_bytes": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "free_pages": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "logical_live_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "main_database_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_database_bytes": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_page_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "min_free_disk_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "page_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "page_size": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "prior_full_error": {
+            "type": "boolean"
+          },
+          "remaining_main_growth_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "required_filesystem_free_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reserve_pages": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reusable_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shared_memory_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "wal_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "worst_case_shared_memory_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "worst_case_transaction_wal_bytes": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "additional_shared_memory_bytes",
+          "database_bytes",
+          "effective_database_bytes",
+          "filesystem_free_bytes",
+          "free_pages",
+          "healthy",
+          "logical_live_bytes",
+          "main_database_bytes",
+          "max_database_bytes",
+          "max_page_count",
+          "min_free_disk_bytes",
+          "page_count",
+          "page_size",
+          "prior_full_error",
+          "remaining_main_growth_bytes",
+          "required_filesystem_free_bytes",
+          "reserve_pages",
+          "reusable_bytes",
+          "shared_memory_bytes",
+          "wal_bytes",
+          "worst_case_shared_memory_bytes",
+          "worst_case_transaction_wal_bytes"
+        ],
+        "type": "object"
+      },
+      "ObservationTransfers": {
+        "additionalProperties": false,
+        "properties": {
+          "in_flight_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "inbound_gap_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "incoming_compacted_high_water": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "incoming_contiguous_high_water": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "incoming_streams": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "outgoing_acked_high_water": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "outgoing_compacted_high_water": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "outgoing_streams": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "in_flight_count",
+          "inbound_gap_count",
+          "incoming_compacted_high_water",
+          "incoming_contiguous_high_water",
+          "incoming_streams",
+          "outgoing_acked_high_water",
+          "outgoing_compacted_high_water",
+          "outgoing_streams"
+        ],
         "type": "object"
       },
       "Policy": {
@@ -760,6 +1748,192 @@
           "instance",
           "code",
           "request_id"
+        ],
+        "type": "object"
+      },
+      "ProductionMetricsSnapshot": {
+        "additionalProperties": false,
+        "description": "Immutable production observation plus cache-only dynamic health.",
+        "properties": {
+          "age_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "audit_exporter": {
+            "$ref": "#/components/schemas/ObservationAuditExporter"
+          },
+          "audit_outbox": {
+            "$ref": "#/components/schemas/ObservationAuditOutbox"
+          },
+          "audit_verification": {
+            "$ref": "#/components/schemas/ObservationAuditVerification"
+          },
+          "authority_anchor": {
+            "$ref": "#/components/schemas/AuthorityAnchorStatus"
+          },
+          "authority_checkpoint": {
+            "$ref": "#/components/schemas/AuthorityCheckpoint"
+          },
+          "capture_duration_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "capture_started_monotonic_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "capture_status": {
+            "$ref": "#/components/schemas/ObservationCaptureStatus"
+          },
+          "captured_at_monotonic_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "captured_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "captured_authority_anchor": {
+            "$ref": "#/components/schemas/AuthorityAnchorStatus"
+          },
+          "checked_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "clock_healthy": {
+            "type": "boolean"
+          },
+          "core_state_revision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "database_instance_id": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "fresh": {
+            "type": "boolean"
+          },
+          "generation": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "invariant": {
+            "$ref": "#/components/schemas/ObservationInvariant"
+          },
+          "invariant_healthy": {
+            "type": "boolean"
+          },
+          "leases": {
+            "$ref": "#/components/schemas/ObservationLeases"
+          },
+          "lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "max_age_ns": {
+            "const": 15000000000,
+            "type": "integer"
+          },
+          "observation_eligible": {
+            "type": "boolean"
+          },
+          "peer_dispatcher": {
+            "$ref": "#/components/schemas/ObservationPeerDispatcher"
+          },
+          "published_at_monotonic_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "published_at_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "receipts": {
+            "$ref": "#/components/schemas/ObservationReceipts"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ObservationResources"
+          },
+          "revision": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/RuntimeStatus"
+          },
+          "schema": {
+            "const": "lets.observation-snapshot/v1"
+          },
+          "served_at_monotonic_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "service_ready": {
+            "type": "boolean"
+          },
+          "signing_key_healthy": {
+            "type": "boolean"
+          },
+          "snapshot_id": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "sqlite_schema_sha256": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "storage_capacity": {
+            "$ref": "#/components/schemas/ObservationStorageCapacity"
+          },
+          "transfers": {
+            "$ref": "#/components/schemas/ObservationTransfers"
+          }
+        },
+        "required": [
+          "audit_exporter",
+          "audit_outbox",
+          "audit_verification",
+          "authority_anchor",
+          "authority_checkpoint",
+          "capture_duration_ns",
+          "schema",
+          "generation",
+          "snapshot_id",
+          "lifetime_id",
+          "revision",
+          "capture_started_monotonic_ns",
+          "captured_at_ns",
+          "captured_at_monotonic_ns",
+          "captured_authority_anchor",
+          "checked_at_ns",
+          "clock_healthy",
+          "core_state_revision",
+          "database_instance_id",
+          "invariant",
+          "invariant_healthy",
+          "leases",
+          "max_age_ns",
+          "observation_eligible",
+          "peer_dispatcher",
+          "published_at_ns",
+          "published_at_monotonic_ns",
+          "receipts",
+          "resources",
+          "runtime",
+          "signing_key_healthy",
+          "sqlite_schema_sha256",
+          "storage_capacity",
+          "transfers",
+          "age_ns",
+          "capture_status",
+          "fresh",
+          "ready",
+          "served_at_monotonic_ns",
+          "service_ready"
         ],
         "type": "object"
       },
@@ -1110,6 +2284,80 @@
         ],
         "type": "object"
       },
+      "TerminalAuditProof": {
+        "additionalProperties": false,
+        "properties": {
+          "authority_checkpoint_sha256": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "authority_state_revision": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "database_instance_id": {
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "type": "string"
+          },
+          "generation": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "schema": {
+            "const": "lets.terminal-audit-proof/v1"
+          },
+          "schema_definition_sha256": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "startup_full_verification_at_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "verification_mode": {
+            "enum": [
+              "full",
+              "trusted-startup-plus-tail"
+            ],
+            "type": "string"
+          },
+          "verified_at_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "verified_head_hash": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "verified_head_sequence": {
+            "minimum": -1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "authority_checkpoint_sha256",
+          "authority_state_revision",
+          "database_instance_id",
+          "generation",
+          "lifetime_id",
+          "schema",
+          "schema_definition_sha256",
+          "startup_full_verification_at_ns",
+          "valid",
+          "verification_mode",
+          "verified_at_ns",
+          "verified_head_hash",
+          "verified_head_sequence"
+        ],
+        "type": "object"
+      },
       "TransferAck": {
         "additionalProperties": false,
         "properties": {
@@ -1417,7 +2665,7 @@
   },
   "info": {
     "title": "LETS Warden API",
-    "version": "1.0.4"
+    "version": "1.0.5"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2156,6 +3404,82 @@
           }
         ],
         "summary": "Spawn Child"
+      }
+    },
+    "/v1/maintenance/authority-fence": {
+      "post": {
+        "operationId": "fence_authority_admission_v1_maintenance_authority_fence_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorityFenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorityFenceSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Fence Authority Admission"
+      }
+    },
+    "/v1/maintenance/authority-status": {
+      "get": {
+        "operationId": "authority_status_v1_maintenance_authority_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorityAnchorStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Authority Status"
       }
     },
     "/v1/maintenance/reclaim": {

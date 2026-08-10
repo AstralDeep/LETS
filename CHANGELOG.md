@@ -5,7 +5,128 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
-## [1.0.4] - 2026-08-09
+## [1.0.5] - 2026-08-10
+
+### Fixed
+
+- Decoupled sustained-soak health observation from the serial mixed-workload cycle. A dedicated
+  client now samples on an absolute monotonic schedule, retains explicit scheduling and
+  observation timing, shares one fail-closed audit-error budget for the whole run, and makes a
+  missed exporter-stall deadline a release failure instead of allowing a later healthy response
+  to hide the evidence gap.
+- Replaced the infeasible fixed 300-cycle and coupled 301-health-sample release floors with
+  independently verifiable evidence contracts. Workload adequacy is derived from host-bound
+  authorized active time at a bounded 15-second-per-cycle rate and requires three complete
+  rotations through all six directed transfer paths plus three executor reopen intervals (54 cycles
+  with the supplied frequencies); health adequacy is derived from the independent sampler's
+  interval and strict per-node observation coverage. Recorded pause episodes must bind the exact
+  orchestrator partition schedule before excluded time can reduce the workload-rate denominator.
+- Made release publication recompute the active-time, pause, sample-retention, per-node cadence,
+  and throughput relationships from raw soak evidence. A forged or truncated workload record, a
+  sampler failure, or a mismatch between the evaluator and release verifier remains
+  non-promotable.
+- Made warden and protected-executor authority recovery symmetric and fail closed. Only a
+  well-formed, typed helper-transport failure after successful admission can recover on a later
+  explicit transaction after its bounded cooldown; the failed call is never retried internally.
+  Admission-time transport failure requires a fresh store/anchor open, while anchor semantic,
+  protocol, malformed-transport, and other provider failures remain permanently sticky for that
+  instance.
+- Bound process-isolated anchor helper start, request correlation, lock/I/O, response, and reset to
+  one absolute deadline. A fresh process-file store lifetime durably confirms its exact checkpoint,
+  and any uncertain mutating reply is reconciled and confirmed before recovery is reported.
+- Added authenticated bounded authority status to metrics and
+  `GET /v1/maintenance/authority-status`, plus the idempotent
+  `POST /v1/maintenance/authority-fence` snapshot-and-fence operation. The fence binds the exact
+  warden, namespace PID, process-lifetime ID, restart ID, monotonic timestamp, and terminal anchor
+  status before a planned host `SIGKILL`.
+- Strengthened the sustained soak with one deterministic injected executor fault after SQLite
+  `COMMIT` and a successful external CAS, surfaced as a classified lost reply. The durable claim is
+  burned, the original call fails closed, and retry raises `ReplayError` with zero protected
+  effects. Every core and executor lifetime is captured terminally; the raw global authority
+  fault, episode, attempt, and recovery counters must each be exactly one with zero permanent
+  faults, and final verification snapshot-and-fences all surviving wardens.
+
+### Changed
+
+- The signed `v1.0.4` tag is retained as an unpromoted candidate. Its package, provenance,
+  hardened acceptance, full 3,601-second mixed workload, conservation, all six transfer paths, 26
+  durable partition recoveries, and resource/cleanup checks passed; its records also captured all
+  three planned `SIGKILL` operations. Promotion was nevertheless blocked because inline health
+  requests left an unobserved 26.45-second interval against a 15-second audit-stall bound, while the
+  same serial design made its fixed 300-cycle and 301-sample thresholds mathematically infeasible
+  under the injected pauses. No `1.0.4` package or final OCI tag was published and no GitHub release
+  was created.
+  Version 1.0.5 fixes the evidence design forward without moving or reusing that public tag.
+- Diagnostic provenance for the next local, unpublished candidate is retained separately. Commit
+  `e304cb742562da4fcea0b58afbcb44f30e382812` passed its exact production acceptance in 61.076
+  seconds; the retained local `results/generated/production-profile-acceptance-v105-e304cb7.json`
+  record's raw SHA-256 is
+  `a399e0cbe71cb80a1a667b3655c1eaa68951b6fd9b0dcbbba6e9b49d707c693a`. Its exact one-hour soak
+  then failed after 122.268 seconds and 13 workload cycles, before the first partition or restart,
+  when warden A remained on HTTP 503 `storage_error` with an undifferentiated sticky authority
+  outage. The workload had run for 87.676576 seconds. The retained local
+  `results/generated/production-profile-soak-v105-e304cb7-anchor-failure.json` raw `passed: false`
+  record is SHA-256
+  `d4a789e351a09df0b98c4bb139ecb4618f734f634bd0fe6b5f6bf9aceeeb210c`; its canonical payload is
+  `sha256:d1e667fa459482a1b40c8e32269bf6f7b1c037799b9e39c4a31ecde45cfe9aee`. Contemporaneous broad
+  Docker/VM delays made a host/VM stall near the five-second helper boundary a useful hypothesis,
+  not a proven root cause. Cleanup proved zero remaining containers, networks, and volumes. This
+  local diagnostic was not a release asset; no Git release tag was created, the candidate was not
+  promoted or released, and no package or final OCI release tag was published. This is not passing
+  soak evidence and does not authorize promotion. It motivated the typed transport recovery and
+  terminal-lifetime proof above, which still require a fresh mandatory exact-candidate soak.
+- A second unpublished exact candidate, commit
+  `9c8536ff36e5308ec5a10f262cbe0876744cc73c`, passed production acceptance in 54.049 seconds;
+  `results/generated/production-profile-acceptance-v105-9c8536f-final.json` has raw SHA-256
+  `dba4f029e6bb0043f0beca532fe9af48ccbe9cc90eccfbfccf6a2007198c37f4`. Its soak failed
+  after 111.114 seconds, with 75.184322 workload seconds and 14 cycles completed before any
+  partition or restart. The retained raw failed record
+  `results/generated/production-profile-soak-v105-9c8536f-final-failure.json` has SHA-256
+  `85a596e136fde912f5671c7d3d24e679c50b7593bb63b5e6e4d0b8c2aae07722`; its canonical
+  payload is `sha256:203316f62bf23c707e1fea4f7203cb1e8fb5cdb75f0a34e8ae1ee484f916ffea`.
+  Health sample 7 was scheduled at 70 seconds, started at 70.000234, and had an exact
+  75.055772-second deadline. Metrics had already returned a healthy authority document, but the
+  then-redundant direct authority-status request could not complete within the remainder of that
+  approximately 5.055-second sample window. This was consistent with a status path structurally
+  coupled to the SQLite authority transaction lock; deterministic local reproduction confirmed
+  that coupling. The separate failure diagnostic immediately returned the same healthy lifetime
+  `12f8192cbf6b560e7df5182c260bdc73` in 108.854 milliseconds with zero transport faults,
+  episodes, attempts, recoveries, unresolved faults, or permanent faults. The recorded retry count
+  of one described that retryable first-request failure even though no extra HTTP attempt fit the
+  deadline; 1.0.5 now counts only actual additional attempts. This was observability contention,
+  not an authority-anchor fault or a chaos/resource failure. Cleanup proved zero remaining
+  containers, networks, and volumes. The record is failure diagnostics only: the candidate was
+  not promoted or released; no Git tag, package, or final OCI release tag was published, and a
+  fresh exact-candidate soak remains mandatory.
+- Carries forward every 1.0.1 through 1.0.4 candidate change, including the pre-authentication body
+  deadline, exact-candidate sustained soak, cgroup-v2 resource proof, bounded audit-BUSY recovery,
+  serialized SQLite recovery, the bounded production peer deadline, full convergence budget, and
+  exact failed-run cleanup.
+
+### Compatibility, migration, and rollback
+
+- Warden schema 2, executor schema 5, manifest semantics, and durable authority/replay formats are
+  unchanged; no database or executor migration is required. Existing public LETS v1 operations
+  remain compatible with 1.0.0 through 1.0.4. Authority status fields in authenticated metrics,
+  the two authenticated maintenance endpoints, and the typed 503
+  `authority_anchor_transport_error` problem code/type are additive public API changes. The private
+  bundled parent/helper protocol is intentionally changed in 1.0.5 by exact request correlation
+  and `confirm`; deploy it only as a matched 1.0.5 pair and never mix a pre-1.0.5 helper with a
+  1.0.5 parent. The top-level soak evidence and its nested workload record remain the non-runtime
+  schemas
+  `lets.production-profile-soak/v2` and
+  `lets.production-profile-soak-workload/v2`; their stronger authority-lifetime evidence is not a
+  runtime protocol or storage change.
+- Drain peer and audit queues, verify an authority-safe recovery bundle, stop every old process,
+  and deploy only the exact 1.0.5 artifacts. Mixed-version operation remains unsupported; retain
+  the 60-second peer request deadline and 120-second stop grace of the supplied profile.
+- Binary/schema compatibility does not make an unpublished candidate an approved rollback target.
+  Versions 1.0.1 through 1.0.4 were never promoted, while 1.0.0 lacks the later production defenses;
+  v1.0.5 therefore has no approved earlier binary rollback digest. Never restore older database,
+  audit, replay, or anchor bytes; preserve live monotonic state, fence the cluster, and recover
+  forward with a patch release.
+
+## [1.0.4] - 2026-08-09 (unreleased candidate)
 
 ### Fixed
 
@@ -216,8 +337,9 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.4...HEAD
-[1.0.4]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.4
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.5
+[1.0.4]: https://github.com/AstralDeep/LETS/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/AstralDeep/LETS/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/AstralDeep/LETS/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/AstralDeep/LETS/compare/v1.0.0...v1.0.1

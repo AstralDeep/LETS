@@ -7,6 +7,7 @@ import secrets
 import shutil
 import sqlite3
 import threading
+import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from lets.canonical import b64url_decode, b64url_encode, canonical_json
 from lets.clock import Clock, SystemClock
 from lets.crypto import PublicKeyRegistry
 from lets.errors import (
+    AuthorityAnchorTransportError,
     ClockUncertainError,
     PolicyError,
     ReplayError,
@@ -37,6 +39,13 @@ from lets.vector import MAX_RESOURCE
 
 _REPLAY_GC_BATCH = 128
 _ZERO_HASH = bytes(32)
+_AUTHORITY_RECOVERY_DELAYS_NS = (
+    250_000_000,
+    500_000_000,
+    1_000_000_000,
+    2_000_000_000,
+    5_000_000_000,
+)
 
 
 class ReceiptReplayStore(Protocol):
@@ -136,6 +145,7 @@ class ExecutorReplayStatus:
     wal_bytes: int
     shared_memory_bytes: int
     filesystem_free_bytes: int | None
+    authority_checkpoint: ExecutorAuthorityCheckpoint | None = None
 
 
 class SQLiteReceiptReplayStore:
@@ -191,13 +201,29 @@ class SQLiteReceiptReplayStore:
             raise ValidationError("executor replay identity is read from existing storage")
         self._busy_timeout_ms = busy_timeout_ms
         self._authority_anchor = authority_anchor
-        self._authority_faulted = False
-        self._authority_transaction_lock = threading.Lock()
+        self._authority_transaction_lock = threading.RLock()
+        self._authority_state = "healthy" if authority_anchor is not None else "disabled"
+        self._authority_lifetime_id = os.urandom(16).hex()
+        self._authority_transport_faults = 0
+        self._authority_transport_fault_episodes = 0
+        self._authority_transport_recovery_attempts = 0
+        self._authority_transport_recoveries = 0
+        self._authority_permanent_faults = 0
+        self._authority_fault_stage: str | None = None
+        self._authority_fault_reason: str | None = None
+        self._authority_retry_not_before_monotonic_ns: int | None = None
+        self._authority_first_fault: dict[str, object] | None = None
+        self._authority_mutation_uncertain = False
+        self._authority_backoff_index = 0
+        self._authority_startup_confirm_pending = isinstance(
+            authority_anchor, ProcessFileExecutorAuthorityAnchor
+        )
         self._identity: ExecutorReplayIdentity | None = identity
         self._anchored = authority_anchor is not None
         self._connect_path = self.path
         self._connect_uri = False
         reserved = False
+        initialized = False
         if _create:
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
             try:
@@ -213,6 +239,7 @@ class SQLiteReceiptReplayStore:
         try:
             if _create:
                 self._initialize()
+                initialized = True
             else:
                 self._verify_existing()
             if self.integrity_check() != ("ok",):
@@ -220,12 +247,12 @@ class SQLiteReceiptReplayStore:
             if self._anchored:
                 self._reconcile_existing(initialize=_create)
         except sqlite3.Error as exc:
-            if reserved:
+            if reserved and not initialized:
                 with suppress(OSError):
                     os.unlink(self.path)
             raise StorageError("executor replay SQLite admission failed") from exc
         except BaseException:
-            if reserved:
+            if reserved and not initialized:
                 with suppress(OSError):
                     os.unlink(self.path)
             raise
@@ -705,7 +732,35 @@ class SQLiteReceiptReplayStore:
     def rollback_protected(self) -> bool:
         """Whether successful claims are acknowledged by an external anchor."""
 
-        return self._anchored and not self._authority_faulted
+        with self._authority_transaction_lock:
+            return self._anchored and self._authority_state == "healthy"
+
+    def authority_status(self) -> dict[str, object]:
+        """Return bounded monotonic executor-anchor state for soak evidence."""
+
+        with self._authority_transaction_lock:
+            return {
+                "enabled": self._authority_anchor is not None,
+                "state": self._authority_state,
+                "healthy": self._authority_state == "healthy",
+                "lifetime_id": self._authority_lifetime_id,
+                "transport_faults": self._authority_transport_faults,
+                "transport_fault_episodes": self._authority_transport_fault_episodes,
+                "transport_recovery_attempts": self._authority_transport_recovery_attempts,
+                "transport_recoveries": self._authority_transport_recoveries,
+                "unresolved_transport_faults": int(
+                    self._authority_state == "recoverable_transport_fault"
+                ),
+                "permanent_faults": self._authority_permanent_faults,
+                "fault_stage": self._authority_fault_stage,
+                "fault_reason": self._authority_fault_reason,
+                "retry_not_before_monotonic_ns": self._authority_retry_not_before_monotonic_ns,
+                "first_fault": (
+                    None
+                    if self._authority_first_fault is None
+                    else dict(self._authority_first_fault)
+                ),
+            }
 
     def _authority_checkpoint(self, connection: sqlite3.Connection) -> ExecutorAuthorityCheckpoint:
         row = connection.execute(
@@ -759,36 +814,226 @@ class SQLiteReceiptReplayStore:
             raise StorageError("executor replay historical claim digest is malformed")
         return value
 
+    def _invoke_authority_reconcile(
+        self,
+        anchor: ExecutorAuthorityAnchor,
+        checkpoint: ExecutorAuthorityCheckpoint,
+        connection: sqlite3.Connection,
+        *,
+        initialize: bool,
+        durable_confirm: bool,
+    ) -> None:
+        def claim_digest_at(sequence: int) -> bytes | None:
+            return self._claim_digest_at(connection, sequence)
+
+        if durable_confirm:
+            combined = getattr(anchor, "reconcile_and_confirm", None)
+            if callable(combined):
+                combined(
+                    checkpoint,
+                    claim_digest_at=claim_digest_at,
+                    initialize=initialize,
+                )
+                return
+        anchor.reconcile(
+            checkpoint,
+            claim_digest_at=claim_digest_at,
+            initialize=initialize,
+        )
+        if durable_confirm:
+            confirm = getattr(anchor, "confirm", None)
+            if not callable(confirm):
+                raise StorageError(
+                    "executor authority anchor cannot durably confirm reconciliation"
+                )
+            confirm(checkpoint)
+
     def _reconcile_authority_anchor(
-        self, connection: sqlite3.Connection, *, initialize: bool = False
+        self,
+        connection: sqlite3.Connection,
+        *,
+        stage: str,
+        initialize: bool = False,
     ) -> None:
         anchor = self._authority_anchor
         if anchor is None:
             return
-        if self._authority_faulted:
+        if self._authority_state == "permanent_fault":
             raise StorageError(
-                "executor authority anchor previously faulted; restart after operator repair"
+                "executor authority anchor previously faulted permanently; "
+                "restart after operator repair"
             )
+        if self._authority_state == "recoverable_transport_fault":
+            retry_not_before = self._authority_retry_not_before_monotonic_ns
+            now = time.monotonic_ns()
+            if retry_not_before is None or now < retry_not_before:
+                raise StorageError(
+                    "executor authority anchor transport recovery cooldown is active"
+                )
+            self._authority_transport_recovery_attempts = self._saturating_increment(
+                self._authority_transport_recovery_attempts
+            )
+            try:
+                checkpoint = self._authority_checkpoint(connection)
+                durable_confirm = (
+                    self._authority_mutation_uncertain or self._authority_startup_confirm_pending
+                )
+                self._invoke_authority_reconcile(
+                    anchor,
+                    checkpoint,
+                    connection,
+                    initialize=initialize,
+                    durable_confirm=durable_confirm,
+                )
+            except AuthorityAnchorTransportError as exc:
+                self._require_well_formed_transport_error(exc, stage=stage)
+                self._arm_authority_transport_fault(exc, stage=stage, new_episode=False)
+                raise
+            except StorageError:
+                self._promote_authority_permanent_fault(
+                    stage=stage,
+                    reason="non_transport_recovery_failure",
+                )
+                raise
+            except Exception as exc:
+                self._promote_authority_permanent_fault(
+                    stage=stage,
+                    reason="provider_recovery_failure",
+                )
+                raise StorageError(
+                    "executor authority anchor provider failed during recovery"
+                ) from exc
+            self._authority_state = "healthy"
+            self._authority_transport_recoveries = self._saturating_increment(
+                self._authority_transport_recoveries
+            )
+            self._authority_fault_stage = None
+            self._authority_fault_reason = None
+            self._authority_retry_not_before_monotonic_ns = None
+            self._authority_mutation_uncertain = False
+            self._authority_backoff_index = 0
+            self._authority_startup_confirm_pending = False
+            return
         try:
             checkpoint = self._authority_checkpoint(connection)
-            anchor.reconcile(
+            self._invoke_authority_reconcile(
+                anchor,
                 checkpoint,
-                claim_digest_at=lambda sequence: self._claim_digest_at(connection, sequence),
+                connection,
                 initialize=initialize,
+                durable_confirm=self._authority_startup_confirm_pending,
             )
+            if self._authority_startup_confirm_pending:
+                self._authority_startup_confirm_pending = False
+        except AuthorityAnchorTransportError as exc:
+            self._require_well_formed_transport_error(exc, stage=stage)
+            self._arm_authority_transport_fault(exc, stage=stage, new_episode=True)
+            raise
         except StorageError:
-            self._authority_faulted = True
+            self._promote_authority_permanent_fault(
+                stage=stage,
+                reason="non_transport_anchor_failure",
+            )
             raise
         except Exception as exc:
-            self._authority_faulted = True
+            self._promote_authority_permanent_fault(
+                stage=stage,
+                reason="provider_anchor_failure",
+            )
             raise StorageError("executor authority anchor provider failed") from exc
+
+    @staticmethod
+    def _saturating_increment(value: int) -> int:
+        return min(MAX_RESOURCE, value + 1)
+
+    def _require_well_formed_transport_error(
+        self,
+        exc: AuthorityAnchorTransportError,
+        *,
+        stage: str,
+    ) -> None:
+        if AuthorityAnchorTransportError.is_well_formed(exc):
+            return
+        self._promote_authority_permanent_fault(
+            stage=stage,
+            reason="malformed_transport_error",
+        )
+        raise StorageError(
+            "executor authority anchor returned a malformed transport failure"
+        ) from None
+
+    @staticmethod
+    def _bounded_helper_value(value: object, *, positive: bool = False) -> int | None:
+        minimum = 1 if positive else -(1 << 31)
+        if type(value) is int and minimum <= value <= (1 << 31) - 1:
+            return value
+        return None
+
+    def _arm_authority_transport_fault(
+        self,
+        exc: AuthorityAnchorTransportError,
+        *,
+        stage: str,
+        new_episode: bool,
+    ) -> None:
+        reason = exc.reason
+        operation = exc.operation
+        request_flushed = exc.request_flushed
+        mutation_uncertain = exc.mutation_uncertain
+        self._authority_transport_faults = self._saturating_increment(
+            self._authority_transport_faults
+        )
+        if new_episode:
+            self._authority_transport_fault_episodes = self._saturating_increment(
+                self._authority_transport_fault_episodes
+            )
+            self._authority_backoff_index = 0
+        else:
+            self._authority_backoff_index = min(
+                len(_AUTHORITY_RECOVERY_DELAYS_NS) - 1,
+                self._authority_backoff_index + 1,
+            )
+        self._authority_state = "recoverable_transport_fault"
+        self._authority_fault_stage = stage
+        self._authority_fault_reason = reason
+        self._authority_mutation_uncertain = (
+            self._authority_mutation_uncertain or mutation_uncertain
+        )
+        self._authority_retry_not_before_monotonic_ns = min(
+            MAX_RESOURCE,
+            time.monotonic_ns() + _AUTHORITY_RECOVERY_DELAYS_NS[self._authority_backoff_index],
+        )
+        if self._authority_first_fault is None:
+            self._authority_first_fault = {
+                "reason": reason,
+                "stage": stage,
+                "operation": operation,
+                "request_flushed": request_flushed,
+                "mutation_uncertain": mutation_uncertain,
+                "helper_pid": self._bounded_helper_value(exc.helper_pid, positive=True),
+                "helper_exit_code": self._bounded_helper_value(exc.helper_exit_code),
+            }
+
+    def _promote_authority_permanent_fault(self, *, stage: str, reason: str) -> None:
+        if self._authority_state != "permanent_fault":
+            self._authority_permanent_faults = self._saturating_increment(
+                self._authority_permanent_faults
+            )
+        self._authority_state = "permanent_fault"
+        self._authority_fault_stage = stage
+        self._authority_fault_reason = reason
+        self._authority_retry_not_before_monotonic_ns = None
 
     def _reconcile_existing(self, *, initialize: bool = False) -> None:
         with self._authority_transaction_lock:
             connection = self._connect()
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                self._reconcile_authority_anchor(connection, initialize=initialize)
+                self._reconcile_authority_anchor(
+                    connection,
+                    stage="post_commit" if initialize else "pre_begin",
+                    initialize=initialize,
+                )
                 connection.rollback()
             except BaseException:
                 if connection.in_transaction:
@@ -803,7 +1048,7 @@ class SQLiteReceiptReplayStore:
             connection = self._connect()
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                self._reconcile_authority_anchor(connection)
+                self._reconcile_authority_anchor(connection, stage="pre_begin")
                 yield connection
                 connection.commit()
                 if self._anchored:
@@ -813,7 +1058,7 @@ class SQLiteReceiptReplayStore:
                     # publishes its extension too.  A separate cloned database
                     # is not locked and must still win the external CAS.
                     connection.execute("BEGIN IMMEDIATE")
-                    self._reconcile_authority_anchor(connection)
+                    self._reconcile_authority_anchor(connection, stage="post_commit")
                     connection.rollback()
             except sqlite3.IntegrityError as exc:
                 if connection.in_transaction:
@@ -1035,7 +1280,7 @@ class SQLiteReceiptReplayStore:
             connection = self._connect()
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                self._reconcile_authority_anchor(connection)
+                self._reconcile_authority_anchor(connection, stage="pre_begin")
                 connection.rollback()
                 row = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
                 if row is None:
@@ -1056,9 +1301,12 @@ class SQLiteReceiptReplayStore:
 
         with self._authority_transaction_lock:
             connection = self._connect()
+            authority_checkpoint: ExecutorAuthorityCheckpoint | None = None
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                self._reconcile_authority_anchor(connection)
+                self._reconcile_authority_anchor(connection, stage="pre_begin")
+                if self._anchored:
+                    authority_checkpoint = self._authority_checkpoint(connection)
                 row = connection.execute(
                     """
                     SELECT claim_sequence, clock_floor_ns,
@@ -1076,6 +1324,7 @@ class SQLiteReceiptReplayStore:
                 raise
             finally:
                 connection.close()
+            authority_healthy = self._anchored and self._authority_state == "healthy"
         sizes: list[int] = []
         for candidate in (self.path, f"{self.path}-wal", f"{self.path}-shm"):
             size = 0
@@ -1087,8 +1336,9 @@ class SQLiteReceiptReplayStore:
             filesystem_free = shutil.disk_usage(Path(self.path).parent).free
         return ExecutorReplayStatus(
             path=self.path,
-            rollback_protected=self.rollback_protected,
-            authority_healthy=self._anchored and not self._authority_faulted,
+            rollback_protected=authority_healthy,
+            authority_healthy=authority_healthy,
+            authority_checkpoint=authority_checkpoint,
             identity=self._identity,
             claim_sequence=int(row[0]),
             clock_floor_ns=None if row[1] is None else int(row[1]),

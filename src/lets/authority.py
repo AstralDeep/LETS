@@ -14,21 +14,23 @@ protocol with a hardware monotonic counter or conditional remote record.
 from __future__ import annotations
 
 import importlib
+import math
 import os
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any, Protocol, Self, cast
 
 from lets.canonical import b64url_decode, b64url_encode, canonical_json, strict_json_loads
-from lets.errors import StorageError, ValidationError
+from lets.errors import AuthorityAnchorTransportError, StorageError, ValidationError
 from lets.ids import require_identifier, require_warden_id
 from lets.vector import MAX_RESOURCE
 
@@ -318,8 +320,8 @@ class FileAuthorityAnchor:
         if (
             isinstance(timeout_s, bool)
             or not isinstance(timeout_s, (int, float))
-            or timeout_s <= 0
-            or timeout_s > 60
+            or not math.isfinite(float(timeout_s))
+            or not 0 < float(timeout_s) <= 60
         ):
             raise ValidationError("authority anchor timeout_s must be in (0, 60]")
         self._timeout_s = float(timeout_s)
@@ -448,6 +450,18 @@ class FileAuthorityAnchor:
             return self._read()
 
 
+@dataclass(slots=True)
+class _HelperSpawnAttempt:
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    ready: threading.Event = field(default_factory=threading.Event)
+    decision: threading.Event = field(default_factory=threading.Event)
+    cleaned: threading.Event = field(default_factory=threading.Event)
+    process: subprocess.Popen[bytes] | None = None
+    error: BaseException | None = None
+    cancelled: bool = False
+    adopted: bool = False
+
+
 class ProcessFileAuthorityAnchor:
     """File anchor whose blocking I/O is isolated behind a killable helper.
 
@@ -470,8 +484,8 @@ class ProcessFileAuthorityAnchor:
         if (
             isinstance(timeout_s, bool)
             or not isinstance(timeout_s, (int, float))
-            or timeout_s <= 0
-            or timeout_s > 60
+            or not math.isfinite(float(timeout_s))
+            or not 0 < float(timeout_s) <= 60
         ):
             raise ValidationError("authority anchor timeout_s must be in (0, 60]")
         command = (
@@ -488,12 +502,55 @@ class ProcessFileAuthorityAnchor:
         self._process_lock = threading.Lock()
         self._process: subprocess.Popen[bytes] | None = None
         self._responses: Queue[bytes | None] | None = None
+        self._spawn_lock = threading.Lock()
+        self._spawn_attempt: _HelperSpawnAttempt | None = None
+        self._reset_required = threading.Event()
 
     @property
     def path(self) -> Path:
         return self._path
 
-    def _stop_helper(self) -> None:
+    @staticmethod
+    def _bounded_process_value(value: object, *, positive: bool = False) -> int | None:
+        minimum = 1 if positive else -(1 << 31)
+        if type(value) is int and minimum <= value <= (1 << 31) - 1:
+            return value
+        return None
+
+    @classmethod
+    def _transport_error(
+        cls,
+        message: str,
+        *,
+        reason: str,
+        operation: str,
+        request_flushed: bool,
+        mutation_uncertain: bool,
+        process: subprocess.Popen[bytes] | None,
+    ) -> AuthorityAnchorTransportError:
+        return AuthorityAnchorTransportError(
+            message,
+            reason=reason,
+            operation=operation,
+            request_flushed=request_flushed,
+            mutation_uncertain=mutation_uncertain,
+            helper_pid=(
+                None if process is None else cls._bounded_process_value(process.pid, positive=True)
+            ),
+            helper_exit_code=(
+                None if process is None else cls._bounded_process_value(process.poll())
+            ),
+        )
+
+    @staticmethod
+    def _wait_with_deadline(process: subprocess.Popen[bytes], deadline: float) -> None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        with suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=min(0.25, remaining))
+
+    def _stop_helper(self, *, deadline: float | None = None) -> None:
         process = self._process
         self._process = None
         self._responses = None
@@ -503,29 +560,59 @@ class ProcessFileAuthorityAnchor:
             if process.stdin is not None:
                 process.stdin.close()
         if process.poll() is None:
-            try:
-                process.wait(timeout=0.25)
-            except subprocess.TimeoutExpired:
+            cleanup_deadline = (
+                time.monotonic() + 0.75 if deadline is None else max(deadline, time.monotonic())
+            )
+            self._wait_with_deadline(process, cleanup_deadline)
+            if process.poll() is None:
                 with suppress(OSError):
                     process.terminate()
-                try:
-                    process.wait(timeout=0.25)
-                except subprocess.TimeoutExpired:
-                    with suppress(OSError):
-                        process.kill()
-                    with suppress(subprocess.TimeoutExpired):
-                        process.wait(timeout=0.25)
+                self._wait_with_deadline(process, cleanup_deadline)
+            if process.poll() is None:
+                with suppress(OSError):
+                    process.kill()
+                self._wait_with_deadline(process, cleanup_deadline)
         if process.stdout is not None:
-            process.stdout.close()
+            with suppress(OSError):
+                process.stdout.close()
 
     def close(self) -> None:
         """Stop the isolated I/O helper; safe to call more than once."""
 
+        self._cancel_spawn()
         with self._process_lock:
             self._stop_helper()
+            self._reset_required.clear()
 
-    def _start_helper(self) -> tuple[subprocess.Popen[bytes], Queue[bytes | None]]:
-        command = (*self._helper_command, "--path", str(self._path))
+    @staticmethod
+    def _dispose_unadopted_helper(process: subprocess.Popen[bytes]) -> None:
+        """Best-effort cleanup owned by the daemon spawn worker."""
+
+        with suppress(OSError):
+            if process.stdin is not None:
+                process.stdin.close()
+        if process.poll() is None:
+            with suppress(OSError):
+                process.kill()
+            with suppress(subprocess.TimeoutExpired, OSError):
+                process.wait(timeout=0.25)
+        if process.stdout is not None:
+            with suppress(OSError):
+                process.stdout.close()
+
+    def _cancel_spawn(self) -> None:
+        with self._spawn_lock:
+            attempt = self._spawn_attempt
+        if attempt is None:
+            return
+        with attempt.lock:
+            if not attempt.adopted and not attempt.cleaned.is_set():
+                attempt.cancelled = True
+                attempt.decision.set()
+
+    def _spawn_helper(self, attempt: _HelperSpawnAttempt, command: tuple[str, ...]) -> None:
+        process: subprocess.Popen[bytes] | None = None
+        error: BaseException | None = None
         try:
             process = subprocess.Popen(
                 command,
@@ -534,13 +621,110 @@ class ProcessFileAuthorityAnchor:
                 stderr=subprocess.DEVNULL,
                 bufsize=0,
             )
-        except OSError as exc:
-            raise StorageError("authority anchor helper could not be started") from exc
-        if process.stdin is None or process.stdout is None:  # pragma: no cover - Popen contract
-            process.kill()
-            raise StorageError("authority anchor helper pipes are unavailable")
+        except BaseException as exc:  # relayed to the owning caller
+            error = exc
+        with attempt.lock:
+            attempt.process = process
+            attempt.error = error
+            attempt.ready.set()
+        if process is not None:
+            attempt.decision.wait()
+            with attempt.lock:
+                adopted = attempt.adopted and not attempt.cancelled
+            if not adopted:
+                self._dispose_unadopted_helper(process)
+        attempt.cleaned.set()
+        with self._spawn_lock:
+            if self._spawn_attempt is attempt and not attempt.adopted:
+                self._spawn_attempt = None
+
+    def _start_helper(
+        self, *, operation: str, deadline: float
+    ) -> tuple[subprocess.Popen[bytes], Queue[bytes | None]]:
+        command = (*self._helper_command, "--path", str(self._path))
+        with self._spawn_lock:
+            previous = self._spawn_attempt
+            if previous is not None and not previous.cleaned.is_set():
+                raise self._transport_error(
+                    "authority anchor helper start is already in progress",
+                    reason="helper_start_in_progress",
+                    operation=operation,
+                    request_flushed=False,
+                    mutation_uncertain=False,
+                    process=None,
+                )
+            attempt = _HelperSpawnAttempt()
+            self._spawn_attempt = attempt
+            threading.Thread(
+                target=self._spawn_helper,
+                args=(attempt, command),
+                name="lets-authority-anchor-spawn",
+                daemon=True,
+            ).start()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not attempt.ready.wait(timeout=remaining):
+            with attempt.lock:
+                attempt.cancelled = True
+                attempt.decision.set()
+            raise self._transport_error(
+                "authority anchor helper start exceeded its deadline",
+                reason="helper_start_deadline",
+                operation=operation,
+                request_flushed=False,
+                mutation_uncertain=False,
+                process=None,
+            )
+        with attempt.lock:
+            process = attempt.process
+            error = attempt.error
+            if attempt.cancelled or time.monotonic() >= deadline:
+                attempt.cancelled = True
+                attempt.decision.set()
+                raise self._transport_error(
+                    "authority anchor helper start exceeded its deadline",
+                    reason="helper_start_deadline",
+                    operation=operation,
+                    request_flushed=False,
+                    mutation_uncertain=False,
+                    process=process,
+                )
+            if error is not None:
+                attempt.cancelled = True
+                attempt.decision.set()
+            elif process is None:  # pragma: no cover - internal invariant
+                attempt.cancelled = True
+                attempt.decision.set()
+                raise RuntimeError("authority anchor helper spawn returned no result")
+            elif process.stdin is None or process.stdout is None:
+                attempt.cancelled = True
+                attempt.decision.set()
+                raise self._transport_error(
+                    "authority anchor helper pipes are unavailable",
+                    reason="helper_pipe",
+                    operation=operation,
+                    request_flushed=False,
+                    mutation_uncertain=False,
+                    process=process,
+                )
+            else:
+                attempt.adopted = True
+                attempt.decision.set()
+        if error is not None:
+            raise self._transport_error(
+                "authority anchor helper could not be started",
+                reason="helper_start",
+                operation=operation,
+                request_flushed=False,
+                mutation_uncertain=False,
+                process=None,
+            ) from error
+        assert process is not None
+        with self._spawn_lock:
+            if self._spawn_attempt is attempt:
+                self._spawn_attempt = None
         responses: Queue[bytes | None] = Queue()
         output = process.stdout
+        assert output is not None
 
         def read_responses() -> None:
             try:
@@ -559,45 +743,198 @@ class ProcessFileAuthorityAnchor:
         return process, responses
 
     def _invoke(self, request: Mapping[str, object], *, deadline: float) -> Mapping[str, Any]:
+        operation_value = request.get("operation")
+        operation = operation_value if isinstance(operation_value, str) else "invalid"
+        mutating = operation in {"initialize", "compare-and-set", "confirm"}
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise StorageError("authority anchor reconciliation exceeded its deadline")
-        with self._process_lock:
+            raise self._transport_error(
+                "authority anchor reconciliation exceeded its deadline",
+                reason="deadline",
+                operation=operation,
+                request_flushed=False,
+                mutation_uncertain=False,
+                process=None,
+            )
+        if not self._process_lock.acquire(timeout=remaining):
+            raise self._transport_error(
+                "authority anchor process lock exceeded its deadline",
+                reason="process_lock_deadline",
+                operation=operation,
+                request_flushed=False,
+                mutation_uncertain=False,
+                process=None,
+            )
+        try:
+            if self._reset_required.is_set():
+                self._stop_helper(deadline=deadline)
+                self._reset_required.clear()
             process = self._process
             responses = self._responses
             if process is None or responses is None or process.poll() is not None:
-                self._stop_helper()
-                process, responses = self._start_helper()
+                self._stop_helper(deadline=deadline)
+                if time.monotonic() >= deadline:
+                    raise self._transport_error(
+                        "authority anchor reconciliation exceeded its deadline",
+                        reason="deadline",
+                        operation=operation,
+                        request_flushed=False,
+                        mutation_uncertain=False,
+                        process=process,
+                    )
+                process, responses = self._start_helper(operation=operation, deadline=deadline)
+            if time.monotonic() >= deadline:
+                error = self._transport_error(
+                    "authority anchor reconciliation exceeded its deadline",
+                    reason="deadline",
+                    operation=operation,
+                    request_flushed=False,
+                    mutation_uncertain=False,
+                    process=process,
+                )
+                self._stop_helper(deadline=deadline)
+                raise error
+            request_id = uuid.uuid4().hex
+            payload = dict(request)
+            payload["request_id"] = request_id
+            request_started = False
+            request_flushed = False
             try:
                 assert process.stdin is not None
-                process.stdin.write(canonical_json(dict(request)) + b"\n")
+                if time.monotonic() >= deadline:
+                    raise Empty
+                request_started = True
+                process.stdin.write(canonical_json(payload) + b"\n")
                 process.stdin.flush()
+                request_flushed = True
                 response = responses.get(timeout=max(0.0, deadline - time.monotonic()))
             except (BrokenPipeError, OSError) as exc:
-                self._stop_helper()
-                raise StorageError("authority anchor helper terminated unexpectedly") from exc
+                error = self._transport_error(
+                    "authority anchor helper terminated unexpectedly",
+                    reason="helper_pipe",
+                    operation=operation,
+                    request_flushed=request_flushed,
+                    mutation_uncertain=mutating and request_started,
+                    process=process,
+                )
+                self._stop_helper(deadline=deadline)
+                raise error from exc
             except Empty as exc:
-                self._stop_helper()
-                raise StorageError("authority anchor reconciliation exceeded its deadline") from exc
+                error = self._transport_error(
+                    "authority anchor reconciliation exceeded its deadline",
+                    reason="deadline",
+                    operation=operation,
+                    request_flushed=request_flushed,
+                    mutation_uncertain=mutating and request_flushed,
+                    process=process,
+                )
+                self._stop_helper(deadline=deadline)
+                raise error from exc
+            if time.monotonic() >= deadline:
+                error = self._transport_error(
+                    "authority anchor reconciliation exceeded its deadline",
+                    reason="deadline",
+                    operation=operation,
+                    request_flushed=request_flushed,
+                    mutation_uncertain=mutating and request_flushed,
+                    process=process,
+                )
+                self._stop_helper(deadline=deadline)
+                raise error
             if response is None:
-                self._stop_helper()
-                raise StorageError("authority anchor helper terminated unexpectedly")
-        if len(response) > 1024 * 1024:
-            raise StorageError("authority anchor helper returned an oversized response")
-        try:
-            decoded = strict_json_loads(response)
-        except (UnicodeError, ValueError) as exc:
-            raise StorageError("authority anchor helper returned malformed JSON") from exc
-        if not isinstance(decoded, Mapping):
-            raise StorageError("authority anchor helper response must be an object")
-        status = decoded.get("status")
-        if status == "error":
-            detail = decoded.get("error")
-            message = detail if isinstance(detail, str) and detail else "helper operation failed"
-            raise StorageError(f"authority anchor {message}")
-        if status not in {"ok", "missing", "conflict"}:
-            raise StorageError("authority anchor helper returned an unknown status")
-        return decoded
+                error = self._transport_error(
+                    "authority anchor helper terminated unexpectedly",
+                    reason="helper_eof",
+                    operation=operation,
+                    request_flushed=request_flushed,
+                    mutation_uncertain=mutating and request_flushed,
+                    process=process,
+                )
+                self._stop_helper(deadline=deadline)
+                raise error
+            if len(response) > 1024 * 1024:
+                self._stop_helper(deadline=deadline)
+                raise StorageError("authority anchor helper returned an oversized response")
+            try:
+                decoded = strict_json_loads(response)
+            except (UnicodeError, ValueError) as exc:
+                self._stop_helper(deadline=deadline)
+                raise StorageError("authority anchor helper returned malformed JSON") from exc
+            if not isinstance(decoded, Mapping):
+                self._stop_helper(deadline=deadline)
+                raise StorageError("authority anchor helper response must be an object")
+            if decoded.get("request_id") != request_id:
+                self._stop_helper(deadline=deadline)
+                raise StorageError("authority anchor helper response correlation is invalid")
+            status = decoded.get("status")
+            if status == "error":
+                detail = decoded.get("error")
+                if (
+                    set(decoded) != {"error", "request_id", "status"}
+                    or not isinstance(detail, str)
+                    or not 1 <= len(detail) <= 64
+                    or not all(
+                        character == "_" or (character.isascii() and character.isalnum())
+                        for character in detail
+                    )
+                ):
+                    self._stop_helper(deadline=deadline)
+                    raise StorageError("authority anchor helper error response is invalid")
+                if time.monotonic() >= deadline:
+                    error = self._transport_error(
+                        "authority anchor reconciliation exceeded its deadline",
+                        reason="deadline",
+                        operation=operation,
+                        request_flushed=request_flushed,
+                        mutation_uncertain=mutating and request_flushed,
+                        process=process,
+                    )
+                    self._stop_helper(deadline=deadline)
+                    raise error
+                raise StorageError("authority anchor helper operation failed")
+            expected_fields = {"request_id", "status"}
+            if operation == "read" and status == "ok":
+                expected_fields.add("checkpoint")
+            if status not in {"ok", "missing", "conflict"} or set(decoded) != expected_fields:
+                self._stop_helper(deadline=deadline)
+                raise StorageError("authority anchor helper response schema is invalid")
+            if time.monotonic() >= deadline:
+                error = self._transport_error(
+                    "authority anchor reconciliation exceeded its deadline",
+                    reason="deadline",
+                    operation=operation,
+                    request_flushed=request_flushed,
+                    mutation_uncertain=mutating and request_flushed,
+                    process=process,
+                )
+                self._stop_helper(deadline=deadline)
+                raise error
+            return decoded
+        finally:
+            self._process_lock.release()
+
+    def _check_deadline(
+        self,
+        deadline: float,
+        *,
+        operation: str,
+        request_flushed: bool,
+        mutation_uncertain: bool,
+    ) -> None:
+        if time.monotonic() < deadline:
+            return
+        self._reset_required.set()
+        raise self._transport_error(
+            "authority anchor reconciliation exceeded its deadline",
+            reason="deadline",
+            operation=operation,
+            request_flushed=request_flushed,
+            mutation_uncertain=mutation_uncertain,
+            # This check runs after _invoke has released the helper lock.  A
+            # concurrent caller may already have replaced the helper epoch, so
+            # attributing mutable process metadata here would be misleading.
+            process=None,
+        )
 
     @staticmethod
     def _checkpoint(response: Mapping[str, Any]) -> AuthorityCheckpoint:
@@ -609,15 +946,15 @@ class ProcessFileAuthorityAnchor:
         except ValidationError as exc:
             raise StorageError("authority anchor helper returned an invalid checkpoint") from exc
 
-    def reconcile(
+    def _reconcile_before_deadline(
         self,
         checkpoint: AuthorityCheckpoint,
         *,
         audit_hash_at: Callable[[int], bytes | None],
-        initialize: bool = False,
-        allow_schema_upgrade: bool = False,
+        initialize: bool,
+        allow_schema_upgrade: bool,
+        deadline: float,
     ) -> None:
-        deadline = time.monotonic() + self._timeout_s
         while True:
             response = self._invoke({"operation": "read"}, deadline=deadline)
             if response["status"] == "missing":
@@ -629,6 +966,12 @@ class ProcessFileAuthorityAnchor:
                     {"operation": "initialize", "checkpoint": checkpoint.to_dict()},
                     deadline=deadline,
                 )
+                self._check_deadline(
+                    deadline,
+                    operation="initialize",
+                    request_flushed=True,
+                    mutation_uncertain=True,
+                )
                 if result["status"] == "ok":
                     return
                 if result["status"] == "conflict":
@@ -636,13 +979,31 @@ class ProcessFileAuthorityAnchor:
                 raise StorageError("authority anchor initialization failed")
 
             anchored = self._checkpoint(response)
+            self._check_deadline(
+                deadline,
+                operation="read",
+                request_flushed=True,
+                mutation_uncertain=False,
+            )
             if not _requires_advance(
                 anchored,
                 checkpoint,
                 audit_hash_at=audit_hash_at,
                 allow_schema_upgrade=allow_schema_upgrade,
             ):
+                self._check_deadline(
+                    deadline,
+                    operation="read",
+                    request_flushed=True,
+                    mutation_uncertain=False,
+                )
                 return
+            self._check_deadline(
+                deadline,
+                operation="read",
+                request_flushed=True,
+                mutation_uncertain=False,
+            )
             result = self._invoke(
                 {
                     "operation": "compare-and-set",
@@ -651,26 +1012,104 @@ class ProcessFileAuthorityAnchor:
                 },
                 deadline=deadline,
             )
+            self._check_deadline(
+                deadline,
+                operation="compare-and-set",
+                request_flushed=True,
+                mutation_uncertain=True,
+            )
             if result["status"] == "ok":
                 return
             if result["status"] != "conflict":
                 raise StorageError("authority anchor compare-and-set failed")
 
+    def reconcile(
+        self,
+        checkpoint: AuthorityCheckpoint,
+        *,
+        audit_hash_at: Callable[[int], bytes | None],
+        initialize: bool = False,
+        allow_schema_upgrade: bool = False,
+    ) -> None:
+        self._reconcile_before_deadline(
+            checkpoint,
+            audit_hash_at=audit_hash_at,
+            initialize=initialize,
+            allow_schema_upgrade=allow_schema_upgrade,
+            deadline=time.monotonic() + self._timeout_s,
+        )
+
     def read_current(self) -> AuthorityCheckpoint:
+        deadline = time.monotonic() + self._timeout_s
         response = self._invoke(
             {"operation": "read"},
-            deadline=time.monotonic() + self._timeout_s,
+            deadline=deadline,
         )
         if response["status"] == "missing":
             raise StorageError(
                 "authority anchor is missing; refusing to open rollback-sensitive state"
             )
-        return self._checkpoint(response)
+        checkpoint = self._checkpoint(response)
+        self._check_deadline(
+            deadline,
+            operation="read",
+            request_flushed=True,
+            mutation_uncertain=False,
+        )
+        return checkpoint
+
+    def _confirm_before_deadline(self, checkpoint: AuthorityCheckpoint, *, deadline: float) -> None:
+        """Durably rewrite an exact head after an uncertain mutating reply.
+
+        A plain read cannot prove that a helper completed the file and directory
+        durability barriers before its response was lost.  ``confirm`` performs
+        an exact compare and repeats those barriers while holding the file lock.
+        """
+
+        response = self._invoke(
+            {"operation": "confirm", "checkpoint": checkpoint.to_dict()},
+            deadline=deadline,
+        )
+        if response["status"] != "ok":
+            raise StorageError("authority anchor durable confirmation failed")
+        self._check_deadline(
+            deadline,
+            operation="confirm",
+            request_flushed=True,
+            mutation_uncertain=True,
+        )
+
+    def confirm(self, checkpoint: AuthorityCheckpoint) -> None:
+        self._confirm_before_deadline(
+            checkpoint,
+            deadline=time.monotonic() + self._timeout_s,
+        )
+
+    def reconcile_and_confirm(
+        self,
+        checkpoint: AuthorityCheckpoint,
+        *,
+        audit_hash_at: Callable[[int], bytes | None],
+        initialize: bool = False,
+        allow_schema_upgrade: bool = False,
+    ) -> None:
+        """Reconcile and durably confirm within one configured absolute deadline."""
+
+        deadline = time.monotonic() + self._timeout_s
+        self._reconcile_before_deadline(
+            checkpoint,
+            audit_hash_at=audit_hash_at,
+            initialize=initialize,
+            allow_schema_upgrade=allow_schema_upgrade,
+            deadline=deadline,
+        )
+        self._confirm_before_deadline(checkpoint, deadline=deadline)
 
 
 __all__ = [
     "ANCHOR_FORMAT",
     "AuthorityAnchor",
+    "AuthorityAnchorTransportError",
     "AuthorityCheckpoint",
     "FileAuthorityAnchor",
     "ProcessFileAuthorityAnchor",
