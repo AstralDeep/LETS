@@ -258,6 +258,12 @@ def create_app(
     readiness_check: Callable[[], bool | Awaitable[bool]] | None = None,
     metrics_provider: Callable[[], Mapping[str, object] | Awaitable[Mapping[str, object]]]
     | None = None,
+    authority_fence_provider: Callable[
+        [str, str], Mapping[str, object] | Awaitable[Mapping[str, object]]
+    ]
+    | None = None,
+    authority_status_provider: Callable[[], Mapping[str, object] | Awaitable[Mapping[str, object]]]
+    | None = None,
     node_metadata: Mapping[str, object] | None = None,
     maximum_body_bytes: int = 2 * 1024 * 1024,
     request_body_timeout_s: float = DEFAULT_REQUEST_BODY_TIMEOUT_S,
@@ -684,6 +690,47 @@ def create_app(
             required=frozenset({"request_id", "mode", "reason"}),
         )
         value = await _invoke(_method(service, "set_runtime_mode"), identity=identity, **body)
+        return _json_response(value)
+
+    @app.post("/v1/maintenance/authority-fence")
+    async def fence_authority_admission(request: Request) -> JSONResponse:
+        identity = await client_identity(request)
+        _require_admin(identity)
+        body = _fields(
+            await _json_object(request, maximum_bytes=maximum_body_bytes),
+            required=frozenset({"restart_id", "expected_lifetime_id"}),
+        )
+        if authority_fence_provider is None:
+            raise ServiceMethodUnavailableError("authority admission fencing is not configured")
+        restart_id = body["restart_id"]
+        expected_lifetime_id = body["expected_lifetime_id"]
+        if type(restart_id) is not str or type(expected_lifetime_id) is not str:
+            raise ValidationError("authority fence identifiers must be strings")
+        value = await run_in_threadpool(
+            authority_fence_provider,
+            restart_id,
+            expected_lifetime_id,
+        )
+        if inspect.isawaitable(value):
+            value = await value
+        if not isinstance(value, Mapping):
+            raise StorageError("authority fence provider returned a malformed snapshot")
+        return _json_response(value)
+
+    @app.get("/v1/maintenance/authority-status")
+    async def authority_status(request: Request) -> JSONResponse:
+        identity = await client_identity(request)
+        if not identity.scopes.intersection(
+            {"lets.admin", "lets.warden.admin", "lets.metrics.read"}
+        ):
+            raise PolicyError("authority status read scope is required")
+        if authority_status_provider is None:
+            raise ServiceMethodUnavailableError("authority status is not configured")
+        value = await run_in_threadpool(authority_status_provider)
+        if inspect.isawaitable(value):
+            value = await value
+        if not isinstance(value, Mapping):
+            raise StorageError("authority status provider returned a malformed snapshot")
         return _json_response(value)
 
     @app.get("/v1/invariants")
@@ -1551,6 +1598,139 @@ def create_app(
                 "changed_by": {"type": "string"},
             },
         },
+        "AuthorityFenceRequest": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["restart_id", "expected_lifetime_id"],
+            "properties": {
+                "restart_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "expected_lifetime_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{32}$",
+                },
+            },
+        },
+        "AuthorityAnchorFirstFault": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "reason",
+                "stage",
+                "operation",
+                "request_flushed",
+                "mutation_uncertain",
+                "helper_pid",
+                "helper_exit_code",
+            ],
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "enum": [
+                        "deadline",
+                        "helper_eof",
+                        "helper_pipe",
+                        "helper_start",
+                        "helper_start_deadline",
+                        "helper_start_in_progress",
+                        "process_lock_deadline",
+                    ],
+                },
+                "stage": {"type": "string", "enum": ["pre_begin", "post_commit"]},
+                "operation": {
+                    "type": "string",
+                    "enum": ["read", "initialize", "compare-and-set", "confirm"],
+                },
+                "request_flushed": {"type": "boolean"},
+                "mutation_uncertain": {"type": "boolean"},
+                "helper_pid": {"type": ["integer", "null"], "minimum": 1},
+                "helper_exit_code": {"type": ["integer", "null"]},
+            },
+        },
+        "AuthorityAnchorStatus": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "enabled",
+                "state",
+                "healthy",
+                "lifetime_id",
+                "namespace_process_id",
+                "admission_fenced",
+                "fence_id",
+                "fenced_at_monotonic_ns",
+                "transport_faults",
+                "transport_fault_episodes",
+                "transport_recovery_attempts",
+                "transport_recoveries",
+                "unresolved_transport_faults",
+                "permanent_faults",
+                "fault_stage",
+                "fault_reason",
+                "retry_not_before_monotonic_ns",
+                "first_fault",
+            ],
+            "properties": {
+                "enabled": {"type": "boolean"},
+                "state": {
+                    "type": "string",
+                    "enum": [
+                        "disabled",
+                        "healthy",
+                        "recoverable_transport_fault",
+                        "permanent_fault",
+                    ],
+                },
+                "healthy": {"type": "boolean"},
+                "lifetime_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "namespace_process_id": {"type": "integer", "minimum": 1},
+                "admission_fenced": {"type": "boolean"},
+                "fence_id": {"type": ["string", "null"], "maxLength": 128},
+                "fenced_at_monotonic_ns": {"type": ["integer", "null"], "minimum": 0},
+                "transport_faults": {"type": "integer", "minimum": 0},
+                "transport_fault_episodes": {"type": "integer", "minimum": 0},
+                "transport_recovery_attempts": {"type": "integer", "minimum": 0},
+                "transport_recoveries": {"type": "integer", "minimum": 0},
+                "unresolved_transport_faults": {"type": "integer", "enum": [0, 1]},
+                "permanent_faults": {"type": "integer", "minimum": 0},
+                "fault_stage": {
+                    "type": ["string", "null"],
+                    "enum": [None, "pre_begin", "post_commit"],
+                },
+                "fault_reason": {"type": ["string", "null"]},
+                "retry_not_before_monotonic_ns": {
+                    "type": ["integer", "null"],
+                    "minimum": 0,
+                },
+                "first_fault": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/AuthorityAnchorFirstFault"},
+                        {"type": "null"},
+                    ]
+                },
+            },
+        },
+        "AuthorityFenceSnapshot": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "schema",
+                "restart_id",
+                "warden_id",
+                "namespace_process_id",
+                "lifetime_id",
+                "fenced_at_monotonic_ns",
+                "authority_anchor",
+            ],
+            "properties": {
+                "schema": {"const": "lets.authority-admission-fence/v1"},
+                "restart_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "warden_id": {"$ref": "#/components/schemas/WardenId"},
+                "namespace_process_id": {"type": "integer", "minimum": 1},
+                "lifetime_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "fenced_at_monotonic_ns": {"type": "integer", "minimum": 0},
+                "authority_anchor": {"$ref": "#/components/schemas/AuthorityAnchorStatus"},
+            },
+        },
     }
     body_contracts = {
         "/v1/envelopes": "EnvelopeRequest",
@@ -1565,6 +1745,7 @@ def create_app(
         "/v1/branches/{lease_id}/revoke": "RevocationRequest",
         "/v1/maintenance/reclaim": "ReclaimRequest",
         "/v1/maintenance/runtime": "RuntimeModeRequest",
+        "/v1/maintenance/authority-fence": "AuthorityFenceRequest",
         "/v1/transfers/prepare": "PrepareTransferRequest",
         "/v1/transfers/{source_warden}/{sequence}/accept": "TransferVoucher",
         "/v1/transfers/{target_warden}/{sequence}/finalize": "TransferAck",
@@ -1594,6 +1775,8 @@ def create_app(
         "/v1/branches/{lease_id}/revoke": "BranchRevocation",
         "/v1/maintenance/reclaim": "ReclaimResult",
         "/v1/maintenance/runtime": "RuntimeStatus",
+        "/v1/maintenance/authority-fence": "AuthorityFenceSnapshot",
+        "/v1/maintenance/authority-status": "AuthorityAnchorStatus",
         "/v1/invariants": "InvariantSnapshot",
         "/v1/metrics": "MetricsSnapshot",
         "/v1/audit": "AuditPage",

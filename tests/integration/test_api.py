@@ -232,6 +232,113 @@ def test_policy_registration_requires_transport_admin_scope() -> None:
     assert service.calls == []
 
 
+def test_authority_fence_endpoint_requires_admin_and_exact_string_identifiers() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def fence(restart_id: str, expected_lifetime_id: str) -> Mapping[str, object]:
+        calls.append((restart_id, expected_lifetime_id))
+        return {
+            "schema": "lets.authority-admission-fence/v1",
+            "restart_id": restart_id,
+            "lifetime_id": expected_lifetime_id,
+        }
+
+    service = StubService()
+    app = create_app(
+        service,
+        authenticator=StaticBearerAuthenticator.single("admin-token", _identity()),
+        authority_fence_provider=fence,
+    )
+    body = {"restart_id": "restart-1", "expected_lifetime_id": "a" * 32}
+    accepted = _request(
+        app,
+        "POST",
+        "/v1/maintenance/authority-fence",
+        json=body,
+        headers={"authorization": "Bearer admin-token"},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["restart_id"] == "restart-1"
+    assert calls == [("restart-1", "a" * 32)]
+
+    for malformed in (
+        {**body, "restart_id": 7},
+        {**body, "expected_lifetime_id": True},
+    ):
+        rejected = _request(
+            app,
+            "POST",
+            "/v1/maintenance/authority-fence",
+            json=malformed,
+            headers={"authorization": "Bearer admin-token"},
+        )
+        assert rejected.status_code == 422
+    assert calls == [("restart-1", "a" * 32)]
+
+    denied_app = create_app(
+        service,
+        authenticator=StaticBearerAuthenticator.single("user-token", _identity(admin=False)),
+        authority_fence_provider=fence,
+    )
+    denied = _request(
+        denied_app,
+        "POST",
+        "/v1/maintenance/authority-fence",
+        json=body,
+        headers={"authorization": "Bearer user-token"},
+    )
+    assert denied.status_code == 403
+
+
+def test_authority_status_endpoint_is_independent_of_database_metrics() -> None:
+    authority = {
+        "enabled": True,
+        "state": "permanent_fault",
+        "healthy": False,
+        "lifetime_id": "a" * 32,
+        "first_fault": {"reason": "helper_eof"},
+    }
+
+    def unavailable_metrics() -> Mapping[str, object]:
+        raise RuntimeError("database must not be opened")
+
+    metrics_identity = IdentityContext(
+        subject_id="monitor-a",
+        tenant_id="tenant-a",
+        scopes=frozenset({"lets.metrics.read"}),
+        authentication_method="test-bearer",
+    )
+    app = create_app(
+        StubService(),
+        authenticator=StaticBearerAuthenticator.single("metrics-token", metrics_identity),
+        metrics_provider=unavailable_metrics,
+        authority_status_provider=lambda: authority,
+    )
+
+    response = _request(
+        app,
+        "GET",
+        "/v1/maintenance/authority-status",
+        headers={"authorization": "Bearer metrics-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == authority
+
+    denied = create_app(
+        StubService(),
+        authenticator=StaticBearerAuthenticator.single("user-token", _identity(admin=False)),
+        authority_status_provider=lambda: authority,
+    )
+    response = _request(
+        denied,
+        "GET",
+        "/v1/maintenance/authority-status",
+        headers={"authorization": "Bearer user-token"},
+    )
+    assert response.status_code == 403
+
+
 def test_liveness_readiness_and_error_hierarchy_mapping() -> None:
     service = StubService()
     app = create_app(

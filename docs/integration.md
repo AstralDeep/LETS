@@ -122,17 +122,33 @@ On reopen, omit `identity`; the database supplies it and the verifier proves tha
 policy plus exact registry key bytes and validity intervals still match. A policy widening,
 same-warden key substitution, database clone, stale restore, missing anchor, or clock-floor
 rollback fails before authorization. The process-isolated file anchor gives filesystem calls a
-hard deadline. Its directory must not be snapshotted, restored, replicated, or writable with the
-replay database directory; a remote linearizable CAS/HSM implementation may instead implement
+hard deadline. Helper creation, request correlation, locking, file I/O, response validation, and
+channel reset share that one absolute deadline; a timed-out or broken channel is reset before it
+can be used again. Its directory must not be snapshotted, restored, replicated, or writable with
+the replay database directory; a remote linearizable CAS/HSM implementation may instead implement
 `ExecutorAuthorityAnchor`.
 
+Construction and reopen are admission, not a deferred recovery phase. A transport error while
+opening preserves the database and anchor bytes but leaves that store object unadmitted; close its
+anchor and create a fresh anchor/store pair after repair. Once an open has succeeded, only a
+well-formed `AuthorityAnchorTransportError` can arm bounded recovery. After the reported monotonic
+cooldown, the next explicit store transaction reconciles the exact SQLite head and anchor under the
+store lock. It does not replay the original verifier or storage call. Anchor rejections, protocol
+violations, malformed transport metadata, and other provider failures are permanent for that store
+instance and require operator repair plus a fresh open. A later exact caller retry after a
+pre-`BEGIN` failure may claim once; after a post-`COMMIT` failure it observes the already-burned
+claim as `ReplayError`. The core warden store follows the same recovery contract.
+
 `verify_and_claim()` verifies the receipt, commits its replay claim and append-only hash-chain
-head, and synchronously advances the external CAS before returning. A commit followed by an anchor
-outage returns an error and faults that store instance; exact reopen reconciles the committed head
-without reauthorizing the receipt. Expired claim/window cleanup is limited to 128 claim rows and
-128 watermarks per accepted receipt. `allow_unanchored=True` is an explicit development-only mode:
-it survives ordinary restart but provides no stale-restore or cloned-branch protection and is
-never a production default.
+head, and synchronously advances the external CAS before returning. Every fresh process-file store
+lifetime durably confirms the admitted checkpoint. If a mutating helper request may have completed
+but its reply is lost, recovery reconciles and durably confirms that exact committed head before
+reporting healthy. The original call still returns an error: when the SQLite claim committed, that
+receipt is burned, and an explicit retry raises `ReplayError` without executing the protected
+effect.
+Expired claim/window cleanup is limited to 128 claim rows and 128 watermarks per accepted receipt.
+`allow_unanchored=True` is an explicit development-only mode: it survives ordinary restart but
+provides no stale-restore or cloned-branch protection and is never a production default.
 
 This supplies durable at-most-once *authorization*, not exactly-once physical execution. A crash
 after claim and before effect can omit the effect; a generic library cannot atomically commit an

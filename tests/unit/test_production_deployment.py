@@ -911,11 +911,13 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert 'digest="${RESUMED_DIGEST:-$BUILT_DIGEST}"' in workflow
     assert "lets-deployment-$version.tar.gz" in workflow
     assert "deploy/production/maintenance-compose.yaml" in workflow
+    assert "examples/runtime_provider.py" in workflow
     assert "git archive --format=tar" in workflow
     assert "gzip -n" in workflow
     assert 'archive_contents="$(mktemp)"' in workflow
     assert '> "$archive_contents"' in workflow
     assert "grep -q '/deploy/production/compose.yaml$' \"$archive_contents\"" in workflow
+    assert "grep -q '/examples/runtime_provider.py$' \"$archive_contents\"" in workflow
     assert "| grep -q '/deploy/production/compose.yaml$'" not in workflow
     assert "sha256sum --check RELEASE_SHA256SUMS" in workflow
     assert "uv pip sync --python .release-smoke/bin/python requirements-release.txt" in workflow

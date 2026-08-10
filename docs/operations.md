@@ -112,9 +112,12 @@ before any local rights are debited.
 Startup admission performs full core-database integrity, foreign-key, conservation, signed-audit,
 and peer-replay-authority checks. A peer nonce claim, replay clock-floor advance, replay history
 digest, signed audit row, and audit-outbox row commit in one core transaction; the existing
-post-COMMIT external-anchor comparison is its linearization point. A crash before that comparison
-faults the process, and restart admits only a provable contiguous extension. New schema-2 nodes do
-not create or open a separate replay database.
+post-COMMIT external-anchor comparison is its linearization point. A typed helper-transport
+interruption there faults the original transaction call and returns no business result; after its
+cooldown, a later separate transaction may exact-reconcile and durably confirm only a provable
+contiguous extension. A crash or fresh open applies the same extension proof, while semantic,
+malformed, or divergent anchor state remains permanently failed closed. New schema-2 nodes do not
+create or open a separate replay database.
 `/health/live` reports process liveness. The unauthenticated `/health/ready` path is deliberately
 bounded: it performs a cheap database read and checks the durable clock floor and current signing
 key, rather than repeating database-size scans on every probe. Use `lets info` for explicit deep
@@ -143,6 +146,39 @@ the actual source and configure a conservative bound. Core warden authority and 
 stores persist monotonic clock floors and fail closed after a restart if wall time rolls back beyond
 the declared tolerance. A forward jump can expire authority early and reduce availability, but
 cannot revive it.
+
+## Authority transport recovery and controlled replacement
+
+Core and executor process-file anchors use the same fail-closed recovery contract. Construction or
+reopen must complete SQLite integrity/reconciliation and an exact durable anchor confirmation
+before admission. A typed helper-transport error during that phase preserves existing bytes but
+rejects the object; close it and use a fresh anchor/store open after repair. Once admitted, a
+well-formed `AuthorityAnchorTransportError` faults the original storage/API attempt without
+retrying it. After the bounded monotonic cooldown, a later explicit transaction may reconcile the
+current SQLite head and recover. If the failed request may have mutated the anchor, recovery
+requires an exact durable confirm. A pre-`BEGIN` failure therefore permits a later idempotent API
+attempt to commit once; a post-`COMMIT` executor failure may already have burned the receipt, whose
+retry is `ReplayError` and must execute no effect. Semantic rejection, divergence, malformed
+transport metadata, and other provider errors are permanent for the instance.
+
+The bundled parent/helper protocol in 1.0.5 adds exact request correlation and `confirm`; never mix
+a pre-1.0.5 helper executable with a 1.0.5 parent. The required stop-the-world uniform-artifact
+upgrade satisfies this boundary. Authenticated metrics expose bounded `authority_anchor` state;
+the same document is available at `GET /v1/maintenance/authority-status` to
+`lets.admin`, `lets.warden.admin`, or `lets.metrics.read`. The direct status read opens no database
+transaction and remains available after an admission fence. Typed transport failures use the
+additive 503 `authority_anchor_transport_error` problem code/type.
+
+Immediately before a controlled process replacement, an administrator may call
+`POST /v1/maintenance/authority-fence` with the observed process `lifetime_id` as
+`expected_lifetime_id` and a unique `restart_id`. The operation takes the serialized authority
+admission lock, waits ahead-of-it admitted work to finish, verifies a healthy exact lifetime,
+captures its terminal status, and installs a one-way fence. Repeating the same identifier pair
+returns the identical snapshot; a different pair conflicts. Direct authenticated status remains
+available, but no further database transaction is admitted in that process lifetime. Resolve and
+bind the exact response to the intended warden and PID before killing it. There is no un-fence
+operation: route no traffic and restart/recreate the process. Do not invoke this endpoint except as
+the last application step immediately before controlled replacement.
 
 ## Policy rollout
 
@@ -262,10 +298,12 @@ or same-warden key substitution is a deliberate new authority epoch rather than 
 edit.
 
 `verify_and_claim()` returns only after the local claim commit and external CAS acknowledgement.
-If the anchor times out after commit, the caller receives an error, the store remains faulted, and
-the protected effect must not run. Restart with the same database and anchor; reopen advances a
-committed-ahead local head only when its append-only history extends the anchored digest. An older
-or divergent database remains fenced. Do not delete or rewrite the anchor to restore availability.
+If a typed helper transport failure occurs after commit, the caller receives an error and the
+protected effect must not run. A later unrelated store operation, after cooldown, may reconcile and
+durably confirm a committed-ahead local head only when its contiguous append-only history extends
+the anchored digest. Retrying that same burned receipt is `ReplayError`, not an effect
+authorization. Semantic, malformed, older, or divergent state remains permanently fenced. Do not
+delete or rewrite the anchor to restore availability.
 
 Before copying an executor database, quiesce claim callers and require
 `SQLiteReceiptReplayStore.checkpoint_wal()` to report `busy == 0`. Copy only the main database; do
@@ -277,7 +315,7 @@ and filesystem free bytes.
 Expired replay rows and watermarks are deleted in batches of at most 128 per accepted receipt, but
 the authority claim chain never shrinks. Allocate a dedicated quota for a finite executor epoch and
 alert before exhaustion; `SQLITE_FULL` disables effects. Schema 4 cannot be promoted because it has
-no externally provable claim history. Drain for the maximum receipt lifetime plus clock
+no external anchor binding a claim-chain head. Drain for the maximum receipt lifetime plus clock
 uncertainty, prove no effects are in flight, archive the old database, then initialize a fresh
 schema-5 database and unused anchor path. Use the same drain-and-new-anchor procedure for capacity
 rotation. `allow_unanchored=True` is restricted to disposable development/test executors.

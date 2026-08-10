@@ -94,6 +94,255 @@
         ],
         "type": "object"
       },
+      "AuthorityAnchorFirstFault": {
+        "additionalProperties": false,
+        "properties": {
+          "helper_exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "helper_pid": {
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "mutation_uncertain": {
+            "type": "boolean"
+          },
+          "operation": {
+            "enum": [
+              "read",
+              "initialize",
+              "compare-and-set",
+              "confirm"
+            ],
+            "type": "string"
+          },
+          "reason": {
+            "enum": [
+              "deadline",
+              "helper_eof",
+              "helper_pipe",
+              "helper_start",
+              "helper_start_deadline",
+              "helper_start_in_progress",
+              "process_lock_deadline"
+            ],
+            "type": "string"
+          },
+          "request_flushed": {
+            "type": "boolean"
+          },
+          "stage": {
+            "enum": [
+              "pre_begin",
+              "post_commit"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "stage",
+          "operation",
+          "request_flushed",
+          "mutation_uncertain",
+          "helper_pid",
+          "helper_exit_code"
+        ],
+        "type": "object"
+      },
+      "AuthorityAnchorStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "admission_fenced": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "fault_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fault_stage": {
+            "enum": [
+              null,
+              "pre_begin",
+              "post_commit"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fence_id": {
+            "maxLength": 128,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fenced_at_monotonic_ns": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "first_fault": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuthorityAnchorFirstFault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "namespace_process_id": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "permanent_faults": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retry_not_before_monotonic_ns": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "state": {
+            "enum": [
+              "disabled",
+              "healthy",
+              "recoverable_transport_fault",
+              "permanent_fault"
+            ],
+            "type": "string"
+          },
+          "transport_fault_episodes": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport_faults": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport_recoveries": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "transport_recovery_attempts": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unresolved_transport_faults": {
+            "enum": [
+              0,
+              1
+            ],
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "state",
+          "healthy",
+          "lifetime_id",
+          "namespace_process_id",
+          "admission_fenced",
+          "fence_id",
+          "fenced_at_monotonic_ns",
+          "transport_faults",
+          "transport_fault_episodes",
+          "transport_recovery_attempts",
+          "transport_recoveries",
+          "unresolved_transport_faults",
+          "permanent_faults",
+          "fault_stage",
+          "fault_reason",
+          "retry_not_before_monotonic_ns",
+          "first_fault"
+        ],
+        "type": "object"
+      },
+      "AuthorityFenceRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "restart_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "restart_id",
+          "expected_lifetime_id"
+        ],
+        "type": "object"
+      },
+      "AuthorityFenceSnapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "authority_anchor": {
+            "$ref": "#/components/schemas/AuthorityAnchorStatus"
+          },
+          "fenced_at_monotonic_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "lifetime_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "namespace_process_id": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "restart_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "schema": {
+            "const": "lets.authority-admission-fence/v1"
+          },
+          "warden_id": {
+            "$ref": "#/components/schemas/WardenId"
+          }
+        },
+        "required": [
+          "schema",
+          "restart_id",
+          "warden_id",
+          "namespace_process_id",
+          "lifetime_id",
+          "fenced_at_monotonic_ns",
+          "authority_anchor"
+        ],
+        "type": "object"
+      },
       "BranchRevocation": {
         "additionalProperties": false,
         "properties": {
@@ -2156,6 +2405,82 @@
           }
         ],
         "summary": "Spawn Child"
+      }
+    },
+    "/v1/maintenance/authority-fence": {
+      "post": {
+        "operationId": "fence_authority_admission_v1_maintenance_authority_fence_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorityFenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorityFenceSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Fence Authority Admission"
+      }
+    },
+    "/v1/maintenance/authority-status": {
+      "get": {
+        "operationId": "authority_status_v1_maintenance_authority_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorityAnchorStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Authority Status"
       }
     },
     "/v1/maintenance/reclaim": {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import textwrap
@@ -21,6 +22,7 @@ from deploy.production.acceptance.soak import (
     NODES,
     TRANSFER_PAIRS,
     AuditErrorBudget,
+    ClusterClient,
     HealthSampler,
     _audit_progress_summary,
     _bounded_audit_exporter,
@@ -40,12 +42,14 @@ from deploy.production.run_soak import (
     _canonical_digest,
     _capture_failure_resource_sample,
     _expected_transfer_pair_counts,
+    _fence_restart_authority,
     _next_restart_deadline,
     _pause_workload,
     _pre_sigkill_resource_checkpoint,
     _preflight_zero,
     _restart_integrity,
     _wait_restart_acknowledgement,
+    evaluate_authority_evidence,
     evaluate_health_cadence,
     evaluate_pause_evidence,
     evaluate_resource_bounds,
@@ -67,6 +71,71 @@ TRANSIENT_BUSY_ERROR = (
 )
 
 
+def _core_authority_status(
+    node: str = "warden-a",
+    *,
+    lifetime_id: str | None = None,
+) -> dict[str, Any]:
+    ordinal = NODES.index(node) + 1
+    return {
+        "admission_fenced": False,
+        "enabled": True,
+        "fault_reason": None,
+        "fault_stage": None,
+        "fence_id": None,
+        "fenced_at_monotonic_ns": None,
+        "first_fault": None,
+        "healthy": True,
+        "lifetime_id": lifetime_id or f"{ordinal:032x}",
+        "namespace_process_id": 100 + ordinal,
+        "permanent_faults": 0,
+        "retry_not_before_monotonic_ns": None,
+        "state": "healthy",
+        "transport_fault_episodes": 0,
+        "transport_faults": 0,
+        "transport_recoveries": 0,
+        "transport_recovery_attempts": 0,
+        "unresolved_transport_faults": 0,
+    }
+
+
+def _executor_authority_status(
+    lifetime_id: str,
+    *,
+    recovered_fault: bool = False,
+) -> dict[str, Any]:
+    first_fault = (
+        {
+            "helper_exit_code": None,
+            "helper_pid": None,
+            "mutation_uncertain": True,
+            "operation": "compare-and-set",
+            "reason": "helper_eof",
+            "request_flushed": True,
+            "stage": "post_commit",
+        }
+        if recovered_fault
+        else None
+    )
+    count = int(recovered_fault)
+    return {
+        "enabled": True,
+        "fault_reason": None,
+        "fault_stage": None,
+        "first_fault": first_fault,
+        "healthy": True,
+        "lifetime_id": lifetime_id,
+        "permanent_faults": 0,
+        "retry_not_before_monotonic_ns": None,
+        "state": "healthy",
+        "transport_fault_episodes": count,
+        "transport_faults": count,
+        "transport_recoveries": count,
+        "transport_recovery_attempts": count,
+        "unresolved_transport_faults": 0,
+    }
+
+
 def test_release_soak_evidence_verifier_compiles_with_regex_dependency() -> None:
     workflow = (Path(__file__).parents[2] / ".github/workflows/release.yml").read_text(
         encoding="utf-8"
@@ -79,6 +148,7 @@ def test_release_soak_evidence_verifier_compiles_with_regex_dependency() -> None
         "\n          PY", maxsplit=1
     )[0]
     source = textwrap.dedent(embedded)
+    assert "\nimport base64\n" in f"\n{source}"
     assert "\nimport math\n" in f"\n{source}"
     assert "\nimport re\n" in f"\n{source}"
     compile(source, "release-soak-evidence.py", "exec")
@@ -179,6 +249,222 @@ def test_release_soak_evidence_verifier_executes_and_recomputes_digest(
         exec(compile(source, "release-soak-evidence.py", "exec"), {})
 
 
+def test_release_workflow_independently_rejects_forged_authority_raw_evidence() -> None:
+    workflow = (Path(__file__).parents[2] / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
+    )
+    embedded = workflow.split(
+        "      - name: Require sustained evidence to bind the exact candidate and source\n",
+        maxsplit=1,
+    )[1].split("      - name: Archive failed production-profile soak diagnostics\n", maxsplit=1)[0]
+    source = textwrap.dedent(
+        embedded.split("          python - <<'PY'\n", maxsplit=1)[1].split(
+            "\n          PY", maxsplit=1
+        )[0]
+    )
+    verifier = source.split("# BEGIN RAW AUTHORITY EVIDENCE VERIFIER\n", maxsplit=1)[1].split(
+        "# END RAW AUTHORITY EVIDENCE VERIFIER", maxsplit=1
+    )[0]
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    summary = evaluate_authority_evidence(workload, restarts, verification)
+
+    def run(
+        raw_workload: dict[str, Any],
+        *,
+        raw_summary: dict[str, Any] = summary,
+        raw_verification: dict[str, Any] = verification,
+    ) -> list[str]:
+        failures: list[str] = []
+
+        def required_mapping(value: object, label: str) -> dict[str, Any]:
+            if isinstance(value, dict):
+                return value
+            failures.append(f"{label} is malformed")
+            return {}
+
+        namespace = {
+            "authority_summary": raw_summary,
+            "configuration": {
+                "executor_reopen_every_cycles": (_configuration().executor_reopen_every_cycles),
+                "seed": _configuration().seed,
+            },
+            "cycle_metrics_valid": True,
+            "cycles": raw_workload["cycles"],
+            "evidence": {"authority_evaluation": raw_summary},
+            "expected_nodes": set(NODES),
+            "failures": failures,
+            "base64": base64,
+            "close_number": lambda left, right, tolerance=0.002: (
+                soak_runner._finite_number(left)
+                and soak_runner._finite_number(right)
+                and abs(float(left) - float(right)) <= tolerance
+            ),
+            "finite_number": soak_runner._finite_number,
+            "final_nodes": raw_verification["final_health"]["nodes"],
+            "health_samples": raw_workload["health_samples"],
+            "re": soak_runner.re,
+            "required_mapping": required_mapping,
+            "restarts": restarts,
+            "verification": raw_verification,
+            "workload": raw_workload,
+        }
+        exec(compile(verifier, "release-authority-evidence.py", "exec"), namespace)
+        return failures
+
+    assert run(workload) == []
+    forged = json.loads(json.dumps(workload))
+    forged["executor"]["transport_recovery_events"][0]["original_transport_error"]["reason"] = (
+        "semantic_divergence"
+    )
+    assert run(forged) == ["soak authority lifetime and recovery budget is not raw-bound"]
+
+    forged_checkpoint = json.loads(json.dumps(workload))
+    forged_checkpoint["executor"]["terminal_statuses"][0]["status"]["anchor"]["schema_version"] = 4
+    assert run(forged_checkpoint) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
+    rolled_back_floor = json.loads(json.dumps(workload))
+    rolled_back_floor["executor"]["terminal_statuses"][1]["status"]["anchor"]["clock_floor_ns"] = 1
+    assert run(rolled_back_floor) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
+    forged_identity_workload = json.loads(json.dumps(workload))
+    forged_identity_verification = json.loads(json.dumps(verification))
+    for terminal in forged_identity_workload["executor"]["terminal_statuses"]:
+        terminal["status"]["anchor"]["audience"] = "forged-executor"
+    forged_identity_verification["executor"]["terminal_status"]["status"]["anchor"]["audience"] = (
+        "forged-executor"
+    )
+    assert run(
+        forged_identity_workload,
+        raw_verification=forged_identity_verification,
+    ) == ["soak authority lifetime and recovery budget is not raw-bound"]
+
+    forged_summary = {**summary, "executor_lifetime_count": 99}
+    assert run(workload, raw_summary=forged_summary) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
+    forged_verification = json.loads(json.dumps(verification))
+    forged_verification["terminal_capture"]["deadline_monotonic_seconds"] += 1
+    assert run(workload, raw_verification=forged_verification) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
+    forged_verification = json.loads(json.dumps(verification))
+    forged_verification["executor"].pop("integrity")
+    assert run(workload, raw_verification=forged_verification) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
+    for field_name in ("anchor_claim_sequence", "claim_sequence"):
+        forged_verification = json.loads(json.dumps(verification))
+        forged_verification["executor"][field_name] = float(
+            forged_verification["executor"][field_name]
+        )
+        assert run(workload, raw_verification=forged_verification) == [
+            "soak authority lifetime and recovery budget is not raw-bound"
+        ]
+
+    forged_ordinal = json.loads(json.dumps(workload))
+    forged_ordinal["executor"]["transport_recovery_events"][0]["ordinal"] = False
+    assert run(forged_ordinal) == ["soak authority lifetime and recovery budget is not raw-bound"]
+
+    forged_terminal = json.loads(json.dumps(workload))
+    forged_terminal["executor"]["terminal_statuses"][0]["ordinal"] = 0.0
+    assert run(forged_terminal) == ["soak authority lifetime and recovery budget is not raw-bound"]
+
+    forged_fence = json.loads(json.dumps(verification))
+    forged_fence["terminal_authority_fences"]["warden-a"]["namespace_process_id"] = float(
+        forged_fence["terminal_authority_fences"]["warden-a"]["namespace_process_id"]
+    )
+    assert run(workload, raw_verification=forged_fence) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
+    forged_summary = json.loads(json.dumps(summary))
+    forged_summary["core_lifetime_count"] = float(forged_summary["core_lifetime_count"])
+    forged_summary["global_counters"]["permanent_faults"] = False
+    assert run(workload, raw_summary=forged_summary) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
+
+def test_cluster_client_retains_typed_retry_code_and_request_correlation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Tokens:
+        @staticmethod
+        def issue() -> str:
+            return "bounded-test-token"
+
+    class Response:
+        def __init__(
+            self,
+            status_code: int,
+            document: dict[str, Any],
+            *,
+            request_id: str,
+        ) -> None:
+            self.status_code = status_code
+            self._document = document
+            self.headers = {"x-request-id": request_id}
+
+        def json(self) -> dict[str, Any]:
+            return self._document
+
+    responses = [
+        Response(
+            503,
+            {"code": "authority_anchor_transport_error"},
+            request_id="server-correlation-1",
+        ),
+        Response(200, {"ok": True}, request_id="server-correlation-2"),
+    ]
+
+    class HttpClient:
+        def __init__(self, **_options: Any) -> None:
+            pass
+
+        def __enter__(self) -> HttpClient:
+            return self
+
+        def __exit__(self, *_arguments: Any) -> None:
+            return None
+
+        @staticmethod
+        def request(*_arguments: Any, **_options: Any) -> Response:
+            return responses.pop(0)
+
+    client = ClusterClient.__new__(ClusterClient)
+    client._tokens = Tokens()  # type: ignore[assignment]
+    client._tls = None  # type: ignore[assignment]
+    client._retry_timeout_s = 2.0
+    client._abort_event = None
+    client.retry_count = 0
+    client._retry_scope_first_error = None
+    client._retry_scope_last_error = None
+    monkeypatch.setattr(soak_scenario.httpx, "Client", HttpClient)
+    monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
+
+    client.begin_retry_scope()
+    assert client.request(
+        "POST",
+        "warden-a",
+        "/v1/leases/lease-a/transitions",
+        body={"request_id": "request-correlation-1"},
+    ) == {"ok": True}
+    assert client.retry_count == 1
+    retry_error = client.retry_scope()["first_error"]
+    assert retry_error is not None
+    assert "code:authority_anchor_transport_error" in retry_error
+    assert "path:/v1/leases/lease-a/transitions" in retry_error
+    assert "request:request-correlation-1" in retry_error
+    assert "response:server-correlation-1" in retry_error
+
+
 def _configuration() -> SoakConfiguration:
     return SoakConfiguration(
         image=EXACT_IMAGE,
@@ -221,6 +507,7 @@ def _timed_health_samples(
             "nodes": {
                 node: {
                     "audit_exporter": {"max_stall_s": 15.0},
+                    "authority_anchor": _core_authority_status(node),
                     "observation": {
                         "completed_elapsed_seconds": scheduled + 0.2,
                         "metrics_observed_elapsed_seconds": scheduled + 0.1,
@@ -272,8 +559,11 @@ def _valid_workload_result(
             "unresolved_error_nodes": [],
         },
         "counters": {
-            "authorizations": 2 * cycles,
+            "authorizations": 2 * cycles - 1,
             "closed": cycles,
+            "executor_failed_closed": 1,
+            "executor_faulting_calls": 1,
+            "issued_receipts": 2 * cycles,
             "issued_roots": cycles,
             "quiesced": cycles,
             "renewed": cycles,
@@ -347,6 +637,164 @@ def _workload_start(
         "started_monotonic_seconds": result["started_monotonic_seconds"],
         "transfer_every_cycles": configuration.transfer_every_cycles,
     }
+
+
+def _authority_evidence_fixture(
+    configuration: SoakConfiguration,
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    workload = _valid_workload_result(configuration)
+    cycles = int(workload["cycles"])
+    issued = 2 * cycles
+    executor = workload["executor"]
+    reopen_count = int(executor["reopen_count"])
+    recovered_authority = _executor_authority_status("e" * 32, recovered_fault=True)
+    faulted_authority = {
+        **recovered_authority,
+        "fault_reason": "helper_eof",
+        "fault_stage": "post_commit",
+        "healthy": False,
+        "retry_not_before_monotonic_ns": 123,
+        "state": "recoverable_transport_fault",
+        "transport_recoveries": 0,
+        "transport_recovery_attempts": 0,
+        "unresolved_transport_faults": 1,
+    }
+
+    executor_checkpoint = {
+        "audience": "production-soak-executor",
+        "claim_digest": "A" * 43,
+        "claim_sequence": issued,
+        "clock_floor_ns": 123,
+        "config_epoch": 1,
+        "database_instance_id": "A" * 43,
+        "envelope_id": "production-acceptance-envelope",
+        "executor_policy_sha256": "A" * 43,
+        "format": "LETS-EXECUTOR-AUTHORITY-ANCHOR/1",
+        "schema_version": 5,
+        "tenant_id": "production-acceptance-tenant",
+        "trust_registry_sha256": "A" * 43,
+    }
+
+    def status(authority: dict[str, Any], *, claim_sequence: int) -> dict[str, Any]:
+        checkpoint = {**executor_checkpoint, "claim_sequence": claim_sequence}
+        return {
+            "anchor": checkpoint,
+            "authority_anchor": authority,
+            "authority_healthy": True,
+            "claim_sequence": claim_sequence,
+            "database_bytes": 4096,
+            "integrity": ["ok"],
+            "live_claims": claim_sequence,
+            "live_watermarks": claim_sequence,
+            "rollback_protected": True,
+            "shared_memory_bytes": 0,
+            "wal_bytes": 0,
+        }
+
+    workload_terminals = []
+    for ordinal in range(reopen_count + 1):
+        authority = (
+            recovered_authority
+            if ordinal == 0
+            else _executor_authority_status(f"{0xE0 + ordinal:032x}")
+        )
+        claim_sequence = (
+            2 * configuration.executor_reopen_every_cycles * (ordinal + 1)
+            if ordinal < reopen_count
+            else issued
+        )
+        snapshot = status(authority, claim_sequence=claim_sequence)
+        workload_terminals.append(
+            {
+                "lifetime_id": authority["lifetime_id"],
+                "ordinal": ordinal,
+                "source": "workload",
+                "status": snapshot,
+            }
+        )
+    executor.update(
+        {
+            "status": workload_terminals[-1]["status"],
+            "terminal_statuses": workload_terminals,
+            "transport_recovery_events": [
+                {
+                    "durable_claim_outcome": "burned_before_response",
+                    "faulted_authority_anchor": faulted_authority,
+                    "faulting_call_effect_executed": False,
+                    "ordinal": 0,
+                    "original_call_raised": True,
+                    "original_transport_error": {
+                        key: recovered_authority["first_fault"][key]
+                        for key in (
+                            "helper_exit_code",
+                            "helper_pid",
+                            "mutation_uncertain",
+                            "operation",
+                            "reason",
+                            "request_flushed",
+                        )
+                    },
+                    "phase": "primary_claim",
+                    "primary_returned": False,
+                    "protected_effect_executed_after_recovery": False,
+                    "receipt_id": "receipt-1",
+                    "recovered_authority_anchor": recovered_authority,
+                    "retry_outcome": "replay_rejected",
+                }
+            ],
+        }
+    )
+    final_executor_authority = _executor_authority_status("f" * 32)
+    final_executor_status = status(final_executor_authority, claim_sequence=issued)
+    core_fences: dict[str, Any] = {}
+    for node in NODES:
+        prior = _core_authority_status(node)
+        fence_id = f"final-verification-7-{node}"
+        authority = {
+            **prior,
+            "admission_fenced": True,
+            "fence_id": fence_id,
+            "fenced_at_monotonic_ns": 1_000 + NODES.index(node),
+        }
+        core_fences[node] = {
+            "authority_anchor": authority,
+            "fenced_at_monotonic_ns": authority["fenced_at_monotonic_ns"],
+            "lifetime_id": authority["lifetime_id"],
+            "namespace_process_id": authority["namespace_process_id"],
+            "restart_id": fence_id,
+            "schema": "lets.authority-admission-fence/v1",
+            "warden_id": node,
+        }
+    verification = {
+        "executor": {
+            "anchor_claim_sequence": issued,
+            "authority_anchor": final_executor_authority,
+            "authority_healthy": True,
+            "claim_sequence": issued,
+            "database_bytes": 4096,
+            "integrity": ["ok"],
+            "rollback_protected": True,
+            "terminal_status": {
+                "lifetime_id": final_executor_authority["lifetime_id"],
+                "ordinal": len(workload_terminals),
+                "source": "final_verification",
+                "status": final_executor_status,
+            },
+            "wal_bytes": 0,
+        },
+        "final_health": {
+            "nodes": {node: {"authority_anchor": _core_authority_status(node)} for node in NODES}
+        },
+        "schema": "lets.production-profile-soak-verification/v1",
+        "status": "passed",
+        "terminal_capture": {
+            "completed_monotonic_seconds": 2.0,
+            "deadline_monotonic_seconds": 91.0,
+            "started_monotonic_seconds": 1.0,
+        },
+        "terminal_authority_fences": core_fences,
+    }
+    return workload, [], verification
 
 
 def _chaos_started() -> float:
@@ -613,6 +1061,147 @@ def test_workload_evaluation_enforces_exact_load_and_executor_relationships() ->
 
 
 @pytest.mark.parametrize(
+    ("target", "field", "value", "violation"),
+    (
+        ("counters", "closed", True, "counter_relationships"),
+        ("counters", "closed", 1.0, "counter_relationships"),
+        ("executor", "claims", 24.0, "executor_claims"),
+        ("executor", "reopen_count", True, "executor_reopens"),
+        ("executor", "replay_rejections", 28.0, "executor_replay_rejections"),
+        ("executor_status", "claim_sequence", 24.0, "executor_claim_sequence"),
+        ("pairs", "warden-a->warden-b", 1.0, "transfer_pair_rotation"),
+    ),
+)
+def test_workload_evaluator_rejects_type_loose_integer_evidence(
+    target: str,
+    field: str,
+    value: object,
+    violation: str,
+) -> None:
+    configuration = _configuration()
+    result = _valid_workload_result(configuration)
+    if target == "executor_status":
+        result["executor"]["status"][field] = value
+    elif target == "pairs":
+        result["transfer_pair_counts"][field] = value
+    else:
+        result[target][field] = value
+    evaluation = evaluate_workload_result(
+        result,
+        configuration,
+        chaos_completed_monotonic=_chaos_completed(),
+        chaos_started_monotonic=_chaos_started(),
+        partitions=[],
+        restarts=[],
+        workload_start=_workload_start(result, configuration),
+    )
+    assert evaluation["passed"] is False
+    assert violation in evaluation["violations"]
+
+
+def test_authority_evaluator_reconstructs_and_adversarially_gates_global_budget() -> None:
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    result = evaluate_authority_evidence(workload, restarts, verification)
+    assert result["passed"] is True
+    assert result["global_counters"] == {
+        "permanent_faults": 0,
+        "transport_fault_episodes": 1,
+        "transport_faults": 1,
+        "transport_recoveries": 1,
+        "transport_recovery_attempts": 1,
+    }
+
+    event = workload["executor"]["transport_recovery_events"][0]
+    event["faulted_authority_anchor"]["transport_faults"] = 2
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+    event["faulted_authority_anchor"]["transport_faults"] = 1
+    event["original_transport_error"]["reason"] = "semantic_divergence"
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+    event["original_transport_error"]["reason"] = "helper_eof"
+    verification["terminal_authority_fences"]["warden-a"]["lifetime_id"] = "0" * 32
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+
+def test_authority_evaluator_rejects_executor_checkpoint_and_reopen_head_rollback() -> None:
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    workload["executor"]["terminal_statuses"][1]["status"]["anchor"]["clock_floor_ns"] = 1
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    first = workload["executor"]["terminal_statuses"][0]["status"]
+    first["claim_sequence"] = 2 * workload["cycles"]
+    first["anchor"]["claim_sequence"] = 2 * workload["cycles"]
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    for terminal in workload["executor"]["terminal_statuses"]:
+        terminal["status"]["anchor"]["tenant_id"] = "forged-tenant"
+    verification["executor"]["terminal_status"]["status"]["anchor"]["tenant_id"] = "forged-tenant"
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+    for field_name in ("anchor_claim_sequence", "claim_sequence"):
+        workload, restarts, verification = _authority_evidence_fixture(_configuration())
+        verification["executor"][field_name] = float(verification["executor"][field_name])
+        assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    workload["executor"]["transport_recovery_events"][0]["ordinal"] = False
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    workload["executor"]["terminal_statuses"][0]["ordinal"] = 0.0
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+    workload, restarts, verification = _authority_evidence_fixture(_configuration())
+    verification["terminal_authority_fences"]["warden-a"]["fenced_at_monotonic_ns"] = 1_000.0
+    assert evaluate_authority_evidence(workload, restarts, verification)["passed"] is False
+
+
+def test_authority_evaluator_requires_replacement_snapshot_terminal_lower_bound() -> None:
+    workload, _, verification = _authority_evidence_fixture(_configuration())
+    restart = _restart_record()
+    old = restart["authority_fence"]["prior_authority_anchor"]
+    new = restart["new_authority_anchor"]
+    samples = workload["health_samples"]
+    midpoint = len(samples) // 2
+    for index, sample in enumerate(samples):
+        sample["nodes"]["warden-a"]["authority_anchor"] = old if index < midpoint else new
+    fence_id = "final-verification-7-warden-a"
+    final_authority = {
+        **new,
+        "admission_fenced": True,
+        "fence_id": fence_id,
+        "fenced_at_monotonic_ns": 9_999,
+    }
+    verification["terminal_authority_fences"]["warden-a"] = {
+        "authority_anchor": final_authority,
+        "fenced_at_monotonic_ns": 9_999,
+        "lifetime_id": new["lifetime_id"],
+        "namespace_process_id": new["namespace_process_id"],
+        "restart_id": fence_id,
+        "schema": "lets.authority-admission-fence/v1",
+        "warden_id": "warden-a",
+    }
+    verification["final_health"]["nodes"]["warden-a"]["authority_anchor"] = new
+    assert evaluate_authority_evidence(workload, [restart], verification)["passed"] is True
+
+    first_fault = _executor_authority_status("a" * 32, recovered_fault=True)["first_fault"]
+    new.update(
+        {
+            "first_fault": first_fault,
+            "transport_fault_episodes": 1,
+            "transport_faults": 1,
+            "transport_recoveries": 1,
+            "transport_recovery_attempts": 1,
+        }
+    )
+    restart["workload_coordination"]["completed"]["recovery_acknowledgement"][
+        "recovered_authority_anchor"
+    ] = new
+    assert evaluate_authority_evidence(workload, [restart], verification)["passed"] is False
+
+
+@pytest.mark.parametrize(
     ("mutation", "violation"),
     (
         ({"schema": "lets.production-profile-soak-workload/v1"}, "workload_identity"),
@@ -683,6 +1272,21 @@ def test_health_cadence_rejects_gaps_larger_than_the_exporter_stall_bound() -> N
 
 def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str, Any]:
     restart_id = f"restart-{episode}-{service}"
+    prior_authority = _core_authority_status(
+        service,
+        lifetime_id=f"{10 + episode:032x}",
+    )
+    recovered_authority = _core_authority_status(
+        service,
+        lifetime_id=f"{100 + episode:032x}",
+    )
+    recovered_authority["namespace_process_id"] = 200 + episode
+    terminal_authority = {
+        **prior_authority,
+        "admission_fenced": True,
+        "fence_id": restart_id,
+        "fenced_at_monotonic_ns": 12_500_000_000 + episode,
+    }
     armed = {
         "armed_monotonic_seconds": 110.0,
         "episode": episode,
@@ -693,20 +1297,56 @@ def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str,
     completed = {
         **armed,
         "completed_monotonic_seconds": 125.0,
+        "expected_recovered_authority_identity": {
+            "lifetime_id": recovered_authority["lifetime_id"],
+            "namespace_process_id": recovered_authority["namespace_process_id"],
+        },
         "state": "completed",
     }
     acknowledgement = {
         key: armed[key] for key in ("armed_monotonic_seconds", "episode", "restart_id", "service")
-    } | {"acknowledged_monotonic_seconds": 111.0}
+    } | {
+        "acknowledged_monotonic_seconds": 111.0,
+        "prior_authority_anchor": prior_authority,
+    }
     recovery = {
         **acknowledgement,
         "completed_monotonic_seconds": 125.0,
+        "recovered_authority_anchor": recovered_authority,
         "recovered_monotonic_seconds": 126.0,
     }
     return {
+        "authority_fence": {
+            "host_container_id": "a" * 64,
+            "host_exec_attempts": 1,
+            "host_pid": 101,
+            "prior_authority_anchor": prior_authority,
+            "result": {
+                "node": service,
+                "request_retry_count": 0,
+                "schema": "lets.production-profile-authority-fence/v1",
+                "status": "passed",
+                "terminal": {
+                    "authority_anchor": terminal_authority,
+                    "fenced_at_monotonic_ns": terminal_authority["fenced_at_monotonic_ns"],
+                    "lifetime_id": prior_authority["lifetime_id"],
+                    "namespace_process_id": prior_authority["namespace_process_id"],
+                    "restart_id": restart_id,
+                    "schema": "lets.authority-admission-fence/v1",
+                    "warden_id": service,
+                },
+            },
+        },
         "host_operation_completed_monotonic_seconds": 1_010.0,
         "host_operation_started_monotonic_seconds": 1_002.0,
+        "new_authority_anchor": recovered_authority,
+        "new_container_id": "b" * 64,
+        "new_pid": 202,
+        "planned_exit_code": 137,
+        "prior_container_id": "a" * 64,
+        "prior_pid": 101,
         "service": service,
+        "signal": "SIGKILL",
         "workload_coordination": {
             "armed": {
                 "acknowledgement": acknowledgement,
@@ -722,6 +1362,157 @@ def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str,
             },
         },
     }
+
+
+def test_restart_authority_fence_recovers_late_first_output_with_unique_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restart = _restart_record()
+    armed = restart["workload_coordination"]["armed"]
+    valid_result = restart["authority_fence"]["result"]
+
+    class Clock:
+        value = 100.0
+
+        @classmethod
+        def monotonic(cls) -> float:
+            return cls.value
+
+        @classmethod
+        def sleep(cls, seconds: float) -> None:
+            cls.value += seconds
+
+    class Workload:
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    class FakeHarness:
+        configuration = _configuration()
+        workload_container = "workload"
+
+        def __init__(self) -> None:
+            self.exec_count = 0
+            self.output_paths: list[str] = []
+
+        def run(
+            self,
+            command: list[str],
+            *,
+            check: bool = True,
+            timeout: float,
+        ) -> Any:
+            del check
+            Clock.value += min(0.05, timeout)
+            if "fence-authority" in command:
+                self.exec_count += 1
+                output_path = command[command.index("--output") + 1]
+                self.output_paths.append(output_path)
+                if self.exec_count < 3:
+                    raise soak_runner.subprocess.TimeoutExpired(command, timeout)
+                return soak_runner.subprocess.CompletedProcess(command, 0, "", "")
+            script = command[-1]
+            if self.exec_count >= 3 and repr(self.output_paths[0]) in script:
+                return soak_runner.subprocess.CompletedProcess(
+                    command,
+                    0,
+                    json.dumps(valid_result),
+                    "",
+                )
+            return soak_runner.subprocess.CompletedProcess(command, 1, "", "")
+
+    monkeypatch.setattr(soak_runner.time, "monotonic", Clock.monotonic)
+    monkeypatch.setattr(soak_runner.time, "sleep", Clock.sleep)
+    harness = FakeHarness()
+    attempt_evidence: dict[str, Any] = {}
+    result = _fence_restart_authority(
+        harness,  # type: ignore[arg-type]
+        service="warden-a",
+        armed=armed,
+        prior_identity={"container_id": "a" * 64, "host_pid": 101},
+        deadline_monotonic=130.0,
+        attempt_evidence=attempt_evidence,
+        workload=Workload(),  # type: ignore[arg-type]
+    )
+
+    assert result["host_exec_attempts"] == 3
+    assert result["result"] == valid_result
+    assert attempt_evidence["resolved"] is True
+    assert attempt_evidence["resolved_attempt"] == 1
+    assert len(attempt_evidence["attempts"]) == 3
+    assert len(set(harness.output_paths)) == 3
+    assert attempt_evidence["attempts"][0]["exec_error_type"].endswith("TimeoutExpired")
+    assert attempt_evidence["attempts"][0]["last_read"]["outcome"] == "valid"
+
+
+def test_restart_authority_fence_rejects_extra_fields_and_closes_attempt_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    restart = _restart_record()
+    armed = restart["workload_coordination"]["armed"]
+    malformed = {**restart["authority_fence"]["result"], "extra": "forged"}
+
+    class Clock:
+        value = 200.0
+
+        @classmethod
+        def monotonic(cls) -> float:
+            return cls.value
+
+        @classmethod
+        def sleep(cls, seconds: float) -> None:
+            cls.value += seconds
+
+    class Workload:
+        @staticmethod
+        def poll() -> None:
+            return None
+
+    class FakeHarness:
+        configuration = _configuration()
+        workload_container = "workload"
+
+        def run(
+            self,
+            command: list[str],
+            *,
+            check: bool = True,
+            timeout: float,
+        ) -> Any:
+            del check
+            Clock.value += min(0.4, timeout)
+            if "fence-authority" in command:
+                return soak_runner.subprocess.CompletedProcess(command, 0, "", "")
+            return soak_runner.subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps(malformed),
+                "",
+            )
+
+    monkeypatch.setattr(soak_runner.time, "monotonic", Clock.monotonic)
+    monkeypatch.setattr(soak_runner.time, "sleep", Clock.sleep)
+    attempt_evidence: dict[str, Any] = {}
+    with pytest.raises(RuntimeError, match="response remained unresolved"):
+        _fence_restart_authority(
+            FakeHarness(),  # type: ignore[arg-type]
+            service="warden-a",
+            armed=armed,
+            prior_identity={"container_id": "a" * 64, "host_pid": 101},
+            deadline_monotonic=204.0,
+            attempt_evidence=attempt_evidence,
+            workload=Workload(),  # type: ignore[arg-type]
+        )
+
+    assert attempt_evidence["resolved"] is False
+    assert attempt_evidence["status"] == "unresolved"
+    assert attempt_evidence["completed_monotonic_seconds"] >= 204.0
+    assert len(attempt_evidence["attempts"]) >= 2
+    assert all(
+        attempt["last_read"]["outcome"] == "invalid_response"
+        for attempt in attempt_evidence["attempts"]
+        if attempt["last_read"] is not None
+    )
 
 
 def _pause_binding(
@@ -925,6 +1716,17 @@ def test_restart_evidence_requires_exact_ack_lifecycle_and_bounded_recovery() ->
     ]
 
     restart["workload_coordination"]["armed"]["acknowledgement"]["restart_id"] = "stale"
+    assert evaluate_restart_evidence([restart], workload_started_monotonic=100.0)["passed"] is False
+
+    restart = _restart_record()
+    coordination = restart["workload_coordination"]
+    for document in (
+        coordination["armed"]["marker"],
+        coordination["armed"]["acknowledgement"],
+        coordination["completed"]["marker"],
+        coordination["completed"]["recovery_acknowledgement"],
+    ):
+        document["episode"] = 0.0
     assert evaluate_restart_evidence([restart], workload_started_monotonic=100.0)["passed"] is False
 
 
@@ -1305,6 +2107,7 @@ def test_planned_restart_live_window_expires_only_before_completion(
         soak_scenario._planned_restart_window(
             "warden-a",
             observation_started_monotonic=140.0,
+            prior_authority_anchor=_core_authority_status("warden-a"),
         )
 
     completed = {
@@ -1416,8 +2219,10 @@ def test_restart_ack_wait_and_host_operations_use_hard_deadlines(
         soak_runner._restart(
             object(),  # type: ignore[arg-type]
             "warden-a",
+            armed={},
             completion_deadline_monotonic=Clock.current - 1.0,
             elapsed_s=0.0,
+            workload=Process(),  # type: ignore[arg-type]
         )
 
 
@@ -2046,6 +2851,8 @@ def test_health_sample_recovers_one_error_inside_only_the_remaining_stall_window
                 }
             if path == "/v1/audit/verify":
                 return {"valid": True}
+            if path == "/v1/maintenance/authority-status":
+                return _core_authority_status(node)
             self.metrics_calls[node] += 1
             if node == "warden-a" and self.metrics_calls[node] == 1:
                 status = _audit_status(
@@ -2058,6 +2865,7 @@ def test_health_sample_recovers_one_error_inside_only_the_remaining_stall_window
                 status = _clean_audit_status()
             return {
                 **_audit_document(status),
+                "authority_anchor": _core_authority_status(node),
                 "peer_dispatcher": {},
                 "receipts": {"total": 1},
                 "storage_capacity": {"healthy": True},
@@ -2351,9 +3159,12 @@ def test_health_sample_accepts_only_bounded_audit_catchup() -> None:
                 }
             if path == "/v1/audit/verify":
                 return {"valid": True}
+            if path == "/v1/maintenance/authority-status":
+                return _core_authority_status(_node)
             return {
                 "audit_exporter": _audit_status(),
                 "audit_outbox": {"unpublished_count": 5},
+                "authority_anchor": _core_authority_status(_node),
                 "peer_dispatcher": {"pending_records": 0, "prepared_transfers": 0},
                 "ready": False,
                 "receipts": {"total": 1},
@@ -2380,8 +3191,11 @@ def _converged_health_response(path: str) -> dict[str, Any]:
         }
     if path == "/v1/audit/verify":
         return {"valid": True}
+    if path == "/v1/maintenance/authority-status":
+        return _core_authority_status()
     return {
         **_audit_document(_clean_audit_status()),
+        "authority_anchor": _core_authority_status(),
         "peer_dispatcher": {
             "configured_peers": 2,
             "failed_records": 0,
@@ -2396,7 +3210,7 @@ def _converged_health_response(path: str) -> dict[str, Any]:
     }
 
 
-def test_health_sample_threads_one_absolute_deadline_through_all_nine_requests(
+def test_health_sample_threads_one_absolute_deadline_through_all_twelve_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeClient:
@@ -2422,7 +3236,7 @@ def test_health_sample_threads_one_absolute_deadline_through_all_nine_requests(
         deadline=100.0,
     )
     assert _is_converged(sample) is True
-    assert client.deadlines == [100.0] * 9
+    assert client.deadlines == [100.0] * 12
 
 
 def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
@@ -2446,7 +3260,7 @@ def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
             nonlocal current
             self.calls += 1
             self.deadlines.append(deadline_monotonic)
-            if self.calls == 9:
+            if self.calls == 12:
                 current = 1.001
             return _converged_health_response(path)
 
@@ -2462,8 +3276,8 @@ def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
     )
     with pytest.raises(RuntimeError, match="did not settle"):
         soak_scenario.wait_converged(arguments)
-    assert client.calls == 9
-    assert client.deadlines == [1.0] * 9
+    assert client.calls == 12
+    assert client.deadlines == [1.0] * 12
 
 
 @pytest.mark.parametrize("probe_name", ("wait_converged", "verify_final"))
@@ -2490,6 +3304,8 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
                 }
             if path == "/v1/audit/verify":
                 return {"valid": True}
+            if path == "/v1/maintenance/authority-status":
+                return _core_authority_status(_node)
             status = _audit_status(
                 last_error=TRANSIENT_BUSY_ERROR,
                 oldest_pending_age_s=None,
@@ -2498,6 +3314,7 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
             )
             return {
                 **_audit_document(status),
+                "authority_anchor": _core_authority_status(_node),
                 "peer_dispatcher": {},
                 "receipts": {"total": 1},
                 "storage_capacity": {"healthy": True},
@@ -2506,6 +3323,12 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
 
     monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: None)
     monkeypatch.setattr(soak_scenario, "ClusterClient", lambda **_kwargs: FakeClient())
+    if probe_name == "verify_final":
+        monkeypatch.setattr(
+            soak_scenario,
+            "_object",
+            lambda _path: {"executor": {"status": {}, "terminal_statuses": [{}]}},
+        )
     arguments = soak_scenario.argparse.Namespace(
         convergence_timeout_seconds=1.0,
         retry_timeout_seconds=1.0,
@@ -2514,6 +3337,89 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
     probe = getattr(soak_scenario, probe_name)
     with pytest.raises(RuntimeError, match="outside the shared workload error budget"):
         probe(arguments)
+
+
+def test_final_verification_retains_typed_executor_startup_admission_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "executor.sqlite3"
+    anchor_path = tmp_path / "executor.anchor"
+    database.write_bytes(b"database")
+    anchor_path.write_bytes(b"anchor")
+    final_sample = {"nodes": {node: {} for node in NODES}}
+    close_calls: list[bool] = []
+
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self, **_options: Any) -> None:
+            pass
+
+    class FakeAnchor:
+        def __init__(self, *_arguments: Any, **_options: Any) -> None:
+            pass
+
+        @staticmethod
+        def close() -> None:
+            close_calls.append(True)
+
+    def fail_store(*_arguments: Any, **_options: Any) -> None:
+        raise soak_scenario.AuthorityAnchorTransportError(
+            "raw helper detail must not escape",
+            reason="helper_eof",
+            operation="confirm",
+            request_flushed=True,
+            mutation_uncertain=True,
+            helper_pid=321,
+            helper_exit_code=-9,
+        )
+
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: None)
+    monkeypatch.setattr(
+        soak_scenario,
+        "_object",
+        lambda _path: {
+            "executor": {
+                "status": {"claim_sequence": 1},
+                "terminal_statuses": [{"lifetime_id": "a" * 32}],
+            }
+        },
+    )
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    monkeypatch.setattr(soak_scenario, "_health_sample", lambda *_args, **_kwargs: final_sample)
+    monkeypatch.setattr(soak_scenario, "_is_converged", lambda _sample: True)
+    monkeypatch.setattr(soak_scenario, "_validate_conservation", lambda _sample: {"balanced": True})
+    monkeypatch.setattr(soak_scenario, "ProcessFileExecutorAuthorityAnchor", FakeAnchor)
+    monkeypatch.setattr(soak_scenario, "SQLiteReceiptReplayStore", fail_store)
+    monkeypatch.setattr(soak_scenario, "EXECUTOR_DATABASE", database)
+    monkeypatch.setattr(soak_scenario, "EXECUTOR_ANCHOR", anchor_path)
+    monkeypatch.setattr(soak_scenario.metadata, "version", lambda _name: "1.0.5")
+    arguments = soak_scenario.argparse.Namespace(
+        convergence_timeout_seconds=1.0,
+        retry_timeout_seconds=1.0,
+        seed=7,
+    )
+
+    with pytest.raises(soak_scenario.WorkloadMonitorError) as raised:
+        soak_scenario.verify_final(arguments)
+    executor = raised.value.result["executor"]
+    assert executor == {
+        "admission_error": {
+            "helper_exit_code": -9,
+            "helper_pid": 321,
+            "mutation_uncertain": True,
+            "operation": "confirm",
+            "reason": "helper_eof",
+            "request_flushed": True,
+        },
+        "anchor_preserved": True,
+        "database_preserved": True,
+        "pending_transport_fault": None,
+        "phase": "final_verification_startup",
+    }
+    assert close_calls == [True]
+    assert "raw helper detail" not in str(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -2533,8 +3439,11 @@ def test_health_sample_does_not_mask_core_or_aggregate_readiness_failures(
                 return {"healthy": True}
             if path == "/v1/audit/verify":
                 return {"valid": True}
+            if path == "/v1/maintenance/authority-status":
+                return _core_authority_status(_node)
             return {
                 "audit_exporter": _audit_status(),
+                "authority_anchor": _core_authority_status(_node),
                 "ready": ready,
                 "service_ready": service_ready,
                 "storage_capacity": {"healthy": True},
