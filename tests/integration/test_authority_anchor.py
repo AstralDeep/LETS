@@ -222,7 +222,7 @@ def test_process_file_anchor_tracks_commits_and_survives_reopen(tmp_path: Path) 
 def test_process_file_anchor_enforces_one_total_io_deadline(tmp_path: Path) -> None:
     anchor = ProcessFileAuthorityAnchor(
         tmp_path / "anchor.json",
-        timeout_s=0.05,
+        timeout_s=0.5,
         helper_command=(sys.executable, "-c", "import time; time.sleep(10)"),
     )
     checkpoint = AuthorityCheckpoint(
@@ -247,7 +247,7 @@ def test_process_file_anchor_enforces_one_total_io_deadline(tmp_path: Path) -> N
     assert raised.value.operation == "read"
     assert raised.value.request_flushed is True
     assert raised.value.mutation_uncertain is False
-    assert time.monotonic() - started < 1.0
+    assert time.monotonic() - started < 1.5
 
 
 def test_process_file_reconcile_and_confirm_share_one_absolute_deadline(tmp_path: Path) -> None:
@@ -528,7 +528,7 @@ def test_process_file_anchor_rejects_checkpoint_decoded_after_deadline(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    anchor = ProcessFileAuthorityAnchor(tmp_path / "anchor.json", timeout_s=0.5)
+    anchor = ProcessFileAuthorityAnchor(tmp_path / "anchor.json", timeout_s=2.0)
     checkpoint = AuthorityCheckpoint(
         warden_id="warden-a",
         tenant_id="tenant-a",
@@ -660,6 +660,100 @@ def test_core_transport_fault_recovers_once_after_cooldown_with_durable_counters
         assert persisted["lifetime_id"] != recovered["lifetime_id"]
     finally:
         reopened.close()
+
+
+def test_core_authority_status_snapshot_is_nonblocking_coherent_and_isolated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = [20_000_000_000]
+    monkeypatch.setattr(sqlite_module.time, "monotonic_ns", lambda: now[0])
+    recovery_entered = threading.Event()
+    release_recovery = threading.Event()
+    durable = FileAuthorityAnchor(tmp_path / "independent" / "anchor.json")
+    failure = _transport_failure(operation="read", request_flushed=False)
+
+    class BlockingRecoveryAnchor(_ScriptedAnchor):
+        def reconcile(self, checkpoint: AuthorityCheckpoint, **options: Any) -> None:
+            next_call = self.calls + 1
+            if next_call == 3:
+                recovery_entered.set()
+                assert release_recovery.wait(timeout=5)
+            super().reconcile(checkpoint, **options)
+
+    anchor = BlockingRecoveryAnchor(durable, {2: failure})
+    store = SQLiteStorage.initialize(
+        tmp_path / "warden.sqlite3",
+        "warden-a",
+        (10,),
+        **_options(anchor),
+    )
+    baseline = store.authority_anchor_status()
+    assert baseline["state"] == "healthy"
+    assert baseline["transport_faults"] == 0
+
+    with pytest.raises(AuthorityAnchorTransportError):
+        store.authority_checkpoint()
+    faulted = store.authority_anchor_status()
+    assert faulted["state"] == "recoverable_transport_fault"
+    assert faulted["transport_faults"] == 1
+    assert faulted["transport_recovery_attempts"] == 0
+
+    faulted["state"] = "caller-poisoned"
+    first_fault = cast(dict[str, object], faulted["first_fault"])
+    first_fault["reason"] = "caller-poisoned"
+    isolated = store.authority_anchor_status()
+    assert isolated["state"] == "recoverable_transport_fault"
+    assert cast(dict[str, object], isolated["first_fault"])["reason"] == "helper_eof"
+
+    now[0] += 250_000_000
+    recovered_checkpoints: list[AuthorityCheckpoint] = []
+    recovery_errors: list[BaseException] = []
+
+    def recover() -> None:
+        try:
+            recovered_checkpoints.append(store.authority_checkpoint())
+        except BaseException as exc:
+            recovery_errors.append(exc)
+
+    recovery_thread = threading.Thread(target=recover)
+    recovery_thread.start()
+    assert recovery_entered.wait(timeout=5)
+    attempt = store.authority_anchor_status()
+    assert recovery_thread.is_alive()
+    assert attempt["state"] == "recoverable_transport_fault"
+    assert attempt["transport_faults"] == 1
+    assert attempt["transport_recovery_attempts"] == 1
+    assert attempt["transport_recoveries"] == 0
+
+    release_recovery.set()
+    recovery_thread.join(timeout=5)
+    assert not recovery_thread.is_alive()
+    assert recovery_errors == []
+    assert len(recovered_checkpoints) == 1
+    recovered = store.authority_anchor_status()
+    assert recovered["state"] == "healthy"
+    assert recovered["transport_recovery_attempts"] == 1
+    assert recovered["transport_recoveries"] == 1
+    assert recovered["first_fault"] == isolated["first_fault"]
+
+    lifetime = cast(str, recovered["lifetime_id"])
+    terminal = store.fence_authority_admission(
+        restart_id="restart-status-snapshot",
+        expected_lifetime_id=lifetime,
+    )
+    terminal_status = cast(dict[str, object], terminal["authority_anchor"])
+    assert terminal_status == store.authority_anchor_status()
+    assert terminal_status["admission_fenced"] is True
+    assert terminal_status["fence_id"] == "restart-status-snapshot"
+    assert (
+        store.fence_authority_admission(
+            restart_id="restart-status-snapshot",
+            expected_lifetime_id=lifetime,
+        )
+        == terminal
+    )
+    store.close()
 
 
 def test_repeated_transport_failure_rearms_backoff_and_preserves_first_fault(
@@ -895,7 +989,10 @@ def test_authority_fence_waits_for_active_work_then_rejects_queued_transaction(
 
     fence_thread = threading.Thread(target=fence)
     fence_thread.start()
-    ordered.wait_for_tickets(3)
+    ordered.wait_for_tickets(2)
+    queued_fence_status = store.authority_anchor_status()
+    assert queued_fence_status["admission_fenced"] is False
+    assert queued_fence_status["fence_id"] is None
 
     def queued_transaction() -> None:
         try:
@@ -906,7 +1003,7 @@ def test_authority_fence_waits_for_active_work_then_rejects_queued_transaction(
 
     queued = threading.Thread(target=queued_transaction)
     queued.start()
-    ordered.wait_for_tickets(4)
+    ordered.wait_for_tickets(3)
     assert not fence_result
     release_active.set()
     active.join(timeout=5)

@@ -266,6 +266,7 @@ class ClusterClient:
                 raise RuntimeError("request deadline must be finite and in the future")
             deadline = min(deadline, deadline_monotonic)
         last_error = "request was not attempted"
+        attempted_requests = 0
         while time.monotonic() < deadline:
             self._raise_if_aborted()
             if interrupt is not None:
@@ -278,6 +279,9 @@ class ClusterClient:
                     headers=headers,
                     timeout=request_timeout,
                 ) as client:
+                    if attempted_requests > 0:
+                        self.retry_count += 1
+                    attempted_requests += 1
                     response = client.request(method, f"{NODE_URLS[node]}{path}", json=body)
             except httpx.TransportError as exc:
                 last_error = f"transport:{type(exc).__name__}"
@@ -290,7 +294,6 @@ class ClusterClient:
                         raise RuntimeError(f"{node}{path} returned a non-object response")
                     if time.monotonic() > deadline:
                         last_error = "response completed after the shared deadline"
-                        self.retry_count += 1
                         self._record_retry_error("deadline:late_response")
                         break
                     if interrupt is not None:
@@ -305,7 +308,6 @@ class ClusterClient:
                 )
                 if response.status_code not in {429, 500, 502, 503, 504}:
                     raise RuntimeError(f"{method} {node}{path} failed: {last_error}")
-            self.retry_count += 1
             self._record_retry_error(last_error)
             delay = min(0.2, max(0.0, deadline - time.monotonic()))
             if self._abort_event is None:
@@ -1596,6 +1598,7 @@ def _health_sample(
         retry_count_before = int(getattr(client, "retry_count", 0))
         begin_retry_scope()
         authority_anchor: dict[str, Any] | None = None
+        metrics_observed_monotonic: float | None = None
         try:
             invariant = request(
                 node,
@@ -1612,27 +1615,12 @@ def _health_sample(
                 "/v1/metrics",
                 observation_started=observation_started,
             )
-            metrics_authority = _bounded_authority_anchor_status(
+            metrics_observed_monotonic = time.monotonic()
+            authority_anchor = _bounded_authority_anchor_status(
                 metrics.get("authority_anchor"),
                 node=node,
                 require_healthy=True,
             )
-            authority_anchor = _bounded_authority_anchor_status(
-                request(
-                    node,
-                    "/v1/maintenance/authority-status",
-                    observation_started=observation_started,
-                ),
-                node=node,
-                require_healthy=True,
-            )
-            if metrics_authority["lifetime_id"] != authority_anchor["lifetime_id"]:
-                raise RuntimeError(f"{node} authority lifetime changed inside one observation")
-            if any(
-                cast(int, authority_anchor[field_name]) < cast(int, metrics_authority[field_name])
-                for field_name in _AUTHORITY_COUNTER_FIELDS
-            ):
-                raise RuntimeError(f"{node} authority counters moved backwards inside observation")
         except PlannedNodeUnavailableError as exc:
             observation_completed = time.monotonic()
             nodes[node] = {
@@ -1656,7 +1644,8 @@ def _health_sample(
                 exc,
                 fallback_authority=authority_anchor,
             )
-        metrics_observed_monotonic = time.monotonic()
+        if metrics_observed_monotonic is None:
+            raise RuntimeError(f"{node} metrics observation time was not retained")
         try:
             audit_exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
             capacity = metrics.get("storage_capacity")

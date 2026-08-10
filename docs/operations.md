@@ -166,8 +166,13 @@ a pre-1.0.5 helper executable with a 1.0.5 parent. The required stop-the-world u
 upgrade satisfies this boundary. Authenticated metrics expose bounded `authority_anchor` state;
 the same document is available at `GET /v1/maintenance/authority-status` to
 `lets.admin`, `lets.warden.admin`, or `lets.metrics.read`. The direct status read opens no database
-transaction and remains available after an admission fence. Typed transport failures use the
-additive 503 `authority_anchor_transport_error` problem code/type.
+transaction or authority-admission lock: the supplied service returns a deep copy of the most
+recent fully published state through a separate short-held snapshot lock and remains available
+after an admission fence. During an in-progress reconcile it may therefore show the preceding
+complete state; it is bounded observability, not proof that the current provider call is live. The
+serialized fence remains the terminal barrier and publishes its exact terminal snapshot before it
+returns. Typed transport failures use the additive 503 `authority_anchor_transport_error` problem
+code/type.
 
 Immediately before a controlled process replacement, an administrator may call
 `POST /v1/maintenance/authority-fence` with the observed process `lifetime_id` as

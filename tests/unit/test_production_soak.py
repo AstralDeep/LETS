@@ -465,6 +465,117 @@ def test_cluster_client_retains_typed_retry_code_and_request_correlation(
     assert "response:server-correlation-1" in retry_error
 
 
+def test_cluster_client_counts_only_actual_extra_http_attempts_after_deadline_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Tokens:
+        @staticmethod
+        def issue() -> str:
+            return "bounded-test-token"
+
+    current = [100.0]
+    request_calls = 0
+
+    class HttpClient:
+        def __init__(self, **_options: Any) -> None:
+            pass
+
+        def __enter__(self) -> HttpClient:
+            return self
+
+        def __exit__(self, *_arguments: Any) -> None:
+            return None
+
+        @staticmethod
+        def request(*_arguments: Any, **_options: Any) -> None:
+            nonlocal request_calls
+            request_calls += 1
+            current[0] = 101.0
+            raise soak_scenario.httpx.ReadTimeout("bounded timeout")
+
+    client = ClusterClient.__new__(ClusterClient)
+    client._tokens = Tokens()  # type: ignore[assignment]
+    client._tls = None  # type: ignore[assignment]
+    client._retry_timeout_s = 1.0
+    client._abort_event = None
+    client.retry_count = 0
+    client._retry_scope_first_error = None
+    client._retry_scope_last_error = None
+    monkeypatch.setattr(soak_scenario.httpx, "Client", HttpClient)
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: current[0])
+    monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
+
+    client.begin_retry_scope()
+    with pytest.raises(RuntimeError, match="transport:ReadTimeout"):
+        client.request("GET", "warden-a", "/v1/metrics")
+    assert request_calls == 1
+    assert client.retry_count == 0
+    assert client.retry_scope() == {
+        "first_error": "transport:ReadTimeout",
+        "last_error": "transport:ReadTimeout",
+    }
+
+
+def test_cluster_client_does_not_count_late_first_response_as_a_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Tokens:
+        @staticmethod
+        def issue() -> str:
+            return "bounded-test-token"
+
+    class Response:
+        status_code = 200
+
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+        @staticmethod
+        def json() -> dict[str, bool]:
+            return {"ok": True}
+
+    current = [100.0]
+    request_calls = 0
+
+    class HttpClient:
+        def __init__(self, **_options: Any) -> None:
+            pass
+
+        def __enter__(self) -> HttpClient:
+            return self
+
+        def __exit__(self, *_arguments: Any) -> None:
+            return None
+
+        @staticmethod
+        def request(*_arguments: Any, **_options: Any) -> Response:
+            nonlocal request_calls
+            request_calls += 1
+            current[0] = 101.001
+            return Response()
+
+    client = ClusterClient.__new__(ClusterClient)
+    client._tokens = Tokens()  # type: ignore[assignment]
+    client._tls = None  # type: ignore[assignment]
+    client._retry_timeout_s = 1.0
+    client._abort_event = None
+    client.retry_count = 0
+    client._retry_scope_first_error = None
+    client._retry_scope_last_error = None
+    monkeypatch.setattr(soak_scenario.httpx, "Client", HttpClient)
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: current[0])
+
+    client.begin_retry_scope()
+    with pytest.raises(RuntimeError, match="response completed after the shared deadline"):
+        client.request("GET", "warden-a", "/v1/metrics")
+    assert request_calls == 1
+    assert client.retry_count == 0
+    assert client.retry_scope() == {
+        "first_error": "deadline:late_response",
+        "last_error": "deadline:late_response",
+    }
+
+
 def _configuration() -> SoakConfiguration:
     return SoakConfiguration(
         image=EXACT_IMAGE,
@@ -3210,12 +3321,13 @@ def _converged_health_response(path: str) -> dict[str, Any]:
     }
 
 
-def test_health_sample_threads_one_absolute_deadline_through_all_twelve_requests(
+def test_health_sample_uses_metrics_authority_with_nine_shared_deadline_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class FakeClient:
         def __init__(self) -> None:
             self.deadlines: list[float | None] = []
+            self.paths: list[str] = []
 
         def request(
             self,
@@ -3226,6 +3338,7 @@ def test_health_sample_threads_one_absolute_deadline_through_all_twelve_requests
             deadline_monotonic: float | None = None,
         ) -> dict[str, Any]:
             self.deadlines.append(deadline_monotonic)
+            self.paths.append(path)
             return _converged_health_response(path)
 
     monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 90.0)
@@ -3236,7 +3349,11 @@ def test_health_sample_threads_one_absolute_deadline_through_all_twelve_requests
         deadline=100.0,
     )
     assert _is_converged(sample) is True
-    assert client.deadlines == [100.0] * 12
+    assert client.deadlines == [100.0] * 9
+    assert client.paths == [
+        path for _node in NODES for path in ("/v1/invariants", "/v1/audit/verify", "/v1/metrics")
+    ]
+    assert "/v1/maintenance/authority-status" not in client.paths
 
 
 def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
@@ -3260,7 +3377,7 @@ def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
             nonlocal current
             self.calls += 1
             self.deadlines.append(deadline_monotonic)
-            if self.calls == 12:
+            if self.calls == 9:
                 current = 1.001
             return _converged_health_response(path)
 
@@ -3276,8 +3393,8 @@ def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
     )
     with pytest.raises(RuntimeError, match="did not settle"):
         soak_scenario.wait_converged(arguments)
-    assert client.calls == 12
-    assert client.deadlines == [1.0] * 12
+    assert client.calls == 9
+    assert client.deadlines == [1.0] * 9
 
 
 @pytest.mark.parametrize("probe_name", ("wait_converged", "verify_final"))
@@ -3433,8 +3550,17 @@ def test_health_sample_does_not_mask_core_or_aggregate_readiness_failures(
     service_ready: bool, ready: bool, match: str
 ) -> None:
     class FakeClient:
-        @staticmethod
-        def request(_method: str, _node: str, path: str) -> dict[str, Any]:
+        def __init__(self) -> None:
+            self.paths: list[str] = []
+
+        def request(
+            self,
+            _method: str,
+            _node: str,
+            path: str,
+            **_options: Any,
+        ) -> dict[str, Any]:
+            self.paths.append(path)
             if path == "/v1/invariants":
                 return {"healthy": True}
             if path == "/v1/audit/verify":
@@ -3449,8 +3575,17 @@ def test_health_sample_does_not_mask_core_or_aggregate_readiness_failures(
                 "storage_capacity": {"healthy": True},
             }
 
-    with pytest.raises(RuntimeError, match=match):
-        _health_sample(FakeClient(), elapsed_s=1.0)  # type: ignore[arg-type]
+    client = FakeClient()
+    with pytest.raises(soak_scenario.HealthObservationError, match=match) as raised:
+        _health_sample(client, elapsed_s=1.0)  # type: ignore[arg-type]
+    assert client.paths == [
+        "/v1/invariants",
+        "/v1/audit/verify",
+        "/v1/metrics",
+        "/v1/maintenance/authority-status",
+    ]
+    assert raised.value.authority_anchor == _core_authority_status("warden-a")
+    assert raised.value.diagnostic["status_captured"] is True
 
 
 @pytest.mark.parametrize(
