@@ -10,16 +10,18 @@ import threading
 import time
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from lets.audit import AuditExporter
 from lets.authority import AuthorityCheckpoint
 from lets.canonical import canonical_json
 from lets.errors import InvariantError, SignatureError, StorageError, ValidationError
 from lets.models import IdentityContext, InvariantSnapshot, RuntimeStatus
-from lets.peer import PeerDispatcher
 from lets.service import WardenService
 from lets.storage import SQLiteStorage
+
+if TYPE_CHECKING:
+    from lets.peer import PeerDispatcher
 
 OBSERVATION_SCHEMA = "lets.observation-snapshot/v1"
 OBSERVATION_MAX_AGE_NS = 15_000_000_000
