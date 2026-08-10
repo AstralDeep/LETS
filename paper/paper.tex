@@ -435,6 +435,12 @@ limited to 64 leases per transaction; dispatcher and audit-export work use confi
 batches (64 by default). These limits bound individual WAL/write sets while repeated work
 converges.
 
+For audit export, each record reaches the idempotent archive before local acknowledgement. The
+sink-committed prefix is then acknowledged in one reserved authority-serialized transaction per
+batch, rather than one authority admission per record. A crash before the batch commit leaves the
+published prefix pending for exact repair from the archive head; no record is acknowledged before
+its archive write succeeds.
+
 \impl{} A running warden's bounded peer dispatcher discovers authoritative transfer, revocation,
 and checkpoint records through durable delivery metadata. It schedules one head per ordered
 stream, signs HTTP requests, retries failed delivery with bounded exponential delay, finalizes
@@ -925,6 +931,13 @@ Compose run. It exercises sustained fault scheduling and bounded observability b
 failure rate, throughput capacity, independent physical failure domains, WAN behavior, arbitrary
 schedules, or Byzantine tolerance. The signed-tag release workflow runs a separate mandatory soak
 before promotion rather than relabeling this local evidence.
+
+The first signed-tag attempt, v1.0.5, correctly stopped during that separate soak when one
+warden's oldest pending audit record reached 15.132881691 seconds against the declared 15-second
+bound. The exporter was still progressing, but per-record local acknowledgement amplified
+authority-provider admissions under sustained traffic. Version 1.0.6 batches only the local
+acknowledgement transaction while preserving archive-first ordering and exact crash repair. The
+failed v1.0.5 run is diagnostic evidence and is not counted as a successful release soak.
 
 \section{Interoperability Profiles}
 
