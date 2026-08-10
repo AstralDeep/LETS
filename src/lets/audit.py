@@ -6,7 +6,7 @@ import os
 import sqlite3
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -637,26 +637,39 @@ class AuditExporter:
         ]
         return core_head, records
 
-    def _acknowledge(self, record: AuditExportRecord) -> None:
+    def _acknowledge_batch(self, records: Sequence[AuditExportRecord]) -> None:
+        """Acknowledge one sink-committed prefix in one authority transaction.
+
+        Every record has already reached the idempotent archive before this
+        method runs.  Keeping the local acknowledgements in one transaction
+        preserves that ordering while avoiding one authority reconciliation
+        round trip per record.  A crash before this transaction commits leaves
+        the entire published prefix pending; the next run repairs it from the
+        archive head.
+        """
+
+        if not records:
+            return
         now_ns = time.time_ns()
         with self._store.capacity_recovery() as transaction:
-            cursor = transaction.connection.execute(
-                """
-                UPDATE audit_outbox
-                SET published_at_ns=?, attempts=attempts+1, last_error=NULL
-                WHERE tenant_id=? AND envelope_id=? AND sequence=?
-                  AND event_hash=? AND published_at_ns IS NULL
-                """,
-                (
-                    now_ns,
-                    record.tenant_id,
-                    record.envelope_id,
-                    record.sequence,
-                    record.event_hash,
-                ),
-            )
-            if cursor.rowcount not in (0, 1):
-                raise StorageError("audit outbox acknowledgement affected multiple rows")
+            for record in records:
+                cursor = transaction.connection.execute(
+                    """
+                    UPDATE audit_outbox
+                    SET published_at_ns=?, attempts=attempts+1, last_error=NULL
+                    WHERE tenant_id=? AND envelope_id=? AND sequence=?
+                      AND event_hash=? AND published_at_ns IS NULL
+                    """,
+                    (
+                        now_ns,
+                        record.tenant_id,
+                        record.envelope_id,
+                        record.sequence,
+                        record.event_hash,
+                    ),
+                )
+                if cursor.rowcount not in (0, 1):
+                    raise StorageError("audit outbox acknowledgement affected multiple rows")
             published = transaction.connection.execute(
                 """
                 SELECT MAX(sequence) FROM audit_outbox
@@ -856,18 +869,21 @@ class AuditExporter:
                 self._archive_reconciled = archive_prefix_reconciled and not records
             if not archive_prefix_reconciled:
                 return 0
+            published_records: list[AuditExportRecord] = []
             for record in records:
                 if self._stop.is_set():
                     break
                 self._publish(record)
-                self._acknowledge(record)
+                published_records.append(record)
+                last_exported_sequence = record.sequence
+            if published_records:
+                self._acknowledge_batch(published_records)
                 with self._status_lock:
                     self._last_error = None
                     self._last_observation_error = None
                     self._last_success_ns = time.time_ns()
                     self._last_progress_monotonic = time.monotonic()
-                exported += 1
-                last_exported_sequence = record.sequence
+                exported = len(published_records)
             if archive_prefix_reconciled and (
                 core_head is None
                 or last_exported_sequence == core_head.sequence
