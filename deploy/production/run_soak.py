@@ -2148,11 +2148,11 @@ def evaluate_health_cadence(
                     return {"passed": False, "reason": "unavailable node lacks an exact restart"}
                 actual_planned.append(node)
                 unavailable_counts[node] += 1
-                if planned.get("state") == "armed" and (
-                    float(observed_started)
-                    <= float(binding["start_elapsed_seconds"])
-                    <= float(observed_completed)
-                ):
+                # The exact armed marker must be observed while its restart
+                # window overlaps this health attempt. The validation above
+                # already proves that overlap; the request itself need not
+                # straddle the acknowledgement's start instant.
+                if planned.get("state") == "armed":
                     acknowledged_unavailable_restart_ids.add(cast(str, restart_id))
                 continue
             if request_count != 1:

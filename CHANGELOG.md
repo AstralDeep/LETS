@@ -23,6 +23,10 @@ image together; the Git tag is the package version prefixed with `v`.
   exporter state machine. A clean exporter that is still reconciling its archive is valid bounded
   catch-up evidence but remains unhealthy and unready; healthy requires both no retained error and
   a reconciled archive, while any retained error requires the archive to remain unreconciled.
+- Corrected restart-cadence verification to recognize an exact `armed` health attempt anywhere
+  inside its bound restart window. The prior live observation, exact marker, overlap, exclusion,
+  replacement, and recovery bindings remain mandatory; the millisecond-scale metrics attempt no
+  longer has to straddle the acknowledgement's precise start instant.
 - Replaced lock-coupled production health reads with one authority-safe observation publisher per
   node. Each immutable snapshot is built from a single bounded, priority-reserved transaction,
   binds the authority checkpoint, database identity, trusted clock, invariant, audit verifier,

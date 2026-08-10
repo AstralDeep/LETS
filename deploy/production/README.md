@@ -346,7 +346,9 @@ exact acknowledgment must stay within 15 seconds. The host-bound acknowledgment-
 exclusion window is capped at 30 seconds, while arming-to-ack remains inside that prior 15-second
 cadence; the replacement must produce a validated live observation within the following 15
 seconds, and the marker identity must bind the acknowledgment, restart, and recovery records. The
-two unaffected nodes remain continuously observed. Any missed deadline, monitor error, or
+exact `armed` sample may begin after the acknowledgment only when its health-attempt interval still
+overlaps the bound restart window; it need not straddle the acknowledgment's precise start instant.
+The two unaffected nodes remain continuously observed. Any missed deadline, monitor error, or
 retained-sample truncation fails the run.
 
 When the workload end lands on or immediately after a regular health-cadence boundary, the

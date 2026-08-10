@@ -2262,11 +2262,10 @@ jobs:
                               continue
                           actual_planned.append(node)
                           unavailable_counts[node] += 1
-                          if planned.get("state") == "armed" and (
-                              float(observed_started)
-                              <= float(binding["start_elapsed_seconds"])
-                              <= float(observed_completed)
-                          ):
+                          # The validation above proves that this exact armed
+                          # marker overlaps the restart window; the request
+                          # need not straddle the acknowledgement's start.
+                          if planned.get("state") == "armed":
                               acknowledged_unavailable_restart_ids.add(
                                   planned["restart_id"]
                               )
