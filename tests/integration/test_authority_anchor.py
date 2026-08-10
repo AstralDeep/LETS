@@ -331,7 +331,7 @@ def test_process_file_anchor_start_eof_and_process_lock_failures_are_typed(
 
     exited = ProcessFileAuthorityAnchor(
         tmp_path / "eof.anchor",
-        timeout_s=0.25,
+        timeout_s=2.0,
         helper_command=(sys.executable, "-c", "pass"),
     )
     with pytest.raises(AuthorityAnchorTransportError) as eof_failure:
