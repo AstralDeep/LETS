@@ -387,8 +387,10 @@ acknowledgment-to-resume duration caps the amount removed. Each boundary echoes 
 host-issued pause token and workload-clock request timestamp. The verifier treats the workload's
 raw observed-to-resumed `paused_workload_seconds` and `active_workload_seconds` as cross-checks only;
 the authoritative denominator is the evaluator-derived authorized active time under
-`workload_evaluation.metrics.pause_evidence`. An unmatched, duplicate, overlapping, malformed,
-self-reported, or otherwise unexplained interval fails instead. The completed-cycle requirement is
+`workload_evaluation.metrics.pause_evidence`. Exact planned-restart quiescence is added to both
+pause totals, is independently bound to its terminal fence, and may not overlap any partition
+interval. An unmatched, duplicate, overlapping, malformed, self-reported, or otherwise unexplained
+interval fails instead. The completed-cycle requirement is
 `max(3 * 6 * transfer_every_cycles, 3 * executor_reopen_every_cycles, ceil(active_workload_seconds / 15))`.
 At the default transfer-every-three-cycles and reopen-every-ten-cycles frequencies, the first term
 sets a 54-cycle path-coverage floor. The evidence exposes the independently derived
