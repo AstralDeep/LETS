@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from lets.audit import AuditArchiveHead, AuditExporter, AuditExportRecord, SQLiteAuditSink
+from lets.authority import FileAuthorityAnchor
 from lets.errors import ConflictError, StorageError
 from lets.storage import SQLiteStorage, audit_event_hash
 
@@ -246,7 +247,7 @@ def test_export_failure_leaves_outbox_pending_for_retry(tmp_path: Path) -> None:
 
 def test_exporter_repairs_crash_after_sink_commit_before_local_ack(tmp_path: Path) -> None:
     class CrashAfterPublish(AuditExporter):
-        def _acknowledge(self, _record: AuditExportRecord) -> None:
+        def _acknowledge_batch(self, _records: object) -> None:
             raise StorageError("injected crash after sink commit")
 
     store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
@@ -275,7 +276,7 @@ def test_exporter_repairs_crash_after_sink_commit_before_local_ack(tmp_path: Pat
 
 def test_archive_prefix_repair_is_bounded_and_converges(tmp_path: Path) -> None:
     class LoseAllAcknowledgements(AuditExporter):
-        def _acknowledge(self, _record: AuditExportRecord) -> None:
+        def _acknowledge_batch(self, _records: object) -> None:
             return
 
     store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
@@ -312,6 +313,91 @@ def test_archive_prefix_repair_is_bounded_and_converges(tmp_path: Path) -> None:
 
         assert prior_total == 0
         assert recovered.status()["archive_reconciled"]
+    finally:
+        store.close()
+
+
+def test_exporter_acknowledges_a_sink_batch_in_one_authority_transaction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    options = _options()
+    options["authority_anchor"] = FileAuthorityAnchor(tmp_path / "authority" / "anchor.json")
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **options)
+    archive = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+    try:
+        _events(store, 32)
+        checkpoint_before = store.authority_checkpoint()
+        capacity_recovery = store.capacity_recovery
+        admissions = 0
+
+        def counted_capacity_recovery():
+            nonlocal admissions
+            admissions += 1
+            return capacity_recovery()
+
+        monkeypatch.setattr(store, "capacity_recovery", counted_capacity_recovery)
+        exporter = AuditExporter(store, archive, batch_size=32, retain_published=0)
+
+        assert exporter.run_once() == 32
+        assert admissions == 1
+        assert archive.count() == 32
+        checkpoint_after = store.authority_checkpoint()
+        assert checkpoint_after == checkpoint_before
+        assert FileAuthorityAnchor(tmp_path / "authority" / "anchor.json").read_current() == (
+            checkpoint_after
+        )
+        with store.read() as transaction:
+            assert (
+                transaction.connection.execute(
+                    "SELECT COUNT(*) FROM audit_outbox WHERE published_at_ns IS NULL"
+                ).fetchone()[0]
+                == 0
+            )
+    finally:
+        store.close()
+
+
+def test_exporter_repairs_partially_published_batch_without_duplicate_archive_record(
+    tmp_path: Path,
+) -> None:
+    class FailSecondPublish:
+        def __init__(self, delegate: SQLiteAuditSink) -> None:
+            self.delegate = delegate
+            self.calls = 0
+
+        def publish(self, record: AuditExportRecord) -> None:
+            self.calls += 1
+            if self.calls == 2:
+                raise StorageError("injected partial batch failure")
+            self.delegate.publish(record)
+
+        def head(self, **identity: object) -> AuditArchiveHead | None:
+            return self.delegate.head(**identity)  # type: ignore[arg-type]
+
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
+    archive = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+    try:
+        _events(store, 3)
+        failed = AuditExporter(store, FailSecondPublish(archive), batch_size=3, retain_published=0)
+        assert failed.run_once() == 0
+        assert archive.count() == 1
+        with store.read() as transaction:
+            assert (
+                transaction.connection.execute(
+                    "SELECT COUNT(*) FROM audit_outbox WHERE published_at_ns IS NULL"
+                ).fetchone()[0]
+                == 3
+            )
+
+        recovered = AuditExporter(store, archive, batch_size=3, retain_published=0)
+        assert recovered.run_once() == 2
+        assert archive.count() == 3
+        with store.read() as transaction:
+            assert (
+                transaction.connection.execute("SELECT COUNT(*) FROM audit_outbox").fetchone()[0]
+                == 0
+            )
     finally:
         store.close()
 

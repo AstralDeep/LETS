@@ -230,8 +230,9 @@ The helper's start, correlation, lock/I/O, response, and reset share one absolut
 uncertain mutating reply must be reconciled and durably confirmed before the store becomes healthy.
 Anchor semantic or protocol rejection, malformed transport metadata, and other provider failures
 remain sticky until operator repair and a fresh process/store lifetime. These rules are identical
-for core and protected-executor anchors. The 1.0.5 bundled helper wire adds exact request
-correlation and `confirm`; never pair a pre-1.0.5 helper executable with a 1.0.5 parent.
+for core and protected-executor anchors. The helper wire introduced in 1.0.5 and retained in 1.0.6
+adds exact request correlation and `confirm`; never pair a pre-1.0.5 helper executable with a
+1.0.5-or-later parent, and use the matched parent/helper pair from one release artifact.
 
 Authenticated metrics include the bounded `authority_anchor` state and counters. Operators with
 `lets.admin`, `lets.warden.admin`, or `lets.metrics.read` may read the same snapshot from
@@ -362,6 +363,11 @@ workflow: `healthy` is true only when `last_error` is absent and `archive_reconc
 clean exporter may report `archive_reconciled: false` while it drains a bounded pending archive;
 that is valid catch-up evidence but keeps the node unready. If `last_error` is retained, the archive
 must remain unreconciled. Inconsistent combinations fail raw-evidence validation.
+Each record reaches the idempotent external archive before any local acknowledgement. The exporter
+then acknowledges one sink-committed prefix in a single reserved authority transaction per batch;
+a crash before that commit leaves the prefix pending for exact archive-head repair. This removes
+per-record authority-admission amplification without relaxing the 15-second oldest-record or
+no-progress bounds.
 
 The machine record exposes this proof under `health_monitor`. It must report `status: passed`,
 `schedule: absolute_monotonic`, `joined: true`, `deadline_miss_count: 0`, equal
@@ -623,9 +629,10 @@ authority checkpoint for every node before starting any replacement. Stage the s
 on all nodes, start the entire cluster in its durable drained state, prove uniform version/config,
 invariants, capacity, audit state, and peer reachability, then activate and canary the uniform
 cluster before restoring traffic. Do not restore a database behind its monotonic anchor. The signed
-v1.0.1 through v1.0.4 tags were never promoted and are not rollback artifacts; v1.0.0 lacks the
-later production defenses, so v1.0.5 has no approved earlier binary rollback target. Recover
-forward with a patch release unless future release notes explicitly name a compatible published
+v1.0.1 through v1.0.5 tags were never promoted and are not rollback artifacts; v1.0.0 lacks the
+later production defenses, and the signed v1.0.5 candidate failed its mandatory release soak.
+Therefore v1.0.6 has no approved earlier binary rollback target. Recover forward with a patch
+release unless future release notes explicitly name a compatible published
 digest. A restore is admitted only while fenced and only when the live anchor proves the bundle
 cannot resurrect spent authority.
 
