@@ -3430,15 +3430,24 @@ jobs:
                   value.get("configured_peers") != 2
                   or any(not valid_bounded_integer(value.get(name)) for name in counted)
                   or value["failed_records"] > value["pending_records"]
-                  or value.get("healthy") is not True
+                  or type(value.get("healthy")) is not bool
                   or value.get("running") is not True
-                  or value.get("last_error") is not None
+                  or (
+                      value.get("last_error") is not None
+                      and (
+                          not isinstance(value.get("last_error"), str)
+                          or re.fullmatch(
+                              r"[A-Za-z_][A-Za-z0-9_]{0,63}", value["last_error"]
+                          ) is None
+                      )
+                  )
+                  or value.get("healthy") is (value.get("last_error") is not None)
                   or not valid_bounded_integer(value.get("last_cycle_ns"), minimum=1)
                   or value["last_cycle_ns"] > published_at_ns
               ):
                   return False
               retry = value.get("durable_retry")
-              return retry is None or (
+              retry_valid = retry is None or (
                   isinstance(retry, dict)
                   and set(retry)
                   == {
@@ -3456,6 +3465,10 @@ jobs:
                   in {"checkpoint", "revocation", "transfer"}
                   and retry.get("target_warden")
                   in {"warden-a", "warden-b", "warden-c"} - {node}
+              )
+              return (
+                  retry_valid
+                  and (value.get("last_error") is None or retry is not None)
               )
 
           def valid_audit_exporter_status(value):

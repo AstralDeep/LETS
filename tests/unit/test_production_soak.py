@@ -897,6 +897,50 @@ def test_host_observation_validator_accepts_only_consistent_bounded_audit_catchu
     assert soak_runner._valid_observation_snapshot(inconsistent_fault, node="warden-a") is False
 
 
+def test_host_observation_validator_accepts_exact_transient_peer_partition() -> None:
+    retry = {
+        "attempt_count": 7,
+        "exception_class": "ConnectError",
+        "next_retry_delay_seconds": 15.486,
+        "record_kind": "transfer",
+        "target_warden": "warden-b",
+    }
+    transient = {
+        "durable_retry": retry,
+        "failed_records": 1,
+        "healthy": False,
+        "last_error": "ConnectError",
+        "pending_records": 1,
+        "prepared_transfers": 1,
+    }
+    snapshot = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        peer_dispatcher_override=transient,
+    )
+
+    assert snapshot["ready"] is False
+    assert soak_runner._valid_observation_snapshot(snapshot, node="warden-a") is True
+
+    invalid_overrides = (
+        transient | {"durable_retry": None},
+        transient | {"healthy": True},
+        transient | {"last_error": "ConnectError: secret"},
+        transient | {"pending_records": 0},
+        transient | {"durable_retry": retry | {"attempt_count": 0}},
+        transient | {"durable_retry": retry | {"next_retry_delay_seconds": 30.001}},
+        transient | {"durable_retry": retry | {"record_kind": "unknown"}},
+        transient | {"durable_retry": retry | {"target_warden": "warden-a"}},
+    )
+    for override in invalid_overrides:
+        forged = _observation_snapshot(
+            "warden-a",
+            revision=1,
+            peer_dispatcher_override=override,
+        )
+        assert soak_runner._valid_observation_snapshot(forged, node="warden-a") is False
+
+
 def _sampled_health_node(
     node: str,
     *,
@@ -905,6 +949,7 @@ def _sampled_health_node(
     authority_override: dict[str, Any] | None = None,
     generation: str | None = None,
     manifest: Any | None = None,
+    peer_dispatcher_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     snapshot = _observation_snapshot(
         node,
@@ -912,6 +957,7 @@ def _sampled_health_node(
         authority_override=authority_override,
         generation=generation,
         manifest=manifest,
+        peer_dispatcher_override=peer_dispatcher_override,
     )
     invariant_projection = {
         key: copy.deepcopy(snapshot["invariant"][key])
@@ -961,7 +1007,7 @@ def _sampled_health_node(
         "observation_snapshot": snapshot,
         "observation_snapshot_id": snapshot["snapshot_id"],
         "peer_dispatcher": copy.deepcopy(snapshot["peer_dispatcher"]),
-        "ready": True,
+        "ready": snapshot["ready"],
         "receipts": copy.deepcopy(snapshot["receipts"]),
         "service_ready": True,
         "storage_capacity": copy.deepcopy(snapshot["storage_capacity"]),
@@ -1801,6 +1847,44 @@ def test_health_cadence_rejects_gaps_larger_than_the_exporter_stall_bound() -> N
     )
     assert result["passed"] is False
     assert result["maximum_gap_seconds"] == 15.9
+
+
+def test_health_cadence_accepts_exact_peer_retry_during_partition() -> None:
+    samples = _timed_health_samples(duration_seconds=30.0, interval_seconds=10.0)
+    samples[1]["nodes"]["warden-b"] = _sampled_health_node(
+        "warden-b",
+        revision=2,
+        scheduled=10.0,
+        peer_dispatcher_override={
+            "durable_retry": {
+                "attempt_count": 7,
+                "exception_class": "ConnectError",
+                "next_retry_delay_seconds": 15.486,
+                "record_kind": "transfer",
+                "target_warden": "warden-a",
+            },
+            "failed_records": 1,
+            "healthy": False,
+            "last_error": "ConnectError",
+            "pending_records": 1,
+            "prepared_transfers": 1,
+        },
+    )
+
+    result = evaluate_health_cadence(
+        samples,
+        duration_seconds=30.0,
+        interval_seconds=10.0,
+        restart_evidence={
+            "bindings": {},
+            "passed": True,
+            "windows_by_node": {node: [] for node in NODES},
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["metrics_request_count"] == 12
+    assert result["maximum_gap_seconds"] == 10.0
 
 
 def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str, Any]:
