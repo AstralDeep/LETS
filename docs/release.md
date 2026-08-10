@@ -128,7 +128,9 @@ workload-clock interval, clipped to the exact measurement window, may lower the 
 denominator, and the independently recomputed host acknowledgment-to-resume duration caps the
 amount removed. The acknowledgment and both boundaries must echo the host-issued pause token and
 workload-clock request timestamp; a self-reported pause has no authority to lower the denominator,
-and unexplained idle time is not removed. Required cycles are
+and unexplained idle time is not removed. Exact planned-restart quiescence is separately bound to
+its terminal fence, added to both pause totals, and forbidden from overlapping partition pauses.
+Required cycles are
 `max(3 * 6 * transfer_every_cycles, 3 * executor_reopen_every_cycles, ceil(active_workload_seconds / 15))`.
 With the default transfer and reopen frequencies, the path-coverage floor is 54 cycles. Exact
 workload-counter relationships, directed-pair counts, executor evidence, and per-cycle latency
