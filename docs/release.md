@@ -253,7 +253,8 @@ The `lets-deployment-X.Y.Z.tar.gz` asset is the reproducible, signed-manifest-bo
 It contains the production/provisioning Compose files, environment template, config
 validator/stager, and the matching operations, provider, recovery, and release runbooks. Deploy
 from that bundle and the verified OCI digest; do not copy deployment files from a mutable branch
-checkout.
+checkout. Its tar input is the exact Git tree with an explicit source-date timestamp; unrelated
+commit metadata is deliberately excluded from the bundle bytes.
 
 Read `image-digest.txt`, then verify the immutable image, its keyless signature, and the
 SLSA/in-toto candidate provenance attached to that same digest. The certificate identity is
