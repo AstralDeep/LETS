@@ -1017,12 +1017,12 @@ def _core_checkpoint_extends(
             type(prior_floor) is int and type(current_floor) is int and current_floor < prior_floor
         )
         and (
-            current["state_revision"] != prior["state_revision"]
-            or current["state_digest"] == prior["state_digest"]
-        )
-        and (
             current["audit_sequence"] != prior["audit_sequence"]
-            or current["audit_hash"] == prior["audit_hash"]
+            or (
+                current["audit_hash"] == prior["audit_hash"]
+                and current["state_revision"] == prior["state_revision"]
+                and current["state_digest"] == prior["state_digest"]
+            )
         )
     )
 

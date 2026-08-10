@@ -2686,6 +2686,99 @@ def test_monitor_error_sets_abort_and_retains_structured_failure_snapshot(
     }
 
 
+def test_checkpoint_lineage_allows_state_digest_change_only_with_an_advanced_audit_head() -> None:
+    prior = _core_authority_checkpoint("warden-a", revision=7)
+    current = copy.deepcopy(prior)
+    current["audit_sequence"] += 1
+    current["audit_hash"] = (
+        base64.urlsafe_b64encode(hashlib.sha256(b"next-audit-head").digest()).decode().rstrip("=")
+    )
+    current["state_digest"] = (
+        base64.urlsafe_b64encode(hashlib.sha256(b"runtime-control-change").digest())
+        .decode()
+        .rstrip("=")
+    )
+
+    soak_scenario._validate_checkpoint_progression(prior, current, node="warden-a")
+    assert soak_runner._core_checkpoint_extends(prior, current) is True
+
+    same_audit_head = copy.deepcopy(current)
+    same_audit_head["audit_sequence"] = prior["audit_sequence"]
+    same_audit_head["audit_hash"] = prior["audit_hash"]
+    with pytest.raises(RuntimeError, match="did not extend"):
+        soak_scenario._validate_checkpoint_progression(
+            prior,
+            same_audit_head,
+            node="warden-a",
+        )
+    assert soak_runner._core_checkpoint_extends(prior, same_audit_head) is False
+
+
+def test_health_sampler_retains_a_validated_sample_rejected_by_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    first = {
+        "audit_catchup_nodes": [],
+        "audit_error_recoveries": [],
+        "elapsed_seconds": 0.0,
+        "nodes": {node: _sampled_health_node(node, revision=1, scheduled=0.0) for node in NODES},
+        "planned_unavailable_nodes": [],
+    }
+    second = {
+        "audit_catchup_nodes": [],
+        "audit_error_recoveries": [],
+        "elapsed_seconds": 1.0,
+        "nodes": {node: _sampled_health_node(node, revision=2, scheduled=1.0) for node in NODES},
+        "planned_unavailable_nodes": [],
+    }
+    prior_checkpoint = first["nodes"]["warden-a"]["observation_snapshot"]["authority_checkpoint"]
+    failed_snapshot = second["nodes"]["warden-a"]["observation_snapshot"]
+    failed_checkpoint = failed_snapshot["authority_checkpoint"]
+    failed_checkpoint["audit_sequence"] = prior_checkpoint["audit_sequence"]
+    failed_checkpoint["audit_hash"] = prior_checkpoint["audit_hash"]
+    failed_checkpoint["state_revision"] = prior_checkpoint["state_revision"]
+    failed_checkpoint["state_digest"] = (
+        base64.urlsafe_b64encode(hashlib.sha256(b"diverged-state").digest()).decode().rstrip("=")
+    )
+    failed_snapshot["core_state_revision"] = prior_checkpoint["state_revision"]
+
+    samples = iter((first, second))
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    monkeypatch.setattr(
+        soak_scenario,
+        "_health_sample",
+        lambda *_args, **_kwargs: next(samples),
+    )
+    started = time.monotonic()
+    sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=1.0,
+        retry_timeout_seconds=1.0,
+        seed=11,
+        failure_event=threading.Event(),
+    )
+    sampler._sample(index=0, scheduled=started)  # type: ignore[attr-defined]
+    with pytest.raises(RuntimeError, match="authority checkpoint did not extend") as raised:
+        sampler._sample(index=1, scheduled=started + 1.0)  # type: ignore[attr-defined]
+    sampler._error = raised.value  # type: ignore[attr-defined]
+    sampler._finished_at = time.monotonic()  # type: ignore[attr-defined]
+
+    failure = sampler.failure_snapshot(workload_ended_monotonic=time.monotonic())
+    retained = failure["health_monitor"]["error"]["failed_sample"]
+    assert failure["health_sample_count"] == 1
+    assert retained["schedule_index"] == 1
+    assert (
+        retained["nodes"]["warden-a"]["observation_snapshot"]["authority_checkpoint"]
+        == failed_checkpoint
+    )
+
+
 def test_monitor_join_timeout_is_structured_and_daemonized(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
