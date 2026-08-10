@@ -11,11 +11,36 @@ from lets.canonical import b64url_encode, canonical_json
 from lets.clock import ManualClock
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
 from lets.errors import ClockUncertainError, PolicyError, ReplayError, SignatureError, StorageError
-from lets.executor import ExecutorPolicy, ReceiptVerifier, SQLiteReceiptReplayStore
+from lets.executor import (
+    ExecutorPolicy,
+    ExecutorReplayStatus,
+    ReceiptVerifier,
+    SQLiteReceiptReplayStore,
+)
 from lets.models import Receipt
 
 POLICY_DIGEST = "sha256:" + "1" * 64
 MACHINE_DIGEST = "sha256:" + "2" * 64
+
+
+def test_executor_status_legacy_positional_constructor_remains_compatible() -> None:
+    status = ExecutorReplayStatus(
+        "executor.sqlite3",
+        True,
+        True,
+        None,
+        7,
+        100,
+        2,
+        1,
+        4096,
+        0,
+        0,
+        8192,
+    )
+
+    assert status.claim_sequence == 7
+    assert status.authority_checkpoint is None
 
 
 def _signed_receipt(

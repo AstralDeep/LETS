@@ -348,14 +348,14 @@ class ProcessFileExecutorAuthorityAnchor:
         except ValidationError as exc:
             raise StorageError("executor authority helper returned an invalid checkpoint") from exc
 
-    def reconcile(
+    def _reconcile_before_deadline(
         self,
         checkpoint: ExecutorAuthorityCheckpoint,
         *,
         claim_digest_at: Callable[[int], bytes | None],
-        initialize: bool = False,
+        initialize: bool,
+        deadline: float,
     ) -> None:
-        deadline = time.monotonic() + self._timeout_s
         while True:
             response = self._invoke({"operation": "read"}, deadline=deadline)
             if response["status"] == "missing":
@@ -367,6 +367,12 @@ class ProcessFileExecutorAuthorityAnchor:
                     {"operation": "initialize", "checkpoint": checkpoint.to_dict()},
                     deadline=deadline,
                 )
+                self._backend._check_deadline(
+                    deadline,
+                    operation="initialize",
+                    request_flushed=True,
+                    mutation_uncertain=True,
+                )
                 if result["status"] == "ok":
                     return
                 if result["status"] == "conflict":
@@ -374,8 +380,26 @@ class ProcessFileExecutorAuthorityAnchor:
                 raise StorageError("executor authority anchor initialization failed")
 
             anchored = self._executor_checkpoint(response)
+            self._backend._check_deadline(
+                deadline,
+                operation="read",
+                request_flushed=True,
+                mutation_uncertain=False,
+            )
             if not _requires_advance(anchored, checkpoint, claim_digest_at=claim_digest_at):
+                self._backend._check_deadline(
+                    deadline,
+                    operation="read",
+                    request_flushed=True,
+                    mutation_uncertain=False,
+                )
                 return
+            self._backend._check_deadline(
+                deadline,
+                operation="read",
+                request_flushed=True,
+                mutation_uncertain=False,
+            )
             result = self._invoke(
                 {
                     "operation": "compare-and-set",
@@ -384,21 +408,92 @@ class ProcessFileExecutorAuthorityAnchor:
                 },
                 deadline=deadline,
             )
+            self._backend._check_deadline(
+                deadline,
+                operation="compare-and-set",
+                request_flushed=True,
+                mutation_uncertain=True,
+            )
             if result["status"] == "ok":
                 return
             if result["status"] != "conflict":
                 raise StorageError("executor authority anchor compare-and-set failed")
 
+    def reconcile(
+        self,
+        checkpoint: ExecutorAuthorityCheckpoint,
+        *,
+        claim_digest_at: Callable[[int], bytes | None],
+        initialize: bool = False,
+    ) -> None:
+        self._reconcile_before_deadline(
+            checkpoint,
+            claim_digest_at=claim_digest_at,
+            initialize=initialize,
+            deadline=time.monotonic() + self._timeout_s,
+        )
+
+    def _confirm_before_deadline(
+        self,
+        checkpoint: ExecutorAuthorityCheckpoint,
+        *,
+        deadline: float,
+    ) -> None:
+        response = self._invoke(
+            {"operation": "confirm", "checkpoint": checkpoint.to_dict()},
+            deadline=deadline,
+        )
+        if response["status"] != "ok":
+            raise StorageError("executor authority anchor durable confirmation failed")
+        self._backend._check_deadline(
+            deadline,
+            operation="confirm",
+            request_flushed=True,
+            mutation_uncertain=True,
+        )
+
+    def confirm(self, checkpoint: ExecutorAuthorityCheckpoint) -> None:
+        self._confirm_before_deadline(
+            checkpoint,
+            deadline=time.monotonic() + self._timeout_s,
+        )
+
+    def reconcile_and_confirm(
+        self,
+        checkpoint: ExecutorAuthorityCheckpoint,
+        *,
+        claim_digest_at: Callable[[int], bytes | None],
+        initialize: bool = False,
+    ) -> None:
+        """Reconcile and durably confirm within one configured deadline."""
+
+        deadline = time.monotonic() + self._timeout_s
+        self._reconcile_before_deadline(
+            checkpoint,
+            claim_digest_at=claim_digest_at,
+            initialize=initialize,
+            deadline=deadline,
+        )
+        self._confirm_before_deadline(checkpoint, deadline=deadline)
+
     def read_current(self) -> ExecutorAuthorityCheckpoint:
+        deadline = time.monotonic() + self._timeout_s
         response = self._invoke(
             {"operation": "read"},
-            deadline=time.monotonic() + self._timeout_s,
+            deadline=deadline,
         )
         if response["status"] == "missing":
             raise StorageError(
                 "executor authority anchor is missing; refusing rollback-sensitive state"
             )
-        return self._executor_checkpoint(response)
+        checkpoint = self._executor_checkpoint(response)
+        self._backend._check_deadline(
+            deadline,
+            operation="read",
+            request_flushed=True,
+            mutation_uncertain=False,
+        )
+        return checkpoint
 
 
 def executor_identity_digest(identity: ExecutorReplayIdentity) -> bytes:

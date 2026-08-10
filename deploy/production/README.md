@@ -221,6 +221,29 @@ logical cap on the actual storage class, then set `LETS_HEALTH_START_PERIOD_SECO
 measured bound (up to the validator's 24-hour ceiling). An orchestrator that kills or replaces the
 process before this period expires can turn safe admission into a restart loop.
 
+Process-file authority admission also performs an exact durable checkpoint confirmation. If helper
+transport fails during construction or reopen, the database and anchor remain preserved but that
+store instance is not admitted; close it and perform a fresh open after repair. After successful
+admission, only a typed, well-formed helper-transport fault may recover on a later explicit
+transaction after its monotonic cooldown. The original operation is not retried inside the store.
+The helper's start, correlation, lock/I/O, response, and reset share one absolute deadline, and an
+uncertain mutating reply must be reconciled and durably confirmed before the store becomes healthy.
+Anchor semantic or protocol rejection, malformed transport metadata, and other provider failures
+remain sticky until operator repair and a fresh process/store lifetime. These rules are identical
+for core and protected-executor anchors. The 1.0.5 bundled helper wire adds exact request
+correlation and `confirm`; never pair a pre-1.0.5 helper executable with a 1.0.5 parent.
+
+Authenticated metrics include the bounded `authority_anchor` state and counters. Operators with
+`lets.admin`, `lets.warden.admin`, or `lets.metrics.read` may read the same snapshot from
+`GET /v1/maintenance/authority-status`. That endpoint performs no SQLite or authority-admission
+work: it deep-copies the most recently completed status published through a separate snapshot
+lock. While a reconcile is in progress it may show the prior complete state. The admin-only
+`POST /v1/maintenance/authority-fence` remains the exact terminal barrier: it atomically publishes
+the fenced warden/PID/lifetime status and permanently stops new authority transactions for that
+process lifetime. It is idempotent only for the same `restart_id` and `expected_lifetime_id`; a
+different identity conflicts. This endpoint is for host-orchestrated replacement after traffic is
+already removed, not a general un-fence mechanism.
+
 The supplied 1 GiB profile defaults to 64 concurrent requests. Raise that only after a
 representative TLS, signer, SQLite, audit-export, and partition-recovery load test demonstrates
 bounded memory and shutdown latency within the configured cgroup. A larger number is not a
@@ -285,8 +308,7 @@ The soak runner extends the same hardened three-warden profile for a time-bounde
 It requires an immutable OCI index digest; mutable tags and locally built runtime images are
 rejected. A normal run lasts at least five minutes and must contain at least two bidirectional
 Toxiproxy partitions. Every warden must receive a planned `SIGKILL` and reopen at least once; the
-one-hour default spaces those kills 900 seconds apart and requires at least 300 completed workload
-cycles:
+one-hour default spaces those kills 900 seconds apart:
 
 ```sh
 python deploy/production/run_soak.py \
@@ -302,28 +324,86 @@ periodically closes and reopens both `SQLiteReceiptReplayStore` and
 `ProcessFileExecutorAuthorityAnchor`. Warden restarts similarly reopen `SQLiteStorage`,
 `ProcessFileAuthorityAnchor`, `SQLiteAuditSink`, and `AuditExporter` through the production provider.
 
-The runner continuously samples local conservation, full signed-audit verification, audit-export
-health, storage capacity, and peer backlogs, including during coordinated workload pauses. Before
-each partition the workload acknowledges a pause and the cluster settles. While both A/B proxy
-links are disabled, the runner binds the exact probe transfer ID, sequence, and direction to a
-failed `PREPARED` transfer and its undelivered durable delivery row. After restoring the links it
-requires that exact source stream's acknowledged/compacted watermarks and target stream's
-contiguous/compacted watermarks to cover the probe sequence, then requires every peer, transfer,
-and audit queue to converge to zero.
+The workload injects exactly one deterministic executor transport failure after SQLite `COMMIT` and
+after the external CAS durably succeeds, then reports the outcome as a classified lost reply.
+Recovery must durably confirm the committed claim in the same store lifetime. The original
+authorization remains failed closed, an exact retry raises `ReplayError`, and the protected-effect
+count for that receipt remains zero. Across all terminal core and executor lifetimes, raw transport
+faults, episodes, attempts, and recoveries must each total exactly one, while permanent faults total
+zero; any natural second episode fails the run. Mutating HTTP retries in the harness preserve the
+exact request/restart ID and are later, separate transactions against idempotent API operations; a
+response retry is never evidence that the failed storage call was internally replayed.
+
+An independent monitor owns a separate cluster client and follows an absolute schedule anchored to
+workload start rather than sleeping after each sample. It records the schedule, sample timing, and
+raw per-node observation timing while checking local conservation, full signed-audit verification,
+audit-export health, storage capacity, and peer backlogs. The release verifier evaluates cadence
+per node and requires every health-observation gap to be at most 15 seconds; sample-batch timing and
+a runtime-reported exporter stall bound cannot relax that limit. A planned `SIGKILL` permits an
+exclusion only for the exact killed node and only after that node's sampler has acknowledged the
+unique host marker. Arming alone grants no exclusion: the prior live observation through the first
+exact acknowledgment must stay within 15 seconds. The host-bound acknowledgment-to-completion
+exclusion window is capped at 30 seconds, while arming-to-ack remains inside that prior 15-second
+cadence; the replacement must produce a validated live observation within the following 15
+seconds, and the marker identity must bind the acknowledgment, restart, and recovery records. The
+two unaffected nodes remain continuously observed. Any missed deadline, monitor error, or
+retained-sample truncation fails the run.
+
+The machine record exposes this proof under `health_monitor`. It must report `status: passed`,
+`schedule: absolute_monotonic`, `joined: true`, `deadline_miss_count: 0`, equal
+`expected_sample_count`, `actual_sample_count`, and `retained_sample_count`,
+`samples_truncated: 0`, and `audit_error_budget_instances: 1`. Each retained sample binds its
+schedule index and scheduled, started, completed, and deadline times. Every per-node entry is either
+a raw `observation` with request and metrics timing or the exact killed node's host-bound
+`planned_unavailable` record; no generic missing-node result is admissible. Monitor request retries
+remain explicit evidence rather than disappearing into cadence.
+
+Before each partition the workload acknowledges a pause and the cluster settles. The host requires
+a unique one-to-one binding between that interval and its own partition-coordination window. A
+successful record uses top-level schema `lets.production-profile-soak/v2` and nested workload
+schema `lets.production-profile-soak-workload/v2`. A host-generated run ID first binds an atomic
+workload-clock start record containing the measurement
+origin, duration, seed, and workload frequencies; the host retains it before chaos, and the final
+workload, evaluator, and publication verifier must match it exactly. After the exact acknowledgment
+and before link disable, an in-container check records a token-bound
+workload-clock authorization start; after link restoration and immediately before resume, a second
+check records the matching authorization end. Only this workload-clock interval, clipped to
+`measurement_window_seconds`, may locate excluded time, and the independently recomputed host
+acknowledgment-to-resume duration caps the amount removed. Each boundary echoes the
+host-issued pause token and workload-clock request timestamp. The verifier treats the workload's
+raw observed-to-resumed `paused_workload_seconds` and `active_workload_seconds` as cross-checks only;
+the authoritative denominator is the evaluator-derived authorized active time under
+`workload_evaluation.metrics.pause_evidence`. An unmatched, duplicate, overlapping, malformed,
+self-reported, or otherwise unexplained interval fails instead. The completed-cycle requirement is
+`max(3 * 6 * transfer_every_cycles, 3 * executor_reopen_every_cycles, ceil(active_workload_seconds / 15))`.
+At the default transfer-every-three-cycles and reopen-every-ten-cycles frequencies, the first term
+sets a 54-cycle path-coverage floor. The evidence exposes the independently derived
+`semantic_cycle_floor`, `active_time_cycle_floor`, and `required_cycles`. The evaluator still
+requires exact counter relationships, exact directed-pair counts for the actual cycle total, exact
+executor claim/replay/reopen relationships, and bounded per-cycle latency with no overflow.
+
+While both A/B proxy links are disabled, the runner binds the exact probe transfer ID, sequence, and
+direction to a failed `PREPARED` transfer and its undelivered durable delivery row. After restoring
+the links it requires that exact source stream's acknowledged/compacted watermarks and target
+stream's contiguous/compacted watermarks to cover the probe sequence, then requires every peer,
+transfer, and audit queue to converge to zero. Settle, partition recovery, and final convergence
+poll until success and return immediately; the default 180-second convergence timeout is a maximum
+deadline, not a fixed wait or extra workload time.
 
 The sustained workload permits at most one sampled, bounded, subsequently recovered transient
 exporter error across the entire three-node run. The only admissible class is the sanitized
 archive-connect `SQLITE_BUSY` family; I/O, corruption, archive-write, schema, and undiagnosed errors
 fail immediately. The exporter must still be running, have a prior successful export, be unblocked,
 and remain within its backlog, oldest-record, and stall bounds. A second observation on the same or
-another node fails live. On the first observation the workload immediately polls only that node for
-the unused portion of its configured stall window (`max_stall_s - stalled_for_s`); it does not
-restart or extend the 15-second window. The recovery probe must show the node fully ready,
-reconciled, error-free, and empty, and both the original observation and bounded recovery are
-retained. An unrecovered final sample fails, final convergence independently requires `last_error`
-to be null on every node, and the authoritative live count must equal the retained-sample count so
-deque truncation cannot erase the incident. This is explicitly a sampled-observation claim, not a
-count of errors that arise and recover wholly between health samples.
+another node fails live. On the first observation the independent monitor immediately polls only
+that node for the unused portion of its configured stall window
+(`max_stall_s - stalled_for_s`); it does not restart or extend the 15-second window. The recovery
+probe must show the node fully ready, reconciled, error-free, and empty, and both the original
+observation and bounded recovery are retained. An unrecovered final sample fails, final convergence
+independently requires `last_error` to be null on every node, and the authoritative live count must
+equal the retained evidence while expected, actual, and retained sample counts agree with zero
+truncation. This is explicitly a sampled-observation claim, not a count of errors that arise and
+recover wholly between health samples.
 
 Host-side probes record the actual LETS child process's RSS and file-descriptor count (not the PID 1
 init shim), core DB/WAL/SHM, audit DB/WAL/SHM, signer log, anchor, Docker restart count, OOM state,
@@ -337,22 +417,45 @@ zero; and PID peak must stay at or below 192 under the exact limit of 256.
 
 Any automatic restart or OOM fails the run. Immediately before every planned `SIGKILL`, the runner
 captures and evaluates a resource checkpoint for all wardens, binds its sample index to the kill,
-and refuses to continue if it fails. This retains the killed process lifetime's peak counters even
-though a replacement container receives a fresh cgroup. Every planned kill must replace the PID,
-and every warden must retain a long uninterrupted process lifetime. Fixed ceilings and per-cycle
-growth budgets fail the run on unbounded resource growth. The sorted JSON record binds
+and refuses to continue if it fails. The host then obtains an authenticated authority snapshot and
+an exact, idempotent terminal snapshot-and-fence response bound to the old container ID, host PID,
+namespace PID, warden, process-lifetime ID, and restart ID before it may send `SIGKILL`. Bounded
+attempt evidence is retained and an unproven fence prevents the kill. This retains the killed
+process lifetime's peak counters and terminal authority counters even though a replacement
+container receives a fresh cgroup. Every planned kill must replace the PID, and every warden must
+retain a long uninterrupted process lifetime. Fixed ceilings and per-cycle growth budgets fail the
+run on unbounded resource growth. The sorted JSON record binds
 start/end timestamps, the unique initially empty Compose project and zero-resource cleanup, exact
 requested OCI index digest, inspected image ID and repository digests, matching OCI/host/three-node
 runtime/workload/verifier package versions, Git commit/dirty state, deterministic source-tree
 digest, individual soak harness file hashes, chaos events, replay/anchor heads, health/load/latency
 metrics, and a canonical payload SHA-256.
 
+The independent sampler and active-time cycle calculation change only how evidence coverage is
+measured. They do not relax the required partition or `SIGKILL` episodes, resource ceilings,
+single-observation audit-error budget, exact workload relationships, or final conservation and
+zero-backlog gates.
+
+Final verification runs in the trusted workload step while it still has the executor SQLite and
+anchor volumes. It performs a fresh no-create open, SQLite integrity check, and exact anchor
+reconciliation, captures the final executor lifetime, and snapshot-and-fences every surviving core
+lifetime within one bounded terminal window. The host and publication verifiers then validate the
+exact terminal schemas, lifetime relationships, identities, sequences, counters, and global budget
+from raw JSON. They do not receive the complete append-only executor `claim_history`, so this is
+not an offline replay of an omitted claim-event ledger; the live integrity/reconciliation step is
+part of the trusted release harness.
+
 Use `--smoke` only for harness diagnostics. It permits a run shorter than five minutes but still
 requires at least two proven partition episodes and planned restarts covering all three wardens;
 never present smoke output as sustained-soak evidence. Every run uses a unique Compose project,
 requires its container/volume/network namespace to be empty before startup, and proves that all
 three resource classes are absent after cleanup. Use `--keep` only for failure investigation because
-all generated PKI, signer seeds, and authority state are test material. On any failure the runner
+all generated PKI, signer seeds, and authority state are test material. A successful terminal
+capture has already fenced every surviving warden, so `--keep` leaves those containers unready and
+unable to admit authority transactions; a failed capture may have fenced only a subset. In either
+case the retained project is diagnostic evidence, not a usable cluster: route no traffic and
+recreate/restart every fenced warden before any transaction rather than attempting to resume it. On
+any failure the runner
 atomically replaces the requested output with a bounded `passed: false` evidence record containing
 the source/image/preflight state, retained resource and chaos samples, workload exit status and
 bounded output, original error, and one-shot cleanup result, then rethrows the original exception.
@@ -393,12 +496,14 @@ restore. Missing, divergent, forked, or stale replay state is a fail-closed reco
 permission to initialize a new store.
 
 `ReceiptVerifier.verify_and_claim` advances the durable receipt/nonces/lease-watermark history and
-the external claim anchor before the protected effect may begin. The application must still bind
-that claim to its own effect transaction or make the effect idempotent; LETS cannot atomically
-commit an arbitrary external side effect. Monitor executor anchor latency/errors, replay-store
-integrity and capacity, clock uncertainty, rejected duplicates, and the age of the oldest retained
-receipt. Fence effects immediately if the anchor becomes unavailable or the store reports an
-authority fault.
+the external claim anchor before the protected effect may begin. A post-`COMMIT` lost reply can burn
+the claim even though the caller received an error; recovery confirms the head, and retry raises
+`ReplayError` with no effect. The application must still bind that claim to its own effect
+transaction or make the effect idempotent; LETS cannot atomically commit an arbitrary external side
+effect. Monitor
+executor anchor latency/errors, replay-store integrity and capacity, clock uncertainty, rejected
+duplicates, and the age of the oldest retained receipt. Fence effects immediately if the anchor
+becomes unavailable or the store reports an authority fault.
 
 ## Capacity, retention, and disk-full response
 
@@ -495,13 +600,18 @@ record.
 ## Upgrade and rollback
 
 Follow [the release runbook](../../docs/release.md). Never move a mutable tag into production.
-Pull and stage the new digest, drain and stop exactly one warden, write a verified recovery bundle
-to `/var/lib/lets-backup`, and record the authority checkpoint separately. Start the new digest in
-its durable drained state, inspect it, explicitly activate it, and wait for authenticated readiness
-before proceeding to the next failure domain. Do not restore a database behind its monotonic
-anchor. If a release introduces a schema version without an explicitly documented backward path,
-recover forward; a restore is admitted only while fenced and only when the live anchor proves the
-bundle cannot resurrect spent authority.
+LETS v1 does not support a live mixed-version cluster. Drain every warden and remove external
+mutation traffic while keeping the internal peer/audit paths available; settle those queues, then
+fence the cluster, stop every old process, and create a separately verified recovery bundle and
+authority checkpoint for every node before starting any replacement. Stage the same verified digest
+on all nodes, start the entire cluster in its durable drained state, prove uniform version/config,
+invariants, capacity, audit state, and peer reachability, then activate and canary the uniform
+cluster before restoring traffic. Do not restore a database behind its monotonic anchor. The signed
+v1.0.1 through v1.0.4 tags were never promoted and are not rollback artifacts; v1.0.0 lacks the
+later production defenses, so v1.0.5 has no approved earlier binary rollback target. Recover
+forward with a patch release unless future release notes explicitly name a compatible published
+digest. A restore is admitted only while fenced and only when the live anchor proves the bundle
+cannot resurrect spent authority.
 
 ## Provider integration boundary
 

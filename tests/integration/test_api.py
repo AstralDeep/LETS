@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import tomllib
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import replace
@@ -14,6 +15,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 import deploy.start_warden as start_warden_module
+import lets.api as api_module
 import lets.cli as cli_module
 from lets import __version__
 from lets.api import create_app
@@ -23,6 +25,7 @@ from lets.auth import (
     StaticBearerAuthenticator,
     sign_peer_headers,
 )
+from lets.authority import FileAuthorityAnchor
 from lets.canonical import b64url_encode, canonical_json
 from lets.cli import main as cli_main
 from lets.client import (
@@ -230,6 +233,240 @@ def test_policy_registration_requires_transport_admin_scope() -> None:
     assert response.status_code == 403
     assert response.json()["code"] == "policy_denied"
     assert service.calls == []
+
+
+def test_authority_fence_endpoint_requires_admin_and_exact_string_identifiers() -> None:
+    calls: list[tuple[str, str, bool]] = []
+
+    def fence(
+        restart_id: str,
+        expected_lifetime_id: str,
+        full_audit_verification: bool,
+    ) -> Mapping[str, object]:
+        calls.append((restart_id, expected_lifetime_id, full_audit_verification))
+        return {
+            "schema": "lets.authority-admission-fence/v1",
+            "restart_id": restart_id,
+            "lifetime_id": expected_lifetime_id,
+        }
+
+    service = StubService()
+    app = create_app(
+        service,
+        authenticator=StaticBearerAuthenticator.single("admin-token", _identity()),
+        authority_fence_provider=fence,
+    )
+    body = {"restart_id": "restart-1", "expected_lifetime_id": "a" * 32}
+    accepted = _request(
+        app,
+        "POST",
+        "/v1/maintenance/authority-fence",
+        json=body,
+        headers={"authorization": "Bearer admin-token"},
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["restart_id"] == "restart-1"
+    assert calls == [("restart-1", "a" * 32, False)]
+
+    for malformed in (
+        {**body, "restart_id": 7},
+        {**body, "expected_lifetime_id": True},
+        {**body, "full_audit_verification": 1},
+    ):
+        rejected = _request(
+            app,
+            "POST",
+            "/v1/maintenance/authority-fence",
+            json=malformed,
+            headers={"authorization": "Bearer admin-token"},
+        )
+        assert rejected.status_code == 422
+    assert calls == [("restart-1", "a" * 32, False)]
+
+    denied_app = create_app(
+        service,
+        authenticator=StaticBearerAuthenticator.single("user-token", _identity(admin=False)),
+        authority_fence_provider=fence,
+    )
+    denied = _request(
+        denied_app,
+        "POST",
+        "/v1/maintenance/authority-fence",
+        json=body,
+        headers={"authorization": "Bearer user-token"},
+    )
+    assert denied.status_code == 403
+
+
+def test_authority_status_endpoint_is_independent_of_database_metrics() -> None:
+    authority = {
+        "enabled": True,
+        "state": "permanent_fault",
+        "healthy": False,
+        "lifetime_id": "a" * 32,
+        "first_fault": {"reason": "helper_eof"},
+    }
+
+    def unavailable_metrics() -> Mapping[str, object]:
+        raise RuntimeError("database must not be opened")
+
+    metrics_identity = IdentityContext(
+        subject_id="monitor-a",
+        tenant_id="tenant-a",
+        scopes=frozenset({"lets.metrics.read"}),
+        authentication_method="test-bearer",
+    )
+    app = create_app(
+        StubService(),
+        authenticator=StaticBearerAuthenticator.single("metrics-token", metrics_identity),
+        metrics_provider=unavailable_metrics,
+        authority_status_provider=lambda: authority,
+    )
+
+    response = _request(
+        app,
+        "GET",
+        "/v1/maintenance/authority-status",
+        headers={"authorization": "Bearer metrics-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == authority
+
+    denied = create_app(
+        StubService(),
+        authenticator=StaticBearerAuthenticator.single("user-token", _identity(admin=False)),
+        authority_status_provider=lambda: authority,
+    )
+    response = _request(
+        denied,
+        "GET",
+        "/v1/maintenance/authority-status",
+        headers={"authorization": "Bearer user-token"},
+    )
+    assert response.status_code == 403
+
+
+def test_async_authority_status_provider_bypasses_shared_threadpool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authority = {"enabled": True, "state": "healthy", "healthy": True}
+
+    async def direct_provider() -> Mapping[str, object]:
+        return authority
+
+    async def forbidden_threadpool(*_arguments: object, **_options: object) -> object:
+        raise AssertionError("async authority status used the shared threadpool")
+
+    monkeypatch.setattr(api_module, "run_in_threadpool", forbidden_threadpool)
+    app = create_app(
+        StubService(),
+        authenticator=StaticBearerAuthenticator.single("admin-token", _identity()),
+        authority_status_provider=direct_provider,
+    )
+    response = _request(
+        app,
+        "GET",
+        "/v1/maintenance/authority-status",
+        headers={"authorization": "Bearer admin-token"},
+    )
+    assert response.status_code == 200
+    assert response.json() == authority
+
+
+def test_sync_authority_status_provider_remains_offloaded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    authority = {"enabled": True, "state": "healthy", "healthy": True}
+    offloaded: list[object] = []
+
+    def sync_provider() -> Mapping[str, object]:
+        return authority
+
+    async def observed_threadpool(function: object, *_arguments: object) -> object:
+        offloaded.append(function)
+        return sync_provider()
+
+    monkeypatch.setattr(api_module, "run_in_threadpool", observed_threadpool)
+    app = create_app(
+        StubService(),
+        authenticator=StaticBearerAuthenticator.single("admin-token", _identity()),
+        authority_status_provider=sync_provider,
+    )
+    response = _request(
+        app,
+        "GET",
+        "/v1/maintenance/authority-status",
+        headers={"authorization": "Bearer admin-token"},
+    )
+    assert response.status_code == 200
+    assert response.json() == authority
+    assert offloaded == [sync_provider]
+
+
+def test_authority_status_endpoint_does_not_wait_for_active_storage_transaction(
+    tmp_path: Path,
+) -> None:
+    signer = Ed25519Signer.generate("warden-a")
+    store = SQLiteStorage.initialize(
+        tmp_path / "status-nonblocking.sqlite3",
+        signer.warden_id,
+        (20,),
+        signing_key_id=signer.key_id,
+        signing_public_key=signer.public_key_bytes,
+        tenant_id="tenant-a",
+        envelope_id="envelope-a",
+        authority_anchor=FileAuthorityAnchor(tmp_path / "authority" / "warden.anchor.json"),
+    )
+    app = create_app(
+        StubService(),
+        authenticator=StaticBearerAuthenticator.single("admin-token", _identity()),
+        authority_status_provider=store.authority_anchor_status,
+    )
+    transaction_entered = threading.Event()
+    release_transaction = threading.Event()
+    response_completed = threading.Event()
+    responses: list[httpx.Response] = []
+    request_errors: list[BaseException] = []
+
+    def hold_transaction() -> None:
+        with store.read():
+            transaction_entered.set()
+            assert release_transaction.wait(timeout=5)
+
+    def request_status() -> None:
+        try:
+            responses.append(
+                _request(
+                    app,
+                    "GET",
+                    "/v1/maintenance/authority-status",
+                    headers={"authorization": "Bearer admin-token"},
+                )
+            )
+        except BaseException as exc:
+            request_errors.append(exc)
+        finally:
+            response_completed.set()
+
+    holder = threading.Thread(target=hold_transaction)
+    requester = threading.Thread(target=request_status)
+    try:
+        holder.start()
+        assert transaction_entered.wait(timeout=5)
+        requester.start()
+        assert response_completed.wait(timeout=1)
+        assert holder.is_alive()
+        assert request_errors == []
+        assert responses[0].status_code == 200
+        assert responses[0].json() == store.authority_anchor_status()
+    finally:
+        release_transaction.set()
+        holder.join(timeout=5)
+        requester.join(timeout=5)
+        store.close()
+    assert not holder.is_alive()
+    assert not requester.is_alive()
 
 
 def test_liveness_readiness_and_error_hierarchy_mapping() -> None:

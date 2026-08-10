@@ -3,23 +3,30 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
 from contextvars import ContextVar
+from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Protocol, Self, TypeAlias, cast, runtime_checkable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from lets.authority import AuthorityAnchor, AuthorityCheckpoint
-from lets.canonical import canonical_json
+from lets.authority import (
+    AuthorityAnchor,
+    AuthorityCheckpoint,
+    ProcessFileAuthorityAnchor,
+)
+from lets.canonical import canonical_json, strict_json_loads
 from lets.errors import (
+    AuthorityAnchorTransportError,
     CapacityError,
     ConflictError,
     InvariantError,
@@ -27,7 +34,7 @@ from lets.errors import (
     StorageError,
     ValidationError,
 )
-from lets.ids import require_key_id, require_warden_id
+from lets.ids import require_identifier, require_key_id, require_warden_id
 from lets.policy import MAX_TRANSFER_GAP_WINDOW
 from lets.storage.schema import (
     APPLICATION_ID,
@@ -57,6 +64,15 @@ _MAX_SQLITE_INTEGER = (1 << 63) - 1
 _ZERO_AUDIT_HASH = bytes(32)
 _DEFAULT_RECEIPT_TTL_NS = 1_000_000_000
 _DEFAULT_TRANSFER_GAP_WINDOW = 64
+_AUTHORITY_FENCE_TIMEOUT_SECONDS = 85.0
+_AUTHORITY_FULL_FENCE_TIMEOUT_SECONDS = 60.0
+_AUTHORITY_RECOVERY_DELAYS_NS = (
+    250_000_000,
+    500_000_000,
+    1_000_000_000,
+    2_000_000_000,
+    5_000_000_000,
+)
 
 
 def _sqlite_error_diagnostic(exc: sqlite3.Error) -> str:
@@ -236,6 +252,51 @@ def _register_functions(connection: sqlite3.Connection) -> None:
         "lets_vector_subtract", 2, _sqlite_vector_subtract, deterministic=True
     )
     connection.create_function("lets_audit_hash", 7, _sqlite_audit_hash, deterministic=True)
+
+
+_EXPECTED_SCHEMA_DEFINITION_DIGEST: bytes | None = None
+_EXPECTED_SCHEMA_DEFINITION_LOCK = threading.Lock()
+
+
+def _schema_definition_payload(connection: sqlite3.Connection) -> bytes:
+    rows = connection.execute(
+        """
+        SELECT type, name, tbl_name, sql
+        FROM sqlite_schema
+        WHERE type IN ('table', 'index', 'trigger')
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ).fetchall()
+    return canonical_json(
+        [
+            {
+                "name": str(row[1]),
+                "sql": None if row[3] is None else str(row[3]),
+                "table": str(row[2]),
+                "type": str(row[0]),
+            }
+            for row in rows
+        ]
+    )
+
+
+def _expected_schema_definition_digest() -> bytes:
+    global _EXPECTED_SCHEMA_DEFINITION_DIGEST
+    with _EXPECTED_SCHEMA_DEFINITION_LOCK:
+        if _EXPECTED_SCHEMA_DEFINITION_DIGEST is None:
+            connection = sqlite3.connect(":memory:", isolation_level=None)
+            try:
+                _register_functions(connection)
+                for target_version in range(1, SCHEMA_VERSION + 1):
+                    for statement in MIGRATIONS[target_version]:
+                        connection.execute(statement)
+                _EXPECTED_SCHEMA_DEFINITION_DIGEST = sha256(
+                    _schema_definition_payload(connection)
+                ).digest()
+            finally:
+                connection.close()
+        return _EXPECTED_SCHEMA_DEFINITION_DIGEST
 
 
 def _normalize_dimensions(value: object | None, count: int) -> tuple[Record, ...]:
@@ -1775,8 +1836,42 @@ class SQLiteStorage:
             busy_timeout_ms, "busy_timeout_ms", positive=True
         )
         self._authority_anchor = authority_anchor
-        self._authority_anchor_faulted = False
         self._authority_transaction_lock = threading.RLock()
+        # The condition is the admission queue for every operation serialized by
+        # ``_authority_transaction_lock``.  A due observation capture reserves the
+        # next admission before waiting for the current authority operation to
+        # finish; later normal operations therefore cannot form an RLock convoy in
+        # front of health observation.  The RLock remains the final serialization
+        # primitive (and preserves the historical re-entrant behavior).
+        self._authority_admission_condition = threading.Condition()
+        self._authority_admission_owner: int | None = None
+        self._authority_admission_depth = 0
+        self._authority_admission_next_ticket = 0
+        self._authority_admission_waiters: dict[int, int] = {}
+        self._authority_anchor_state = "healthy" if authority_anchor is not None else "disabled"
+        self._authority_anchor_lifetime_id = os.urandom(16).hex()
+        self._authority_anchor_transport_faults = 0
+        self._authority_anchor_transport_fault_episodes = 0
+        self._authority_anchor_transport_recovery_attempts = 0
+        self._authority_anchor_transport_recoveries = 0
+        self._authority_anchor_permanent_faults = 0
+        self._authority_anchor_fault_stage: str | None = None
+        self._authority_anchor_fault_reason: str | None = None
+        self._authority_anchor_retry_not_before_monotonic_ns: int | None = None
+        self._authority_anchor_first_fault: dict[str, object] | None = None
+        self._authority_anchor_mutation_uncertain = False
+        self._authority_anchor_backoff_index = 0
+        self._authority_anchor_startup_confirm_pending = isinstance(
+            authority_anchor, ProcessFileAuthorityAnchor
+        )
+        self._authority_admission_fenced = False
+        self._authority_fence_id: str | None = None
+        self._authority_fence_full_audit_verification: bool | None = None
+        self._authority_fence_snapshot: bytes | None = None
+        self._authority_fenced_at_monotonic_ns: int | None = None
+        self._authority_status_lock = threading.Lock()
+        self._authority_status_snapshot: dict[str, object] = {}
+        self._publish_authority_anchor_status()
         self._min_free_disk_bytes = _nonnegative_integer(min_free_disk_bytes, "min_free_disk_bytes")
         self._max_database_bytes = (
             None
@@ -2020,6 +2115,7 @@ class SQLiteStorage:
             connection.commit()
             self._reconcile_authority_anchor(
                 connection,
+                stage="post_commit",
                 initialize=create,
                 allow_schema_upgrade=migrate,
                 metadata=metadata,
@@ -2144,6 +2240,9 @@ class SQLiteStorage:
             if missing_triggers:
                 details.append(f"triggers={sorted(missing_triggers)}")
             raise StorageError("incomplete SQLite schema: " + ", ".join(details))
+        actual_definition_digest = sha256(_schema_definition_payload(connection)).digest()
+        if actual_definition_digest != _expected_schema_definition_digest():
+            raise StorageError("SQLite schema definitions do not match the supported schema")
         metadata_columns = {
             str(row[1]) for row in connection.execute("PRAGMA table_info(database_metadata)")
         }
@@ -2514,10 +2613,47 @@ class SQLiteStorage:
             raise StorageError("historical authority audit hash must contain exactly 32 bytes")
         return digest
 
+    def _invoke_authority_reconcile(
+        self,
+        anchor: AuthorityAnchor,
+        checkpoint: AuthorityCheckpoint,
+        connection: sqlite3.Connection,
+        *,
+        metadata: StorageMetadata | None,
+        initialize: bool,
+        allow_schema_upgrade: bool,
+        durable_confirm: bool,
+    ) -> None:
+        def audit_hash_at(sequence: int) -> bytes | None:
+            return self._audit_hash_at(connection, sequence, metadata)
+
+        if durable_confirm:
+            combined = getattr(anchor, "reconcile_and_confirm", None)
+            if callable(combined):
+                combined(
+                    checkpoint,
+                    audit_hash_at=audit_hash_at,
+                    initialize=initialize,
+                    allow_schema_upgrade=allow_schema_upgrade,
+                )
+                return
+        anchor.reconcile(
+            checkpoint,
+            audit_hash_at=audit_hash_at,
+            initialize=initialize,
+            allow_schema_upgrade=allow_schema_upgrade,
+        )
+        if durable_confirm:
+            confirm = getattr(anchor, "confirm", None)
+            if not callable(confirm):
+                raise StorageError("authority anchor cannot durably confirm reconciliation")
+            confirm(checkpoint)
+
     def _reconcile_authority_anchor(
         self,
         connection: sqlite3.Connection,
         *,
+        stage: str,
         initialize: bool = False,
         allow_schema_upgrade: bool = False,
         metadata: StorageMetadata | None = None,
@@ -2525,22 +2661,175 @@ class SQLiteStorage:
         anchor = self._authority_anchor
         if anchor is None:
             return
-        if self._authority_anchor_faulted:
-            raise StorageError("authority anchor previously faulted; restart after operator repair")
+        if self._authority_anchor_state == "permanent_fault":
+            raise StorageError(
+                "authority anchor previously faulted permanently; restart after operator repair"
+            )
+        if self._authority_anchor_state == "recoverable_transport_fault":
+            retry_not_before = self._authority_anchor_retry_not_before_monotonic_ns
+            now = time.monotonic_ns()
+            if retry_not_before is None or now < retry_not_before:
+                raise StorageError("authority anchor transport recovery cooldown is active")
+            self._authority_anchor_transport_recovery_attempts = self._saturating_increment(
+                self._authority_anchor_transport_recovery_attempts
+            )
+            self._publish_authority_anchor_status()
+            try:
+                checkpoint = self._authority_checkpoint(connection, metadata)
+                durable_confirm = (
+                    self._authority_anchor_mutation_uncertain
+                    or self._authority_anchor_startup_confirm_pending
+                )
+                self._invoke_authority_reconcile(
+                    anchor,
+                    checkpoint,
+                    connection,
+                    metadata=metadata,
+                    initialize=initialize,
+                    allow_schema_upgrade=allow_schema_upgrade,
+                    durable_confirm=durable_confirm,
+                )
+            except AuthorityAnchorTransportError as exc:
+                self._require_well_formed_transport_error(exc, stage=stage)
+                self._arm_authority_transport_fault(exc, stage=stage, new_episode=False)
+                raise
+            except StorageError:
+                self._promote_authority_permanent_fault(
+                    stage=stage,
+                    reason="non_transport_recovery_failure",
+                )
+                raise
+            except Exception as exc:
+                self._promote_authority_permanent_fault(
+                    stage=stage,
+                    reason="provider_recovery_failure",
+                )
+                raise StorageError("authority anchor provider failed during recovery") from exc
+            self._authority_anchor_state = "healthy"
+            self._authority_anchor_transport_recoveries = self._saturating_increment(
+                self._authority_anchor_transport_recoveries
+            )
+            self._authority_anchor_fault_stage = None
+            self._authority_anchor_fault_reason = None
+            self._authority_anchor_retry_not_before_monotonic_ns = None
+            self._authority_anchor_mutation_uncertain = False
+            self._authority_anchor_backoff_index = 0
+            self._authority_anchor_startup_confirm_pending = False
+            self._publish_authority_anchor_status()
+            return
+
         try:
             checkpoint = self._authority_checkpoint(connection, metadata)
-            anchor.reconcile(
+            self._invoke_authority_reconcile(
+                anchor,
                 checkpoint,
-                audit_hash_at=lambda sequence: self._audit_hash_at(connection, sequence, metadata),
+                connection,
+                metadata=metadata,
                 initialize=initialize,
                 allow_schema_upgrade=allow_schema_upgrade,
+                durable_confirm=self._authority_anchor_startup_confirm_pending,
             )
+            if self._authority_anchor_startup_confirm_pending:
+                self._authority_anchor_startup_confirm_pending = False
+        except AuthorityAnchorTransportError as exc:
+            self._require_well_formed_transport_error(exc, stage=stage)
+            self._arm_authority_transport_fault(exc, stage=stage, new_episode=True)
+            raise
         except StorageError:
-            self._authority_anchor_faulted = True
+            self._promote_authority_permanent_fault(
+                stage=stage,
+                reason="non_transport_anchor_failure",
+            )
             raise
         except Exception as exc:
-            self._authority_anchor_faulted = True
+            self._promote_authority_permanent_fault(
+                stage=stage,
+                reason="provider_anchor_failure",
+            )
             raise StorageError("authority anchor provider failed") from exc
+
+    @staticmethod
+    def _saturating_increment(value: int) -> int:
+        return min(_MAX_SQLITE_INTEGER, value + 1)
+
+    def _require_well_formed_transport_error(
+        self,
+        exc: AuthorityAnchorTransportError,
+        *,
+        stage: str,
+    ) -> None:
+        if AuthorityAnchorTransportError.is_well_formed(exc):
+            return
+        self._promote_authority_permanent_fault(
+            stage=stage,
+            reason="malformed_transport_error",
+        )
+        raise StorageError("authority anchor returned a malformed transport failure") from None
+
+    @staticmethod
+    def _bounded_helper_value(value: object, *, positive: bool = False) -> int | None:
+        minimum = 1 if positive else -(1 << 31)
+        if type(value) is int and minimum <= value <= (1 << 31) - 1:
+            return value
+        return None
+
+    def _arm_authority_transport_fault(
+        self,
+        exc: AuthorityAnchorTransportError,
+        *,
+        stage: str,
+        new_episode: bool,
+    ) -> None:
+        reason = exc.reason
+        operation = exc.operation
+        request_flushed = exc.request_flushed
+        mutation_uncertain = exc.mutation_uncertain
+        self._authority_anchor_transport_faults = self._saturating_increment(
+            self._authority_anchor_transport_faults
+        )
+        if new_episode:
+            self._authority_anchor_transport_fault_episodes = self._saturating_increment(
+                self._authority_anchor_transport_fault_episodes
+            )
+            self._authority_anchor_backoff_index = 0
+        else:
+            self._authority_anchor_backoff_index = min(
+                len(_AUTHORITY_RECOVERY_DELAYS_NS) - 1,
+                self._authority_anchor_backoff_index + 1,
+            )
+        self._authority_anchor_state = "recoverable_transport_fault"
+        self._authority_anchor_fault_stage = stage
+        self._authority_anchor_fault_reason = reason
+        self._authority_anchor_mutation_uncertain = (
+            self._authority_anchor_mutation_uncertain or mutation_uncertain
+        )
+        delay = _AUTHORITY_RECOVERY_DELAYS_NS[self._authority_anchor_backoff_index]
+        self._authority_anchor_retry_not_before_monotonic_ns = min(
+            _MAX_SQLITE_INTEGER,
+            time.monotonic_ns() + delay,
+        )
+        if self._authority_anchor_first_fault is None:
+            self._authority_anchor_first_fault = {
+                "reason": reason,
+                "stage": stage,
+                "operation": operation,
+                "request_flushed": request_flushed,
+                "mutation_uncertain": mutation_uncertain,
+                "helper_pid": self._bounded_helper_value(exc.helper_pid, positive=True),
+                "helper_exit_code": self._bounded_helper_value(exc.helper_exit_code),
+            }
+        self._publish_authority_anchor_status()
+
+    def _promote_authority_permanent_fault(self, *, stage: str, reason: str) -> None:
+        if self._authority_anchor_state != "permanent_fault":
+            self._authority_anchor_permanent_faults = self._saturating_increment(
+                self._authority_anchor_permanent_faults
+            )
+        self._authority_anchor_state = "permanent_fault"
+        self._authority_anchor_fault_stage = stage
+        self._authority_anchor_fault_reason = reason
+        self._authority_anchor_retry_not_before_monotonic_ns = None
+        self._publish_authority_anchor_status()
 
     def _install_capacity_limits(self, connection: sqlite3.Connection) -> None:
         """Install the logical main-database ceiling on every connection.
@@ -2707,8 +2996,118 @@ class SQLiteStorage:
         return snapshot
 
     @contextmanager
+    def _authority_serialized(
+        self,
+        *,
+        admission_class: int = 0,
+        timeout_s: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> Iterator[None]:
+        """Enter the common authority lane, optionally reserving the next turn.
+
+        Priority admission is intentionally bounded.  Its reservation is removed
+        on timeout or cancellation before the exception escapes, so a stopped
+        observation publisher can never strand normal authority traffic.
+        """
+
+        if admission_class not in (0, 1, 2):
+            raise ValueError("authority admission class is invalid")
+        if timeout_s is not None and (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or not math.isfinite(float(timeout_s))
+            or timeout_s <= 0
+        ):
+            raise ValueError("authority admission timeout must be positive")
+        deadline = None if timeout_s is None else time.monotonic() + float(timeout_s)
+        owner = threading.get_ident()
+        gate_acquired = False
+        lock_acquired = False
+        ticket: int | None = None
+
+        def remaining() -> float | None:
+            if deadline is None:
+                return None
+            return max(0.0, deadline - time.monotonic())
+
+        try:
+            with self._authority_admission_condition:
+                if self._authority_admission_owner == owner:
+                    self._authority_admission_depth += 1
+                    gate_acquired = True
+                else:
+                    ticket = self._authority_admission_next_ticket
+                    self._authority_admission_next_ticket += 1
+                    self._authority_admission_waiters[ticket] = admission_class
+                    try:
+                        while True:
+                            if cancel_event is not None and cancel_event.is_set():
+                                raise StorageError("priority authority observation was stopped")
+                            highest_class = max(
+                                self._authority_admission_waiters.values(),
+                                default=-1,
+                            )
+                            winning_ticket = min(
+                                (
+                                    queued_ticket
+                                    for queued_ticket, queued_class in (
+                                        self._authority_admission_waiters.items()
+                                    )
+                                    if queued_class == highest_class
+                                ),
+                                default=-1,
+                            )
+                            if self._authority_admission_owner is None and ticket == winning_ticket:
+                                break
+                            wait_for = remaining()
+                            if wait_for is not None and wait_for <= 0:
+                                raise StorageError(
+                                    "priority authority observation admission timed out"
+                                )
+                            self._authority_admission_condition.wait(
+                                0.1 if wait_for is None else min(0.1, wait_for)
+                            )
+                        del self._authority_admission_waiters[ticket]
+                        ticket = None
+                        self._authority_admission_owner = owner
+                        self._authority_admission_depth = 1
+                        gate_acquired = True
+                    finally:
+                        if ticket is not None:
+                            self._authority_admission_waiters.pop(ticket, None)
+                            ticket = None
+                            self._authority_admission_condition.notify_all()
+
+            wait_for = remaining()
+            if wait_for is None:
+                self._authority_transaction_lock.acquire()
+                lock_acquired = True
+            elif wait_for > 0:
+                lock_acquired = self._authority_transaction_lock.acquire(timeout=wait_for)
+            if not lock_acquired:
+                raise StorageError("priority authority observation admission timed out")
+            yield
+        finally:
+            if lock_acquired:
+                self._authority_transaction_lock.release()
+            if gate_acquired:
+                with self._authority_admission_condition:
+                    if self._authority_admission_owner != owner:
+                        raise RuntimeError("authority admission ownership was corrupted")
+                    self._authority_admission_depth -= 1
+                    if self._authority_admission_depth == 0:
+                        self._authority_admission_owner = None
+                        self._authority_admission_condition.notify_all()
+
+    @contextmanager
     def transaction(
-        self, *, write: bool = True, capacity_recovery: bool = False
+        self,
+        *,
+        write: bool = True,
+        capacity_recovery: bool = False,
+        _observation_priority: bool = False,
+        _admission_timeout_s: float | None = None,
+        _admission_cancel_event: threading.Event | None = None,
     ) -> Iterator[SQLiteTransaction]:
         if self._closed:
             raise StorageError("storage is closed")
@@ -2723,10 +3122,18 @@ class SQLiteStorage:
             # Keep in-process readers, the peer dispatcher, and HTTP handlers behind
             # the post-COMMIT anchor CAS.  Consequently no signed result or outbox row
             # from a losing fork can be observed through this storage instance.
-            with self._authority_transaction_lock:
+            with self._authority_serialized(
+                admission_class=1 if _observation_priority else 0,
+                timeout_s=_admission_timeout_s,
+                cancel_event=_admission_cancel_event,
+            ):
                 try:
+                    if self._closed:
+                        raise StorageError("storage is closed")
+                    if self._authority_admission_fenced:
+                        raise StorageError("authority transaction admission is fenced")
                     connection = self._connect()
-                    self._reconcile_authority_anchor(connection)
+                    self._reconcile_authority_anchor(connection, stage="pre_begin")
                     connection.execute("BEGIN IMMEDIATE" if write else "BEGIN")
                     if write:
                         if capacity_recovery:
@@ -2770,7 +3177,7 @@ class SQLiteStorage:
                             self._require_write_capacity(connection)
                     connection.commit()
                     if write:
-                        self._reconcile_authority_anchor(connection)
+                        self._reconcile_authority_anchor(connection, stage="post_commit")
                         committed = self._capacity_snapshot(connection)
                         if (
                             committed.filesystem_free_bytes is not None
@@ -2831,17 +3238,172 @@ class SQLiteStorage:
     def read(self) -> AbstractContextManager[SQLiteTransaction]:
         return self.transaction(write=False)
 
+    def observation_read(
+        self,
+        *,
+        timeout_s: float,
+        cancel_event: threading.Event | None = None,
+    ) -> AbstractContextManager[SQLiteTransaction]:
+        """Reserve one bounded, reconciled read for the observation publisher."""
+
+        return self.transaction(
+            write=False,
+            _observation_priority=True,
+            _admission_timeout_s=timeout_s,
+            _admission_cancel_event=cancel_event,
+        )
+
     def audit_sequence(self) -> int:
         with self.read() as transaction:
             return transaction.audit_sequence()
 
     @property
     def authority_anchor_enabled(self) -> bool:
-        return self._authority_anchor is not None
+        return cast(bool, self.authority_anchor_status()["enabled"])
 
     @property
     def authority_anchor_healthy(self) -> bool:
-        return self._authority_anchor is not None and not self._authority_anchor_faulted
+        return cast(bool, self.authority_anchor_status()["healthy"])
+
+    def _build_authority_anchor_status(self) -> dict[str, object]:
+        return {
+            "enabled": self._authority_anchor is not None,
+            "state": self._authority_anchor_state,
+            "healthy": self._authority_anchor_state == "healthy",
+            "lifetime_id": self._authority_anchor_lifetime_id,
+            "namespace_process_id": os.getpid(),
+            "admission_fenced": self._authority_admission_fenced,
+            "fence_id": self._authority_fence_id,
+            "fenced_at_monotonic_ns": self._authority_fenced_at_monotonic_ns,
+            "transport_faults": self._authority_anchor_transport_faults,
+            "transport_fault_episodes": self._authority_anchor_transport_fault_episodes,
+            "transport_recovery_attempts": self._authority_anchor_transport_recovery_attempts,
+            "transport_recoveries": self._authority_anchor_transport_recoveries,
+            "unresolved_transport_faults": int(
+                self._authority_anchor_state == "recoverable_transport_fault"
+            ),
+            "permanent_faults": self._authority_anchor_permanent_faults,
+            "fault_stage": self._authority_anchor_fault_stage,
+            "fault_reason": self._authority_anchor_fault_reason,
+            "retry_not_before_monotonic_ns": (self._authority_anchor_retry_not_before_monotonic_ns),
+            "first_fault": (
+                None
+                if self._authority_anchor_first_fault is None
+                else dict(self._authority_anchor_first_fault)
+            ),
+        }
+
+    def _publish_authority_anchor_status(self) -> None:
+        snapshot = deepcopy(self._build_authority_anchor_status())
+        with self._authority_status_lock:
+            self._authority_status_snapshot = snapshot
+
+    def authority_anchor_status(self) -> dict[str, object]:
+        """Return the last completed bounded core-anchor state without storage admission."""
+
+        with self._authority_status_lock:
+            snapshot = self._authority_status_snapshot
+        return deepcopy(snapshot)
+
+    def fence_authority_admission(
+        self,
+        *,
+        restart_id: str,
+        expected_lifetime_id: str,
+        full_audit_verification: bool = False,
+        terminal_audit_verifier: Callable[
+            [sqlite3.Connection, AuthorityCheckpoint, bool, float], Mapping[str, object]
+        ]
+        | None = None,
+    ) -> dict[str, object]:
+        """Atomically snapshot and permanently fence this process lifetime."""
+
+        if type(full_audit_verification) is not bool:
+            raise ValidationError("authority fence audit verification mode must be a boolean")
+
+        checked_restart = require_identifier(
+            restart_id, field="authority fence restart_id", maximum=128
+        )
+        checked_lifetime = require_identifier(
+            expected_lifetime_id,
+            field="authority fence expected_lifetime_id",
+            maximum=64,
+        )
+        if len(checked_lifetime) != 32 or any(
+            character not in "0123456789abcdef" for character in checked_lifetime
+        ):
+            raise ValidationError("authority fence expected_lifetime_id must be 32 lowercase hex")
+        fence_deadline = time.monotonic() + (
+            _AUTHORITY_FULL_FENCE_TIMEOUT_SECONDS
+            if full_audit_verification
+            else _AUTHORITY_FENCE_TIMEOUT_SECONDS
+        )
+        with self._authority_serialized(
+            admission_class=2,
+            timeout_s=max(0.001, fence_deadline - time.monotonic()),
+        ):
+            if self._active.get():
+                raise StorageError("cannot fence authority admission during a transaction")
+            if self._authority_fence_snapshot is not None:
+                if (
+                    checked_restart != self._authority_fence_id
+                    or checked_lifetime != self._authority_anchor_lifetime_id
+                    or full_audit_verification is not self._authority_fence_full_audit_verification
+                ):
+                    raise ConflictError("authority admission is already fenced for another restart")
+                decoded = strict_json_loads(self._authority_fence_snapshot)
+                return dict(cast(Mapping[str, object], decoded))
+            if self._closed:
+                raise StorageError("storage is closed")
+            if checked_lifetime != self._authority_anchor_lifetime_id:
+                raise ConflictError("authority fence lifetime does not match this process")
+            if self._authority_anchor is None or self._authority_anchor_state != "healthy":
+                raise StorageError("authority anchor must be healthy before admission is fenced")
+            connection = self._connect()
+            try:
+                # Bind the terminal fence to the exact durable head after every
+                # earlier admitted transaction has completed its anchor CAS.
+                self._reconcile_authority_anchor(connection, stage="pre_begin")
+                if time.monotonic() >= fence_deadline:
+                    raise StorageError("authority fence exceeded its server deadline")
+                authority_checkpoint = self._authority_checkpoint(connection)
+                terminal_audit_proof = (
+                    None
+                    if terminal_audit_verifier is None
+                    else dict(
+                        terminal_audit_verifier(
+                            connection,
+                            authority_checkpoint,
+                            full_audit_verification,
+                            fence_deadline,
+                        )
+                    )
+                )
+                if time.monotonic() >= fence_deadline:
+                    raise StorageError("authority fence exceeded its server deadline")
+            finally:
+                connection.close()
+            fenced_at = time.monotonic_ns()
+            self._authority_fence_id = checked_restart
+            self._authority_fence_full_audit_verification = full_audit_verification
+            self._authority_fenced_at_monotonic_ns = fenced_at
+            self._authority_admission_fenced = True
+            self._publish_authority_anchor_status()
+            terminal_status = self.authority_anchor_status()
+            response: dict[str, object] = {
+                "schema": "lets.authority-admission-fence/v1",
+                "restart_id": checked_restart,
+                "warden_id": self._metadata.warden_id,
+                "namespace_process_id": os.getpid(),
+                "lifetime_id": self._authority_anchor_lifetime_id,
+                "fenced_at_monotonic_ns": fenced_at,
+                "authority_anchor": terminal_status,
+                "authority_checkpoint": authority_checkpoint.to_dict(),
+                "terminal_audit_proof": terminal_audit_proof,
+            }
+            encoded = canonical_json(response)
+            self._authority_fence_snapshot = encoded
+            return dict(cast(Mapping[str, object], strict_json_loads(encoded)))
 
     def authority_checkpoint(self) -> AuthorityCheckpoint:
         """Return the current checkpoint for explicit external-anchor bootstrap."""
@@ -2857,21 +3419,47 @@ class SQLiteStorage:
         return True
 
     def capacity_snapshot(self) -> CapacitySnapshot:
-        with self._authority_transaction_lock:
+        with self._authority_serialized():
             if self._closed:
                 raise StorageError("storage is closed")
+            if self._authority_admission_fenced:
+                raise StorageError("authority transaction admission is fenced")
             connection = self._connect()
             try:
                 return self._capacity_snapshot(connection)
             finally:
                 connection.close()
 
+    def observation_capacity(self, connection: sqlite3.Connection) -> CapacitySnapshot:
+        """Read capacity facts from an already-admitted observation transaction."""
+
+        return self._capacity_snapshot(connection)
+
+    def observation_checkpoint(self, connection: sqlite3.Connection) -> AuthorityCheckpoint:
+        """Read the externally reconciled core checkpoint from a captured snapshot."""
+
+        return self._authority_checkpoint(connection)
+
+    @staticmethod
+    def expected_schema_definition_digest() -> str:
+        """Return the exact supported sqlite_schema definition digest."""
+
+        return f"sha256:{_expected_schema_definition_digest().hex()}"
+
+    def observation_schema_definition_digest(self, connection: sqlite3.Connection) -> str:
+        """Verify and bind exact schema definitions inside an observation snapshot."""
+
+        self._verify_schema(connection)
+        return f"sha256:{sha256(_schema_definition_payload(connection)).hexdigest()}"
+
     def clear_capacity_fault(self) -> CapacitySnapshot:
         """Clear a sticky SQLITE_FULL fault only after headroom is restored."""
 
-        with self._authority_transaction_lock:
+        with self._authority_serialized():
             if self._closed:
                 raise StorageError("storage is closed")
+            if self._authority_admission_fenced:
+                raise StorageError("authority transaction admission is fenced")
             connection = self._connect()
             try:
                 self._capacity_faulted = False
@@ -2911,11 +3499,13 @@ class SQLiteStorage:
         return True
 
     def checkpoint(self, *, truncate: bool = False) -> tuple[int, int, int]:
-        with self._authority_transaction_lock:
+        with self._authority_serialized():
             if self._closed:
                 raise StorageError("storage is closed")
             if self._active.get():
                 raise StorageError("cannot checkpoint during a transaction")
+            if self._authority_admission_fenced:
+                raise StorageError("authority transaction admission is fenced")
             connection = self._connect()
             try:
                 mode = "TRUNCATE" if truncate else "PASSIVE"
@@ -2933,9 +3523,10 @@ class SQLiteStorage:
                 connection.close()
 
     def close(self) -> None:
-        if self._active.get():
-            raise StorageError("cannot close storage during a transaction")
-        self._closed = True
+        with self._authority_serialized(admission_class=2):
+            if self._active.get():
+                raise StorageError("cannot close storage during a transaction")
+            self._closed = True
 
     def __enter__(self) -> Self:
         if self._closed:
