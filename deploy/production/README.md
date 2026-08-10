@@ -349,6 +349,12 @@ seconds, and the marker identity must bind the acknowledgment, restart, and reco
 two unaffected nodes remain continuously observed. Any missed deadline, monitor error, or
 retained-sample truncation fails the run.
 
+When the workload end lands on or immediately after a regular health-cadence boundary, the
+terminal sample retains the exact workload-end schedule and original 15-second deadline but waits
+for one bounded observation-publisher heartbeat before issuing its single metrics request per
+node. This prevents a millisecond-separated duplicate request from falsely claiming a reused
+snapshot while still making a stalled or stale publisher fail closed inside the same deadline.
+
 The machine record exposes this proof under `health_monitor`. It must report `status: passed`,
 `schedule: absolute_monotonic`, `joined: true`, `deadline_miss_count: 0`, equal
 `expected_sample_count`, `actual_sample_count`, and `retained_sample_count`,

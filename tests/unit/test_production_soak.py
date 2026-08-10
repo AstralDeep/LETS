@@ -2632,6 +2632,7 @@ def test_independent_sampler_is_not_starved_by_a_long_inline_workload(
         retry_timeout_seconds=1.0,
         seed=1,
         failure_event=threading.Event(),
+        final_observation_advance_seconds=0.01,
     )
     sampler.start()
     time.sleep(0.075)
@@ -2641,6 +2642,95 @@ def test_independent_sampler_is_not_starved_by_a_long_inline_workload(
     assert monitor["health_monitor"]["actual_sample_count"] >= 4
     scheduled = [item["scheduled_elapsed_seconds"] for item in monitor["samples"]]
     assert scheduled[:4] == pytest.approx([0.0, 0.02, 0.04, 0.06], abs=0.005)
+
+
+def test_terminal_health_sample_waits_for_a_new_publisher_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    revision = 0
+    last_publication = float("-inf")
+
+    def sample(
+        _client: object,
+        *,
+        elapsed_s: float,
+        observation_origin_monotonic: float,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        nonlocal last_publication, revision
+        now = time.monotonic()
+        if now - last_publication >= 0.025:
+            revision += 1
+            last_publication = now
+        observed = now - observation_origin_monotonic
+        nodes: dict[str, Any] = {}
+        for node in NODES:
+            document = _sampled_health_node(
+                node,
+                revision=revision,
+                scheduled=observed,
+                manifest=manifest,
+            )
+            document["observation"] = {
+                "completed_elapsed_seconds": observed,
+                "metrics_observed_elapsed_seconds": observed,
+                "request_count": 1,
+                "request_path": "/v1/metrics",
+                "request_retries": 0,
+                "retry_errors": {"first_error": None, "last_error": None},
+                "started_elapsed_seconds": observed,
+            }
+            nodes[node] = document
+        return {
+            "audit_catchup_nodes": [],
+            "audit_error_recoveries": [],
+            "elapsed_seconds": elapsed_s,
+            "nodes": nodes,
+            "planned_unavailable_nodes": [],
+        }
+
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    monkeypatch.setattr(soak_scenario, "_health_sample", sample)
+    started = time.monotonic()
+    sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=0.05,
+        retry_timeout_seconds=1.0,
+        seed=12,
+        failure_event=threading.Event(),
+        final_observation_advance_seconds=0.04,
+    )
+    sampler.start()
+    time.sleep(0.052)
+    ended = time.monotonic()
+    sampler.finish(workload_ended_monotonic=ended)
+    monitor = sampler.result(workload_ended_monotonic=ended)
+
+    assert monitor["health_monitor"]["actual_sample_count"] == 3
+    assert monitor["health_monitor"]["expected_sample_count"] == 3
+    assert [
+        sample["nodes"]["warden-a"]["observation_revision"] for sample in monitor["samples"]
+    ] == [1, 2, 3]
+    terminal = monitor["samples"][-1]
+    assert terminal["scheduled_elapsed_seconds"] == pytest.approx(
+        ended - started,
+        abs=0.005,
+    )
+    assert terminal["started_elapsed_seconds"] - terminal["scheduled_elapsed_seconds"] >= 0.02
 
 
 def test_monitor_error_sets_abort_and_retains_structured_failure_snapshot(
