@@ -1476,10 +1476,9 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
             )
         )
         and (outbox["unpublished_count"] != 0 or outbox["oldest_unpublished_age_ns"] == 0)
-        and (
-            (exporter.get("last_error") is None)
-            == (exporter.get("archive_reconciled") is True and exporter.get("healthy") is True)
-        )
+        and exporter.get("healthy")
+        is (exporter.get("last_error") is None and exporter.get("archive_reconciled") is True)
+        and (exporter.get("last_error") is None or exporter.get("archive_reconciled") is False)
         and (exporter.get("last_error") is None or exporter.get("last_success_ns") is not None)
         and value.get("ready") is (exporter.get("healthy") is True and peer.get("healthy") is True)
     )

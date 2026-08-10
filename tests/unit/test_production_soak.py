@@ -859,6 +859,44 @@ def _observation_snapshot(
     return snapshot
 
 
+def test_host_observation_validator_accepts_only_consistent_bounded_audit_catchup() -> None:
+    catchup = {
+        "archive_reconciled": False,
+        "healthy": False,
+        "last_error": None,
+        "last_success_ns": 50,
+        "oldest_pending_age_s": 2.0,
+        "pending": 5,
+        "stalled_for_s": 0.1,
+    }
+    snapshot = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        audit_exporter_override=catchup,
+    )
+
+    assert soak_runner._valid_observation_snapshot(snapshot, node="warden-a") is True
+
+    inconsistent_clean = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        audit_exporter_override=catchup | {"archive_reconciled": True, "healthy": False},
+    )
+    assert soak_runner._valid_observation_snapshot(inconsistent_clean, node="warden-a") is False
+
+    inconsistent_fault = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        audit_exporter_override=catchup
+        | {
+            "archive_reconciled": True,
+            "healthy": False,
+            "last_error": "StorageError:sqlite_busy",
+        },
+    )
+    assert soak_runner._valid_observation_snapshot(inconsistent_fault, node="warden-a") is False
+
+
 def _sampled_health_node(
     node: str,
     *,
@@ -2705,6 +2743,15 @@ def test_terminal_health_sample_waits_for_a_new_publisher_heartbeat(
     monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
     monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
     monkeypatch.setattr(soak_scenario, "_health_sample", sample)
+    regular_samples_completed = threading.Event()
+    completed_samples = 0
+
+    def on_sample() -> None:
+        nonlocal completed_samples
+        completed_samples += 1
+        if completed_samples == 2:
+            regular_samples_completed.set()
+
     started = time.monotonic()
     sampler = HealthSampler(
         started_monotonic=started,
@@ -2712,10 +2759,11 @@ def test_terminal_health_sample_waits_for_a_new_publisher_heartbeat(
         retry_timeout_seconds=1.0,
         seed=12,
         failure_event=threading.Event(),
+        on_sample=on_sample,
         final_observation_advance_seconds=0.04,
     )
     sampler.start()
-    time.sleep(0.052)
+    assert regular_samples_completed.wait(timeout=2.0)
     ended = time.monotonic()
     sampler.finish(workload_ended_monotonic=ended)
     monitor = sampler.result(workload_ended_monotonic=ended)

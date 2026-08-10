@@ -3512,10 +3512,14 @@ jobs:
                       last_error is None
                       or last_success is not None
                   )
-                  and (last_error is None)
+                  and value.get("healthy")
                   is (
-                      value.get("archive_reconciled") is True
-                      and value.get("healthy") is True
+                      last_error is None
+                      and value.get("archive_reconciled") is True
+                  )
+                  and (
+                      last_error is None
+                      or value.get("archive_reconciled") is False
                   )
               )
 

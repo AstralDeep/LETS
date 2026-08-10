@@ -19,6 +19,10 @@ image together; the Git tag is the package version prefixed with `v`.
   snapshot. The terminal sample keeps the exact workload-end schedule and 15-second deadline but
   now waits for one bounded observation-publisher heartbeat before making its single metrics
   request per node; a stalled publisher still fails closed inside the original deadline.
+- Aligned the host and release-workflow raw-observation validators with the producer's exact audit
+  exporter state machine. A clean exporter that is still reconciling its archive is valid bounded
+  catch-up evidence but remains unhealthy and unready; healthy requires both no retained error and
+  a reconciled archive, while any retained error requires the archive to remain unreconciled.
 - Replaced lock-coupled production health reads with one authority-safe observation publisher per
   node. Each immutable snapshot is built from a single bounded, priority-reserved transaction,
   binds the authority checkpoint, database identity, trusted clock, invariant, audit verifier,
