@@ -647,6 +647,7 @@ def _observation_snapshot(
     generation: str | None = None,
     authority_override: dict[str, Any] | None = None,
     audit_exporter_override: dict[str, Any] | None = None,
+    peer_dispatcher_override: dict[str, Any] | None = None,
     manifest: Any | None = None,
 ) -> dict[str, Any]:
     checkpoint = _core_authority_checkpoint(node, revision=revision)
@@ -832,7 +833,13 @@ def _observation_snapshot(
             ),
             "unpublished_count": pending,
         }
-        snapshot["ready"] = exporter["healthy"] is True
+    if peer_dispatcher_override is not None:
+        peer_dispatcher = cast(dict[str, Any], snapshot["peer_dispatcher"])
+        peer_dispatcher.update(copy.deepcopy(peer_dispatcher_override))
+    snapshot["ready"] = (
+        cast(dict[str, Any], snapshot["audit_exporter"])["healthy"] is True
+        and cast(dict[str, Any], snapshot["peer_dispatcher"])["healthy"] is True
+    )
     immutable = {
         key: value
         for key, value in snapshot.items()
@@ -4064,8 +4071,8 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
     if probe_name == "verify_final":
         monkeypatch.setattr(
             soak_scenario,
-            "_object",
-            lambda _path: {"executor": {"status": {}, "terminal_statuses": [{}]}},
+            "_evidence_object",
+            lambda _path, *, maximum_bytes: {"executor": {"status": {}, "terminal_statuses": [{}]}},
         )
     arguments = soak_scenario.argparse.Namespace(
         convergence_timeout_seconds=1.0,
@@ -4129,8 +4136,8 @@ def test_final_verification_retains_typed_executor_startup_admission_failure(
     monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: None)
     monkeypatch.setattr(
         soak_scenario,
-        "_object",
-        lambda _path: {
+        "_evidence_object",
+        lambda _path, *, maximum_bytes: {
             "executor": {
                 "status": {"claim_sequence": 1},
                 "terminal_statuses": [{"lifetime_id": "a" * 32}],
@@ -4229,6 +4236,111 @@ def test_health_sample_does_not_mask_core_or_aggregate_readiness_failures(
     ]
     assert raised.value.authority_anchor == _core_authority_status("warden-a")
     assert raised.value.diagnostic["status_captured"] is True
+    failed_request = raised.value.failed_observation["observation"]
+    assert set(failed_request) == {
+        "completed_elapsed_seconds",
+        "metrics_observed_elapsed_seconds",
+        "request_count",
+        "request_path",
+        "request_retries",
+        "retry_errors",
+        "started_elapsed_seconds",
+    }
+    assert failed_request["request_count"] == 1
+    assert failed_request["request_path"] == "/v1/metrics"
+    assert failed_request["request_retries"] == 0
+    assert failed_request["retry_errors"] == {
+        "first_error": None,
+        "last_error": None,
+    }
+    assert (
+        failed_request["started_elapsed_seconds"]
+        <= failed_request["metrics_observed_elapsed_seconds"]
+        <= failed_request["completed_elapsed_seconds"]
+    )
+    assert raised.value.failed_observation["observation_snapshot"]["ready"] is ready
+    assert raised.value.failed_observation["observation_snapshot"]["service_ready"] is service_ready
+
+
+def test_health_sample_accepts_self_consistent_transient_peer_unready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self) -> None:
+            self.paths: list[tuple[str, str]] = []
+
+        @staticmethod
+        def begin_retry_scope() -> None:
+            return None
+
+        @staticmethod
+        def retry_scope() -> dict[str, None]:
+            return {"first_error": None, "last_error": None}
+
+        def request(
+            self,
+            _method: str,
+            node: str,
+            path: str,
+            **_options: Any,
+        ) -> dict[str, Any]:
+            self.paths.append((node, path))
+            assert path == "/v1/metrics"
+            return _observation_snapshot(
+                node,
+                revision=1,
+                manifest=manifest,
+                peer_dispatcher_override=(
+                    {
+                        "failed_records": 1,
+                        "healthy": False,
+                        "last_error": "transport:ConnectError",
+                    }
+                    if node == "warden-b"
+                    else None
+                ),
+            )
+
+    client = FakeClient()
+    sample = _health_sample(client, elapsed_s=1.0)  # type: ignore[arg-type]
+
+    assert client.paths == [(node, "/v1/metrics") for node in NODES]
+    assert sample["nodes"]["warden-b"]["service_ready"] is True
+    assert sample["nodes"]["warden-b"]["ready"] is False
+    assert sample["nodes"]["warden-b"]["peer_dispatcher"]["healthy"] is False
+
+
+def test_evidence_object_accepts_finite_floats_and_rejects_unsafe_json(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "workload.json"
+    artifact.write_bytes(b'{"cycle_interval_seconds":0.5,"journal_revision":7}')
+    assert soak_scenario._evidence_object(artifact, maximum_bytes=64) == {
+        "cycle_interval_seconds": 0.5,
+        "journal_revision": 7,
+    }
+
+    artifact.write_bytes(b'{"journal_revision":1,"journal_revision":2}')
+    with pytest.raises(ValueError, match="duplicate evidence key"):
+        soak_scenario._evidence_object(artifact, maximum_bytes=64)
+
+    artifact.write_bytes(b'{"cycle_interval_seconds":1e999}')
+    with pytest.raises(ValueError, match="non-finite evidence number"):
+        soak_scenario._evidence_object(artifact, maximum_bytes=64)
+
+    artifact.write_bytes(b'{"journal_revision":123}')
+    with pytest.raises(ValueError, match="exceeds its 8-byte evidence limit"):
+        soak_scenario._evidence_object(artifact, maximum_bytes=8)
 
 
 @pytest.mark.parametrize(
