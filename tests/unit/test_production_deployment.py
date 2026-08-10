@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import ast
+import base64
+import copy
+import hashlib
 import json
+import math
 import os
 import re
+import runpy
 import shutil
 import sqlite3
 import subprocess
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import pytest
 
@@ -17,6 +25,454 @@ from deploy.production import check_build_context, healthcheck, stage_config, va
 REPOSITORY = Path(__file__).resolve().parents[2]
 PRODUCTION = REPOSITORY / "deploy" / "production"
 PINNED_ACTION = re.compile(r"^\s*-?\s*uses:\s*[^\s@]+@[0-9a-f]{40}(?:\s+#.*)?$")
+
+
+def _release_soak_verifier_script() -> str:
+    workflow = (REPOSITORY / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    step = workflow.split(
+        "- name: Require sustained evidence to bind the exact candidate and source",
+        maxsplit=1,
+    )[1]
+    body = step.split("python - <<'PY'\n", maxsplit=1)[1].split("\n          PY", maxsplit=1)[0]
+    return (
+        "\n".join(
+            line[10:] if line.startswith("          ") else line for line in body.splitlines()
+        )
+        + "\n"
+    )
+
+
+def _release_soak_verifier_namespace() -> dict[str, Any]:
+    """Load only the workflow's independent verifier helpers into empty globals."""
+
+    tree = ast.parse(_release_soak_verifier_script())
+    assignments = {
+        "authority_counter_fields",
+        "core_authority_fields",
+        "core_checkpoint_fields",
+        "core_checkpoint_stable_fields",
+        "executor_authority_fields",
+        "executor_checkpoint_fields",
+        "first_fault_fields",
+        "observation_document_fields",
+        "observation_dynamic_fields",
+        "observation_immutable_fields",
+        "observation_timing_fields",
+        "success_workload_fields",
+        "terminal_audit_proof_fields",
+        "transport_operations",
+        "transport_reasons",
+    }
+    functions = {
+        "core_checkpoint_extends",
+        "finite_number",
+        "sha256_json",
+        "valid_authority",
+        "valid_audit_exporter_projection",
+        "valid_audit_exporter_status",
+        "valid_bounded_integer",
+        "valid_capacity_status",
+        "valid_core_checkpoint",
+        "valid_digest",
+        "valid_identifier",
+        "valid_leases_status",
+        "valid_observation_document",
+        "valid_observation_progression",
+        "valid_observation_snapshot",
+        "valid_observation_timing",
+        "valid_outbox_status",
+        "valid_peer_status",
+        "valid_receipts_status",
+        "valid_resource_vector",
+        "valid_retry_scope",
+        "valid_runtime_status",
+        "valid_sample_request_budget",
+        "valid_sha256",
+        "valid_success_workload_artifact",
+        "valid_terminal_fence",
+        "valid_transfers_status",
+    }
+    selected: list[ast.stmt] = []
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            selected.append(node)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name in functions:
+                selected.append(node)
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id in assignments for target in node.targets
+        ):
+            selected.append(node)
+    namespace: dict[str, Any] = {}
+    exec(
+        compile(
+            ast.fix_missing_locations(ast.Module(body=selected, type_ignores=[])),
+            "release-soak-verifier-helpers",
+            "exec",
+        ),
+        namespace,
+    )
+    assert functions <= namespace.keys()
+    assert assignments <= namespace.keys()
+    return namespace
+
+
+def _release_authority(*, lifetime: str = "a" * 32, fenced: bool = False) -> dict[str, Any]:
+    return {
+        "admission_fenced": fenced,
+        "enabled": True,
+        "fault_reason": None,
+        "fault_stage": None,
+        "fence_id": "restart-0" if fenced else None,
+        "fenced_at_monotonic_ns": 900 if fenced else None,
+        "first_fault": None,
+        "healthy": True,
+        "lifetime_id": lifetime,
+        "namespace_process_id": 17,
+        "permanent_faults": 0,
+        "retry_not_before_monotonic_ns": None,
+        "state": "healthy",
+        "transport_fault_episodes": 0,
+        "transport_faults": 0,
+        "transport_recoveries": 0,
+        "transport_recovery_attempts": 0,
+        "unresolved_transport_faults": 0,
+    }
+
+
+def _release_checkpoint(*, revision: int = 1) -> dict[str, Any]:
+    digest = base64.urlsafe_b64encode(bytes(32)).decode("ascii").rstrip("=")
+    return {
+        "audit_hash": digest,
+        "audit_sequence": revision - 1,
+        "clock_floor_ns": revision,
+        "config_epoch": 1,
+        "database_instance_id": digest,
+        "envelope_id": "production-acceptance-envelope",
+        "format": "LETS-AUTHORITY-ANCHOR/1",
+        "schema_version": 2,
+        "signing_key_id": "production-key",
+        "signing_public_key_sha256": digest,
+        "state_digest": digest,
+        "state_revision": revision,
+        "tenant_id": "production-acceptance-tenant",
+        "warden_id": "warden-a",
+    }
+
+
+def _release_observation(
+    namespace: dict[str, Any],
+    *,
+    revision: int = 1,
+    lifetime: str = "a" * 32,
+    generation: str = "b" * 32,
+) -> dict[str, Any]:
+    checkpoint = _release_checkpoint(revision=revision)
+    authority = _release_authority(lifetime=lifetime)
+    audit_hash = "sha256:" + bytes(32).hex()
+    schema_digest = "sha256:" + "1" * 64
+    invariant = {
+        "checked_at_ns": 100 + revision,
+        "config_epoch": 1,
+        "consumed": [0],
+        "envelope_id": "production-acceptance-envelope",
+        "free_pool": [10],
+        "healthy": True,
+        "initial_share": [10],
+        "lease_residual": [0],
+        "tenant_id": "production-acceptance-tenant",
+        "transferred_in": [0],
+        "transferred_out": [0],
+    }
+    snapshot: dict[str, Any] = {
+        "age_ns": 5,
+        "audit_exporter": {
+            "archive_reconciled": True,
+            "configured": True,
+            "healthy": True,
+            "last_error": None,
+            "last_success_ns": 50,
+            "max_pending": 4_096,
+            "max_stall_s": 15.0,
+            "oldest_pending_age_s": None,
+            "pending": 0,
+            "publish_blocked": False,
+            "publish_timeout_s": 5.0,
+            "running": True,
+            "sink_call_blocked": False,
+            "stalled_for_s": 0.0,
+        },
+        "audit_outbox": {"oldest_unpublished_age_ns": 0, "unpublished_count": 0},
+        "audit_verification": {
+            "captured_head_hash": audit_hash,
+            "captured_head_sequence": revision - 1,
+            "catching_up": False,
+            "error_type": None,
+            "lag": 0,
+            "last_full_verification_at_ns": 10,
+            "page_size": 256,
+            "schema_definition_sha256": schema_digest,
+            "sticky_failure": False,
+            "sweep_cursor_sequence": revision - 1,
+            "sweep_last_completed_at_ns": 50,
+            "sweep_last_completed_head_hash": audit_hash,
+            "sweep_last_completed_head_sequence": revision - 1,
+            "sweep_target_sequence": revision - 1,
+            "valid": True,
+            "verified_through_hash": audit_hash,
+            "verified_through_sequence": revision - 1,
+        },
+        "authority_anchor": authority,
+        "authority_checkpoint": checkpoint,
+        "capture_duration_ns": 2,
+        "capture_started_monotonic_ns": 100,
+        "capture_status": {
+            "attempt_sequence": revision,
+            "capture_in_progress": False,
+            "last_attempt_monotonic_ns": 100,
+            "last_error_type": None,
+            "last_successful_attempt_sequence": revision,
+        },
+        "captured_at_monotonic_ns": 101,
+        "captured_at_ns": 100,
+        "captured_authority_anchor": copy.deepcopy(authority),
+        "checked_at_ns": 100 + revision,
+        "clock_healthy": True,
+        "core_state_revision": revision,
+        "database_instance_id": checkpoint["database_instance_id"],
+        "fresh": True,
+        "generation": generation,
+        "invariant": invariant,
+        "invariant_healthy": True,
+        "leases": {"by_status": {}, "total": 0},
+        "lifetime_id": lifetime,
+        "max_age_ns": 15_000_000_000,
+        "observation_eligible": True,
+        "peer_dispatcher": {
+            "configured_peers": 2,
+            "delivered_records": 0,
+            "durable_retry": None,
+            "failed_records": 0,
+            "healthy": True,
+            "last_cycle_ns": 90,
+            "last_error": None,
+            "pending_records": 0,
+            "prepared_transfers": 0,
+            "running": True,
+            "superseded_records": 0,
+        },
+        "published_at_monotonic_ns": 102,
+        "published_at_ns": 102,
+        "ready": True,
+        "receipts": {"total": 0},
+        "resources": {
+            name: copy.deepcopy(invariant[name])
+            for name in (
+                "consumed",
+                "free_pool",
+                "initial_share",
+                "lease_residual",
+                "transferred_in",
+                "transferred_out",
+            )
+        },
+        "revision": revision,
+        "runtime": {
+            "changed_at_ns": 1,
+            "changed_by": "test",
+            "generation": 1,
+            "mode": "ACTIVE",
+            "reason": "test",
+        },
+        "schema": "lets.observation-snapshot/v1",
+        "served_at_monotonic_ns": 106,
+        "service_ready": True,
+        "signing_key_healthy": True,
+        "snapshot_id": "",
+        "sqlite_schema_sha256": schema_digest,
+        "storage_capacity": {
+            "additional_shared_memory_bytes": 0,
+            "database_bytes": 16_384,
+            "effective_database_bytes": 12_288,
+            "filesystem_free_bytes": 1_000_000,
+            "free_pages": 1,
+            "healthy": True,
+            "logical_live_bytes": 12_288,
+            "main_database_bytes": 16_384,
+            "max_database_bytes": None,
+            "max_page_count": 4,
+            "min_free_disk_bytes": 0,
+            "page_count": 4,
+            "page_size": 4_096,
+            "prior_full_error": False,
+            "remaining_main_growth_bytes": 0,
+            "required_filesystem_free_bytes": 4_096,
+            "reserve_pages": 1,
+            "reusable_bytes": 4_096,
+            "shared_memory_bytes": 0,
+            "wal_bytes": 0,
+            "worst_case_shared_memory_bytes": 0,
+            "worst_case_transaction_wal_bytes": 0,
+        },
+        "transfers": {
+            "in_flight_count": 0,
+            "inbound_gap_count": 0,
+            "incoming_compacted_high_water": 0,
+            "incoming_contiguous_high_water": 0,
+            "incoming_streams": 0,
+            "outgoing_acked_high_water": 0,
+            "outgoing_compacted_high_water": 0,
+            "outgoing_streams": 0,
+        },
+    }
+    immutable = {
+        key: value
+        for key, value in snapshot.items()
+        if key not in namespace["observation_dynamic_fields"] and key != "snapshot_id"
+    }
+    snapshot["snapshot_id"] = namespace["sha256_json"](immutable)
+    return snapshot
+
+
+def _reseal_release_observation(namespace: dict[str, Any], snapshot: dict[str, Any]) -> None:
+    immutable = {
+        key: value
+        for key, value in snapshot.items()
+        if key not in namespace["observation_dynamic_fields"] and key != "snapshot_id"
+    }
+    snapshot["snapshot_id"] = namespace["sha256_json"](immutable)
+
+
+def _forge_oversized_release_resources(snapshot: dict[str, Any]) -> None:
+    maximum = 1 << 80
+    for target in (snapshot["invariant"], snapshot["resources"]):
+        target["initial_share"] = [maximum]
+        target["transferred_in"] = [0]
+        target["free_pool"] = [maximum]
+        target["lease_residual"] = [0]
+        target["consumed"] = [0]
+        target["transferred_out"] = [0]
+
+
+def _release_observation_document(
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    invariant = snapshot["invariant"]
+    summary_fields = {
+        "consumed",
+        "free_pool",
+        "healthy",
+        "lease_residual",
+        "transferred_in",
+        "transferred_out",
+    }
+    return {
+        "audit_exporter": {
+            key: copy.deepcopy(snapshot["audit_exporter"][key])
+            for key in (
+                "archive_reconciled",
+                "healthy",
+                "last_error",
+                "last_success_ns",
+                "max_pending",
+                "max_stall_s",
+                "oldest_pending_age_s",
+                "pending",
+                "publish_blocked",
+                "running",
+                "sink_call_blocked",
+                "stalled_for_s",
+            )
+        }
+        | {"catching_up": snapshot["audit_exporter"]["healthy"] is False},
+        "audit_outbox": copy.deepcopy(snapshot["audit_outbox"]),
+        "authority_anchor": copy.deepcopy(snapshot["authority_anchor"]),
+        "invariant": {name: copy.deepcopy(invariant[name]) for name in summary_fields},
+        "observation": {
+            "completed_elapsed_seconds": 1.2,
+            "metrics_observed_elapsed_seconds": 1.1,
+            "request_count": 1,
+            "request_path": "/v1/metrics",
+            "request_retries": 0,
+            "retry_errors": {"first_error": None, "last_error": None},
+            "started_elapsed_seconds": 1.0,
+        },
+        "observation_generation": snapshot["generation"],
+        "observation_revision": snapshot["revision"],
+        "observation_snapshot": snapshot,
+        "observation_snapshot_id": snapshot["snapshot_id"],
+        "peer_dispatcher": copy.deepcopy(snapshot["peer_dispatcher"]),
+        "ready": snapshot["ready"],
+        "receipts": copy.deepcopy(snapshot["receipts"]),
+        "service_ready": snapshot["service_ready"],
+        "storage_capacity": copy.deepcopy(snapshot["storage_capacity"]),
+        "transfers": copy.deepcopy(snapshot["transfers"]),
+    }
+
+
+def _release_terminal_fence(
+    namespace: dict[str, Any],
+    prior: dict[str, Any],
+    *,
+    full: bool,
+) -> dict[str, Any]:
+    checkpoint = copy.deepcopy(prior["authority_checkpoint"])
+    authority = _release_authority(lifetime=str(prior["lifetime_id"]), fenced=True)
+    proof = {
+        "authority_checkpoint_sha256": namespace["sha256_json"](checkpoint),
+        "authority_state_revision": checkpoint["state_revision"],
+        "database_instance_id": checkpoint["database_instance_id"],
+        "generation": prior["generation"],
+        "lifetime_id": prior["lifetime_id"],
+        "schema": "lets.terminal-audit-proof/v1",
+        "schema_definition_sha256": prior["sqlite_schema_sha256"],
+        "startup_full_verification_at_ns": prior["audit_verification"][
+            "last_full_verification_at_ns"
+        ],
+        "valid": True,
+        "verification_mode": "full" if full else "trusted-startup-plus-tail",
+        "verified_at_ns": 20,
+        "verified_head_hash": "sha256:" + bytes(32).hex(),
+        "verified_head_sequence": checkpoint["audit_sequence"],
+    }
+    return {
+        "authority_anchor": authority,
+        "authority_checkpoint": checkpoint,
+        "fenced_at_monotonic_ns": 900,
+        "lifetime_id": prior["lifetime_id"],
+        "namespace_process_id": authority["namespace_process_id"],
+        "restart_id": "restart-0",
+        "schema": "lets.authority-admission-fence/v1",
+        "terminal_audit_proof": proof,
+        "warden_id": "warden-a",
+    }
+
+
+def _release_success_workload_artifact(namespace: dict[str, Any]) -> dict[str, Any]:
+    workload = {name: None for name in namespace["success_workload_fields"]}
+    workload.update(
+        {
+            "artifact_revision": 1,
+            "journal_revision": 2,
+            "schema": "lets.production-profile-soak-workload/v2",
+            "status": "passed",
+        }
+    )
+    payload = dict(workload)
+    payload.pop("artifact_payload_sha256")
+    workload["artifact_payload_sha256"] = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                payload,
+                allow_nan=False,
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+    )
+    return workload
 
 
 @pytest.fixture(autouse=True)
@@ -861,6 +1317,591 @@ def test_security_workflow_has_fatal_scans_sboms_and_package_smoke() -> None:
     ):
         assert required in workflow
     assert workflow.count("--constraint requirements-audit.txt") == 2
+
+
+def test_release_soak_verifier_full_heredoc_smokes_with_empty_globals(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    script = _release_soak_verifier_script()
+    evidence = tmp_path / "results" / "generated" / "production-profile-soak.json"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EXPECTED_IMAGE", "ghcr.io/example/lets@sha256:" + "1" * 64)
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+
+    with pytest.raises(SystemExit, match="soak evidence payload digest is invalid"):
+        exec(compile(script, "release-soak-verifier", "exec"), {})
+
+
+def test_release_soak_verifier_rejects_oversized_evidence_before_read(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    script = _release_soak_verifier_script()
+    evidence = tmp_path / "results" / "generated" / "production-profile-soak.json"
+    evidence.parent.mkdir(parents=True)
+    with evidence.open("wb") as stream:
+        stream.seek(80 * 1024 * 1024)
+        stream.write(b"\0")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EXPECTED_IMAGE", "ghcr.io/example/lets@sha256:" + "1" * 64)
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+
+    with pytest.raises(SystemExit, match="exceeds the 80 MiB host retention bound"):
+        exec(compile(script, "release-soak-verifier", "exec"), {})
+
+
+def test_release_soak_verifier_reconstructs_exact_two_stage_restarts() -> None:
+    soak_tests = runpy.run_path(str(REPOSITORY / "tests" / "unit" / "test_production_soak.py"))
+    run_soak = runpy.run_path(str(PRODUCTION / "run_soak.py"))
+    script = _release_soak_verifier_script()
+    block = script.split("# BEGIN RAW RESTART EVIDENCE VERIFIER", maxsplit=1)[1].split(
+        "# END RAW RESTART EVIDENCE VERIFIER", maxsplit=1
+    )[0]
+    nodes = ("warden-a", "warden-b", "warden-c")
+    restarts: list[dict[str, Any]] = []
+    for episode, service in enumerate(nodes):
+        restart = soak_tests["_restart_record"](service=service, episode=episode)
+        host_validated = restart["authority_fence"]["host_validated_monotonic_seconds"]
+        host_armed = restart["workload_coordination"]["armed"][
+            "host_armed_started_monotonic_seconds"
+        ]
+        restart.update(
+            {
+                "completed_at_seconds": 110.0 + 20.0 * episode,
+                "elapsed_seconds": 103.0 + 20.0 * episode,
+                "resource_checkpoint": {},
+            }
+        )
+        read = {
+            "completed_monotonic_seconds": host_validated,
+            "error_type": None,
+            "outcome": "valid",
+            "returncode": 0,
+        }
+        restart_id = restart["workload_coordination"]["armed"]["marker"]["restart_id"]
+        restart["authority_fence_attempt"] = {
+            "attempts": [
+                {
+                    "exec_completed_monotonic_seconds": host_validated - 0.2,
+                    "exec_error_type": None,
+                    "exec_returncode": 0,
+                    "exec_started_monotonic_seconds": host_validated - 0.5,
+                    "exec_timeout_seconds": 95.0,
+                    "first_read": copy.deepcopy(read),
+                    "last_read": copy.deepcopy(read),
+                    "ordinal": 1,
+                    "output_path": (f"/scenario/authority-fence-{episode:06d}-attempt-1.json"),
+                    "read_count": 1,
+                }
+            ],
+            "completed_monotonic_seconds": host_validated,
+            "deadline_monotonic_seconds": host_armed + 110.0,
+            "episode": episode,
+            "expected_lifetime_id": restart["authority_fence"]["prior_authority_anchor"][
+                "lifetime_id"
+            ],
+            "post_spacing_seconds": 26.75,
+            "resolved": True,
+            "resolved_attempt": 1,
+            "restart_id": restart_id,
+            "service": service,
+            "started_monotonic_seconds": host_validated - 0.8,
+            "status": "resolved",
+        }
+        restarts.append(restart)
+    intervals = []
+    for restart in restarts:
+        interval = soak_tests["_restart_quiescence_interval"](restart)
+        interval["measurement_clipped_start_elapsed_seconds"] = interval["observed_elapsed_seconds"]
+        interval["measurement_clipped_end_elapsed_seconds"] = interval["resumed_elapsed_seconds"]
+        intervals.append(interval)
+    metrics = run_soak["evaluate_restart_evidence"](
+        restarts,
+        restart_quiescence_intervals=copy.deepcopy(intervals),
+        workload_started_monotonic=100.0,
+    )
+    finite_number = run_soak["_finite_number"]
+
+    def verify(
+        raw_restarts: list[dict[str, Any]],
+        raw_intervals: list[dict[str, Any]],
+        claimed_metrics: dict[str, Any],
+        *,
+        interval_count: object = 3,
+    ) -> dict[str, Any]:
+        namespace: dict[str, Any] = {
+            "canonical_digest": run_soak["_canonical_digest"],
+            "chaos_completed": 1_200.0,
+            "chaos_started": 900.0,
+            "close_number": lambda left, right: (
+                finite_number(left)
+                and finite_number(right)
+                and math.isclose(float(left), float(right), rel_tol=0.0, abs_tol=0.002)
+            ),
+            "expected_nodes": set(nodes),
+            "failures": [],
+            "finite_number": finite_number,
+            "math": math,
+            "re": re,
+            "restarts": raw_restarts,
+            "workload": {
+                "restart_quiescence_interval_count": interval_count,
+                "restart_quiescence_intervals": raw_intervals,
+            },
+            "workload_identity_valid": True,
+            "workload_metrics": {"restart_evidence": claimed_metrics},
+            "workload_start": {"started_monotonic_seconds": 100.0},
+        }
+        exec(compile(block, "release-raw-restart-verifier", "exec"), namespace)
+        return namespace
+
+    baseline = verify(copy.deepcopy(restarts), copy.deepcopy(intervals), copy.deepcopy(metrics))
+    assert baseline["raw_restart_valid"] is True
+    assert baseline["restart_bindings"] == metrics["bindings"]
+    assert baseline["restart_windows"] == metrics["windows_by_node"]
+    assert baseline["failures"] == []
+
+    terminal_namespace = _release_soak_verifier_namespace()
+    first_restart = restarts[0]
+    first_ack = first_restart["workload_coordination"]["armed"]["acknowledgement"]
+    compact_prior = copy.deepcopy(first_ack["prior_observation"])
+    first_terminal = first_restart["authority_fence"]["result"]["terminal"]
+    assert terminal_namespace["valid_terminal_fence"](
+        first_terminal,
+        node="warden-a",
+        restart_id=first_ack["restart_id"],
+        expected_lifetime=first_ack["prior_authority_anchor"]["lifetime_id"],
+        prior_authority=first_ack["prior_authority_anchor"],
+        prior_observation=compact_prior,
+        full_audit_verification=False,
+    )
+    compact_prior["lifetime_id"] = "f" * 32
+    assert not terminal_namespace["valid_terminal_fence"](
+        first_terminal,
+        node="warden-a",
+        restart_id=first_ack["restart_id"],
+        expected_lifetime=first_ack["prior_authority_anchor"]["lifetime_id"],
+        prior_authority=first_ack["prior_authority_anchor"],
+        prior_observation=compact_prior,
+        full_audit_verification=False,
+    )
+
+    def reseal_target_binding(restart: dict[str, Any]) -> None:
+        target_identity = {
+            "container_id": restart["prior_container_id"],
+            "host_pid": restart["prior_pid"],
+            "oom_killed": False,
+            "restart_count": restart["restart_counts"]["prior"],
+            "state": {
+                "OOMKilled": False,
+                "Pid": restart["prior_pid"],
+                "Status": "running",
+            },
+            "status": "running",
+        }
+        acknowledgement = restart["workload_coordination"]["armed"]["acknowledgement"]
+        acknowledgement["target_identity_sha256"] = run_soak["_canonical_digest"](target_identity)
+        acknowledgement_payload = dict(acknowledgement)
+        acknowledgement_payload.pop("coordination_payload_sha256")
+        acknowledgement["coordination_payload_sha256"] = run_soak["_canonical_digest"](
+            acknowledgement_payload
+        )
+        recovery = restart["workload_coordination"]["completed"]["recovery_acknowledgement"]
+        for key, value in acknowledgement.items():
+            if key not in {"coordination_payload_sha256", "coordination_revision"}:
+                recovery[key] = copy.deepcopy(value)
+        recovery_payload = dict(recovery)
+        recovery_payload.pop("coordination_payload_sha256")
+        recovery["coordination_payload_sha256"] = run_soak["_canonical_digest"](recovery_payload)
+
+    forged_cases: list[
+        tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], object]
+    ] = []
+    for mutation in range(8):
+        forged_restarts = copy.deepcopy(restarts)
+        forged_intervals = copy.deepcopy(intervals)
+        forged_metrics = copy.deepcopy(metrics)
+        interval_count: object = 3
+        if mutation == 0:
+            restart_id = next(iter(forged_metrics["bindings"]))
+            forged_metrics["bindings"][restart_id]["start_elapsed_seconds"] += 2.0
+        elif mutation == 1:
+            restart_id = next(iter(forged_metrics["bindings"]))
+            forged_metrics["bindings"][restart_id].pop("prior_authority_anchor")
+        elif mutation == 2:
+            forged_metrics["binding_count"] = 3.0
+        elif mutation == 3:
+            interval_count = 3.0
+        elif mutation == 4:
+            forged_restarts[0]["planned_exit_code"] = 137.0
+        elif mutation == 5:
+            forged_restarts[0]["authority_fence_attempt"]["attempts"][0]["last_read"][
+                "returncode"
+            ] = True
+        elif mutation == 6:
+            forged_restarts[0]["prior_container_id"] = "a" * 12
+            forged_restarts[0]["new_container_id"] = "b" * 12
+            forged_restarts[0]["authority_fence"]["host_container_id"] = "a" * 12
+            reseal_target_binding(forged_restarts[0])
+        else:
+            forged_restarts[0]["prior_pid"] = 2**80
+            forged_restarts[0]["new_pid"] = 2**80 + 1
+            forged_restarts[0]["authority_fence"]["host_pid"] = 2**80
+            reseal_target_binding(forged_restarts[0])
+        forged_cases.append((forged_restarts, forged_intervals, forged_metrics, interval_count))
+
+    for forged_restarts, forged_intervals, forged_metrics, interval_count in forged_cases:
+        rejected = verify(
+            forged_restarts,
+            forged_intervals,
+            forged_metrics,
+            interval_count=interval_count,
+        )
+        assert rejected["raw_restart_valid"] is False
+        assert rejected["failures"] == ["soak restart cadence exclusions are not raw-bound"]
+
+
+def test_release_soak_verifier_requires_exact_planned_fence_wrapper() -> None:
+    authority_block = (
+        _release_soak_verifier_script()
+        .split("# BEGIN RAW AUTHORITY EVIDENCE VERIFIER", maxsplit=1)[1]
+        .split("# END RAW AUTHORITY EVIDENCE VERIFIER", maxsplit=1)[0]
+    )
+    tree = ast.parse(authority_block)
+    wrapper_fields: set[str] | None = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if any(
+            isinstance(target, ast.Name) and target.id == "fence_wrapper_fields"
+            for target in node.targets
+        ):
+            wrapper_fields = ast.literal_eval(node.value)
+            break
+
+    assert wrapper_fields == {
+        "host_container_id",
+        "host_exec_attempts",
+        "host_pid",
+        "host_validated_monotonic_seconds",
+        "prior_authority_anchor",
+        "result",
+    }
+
+
+def test_release_soak_verifier_accepts_exact_observation_and_terminal_proofs() -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    document = _release_observation_document(snapshot)
+
+    assert namespace["valid_observation_snapshot"](snapshot, node="warden-a") is True
+    assert namespace["valid_observation_document"](document, node="warden-a") is True
+    for full in (False, True):
+        terminal = _release_terminal_fence(namespace, snapshot, full=full)
+        assert (
+            namespace["valid_terminal_fence"](
+                terminal,
+                node="warden-a",
+                restart_id="restart-0",
+                expected_lifetime=snapshot["lifetime_id"],
+                prior_authority=snapshot["authority_anchor"],
+                prior_observation=snapshot,
+                full_audit_verification=full,
+            )
+            is True
+        )
+    compact_prior = {
+        "audit_verification": {
+            "last_full_verification_at_ns": snapshot["audit_verification"][
+                "last_full_verification_at_ns"
+            ]
+        },
+        "authority_checkpoint": snapshot["authority_checkpoint"],
+        "generation": snapshot["generation"],
+        "lifetime_id": snapshot["lifetime_id"],
+        "sqlite_schema_sha256": snapshot["sqlite_schema_sha256"],
+    }
+    tail = _release_terminal_fence(namespace, snapshot, full=False)
+    assert (
+        namespace["valid_terminal_fence"](
+            tail,
+            node="warden-a",
+            restart_id="restart-0",
+            expected_lifetime=snapshot["lifetime_id"],
+            prior_authority=snapshot["authority_anchor"],
+            prior_observation=compact_prior,
+            full_audit_verification=False,
+        )
+        is True
+    )
+    assert (
+        namespace["valid_terminal_fence"](
+            tail,
+            node="warden-a",
+            restart_id="restart-0",
+            expected_lifetime=snapshot["lifetime_id"],
+            prior_authority=snapshot["authority_anchor"],
+            prior_observation=compact_prior,
+            full_audit_verification=True,
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reseal"),
+    (
+        (lambda value: value.__setitem__("schema", "wrong"), True),
+        (lambda value: value.__setitem__("revision", True), True),
+        (lambda value: value.__setitem__("revision", 1.0), True),
+        (lambda value: value.__setitem__("revision", 1 << 80), True),
+        (lambda value: value.pop("runtime"), True),
+        (lambda value: value.__setitem__("extra", None), True),
+        (lambda value: value.__setitem__("snapshot_id", "sha256:" + "0" * 64), False),
+        (lambda value: value.__setitem__("fresh", False), False),
+        (lambda value: value.__setitem__("age_ns", 15_000_000_000), False),
+        (
+            lambda value: value["authority_checkpoint"].__setitem__("state_revision", 99),
+            True,
+        ),
+        (
+            lambda value: value["audit_verification"].__setitem__(
+                "schema_definition_sha256", "sha256:" + "2" * 64
+            ),
+            True,
+        ),
+        (
+            lambda value: value["runtime"].__setitem__("reason", "x" * (21 * 1024)),
+            True,
+        ),
+        (lambda value: value.__setitem__("runtime", {"bogus": "accepted"}), True),
+        (
+            lambda value: value.__setitem__("storage_capacity", {"bogus": "accepted"}),
+            True,
+        ),
+        (lambda value: value.__setitem__("leases", {"bogus": "accepted"}), True),
+        (lambda value: value.__setitem__("receipts", {"bogus": "accepted"}), True),
+        (lambda value: value.__setitem__("transfers", {"bogus": "accepted"}), True),
+        (lambda value: value.__setitem__("audit_outbox", {"bogus": "accepted"}), True),
+        (
+            lambda value: value.__setitem__("peer_dispatcher", {"bogus": "accepted"}),
+            True,
+        ),
+        (
+            lambda value: value.__setitem__("audit_exporter", {"bogus": "accepted"}),
+            True,
+        ),
+        (_forge_oversized_release_resources, True),
+        (
+            lambda value: value["storage_capacity"].__setitem__(
+                "database_bytes", value["storage_capacity"]["database_bytes"] + 1
+            ),
+            True,
+        ),
+        (
+            lambda value: value["audit_verification"].__setitem__("lag", False),
+            True,
+        ),
+    ),
+)
+def test_release_soak_verifier_rejects_observation_mutations(
+    mutation: Callable[[dict[str, Any]], object],
+    reseal: bool,
+) -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    mutation(snapshot)
+    if reseal:
+        _reseal_release_observation(namespace, snapshot)
+
+    assert namespace["valid_observation_snapshot"](snapshot, node="warden-a") is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda value: value["observation"].__setitem__("request_count", True),
+        lambda value: value["observation"].__setitem__("request_count", 2),
+        lambda value: value["observation"].__setitem__("request_path", "/v1/ready"),
+        lambda value: value["observation"].pop("retry_errors"),
+        lambda value: value.__setitem__("extra", None),
+        lambda value: value.__setitem__("observation_snapshot_id", "sha256:" + "0" * 64),
+    ),
+)
+def test_release_soak_verifier_rejects_sampler_or_summary_mutations(
+    mutation: Callable[[dict[str, Any]], object],
+) -> None:
+    namespace = _release_soak_verifier_namespace()
+    document = _release_observation_document(_release_observation(namespace))
+    mutation(document)
+
+    assert namespace["valid_observation_document"](document, node="warden-a") is False
+
+
+def test_release_soak_verifier_requires_exact_producer_audit_exporter_projection() -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    document = _release_observation_document(snapshot)
+
+    assert namespace["valid_observation_document"](document, node="warden-a") is True
+
+    raw_exporter = copy.deepcopy(snapshot["audit_exporter"])
+    document["audit_exporter"] = raw_exporter
+    assert namespace["valid_observation_document"](document, node="warden-a") is False
+
+    document = _release_observation_document(snapshot)
+    document["audit_exporter"]["catching_up"] = True
+    assert namespace["valid_observation_document"](document, node="warden-a") is False
+
+
+def test_release_soak_verifier_enforces_observation_lineage() -> None:
+    namespace = _release_soak_verifier_namespace()
+    first = _release_observation(namespace, revision=1)
+    second = _release_observation(namespace, revision=2)
+    progression = namespace["valid_observation_progression"]
+
+    assert progression(first, second, allow_same_snapshot=False) is True
+    assert progression(second, second, allow_same_snapshot=True) is True
+    assert progression(second, second, allow_same_snapshot=False) is False
+
+    reused_revision = copy.deepcopy(second)
+    reused_revision["snapshot_id"] = "sha256:" + "9" * 64
+    assert progression(second, reused_revision, allow_same_snapshot=True) is False
+
+    changed_lifetime = _release_observation(
+        namespace,
+        revision=1,
+        lifetime="c" * 32,
+        generation=str(first["generation"]),
+    )
+    assert progression(first, changed_lifetime, allow_same_snapshot=False) is False
+
+    changed_digest = _release_observation(namespace, revision=2)
+    changed_digest["authority_checkpoint"]["state_revision"] = 1
+    changed_digest["authority_checkpoint"]["state_digest"] = "B" * 43
+    _reseal_release_observation(namespace, changed_digest)
+    assert progression(first, changed_digest, allow_same_snapshot=False) is False
+
+
+def test_release_soak_verifier_enforces_three_single_requests_per_normal_sample() -> None:
+    budget = _release_soak_verifier_namespace()["valid_sample_request_budget"]
+
+    assert budget(3, 0) is True
+    assert budget(2, 1) is True
+    assert budget(3, 1) is True
+    for request_total, planned_count in (
+        (2, 0),
+        (4, 0),
+        (1, 1),
+        (4, 1),
+        (True, 0),
+        (3.0, 0),
+        (3, True),
+    ):
+        assert budget(request_total, planned_count) is False
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda value: value["terminal_audit_proof"].__setitem__("valid", 1),
+        lambda value: value["terminal_audit_proof"].__setitem__("verified_at_ns", 20.0),
+        lambda value: value["terminal_audit_proof"].pop("authority_checkpoint_sha256"),
+        lambda value: value["terminal_audit_proof"].__setitem__("extra", None),
+        lambda value: value["terminal_audit_proof"].__setitem__(
+            "verified_head_hash", "sha256:" + "f" * 64
+        ),
+        lambda value: value["authority_checkpoint"].__setitem__("state_revision", True),
+    ),
+)
+def test_release_soak_verifier_rejects_terminal_proof_mutations(
+    mutation: Callable[[dict[str, Any]], object],
+) -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    terminal = _release_terminal_fence(namespace, snapshot, full=False)
+    mutation(terminal)
+
+    assert (
+        namespace["valid_terminal_fence"](
+            terminal,
+            node="warden-a",
+            restart_id="restart-0",
+            expected_lifetime=snapshot["lifetime_id"],
+            prior_authority=snapshot["authority_anchor"],
+            prior_observation=snapshot,
+            full_audit_verification=False,
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "reseal"),
+    (
+        (lambda value: value.__setitem__("artifact_revision", True), True),
+        (lambda value: value.__setitem__("journal_revision", 2.0), True),
+        (lambda value: value.__setitem__("journal_compact", True), True),
+        (lambda value: value.__setitem__("status", "failed"), True),
+        (lambda value: value.__setitem__("schema", "wrong"), True),
+        (
+            lambda value: value.__setitem__("artifact_payload_sha256", "sha256:" + "0" * 64),
+            False,
+        ),
+    ),
+)
+def test_release_soak_verifier_rejects_success_artifact_mutations(
+    mutation: Callable[[dict[str, Any]], object],
+    reseal: bool,
+) -> None:
+    namespace = _release_soak_verifier_namespace()
+    workload = _release_success_workload_artifact(namespace)
+    assert namespace["valid_success_workload_artifact"](workload) is True
+
+    mutation(workload)
+    if reseal:
+        resealed = dict(workload)
+        resealed.pop("artifact_payload_sha256", None)
+        workload["artifact_payload_sha256"] = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    resealed,
+                    allow_nan=False,
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+    assert namespace["valid_success_workload_artifact"](workload) is False
+
+
+def test_release_soak_verifier_reserves_success_artifact_trailing_newline() -> None:
+    namespace = _release_soak_verifier_namespace()
+    workload = _release_success_workload_artifact(namespace)
+    real_json = namespace["json"]
+
+    class OversizedBytes:
+        def __len__(self) -> int:
+            return 64 * 1024 * 1024
+
+    class OversizedText:
+        def encode(self, _encoding: str) -> OversizedBytes:
+            return OversizedBytes()
+
+    class SizeModel:
+        @staticmethod
+        def dumps(value: object, **options: object) -> object:
+            if isinstance(value, dict) and "artifact_payload_sha256" in value:
+                return OversizedText()
+            return real_json.dumps(value, **options)
+
+    namespace["json"] = SizeModel
+    assert namespace["valid_success_workload_artifact"](workload) is False
 
 
 def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:

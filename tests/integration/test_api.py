@@ -236,10 +236,14 @@ def test_policy_registration_requires_transport_admin_scope() -> None:
 
 
 def test_authority_fence_endpoint_requires_admin_and_exact_string_identifiers() -> None:
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, bool]] = []
 
-    def fence(restart_id: str, expected_lifetime_id: str) -> Mapping[str, object]:
-        calls.append((restart_id, expected_lifetime_id))
+    def fence(
+        restart_id: str,
+        expected_lifetime_id: str,
+        full_audit_verification: bool,
+    ) -> Mapping[str, object]:
+        calls.append((restart_id, expected_lifetime_id, full_audit_verification))
         return {
             "schema": "lets.authority-admission-fence/v1",
             "restart_id": restart_id,
@@ -262,11 +266,12 @@ def test_authority_fence_endpoint_requires_admin_and_exact_string_identifiers() 
     )
     assert accepted.status_code == 200
     assert accepted.json()["restart_id"] == "restart-1"
-    assert calls == [("restart-1", "a" * 32)]
+    assert calls == [("restart-1", "a" * 32, False)]
 
     for malformed in (
         {**body, "restart_id": 7},
         {**body, "expected_lifetime_id": True},
+        {**body, "full_audit_verification": 1},
     ):
         rejected = _request(
             app,
@@ -276,7 +281,7 @@ def test_authority_fence_endpoint_requires_admin_and_exact_string_identifiers() 
             headers={"authorization": "Bearer admin-token"},
         )
         assert rejected.status_code == 422
-    assert calls == [("restart-1", "a" * 32)]
+    assert calls == [("restart-1", "a" * 32, False)]
 
     denied_app = create_app(
         service,

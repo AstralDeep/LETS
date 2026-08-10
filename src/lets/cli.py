@@ -12,7 +12,7 @@ import ssl
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import closing, suppress
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
@@ -28,6 +28,7 @@ from lets.errors import LETSError, SignatureError, StorageError, ValidationError
 from lets.ids import require_warden_id
 from lets.manifest import validate_endpoint_origin
 from lets.models import IdentityContext, RuntimeMode, RuntimeStatus
+from lets.observation import ObservationPublisher
 from lets.recovery import (
     RECOVERY_METADATA_HEADROOM_BYTES,
     ArtifactDigest,
@@ -3345,31 +3346,70 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                 scopes=frozenset({"lets.admin", "lets.metrics.read"}),
                 authentication_method="local-metrics",
             )
-
-            def ready() -> bool:
-                try:
-                    if not service.ready():
-                        return False
-                    if audit_exporter is None:
-                        return True
-                    audit_state = audit_exporter.status()
-                    return audit_state.get("healthy") is True
-                except (LETSError, sqlite3.Error):
-                    return False
-
-            def metrics_snapshot() -> dict[str, object]:
-                return _metrics_provider(
+            observation: ObservationPublisher | None = None
+            readiness_provider: Callable[[], bool | Awaitable[bool]]
+            node_metrics_provider: Callable[
+                [], Mapping[str, object] | Awaitable[Mapping[str, object]]
+            ]
+            if arguments.production:
+                observation = ObservationPublisher(
                     service,
                     store,
                     metrics_identity,
-                    peer_status=dispatcher.status,
-                    audit_status=(None if audit_exporter is None else audit_exporter.status),
+                    peer_dispatcher=dispatcher,
+                    audit_exporter=audit_exporter,
                 )
+                # This complete signature/hash scan is a startup admission gate.
+                # Recurring captures copy only a bounded incremental tail.
+                observation.bootstrap_audit()
 
-            def fence_authority(restart_id: str, expected_lifetime_id: str) -> dict[str, object]:
+                async def cached_ready() -> bool:
+                    assert observation is not None
+                    return observation.ready()
+
+                async def cached_metrics() -> Mapping[str, object]:
+                    assert observation is not None
+                    return observation.metrics_document()
+
+                readiness_provider = cached_ready
+                node_metrics_provider = cached_metrics
+            else:
+
+                def direct_ready() -> bool:
+                    try:
+                        if not service.ready():
+                            return False
+                        if audit_exporter is None:
+                            return True
+                        audit_state = audit_exporter.status()
+                        return audit_state.get("healthy") is True
+                    except (LETSError, sqlite3.Error):
+                        return False
+
+                def direct_metrics() -> Mapping[str, object]:
+                    return _metrics_provider(
+                        service,
+                        store,
+                        metrics_identity,
+                        peer_status=dispatcher.status,
+                        audit_status=(None if audit_exporter is None else audit_exporter.status),
+                    )
+
+                readiness_provider = direct_ready
+                node_metrics_provider = direct_metrics
+
+            def fence_authority(
+                restart_id: str,
+                expected_lifetime_id: str,
+                full_audit_verification: bool,
+            ) -> dict[str, object]:
                 return store.fence_authority_admission(
                     restart_id=restart_id,
                     expected_lifetime_id=expected_lifetime_id,
+                    full_audit_verification=full_audit_verification,
+                    terminal_audit_verifier=(
+                        None if observation is None else observation.verify_terminal
+                    ),
                 )
 
             async def authority_status() -> dict[str, object]:
@@ -3381,8 +3421,8 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                 signer=signer,
                 peer_authenticator=peer_authenticator,
                 peer_tenant_id=_required_text(config, "tenant_id"),
-                readiness_check=ready,
-                metrics_provider=metrics_snapshot,
+                readiness_check=readiness_provider,
+                metrics_provider=node_metrics_provider,
                 authority_fence_provider=fence_authority,
                 authority_status_provider=authority_status,
                 node_metadata={
@@ -3399,6 +3439,8 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
             try:
                 if audit_exporter is not None:
                     audit_exporter.start()
+                if observation is not None:
+                    observation.start()
                 uvicorn.run(
                     app,
                     host=arguments.host,
@@ -3415,10 +3457,14 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                 )
             finally:
                 try:
-                    if audit_exporter is not None:
-                        audit_exporter.stop()
+                    if observation is not None:
+                        observation.stop()
                 finally:
-                    dispatcher.stop()
+                    try:
+                        if audit_exporter is not None:
+                            audit_exporter.stop()
+                    finally:
+                        dispatcher.stop()
         finally:
             store.close()
     return 0

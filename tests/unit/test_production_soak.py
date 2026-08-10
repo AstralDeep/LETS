@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 import textwrap
@@ -9,13 +10,13 @@ import time
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 import deploy.production.acceptance.soak as soak_scenario
 import deploy.production.run_soak as soak_runner
-from deploy.production.acceptance.materialize import _nodes, acceptance_policy
+from deploy.production.acceptance.materialize import _manifest, _nodes, acceptance_policy
 from deploy.production.acceptance.soak import (
     AUDIT_ERROR_MAX_BYTES,
     AUDIT_ERROR_SAMPLE_BUDGET,
@@ -63,12 +64,10 @@ from deploy.production.run_soak import (
     validate_image_labels,
     validate_package_identity,
 )
+from lets.crypto import Ed25519Signer
 
 EXACT_IMAGE = "ghcr.io/astraldeep/lets@sha256:" + "a" * 64
-TRANSIENT_BUSY_ERROR = (
-    "StorageError: could not connect to the audit archive "
-    "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=5)"
-)
+TRANSIENT_BUSY_ERROR = "StorageError:sqlite_busy"
 
 
 def _core_authority_status(
@@ -96,6 +95,26 @@ def _core_authority_status(
         "transport_recoveries": 0,
         "transport_recovery_attempts": 0,
         "unresolved_transport_faults": 0,
+    }
+
+
+def _core_authority_checkpoint(node: str, *, revision: int = 1) -> dict[str, Any]:
+    digest = base64.urlsafe_b64encode(bytes([NODES.index(node) + 1]) * 32).decode().rstrip("=")
+    return {
+        "audit_hash": digest,
+        "audit_sequence": revision - 1,
+        "clock_floor_ns": revision,
+        "config_epoch": 1,
+        "database_instance_id": digest,
+        "envelope_id": "production-acceptance-envelope",
+        "format": "LETS-AUTHORITY-ANCHOR/1",
+        "schema_version": 2,
+        "signing_key_id": f"production-{node}-key",
+        "signing_public_key_sha256": digest,
+        "state_digest": digest,
+        "state_revision": revision,
+        "tenant_id": "production-acceptance-tenant",
+        "warden_id": node,
     }
 
 
@@ -267,6 +286,7 @@ def test_release_workflow_independently_rejects_forged_authority_raw_evidence() 
     )[0]
     workload, restarts, verification = _authority_evidence_fixture(_configuration())
     summary = evaluate_authority_evidence(workload, restarts, verification)
+    conservation = soak_scenario._validate_conservation(verification["final_health"])
 
     def run(
         raw_workload: dict[str, Any],
@@ -288,6 +308,7 @@ def test_release_workflow_independently_rejects_forged_authority_raw_evidence() 
                 "executor_reopen_every_cycles": (_configuration().executor_reopen_every_cycles),
                 "seed": _configuration().seed,
             },
+            "conservation": conservation,
             "cycle_metrics_valid": True,
             "cycles": raw_workload["cycles"],
             "evidence": {"authority_evaluation": raw_summary},
@@ -312,6 +333,7 @@ def test_release_workflow_independently_rejects_forged_authority_raw_evidence() 
         return failures
 
     assert run(workload) == []
+
     forged = json.loads(json.dumps(workload))
     forged["executor"]["transport_recovery_events"][0]["original_transport_error"]["reason"] = (
         "semantic_divergence"
@@ -384,6 +406,12 @@ def test_release_workflow_independently_rejects_forged_authority_raw_evidence() 
         "soak authority lifetime and recovery budget is not raw-bound"
     ]
 
+    divergent_full_proof = json.loads(json.dumps(verification))
+    divergent_full_proof["full_audit_verifications"]["warden-a"]["verified_head_sequence"] += 1
+    assert run(workload, raw_verification=divergent_full_proof) == [
+        "soak authority lifetime and recovery budget is not raw-bound"
+    ]
+
     forged_summary = json.loads(json.dumps(summary))
     forged_summary["core_lifetime_count"] = float(forged_summary["core_lifetime_count"])
     forged_summary["global_counters"]["permanent_faults"] = False
@@ -409,11 +437,20 @@ def test_cluster_client_retains_typed_retry_code_and_request_correlation(
             request_id: str,
         ) -> None:
             self.status_code = status_code
-            self._document = document
-            self.headers = {"x-request-id": request_id}
+            self._encoded = json.dumps(document, separators=(",", ":")).encode()
+            self.headers = {
+                "content-length": str(len(self._encoded)),
+                "x-request-id": request_id,
+            }
 
-        def json(self) -> dict[str, Any]:
-            return self._document
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_arguments: Any) -> None:
+            return None
+
+        def iter_bytes(self) -> Iterator[bytes]:
+            yield self._encoded
 
     responses = [
         Response(
@@ -435,7 +472,7 @@ def test_cluster_client_retains_typed_retry_code_and_request_correlation(
             return None
 
         @staticmethod
-        def request(*_arguments: Any, **_options: Any) -> Response:
+        def stream(*_arguments: Any, **_options: Any) -> Response:
             return responses.pop(0)
 
     client = ClusterClient.__new__(ClusterClient)
@@ -487,7 +524,7 @@ def test_cluster_client_counts_only_actual_extra_http_attempts_after_deadline_ex
             return None
 
         @staticmethod
-        def request(*_arguments: Any, **_options: Any) -> None:
+        def stream(*_arguments: Any, **_options: Any) -> None:
             nonlocal request_calls
             request_calls += 1
             current[0] = 101.0
@@ -528,11 +565,17 @@ def test_cluster_client_does_not_count_late_first_response_as_a_retry(
         status_code = 200
 
         def __init__(self) -> None:
-            self.headers: dict[str, str] = {}
+            self._encoded = b'{"ok":true}'
+            self.headers = {"content-length": str(len(self._encoded))}
 
-        @staticmethod
-        def json() -> dict[str, bool]:
-            return {"ok": True}
+        def __enter__(self) -> Response:
+            return self
+
+        def __exit__(self, *_arguments: Any) -> None:
+            return None
+
+        def iter_bytes(self) -> Iterator[bytes]:
+            yield self._encoded
 
     current = [100.0]
     request_calls = 0
@@ -548,7 +591,7 @@ def test_cluster_client_does_not_count_late_first_response_as_a_retry(
             return None
 
         @staticmethod
-        def request(*_arguments: Any, **_options: Any) -> Response:
+        def stream(*_arguments: Any, **_options: Any) -> Response:
             nonlocal request_calls
             request_calls += 1
             current[0] = 101.001
@@ -596,6 +639,336 @@ def _configuration() -> SoakConfiguration:
     )
 
 
+def _observation_snapshot(
+    node: str,
+    *,
+    revision: int,
+    lifetime_id: str | None = None,
+    generation: str | None = None,
+    authority_override: dict[str, Any] | None = None,
+    audit_exporter_override: dict[str, Any] | None = None,
+    manifest: Any | None = None,
+) -> dict[str, Any]:
+    checkpoint = _core_authority_checkpoint(node, revision=revision)
+    if manifest is not None:
+        signing_key = manifest.warden(node).keys[0]
+        checkpoint["signing_key_id"] = signing_key.key_id
+        checkpoint["signing_public_key_sha256"] = (
+            base64.urlsafe_b64encode(hashlib.sha256(signing_key.public_key).digest())
+            .decode()
+            .rstrip("=")
+        )
+    authority = (
+        copy.deepcopy(authority_override)
+        if authority_override is not None
+        else _core_authority_status(node, lifetime_id=lifetime_id)
+    )
+    checked_at = 100 + revision
+    captured_at = 1_000 + revision * 10
+    checkpoint_hash = "sha256:" + base64.urlsafe_b64decode(checkpoint["audit_hash"] + "=").hex()
+    schema_digest = "sha256:" + "1" * 64
+    invariant = {
+        "checked_at_ns": checked_at,
+        "config_epoch": 1,
+        "consumed": [0],
+        "envelope_id": "production-acceptance-envelope",
+        "free_pool": [10],
+        "healthy": True,
+        "initial_share": [10],
+        "lease_residual": [0],
+        "tenant_id": "production-acceptance-tenant",
+        "transferred_in": [0],
+        "transferred_out": [0],
+    }
+    snapshot: dict[str, Any] = {
+        "age_ns": 2,
+        "audit_exporter": {
+            "archive_reconciled": True,
+            "configured": True,
+            "healthy": True,
+            "last_error": None,
+            "last_success_ns": 50,
+            "max_pending": 4_096,
+            "max_stall_s": 15.0,
+            "oldest_pending_age_s": None,
+            "pending": 0,
+            "publish_blocked": False,
+            "publish_timeout_s": 5.0,
+            "running": True,
+            "sink_call_blocked": False,
+            "stalled_for_s": 0.0,
+        },
+        "audit_outbox": {"oldest_unpublished_age_ns": 0, "unpublished_count": 0},
+        "audit_verification": {
+            "captured_head_hash": checkpoint_hash,
+            "captured_head_sequence": revision - 1,
+            "catching_up": False,
+            "error_type": None,
+            "lag": 0,
+            "last_full_verification_at_ns": 10,
+            "page_size": 256,
+            "schema_definition_sha256": schema_digest,
+            "sticky_failure": False,
+            "sweep_cursor_sequence": revision - 1,
+            "sweep_last_completed_at_ns": 50 + revision,
+            "sweep_last_completed_head_hash": checkpoint_hash,
+            "sweep_last_completed_head_sequence": revision - 1,
+            "sweep_target_sequence": revision - 1,
+            "valid": True,
+            "verified_through_hash": checkpoint_hash,
+            "verified_through_sequence": revision - 1,
+        },
+        "authority_anchor": copy.deepcopy(authority),
+        "authority_checkpoint": checkpoint,
+        "capture_duration_ns": 2,
+        "capture_started_monotonic_ns": captured_at - 1,
+        "capture_status": {
+            "attempt_sequence": revision,
+            "capture_in_progress": False,
+            "last_attempt_monotonic_ns": captured_at - 1,
+            "last_error_type": None,
+            "last_successful_attempt_sequence": revision,
+        },
+        "captured_at_monotonic_ns": captured_at,
+        "captured_at_ns": 100 + revision,
+        "captured_authority_anchor": copy.deepcopy(authority),
+        "checked_at_ns": checked_at,
+        "clock_healthy": True,
+        "core_state_revision": revision,
+        "database_instance_id": checkpoint["database_instance_id"],
+        "fresh": True,
+        "generation": generation or f"{1_000 + NODES.index(node):032x}",
+        "invariant": invariant,
+        "invariant_healthy": True,
+        "leases": {"by_status": {}, "total": 0},
+        "lifetime_id": authority["lifetime_id"],
+        "max_age_ns": 15_000_000_000,
+        "observation_eligible": True,
+        "peer_dispatcher": {
+            "configured_peers": 2,
+            "delivered_records": 0,
+            "durable_retry": None,
+            "failed_records": 0,
+            "healthy": True,
+            "last_cycle_ns": 90,
+            "last_error": None,
+            "pending_records": 0,
+            "prepared_transfers": 0,
+            "running": True,
+            "superseded_records": 0,
+        },
+        "published_at_monotonic_ns": captured_at + 1,
+        "published_at_ns": 101 + revision,
+        "ready": True,
+        "receipts": {"total": 0},
+        "resources": {
+            key: copy.deepcopy(invariant[key])
+            for key in (
+                "consumed",
+                "free_pool",
+                "initial_share",
+                "lease_residual",
+                "transferred_in",
+                "transferred_out",
+            )
+        },
+        "revision": revision,
+        "runtime": {
+            "changed_at_ns": 1,
+            "changed_by": "test",
+            "generation": 1,
+            "mode": "ACTIVE",
+            "reason": "test",
+        },
+        "schema": "lets.observation-snapshot/v1",
+        "served_at_monotonic_ns": captured_at + 2,
+        "service_ready": True,
+        "signing_key_healthy": True,
+        "snapshot_id": "",
+        "sqlite_schema_sha256": schema_digest,
+        "storage_capacity": {
+            "additional_shared_memory_bytes": 0,
+            "database_bytes": 16_384,
+            "effective_database_bytes": 12_288,
+            "filesystem_free_bytes": 1_000_000,
+            "free_pages": 1,
+            "healthy": True,
+            "logical_live_bytes": 12_288,
+            "main_database_bytes": 16_384,
+            "max_database_bytes": None,
+            "max_page_count": 4,
+            "min_free_disk_bytes": 0,
+            "page_count": 4,
+            "page_size": 4_096,
+            "prior_full_error": False,
+            "remaining_main_growth_bytes": 0,
+            "required_filesystem_free_bytes": 4_096,
+            "reserve_pages": 1,
+            "reusable_bytes": 4_096,
+            "shared_memory_bytes": 0,
+            "wal_bytes": 0,
+            "worst_case_shared_memory_bytes": 0,
+            "worst_case_transaction_wal_bytes": 0,
+        },
+        "transfers": {
+            "in_flight_count": 0,
+            "inbound_gap_count": 0,
+            "incoming_compacted_high_water": 0,
+            "incoming_contiguous_high_water": 0,
+            "incoming_streams": 0,
+            "outgoing_acked_high_water": 0,
+            "outgoing_compacted_high_water": 0,
+            "outgoing_streams": 0,
+        },
+    }
+    if audit_exporter_override is not None:
+        exporter = cast(dict[str, Any], snapshot["audit_exporter"])
+        exporter.update(copy.deepcopy(audit_exporter_override))
+        pending = int(exporter["pending"])
+        oldest_pending_age = exporter["oldest_pending_age_s"]
+        snapshot["audit_outbox"] = {
+            "oldest_unpublished_age_ns": (
+                0 if oldest_pending_age is None else int(float(oldest_pending_age) * 1_000_000_000)
+            ),
+            "unpublished_count": pending,
+        }
+        snapshot["ready"] = exporter["healthy"] is True
+    immutable = {
+        key: value
+        for key, value in snapshot.items()
+        if key
+        not in {
+            "age_ns",
+            "authority_anchor",
+            "capture_status",
+            "fresh",
+            "ready",
+            "served_at_monotonic_ns",
+            "service_ready",
+            "snapshot_id",
+        }
+    }
+    snapshot["snapshot_id"] = _canonical_digest(immutable)
+    return snapshot
+
+
+def _sampled_health_node(
+    node: str,
+    *,
+    revision: int,
+    scheduled: float,
+    authority_override: dict[str, Any] | None = None,
+    generation: str | None = None,
+    manifest: Any | None = None,
+) -> dict[str, Any]:
+    snapshot = _observation_snapshot(
+        node,
+        revision=revision,
+        authority_override=authority_override,
+        generation=generation,
+        manifest=manifest,
+    )
+    invariant_projection = {
+        key: copy.deepcopy(snapshot["invariant"][key])
+        for key in (
+            "consumed",
+            "free_pool",
+            "healthy",
+            "lease_residual",
+            "transferred_in",
+            "transferred_out",
+        )
+    }
+    raw_exporter = snapshot["audit_exporter"]
+    exporter = {
+        key: copy.deepcopy(raw_exporter[key])
+        for key in (
+            "archive_reconciled",
+            "healthy",
+            "last_error",
+            "last_success_ns",
+            "max_pending",
+            "max_stall_s",
+            "oldest_pending_age_s",
+            "pending",
+            "publish_blocked",
+            "running",
+            "sink_call_blocked",
+            "stalled_for_s",
+        )
+    } | {"catching_up": False}
+    return {
+        "audit_exporter": exporter,
+        "audit_outbox": copy.deepcopy(snapshot["audit_outbox"]),
+        "authority_anchor": copy.deepcopy(snapshot["authority_anchor"]),
+        "invariant": invariant_projection,
+        "observation": {
+            "completed_elapsed_seconds": scheduled + 0.2,
+            "metrics_observed_elapsed_seconds": scheduled + 0.1,
+            "request_count": 1,
+            "request_path": "/v1/metrics",
+            "request_retries": 0,
+            "retry_errors": {"first_error": None, "last_error": None},
+            "started_elapsed_seconds": scheduled + 0.01,
+        },
+        "observation_generation": snapshot["generation"],
+        "observation_revision": snapshot["revision"],
+        "observation_snapshot": snapshot,
+        "observation_snapshot_id": snapshot["snapshot_id"],
+        "peer_dispatcher": copy.deepcopy(snapshot["peer_dispatcher"]),
+        "ready": True,
+        "receipts": copy.deepcopy(snapshot["receipts"]),
+        "service_ready": True,
+        "storage_capacity": copy.deepcopy(snapshot["storage_capacity"]),
+        "transfers": copy.deepcopy(snapshot["transfers"]),
+    }
+
+
+def _terminal_authority_fence(
+    node: str,
+    observation: dict[str, Any],
+    *,
+    restart_id: str,
+    fenced_at_monotonic_ns: int,
+) -> dict[str, Any]:
+    prior_authority = observation["authority_anchor"]
+    checkpoint = copy.deepcopy(observation["authority_checkpoint"])
+    audit_hash = base64.urlsafe_b64decode(checkpoint["audit_hash"] + "=")
+    authority = {
+        **copy.deepcopy(prior_authority),
+        "admission_fenced": True,
+        "fence_id": restart_id,
+        "fenced_at_monotonic_ns": fenced_at_monotonic_ns,
+    }
+    return {
+        "authority_anchor": authority,
+        "authority_checkpoint": checkpoint,
+        "fenced_at_monotonic_ns": fenced_at_monotonic_ns,
+        "lifetime_id": authority["lifetime_id"],
+        "namespace_process_id": authority["namespace_process_id"],
+        "restart_id": restart_id,
+        "schema": "lets.authority-admission-fence/v1",
+        "terminal_audit_proof": {
+            "authority_checkpoint_sha256": _canonical_digest(checkpoint),
+            "authority_state_revision": checkpoint["state_revision"],
+            "database_instance_id": checkpoint["database_instance_id"],
+            "generation": observation["generation"],
+            "lifetime_id": authority["lifetime_id"],
+            "schema": "lets.terminal-audit-proof/v1",
+            "schema_definition_sha256": observation["sqlite_schema_sha256"],
+            "startup_full_verification_at_ns": observation["audit_verification"][
+                "last_full_verification_at_ns"
+            ],
+            "valid": True,
+            "verification_mode": "full",
+            "verified_at_ns": observation["captured_at_ns"],
+            "verified_head_hash": f"sha256:{audit_hash.hex()}",
+            "verified_head_sequence": checkpoint["audit_sequence"],
+        },
+        "warden_id": node,
+    }
+
+
 def _timed_health_samples(
     *,
     duration_seconds: float = 30.0,
@@ -616,16 +989,11 @@ def _timed_health_samples(
             "deadline_missed": False,
             "elapsed_seconds": scheduled,
             "nodes": {
-                node: {
-                    "audit_exporter": {"max_stall_s": 15.0},
-                    "authority_anchor": _core_authority_status(node),
-                    "observation": {
-                        "completed_elapsed_seconds": scheduled + 0.2,
-                        "metrics_observed_elapsed_seconds": scheduled + 0.1,
-                        "request_retries": 0,
-                        "started_elapsed_seconds": scheduled + 0.01,
-                    },
-                }
+                node: _sampled_health_node(
+                    node,
+                    revision=index + 1,
+                    scheduled=scheduled,
+                )
                 for node in NODES
             },
             "planned_unavailable_nodes": [],
@@ -718,6 +1086,8 @@ def _valid_workload_result(
         "pause_interval_count": 0,
         "pause_intervals": [],
         "paused_workload_seconds": 0.0,
+        "restart_quiescence_interval_count": 0,
+        "restart_quiescence_intervals": [],
         "request_retry_count": 0,
         "run_id": "unit-workload-run",
         "schema": "lets.production-profile-soak-workload/v2",
@@ -858,24 +1228,21 @@ def _authority_evidence_fixture(
     final_executor_authority = _executor_authority_status("f" * 32)
     final_executor_status = status(final_executor_authority, claim_sequence=issued)
     core_fences: dict[str, Any] = {}
+    final_health_nodes: dict[str, Any] = {}
     for node in NODES:
-        prior = _core_authority_status(node)
         fence_id = f"final-verification-7-{node}"
-        authority = {
-            **prior,
-            "admission_fenced": True,
-            "fence_id": fence_id,
-            "fenced_at_monotonic_ns": 1_000 + NODES.index(node),
-        }
-        core_fences[node] = {
-            "authority_anchor": authority,
-            "fenced_at_monotonic_ns": authority["fenced_at_monotonic_ns"],
-            "lifetime_id": authority["lifetime_id"],
-            "namespace_process_id": authority["namespace_process_id"],
-            "restart_id": fence_id,
-            "schema": "lets.authority-admission-fence/v1",
-            "warden_id": node,
-        }
+        final_document = _sampled_health_node(
+            node,
+            revision=len(workload["health_samples"]) + 1,
+            scheduled=configuration.duration_seconds,
+        )
+        final_health_nodes[node] = final_document
+        core_fences[node] = _terminal_authority_fence(
+            node,
+            final_document["observation_snapshot"],
+            restart_id=fence_id,
+            fenced_at_monotonic_ns=1_000 + NODES.index(node),
+        )
     verification = {
         "executor": {
             "anchor_claim_sequence": issued,
@@ -893,8 +1260,9 @@ def _authority_evidence_fixture(
             },
             "wal_bytes": 0,
         },
-        "final_health": {
-            "nodes": {node: {"authority_anchor": _core_authority_status(node)} for node in NODES}
+        "final_health": {"nodes": final_health_nodes},
+        "full_audit_verifications": {
+            node: copy.deepcopy(core_fences[node]["terminal_audit_proof"]) for node in NODES
         },
         "schema": "lets.production-profile-soak-verification/v1",
         "status": "passed",
@@ -1047,9 +1415,9 @@ def test_configuration_requires_exact_digest_and_repeated_chaos_window() -> None
     assert semantic_cycle_floor(release) == 36
     assert minimum_cycle_count(release) == 240
     assert minimum_health_sample_count(release) == 1_801
-    assert soak_runner.chaos_start_shutdown_margin_seconds(release) == 150.0
-    assert may_start_chaos_episode(release, elapsed_s=3_449.999) is True
-    assert may_start_chaos_episode(release, elapsed_s=3_450.0) is False
+    assert soak_runner.chaos_start_shutdown_margin_seconds(release) == 270.0
+    assert may_start_chaos_episode(release, elapsed_s=3_329.999) is True
+    assert may_start_chaos_episode(release, elapsed_s=3_330.0) is False
     assert may_start_chaos_episode(configuration, elapsed_s=29.99) is True
     assert may_start_chaos_episode(configuration, elapsed_s=30.0) is False
     assert may_start_chaos_episode(configuration, elapsed_s=90.0) is False
@@ -1275,25 +1643,34 @@ def test_authority_evaluator_requires_replacement_snapshot_terminal_lower_bound(
     new = restart["new_authority_anchor"]
     samples = workload["health_samples"]
     midpoint = len(samples) // 2
+    old_generation = restart["authority_fence"]["result"]["terminal"]["terminal_audit_proof"][
+        "generation"
+    ]
+    new_generation = f"{301:032x}"
     for index, sample in enumerate(samples):
-        sample["nodes"]["warden-a"]["authority_anchor"] = old if index < midpoint else new
+        old_lifetime = index < midpoint
+        sample["nodes"]["warden-a"] = _sampled_health_node(
+            "warden-a",
+            revision=index + 1,
+            scheduled=float(sample["scheduled_elapsed_seconds"]),
+            authority_override=old if old_lifetime else new,
+            generation=old_generation if old_lifetime else new_generation,
+        )
     fence_id = "final-verification-7-warden-a"
-    final_authority = {
-        **new,
-        "admission_fenced": True,
-        "fence_id": fence_id,
-        "fenced_at_monotonic_ns": 9_999,
-    }
-    verification["terminal_authority_fences"]["warden-a"] = {
-        "authority_anchor": final_authority,
-        "fenced_at_monotonic_ns": 9_999,
-        "lifetime_id": new["lifetime_id"],
-        "namespace_process_id": new["namespace_process_id"],
-        "restart_id": fence_id,
-        "schema": "lets.authority-admission-fence/v1",
-        "warden_id": "warden-a",
-    }
-    verification["final_health"]["nodes"]["warden-a"]["authority_anchor"] = new
+    final_document = _sampled_health_node(
+        "warden-a",
+        revision=len(samples) + 1,
+        scheduled=float(workload["duration_seconds"]),
+        authority_override=new,
+        generation=new_generation,
+    )
+    verification["final_health"]["nodes"]["warden-a"] = final_document
+    verification["terminal_authority_fences"]["warden-a"] = _terminal_authority_fence(
+        "warden-a",
+        final_document["observation_snapshot"],
+        restart_id=fence_id,
+        fenced_at_monotonic_ns=9_999,
+    )
     assert evaluate_authority_evidence(workload, [restart], verification)["passed"] is True
 
     first_fault = _executor_authority_status("a" * 32, recovered_fault=True)["first_fault"]
@@ -1383,6 +1760,15 @@ def test_health_cadence_rejects_gaps_larger_than_the_exporter_stall_bound() -> N
 
 def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str, Any]:
     restart_id = f"restart-{episode}-{service}"
+    workload_offset = 40.0 * episode
+    host_offset = 20.0 * episode
+
+    def workload_time(value: float) -> float:
+        return value + workload_offset
+
+    def host_time(value: float) -> float:
+        return value + host_offset
+
     prior_authority = _core_authority_status(
         service,
         lifetime_id=f"{10 + episode:032x}",
@@ -1398,81 +1784,211 @@ def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str,
         "fence_id": restart_id,
         "fenced_at_monotonic_ns": 12_500_000_000 + episode,
     }
+    checkpoint = _core_authority_checkpoint(service)
+    schema_digest = "sha256:" + "1" * 64
+    generation = f"{300 + episode:032x}"
+    prior_observation = {
+        "audit_verification": {"last_full_verification_at_ns": 10},
+        "authority_checkpoint": checkpoint,
+        "generation": generation,
+        "lifetime_id": prior_authority["lifetime_id"],
+        "sqlite_schema_sha256": schema_digest,
+    }
+    decoded_audit_hash = base64.urlsafe_b64decode(checkpoint["audit_hash"] + "=")
+    terminal = {
+        "authority_anchor": terminal_authority,
+        "authority_checkpoint": checkpoint,
+        "fenced_at_monotonic_ns": terminal_authority["fenced_at_monotonic_ns"],
+        "lifetime_id": prior_authority["lifetime_id"],
+        "namespace_process_id": prior_authority["namespace_process_id"],
+        "restart_id": restart_id,
+        "schema": "lets.authority-admission-fence/v1",
+        "terminal_audit_proof": {
+            "authority_checkpoint_sha256": _canonical_digest(checkpoint),
+            "authority_state_revision": checkpoint["state_revision"],
+            "database_instance_id": checkpoint["database_instance_id"],
+            "generation": generation,
+            "lifetime_id": prior_authority["lifetime_id"],
+            "schema": "lets.terminal-audit-proof/v1",
+            "schema_definition_sha256": schema_digest,
+            "startup_full_verification_at_ns": 10,
+            "valid": True,
+            "verification_mode": "trusted-startup-plus-tail",
+            "verified_at_ns": 20,
+            "verified_head_hash": f"sha256:{decoded_audit_hash.hex()}",
+            "verified_head_sequence": checkpoint["audit_sequence"],
+        },
+        "warden_id": service,
+    }
+    quiesce_pause_id = f"{restart_id}-quiesce"
     armed = {
-        "armed_monotonic_seconds": 110.0,
+        "armed_monotonic_seconds": workload_time(110.0),
         "episode": episode,
+        "quiesce_pause_id": quiesce_pause_id,
         "restart_id": restart_id,
         "service": service,
         "state": "armed",
     }
     completed = {
         **armed,
-        "completed_monotonic_seconds": 125.0,
+        "completed_monotonic_seconds": workload_time(125.0),
         "expected_recovered_authority_identity": {
             "lifetime_id": recovered_authority["lifetime_id"],
             "namespace_process_id": recovered_authority["namespace_process_id"],
         },
         "state": "completed",
     }
-    acknowledgement = {
-        key: armed[key] for key in ("armed_monotonic_seconds", "episode", "restart_id", "service")
-    } | {
-        "acknowledged_monotonic_seconds": 111.0,
-        "prior_authority_anchor": prior_authority,
+    target_identity = {
+        "container_id": "a" * 64,
+        "host_pid": 101,
+        "oom_killed": False,
+        "restart_count": 0,
+        "state": {"OOMKilled": False, "Pid": 101, "Status": "running"},
+        "status": "running",
     }
+    acknowledgement = {
+        key: armed[key]
+        for key in (
+            "armed_monotonic_seconds",
+            "episode",
+            "quiesce_pause_id",
+            "restart_id",
+            "service",
+        )
+    } | {
+        "acknowledged_monotonic_seconds": workload_time(112.0),
+        "coordination_revision": 2,
+        "fence_terminal_sha256": _canonical_digest(terminal),
+        "host_ack_command_started_monotonic_seconds": host_time(1_002.3),
+        "host_fence_validated_monotonic_seconds": host_time(1_002.0),
+        "host_reinspected_monotonic_seconds": host_time(1_002.2),
+        "observed_monotonic_seconds": workload_time(111.0),
+        "prior_authority_anchor": prior_authority,
+        "prior_authority_checkpoint": checkpoint,
+        "prior_observation": prior_observation,
+        "quiesced_monotonic_seconds": workload_time(106.0),
+        "target_identity_sha256": _canonical_digest(target_identity),
+    }
+    acknowledgement["coordination_payload_sha256"] = _canonical_digest(acknowledgement)
     recovery = {
         **acknowledgement,
-        "completed_monotonic_seconds": 125.0,
+        "completed_monotonic_seconds": workload_time(125.0),
+        "coordination_revision": 3,
         "recovered_authority_anchor": recovered_authority,
-        "recovered_monotonic_seconds": 126.0,
+        "recovered_monotonic_seconds": workload_time(126.0),
+    }
+    recovery.pop("coordination_payload_sha256")
+    recovery["coordination_payload_sha256"] = _canonical_digest(recovery)
+    pause_identity = {
+        "episode": episode,
+        "pause_id": quiesce_pause_id,
+        "reason": "planned_restart",
+        "requested_monotonic_seconds": workload_time(105.0),
+        "restart_id": restart_id,
+        "service": service,
+    }
+    quiescence = {
+        **pause_identity,
+        "acknowledgement": {
+            **pause_identity,
+            "observed_monotonic_seconds": workload_time(106.0),
+            "paused": True,
+        },
+        "authorized_end": {
+            **pause_identity,
+            "authorized_end_monotonic_seconds": workload_time(127.0),
+            "host_boundary_completed_monotonic_seconds": host_time(1_011.4),
+            "host_boundary_started_monotonic_seconds": host_time(1_011.2),
+        },
+        "authorized_start": {
+            **pause_identity,
+            "authorized_start_monotonic_seconds": workload_time(107.0),
+            "host_boundary_completed_monotonic_seconds": host_time(999.8),
+            "host_boundary_started_monotonic_seconds": host_time(999.6),
+        },
+        "host_acknowledged_monotonic_seconds": host_time(999.5),
+        "host_request_started_monotonic_seconds": host_time(999.0),
+        "host_resume_completed_monotonic_seconds": host_time(1_011.8),
+        "host_resume_started_monotonic_seconds": host_time(1_011.6),
+        "marker": pause_identity,
+        "workload_resume_requested_monotonic_seconds": workload_time(128.0),
     }
     return {
         "authority_fence": {
             "host_container_id": "a" * 64,
             "host_exec_attempts": 1,
             "host_pid": 101,
+            "host_validated_monotonic_seconds": host_time(1_002.0),
             "prior_authority_anchor": prior_authority,
             "result": {
                 "node": service,
                 "request_retry_count": 0,
                 "schema": "lets.production-profile-authority-fence/v1",
                 "status": "passed",
-                "terminal": {
-                    "authority_anchor": terminal_authority,
-                    "fenced_at_monotonic_ns": terminal_authority["fenced_at_monotonic_ns"],
-                    "lifetime_id": prior_authority["lifetime_id"],
-                    "namespace_process_id": prior_authority["namespace_process_id"],
-                    "restart_id": restart_id,
-                    "schema": "lets.authority-admission-fence/v1",
-                    "warden_id": service,
-                },
+                "terminal": terminal,
             },
         },
-        "host_operation_completed_monotonic_seconds": 1_010.0,
-        "host_operation_started_monotonic_seconds": 1_002.0,
+        "host_operation_completed_monotonic_seconds": host_time(1_010.0),
+        "host_operation_started_monotonic_seconds": host_time(1_003.0),
         "new_authority_anchor": recovered_authority,
         "new_container_id": "b" * 64,
         "new_pid": 202,
         "planned_exit_code": 137,
         "prior_container_id": "a" * 64,
         "prior_pid": 101,
+        "restart_counts": {"after": 0, "killed": 0, "prior": 0},
         "service": service,
         "signal": "SIGKILL",
+        "status": "completed",
         "workload_coordination": {
             "armed": {
                 "acknowledgement": acknowledgement,
-                "host_armed_started_monotonic_seconds": 1_000.0,
-                "host_monitor_acknowledged_monotonic_seconds": 1_001.0,
+                "host_armed_started_monotonic_seconds": host_time(1_000.0),
+                "host_ack_command_completed_monotonic_seconds": host_time(1_002.5),
+                "host_ack_command_started_monotonic_seconds": host_time(1_002.3),
+                "host_monitor_acknowledged_monotonic_seconds": host_time(1_001.0),
                 "marker": armed,
             },
             "completed": {
-                "host_completed_marker_monotonic_seconds": 1_011.0,
-                "host_monitor_recovered_monotonic_seconds": 1_012.0,
+                "host_completion_command_completed_monotonic_seconds": host_time(1_010.4),
+                "host_completion_command_started_monotonic_seconds": host_time(1_010.2),
+                "host_monitor_recovered_monotonic_seconds": host_time(1_011.0),
                 "marker": completed,
                 "recovery_acknowledgement": recovery,
             },
+            "quiescence": quiescence,
         },
     }
+
+
+def _restart_quiescence_interval(restart: dict[str, Any]) -> dict[str, Any]:
+    quiescence = restart["workload_coordination"]["quiescence"]
+    marker = quiescence["marker"]
+    observed = float(quiescence["acknowledgement"]["observed_monotonic_seconds"])
+    resumed = float(quiescence["workload_resume_requested_monotonic_seconds"]) + 1.0
+    return {
+        **marker,
+        "duration_seconds": round(resumed - observed, 6),
+        "measurement_clipped_duration_seconds": round(resumed - observed, 6),
+        "observed_elapsed_seconds": round(observed - 100.0, 6),
+        "observed_monotonic_seconds": observed,
+        "resumed_elapsed_seconds": round(resumed - 100.0, 6),
+        "resumed_monotonic_seconds": resumed,
+    }
+
+
+def _evaluate_restart_records(
+    restarts: list[dict[str, Any]],
+    *,
+    workload_started_monotonic: float = 100.0,
+) -> dict[str, Any]:
+    return evaluate_restart_evidence(
+        restarts,
+        restart_quiescence_intervals=[
+            _restart_quiescence_interval(restart) for restart in restarts
+        ],
+        workload_started_monotonic=workload_started_monotonic,
+    )
 
 
 def test_restart_authority_fence_recovers_late_first_output_with_unique_attempts(
@@ -1638,9 +2154,12 @@ def _pause_binding(
         "observed_elapsed_seconds": 5.0,
         "observed_monotonic_seconds": 105.0,
         "pause_id": "pause-0",
+        "reason": "partition",
         "requested_monotonic_seconds": 104.0,
+        "restart_id": None,
         "resumed_elapsed_seconds": 20.0,
         "resumed_monotonic_seconds": 120.0,
+        "service": None,
     }
     result.update(
         {
@@ -1653,7 +2172,10 @@ def _pause_binding(
     marker = {
         "episode": 0,
         "pause_id": "pause-0",
+        "reason": "partition",
         "requested_monotonic_seconds": 104.0,
+        "restart_id": None,
+        "service": None,
     }
     acknowledgement = {
         **marker,
@@ -1700,6 +2222,7 @@ def test_pause_evidence_uses_exact_token_bound_workload_clock_bridge() -> None:
         result,
         configuration=configuration,
         partitions=partitions,
+        restart_evidence=_evaluate_restart_records([]),
         workload_start=_workload_start(result, configuration),
     )
     assert evidence["passed"] is True
@@ -1712,6 +2235,7 @@ def test_pause_evidence_uses_exact_token_bound_workload_clock_bridge() -> None:
             result,
             configuration=configuration,
             partitions=partitions,
+            restart_evidence=_evaluate_restart_records([]),
             workload_start=_workload_start(result, configuration),
         )["passed"]
         is False
@@ -1728,6 +2252,7 @@ def test_pause_evidence_recomputes_measurement_edge_and_rejects_forged_active_ti
             result,
             configuration=configuration,
             partitions=partitions,
+            restart_evidence=_evaluate_restart_records([]),
             workload_start=_workload_start(result, configuration),
         )["passed"]
         is False
@@ -1739,6 +2264,7 @@ def test_pause_evidence_recomputes_measurement_edge_and_rejects_forged_active_ti
             result,
             configuration=configuration,
             partitions=partitions,
+            restart_evidence=_evaluate_restart_records([]),
             workload_start=_workload_start(result, configuration),
         )["passed"]
         is False
@@ -1766,6 +2292,7 @@ def test_pause_evidence_rejects_a_marker_before_the_workload_origin() -> None:
             result,
             configuration=configuration,
             partitions=partitions,
+            restart_evidence=_evaluate_restart_records([]),
             workload_start=_workload_start(result, configuration),
         )["passed"]
         is False
@@ -1814,7 +2341,7 @@ def test_workload_evaluator_rejects_chaos_before_startup_or_pause_request() -> N
 
 def test_restart_evidence_requires_exact_ack_lifecycle_and_bounded_recovery() -> None:
     restart = _restart_record()
-    evidence = evaluate_restart_evidence([restart], workload_started_monotonic=100.0)
+    evidence = _evaluate_restart_records([restart])
     assert evidence["passed"] is True
     assert evidence["windows_by_node"]["warden-a"] == [
         {
@@ -1822,12 +2349,12 @@ def test_restart_evidence_requires_exact_ack_lifecycle_and_bounded_recovery() ->
             "episode": 0,
             "restart_id": "restart-0-warden-a",
             "service": "warden-a",
-            "start_elapsed_seconds": 11.0,
+            "start_elapsed_seconds": 10.0,
         }
     ]
 
     restart["workload_coordination"]["armed"]["acknowledgement"]["restart_id"] = "stale"
-    assert evaluate_restart_evidence([restart], workload_started_monotonic=100.0)["passed"] is False
+    assert _evaluate_restart_records([restart])["passed"] is False
 
     restart = _restart_record()
     coordination = restart["workload_coordination"]
@@ -1838,7 +2365,7 @@ def test_restart_evidence_requires_exact_ack_lifecycle_and_bounded_recovery() ->
         coordination["completed"]["recovery_acknowledgement"],
     ):
         document["episode"] = 0.0
-    assert evaluate_restart_evidence([restart], workload_started_monotonic=100.0)["passed"] is False
+    assert _evaluate_restart_records([restart])["passed"] is False
 
 
 def test_restart_evidence_rejects_pre_origin_and_overlapping_host_operations() -> None:
@@ -1851,29 +2378,23 @@ def test_restart_evidence_rejects_pre_origin_and_overlapping_host_operations() -
         coordination["completed"]["recovery_acknowledgement"],
     ):
         document["armed_monotonic_seconds"] = 99.0
-    assert (
-        evaluate_restart_evidence([pre_origin], workload_started_monotonic=100.0)["passed"] is False
-    )
+    assert _evaluate_restart_records([pre_origin])["passed"] is False
 
     first = _restart_record()
     second = _restart_record(service="warden-b", episode=1)
     second_coordination = second["workload_coordination"]
-    for document in (
-        second_coordination["armed"]["marker"],
-        second_coordination["armed"]["acknowledgement"],
-        second_coordination["completed"]["marker"],
-        second_coordination["completed"]["recovery_acknowledgement"],
-    ):
-        document["armed_monotonic_seconds"] = 140.0
-    second_coordination["armed"]["acknowledgement"]["acknowledged_monotonic_seconds"] = 141.0
-    second_coordination["completed"]["marker"]["completed_monotonic_seconds"] = 155.0
-    second_coordination["completed"]["recovery_acknowledgement"].update(
-        {
-            "acknowledged_monotonic_seconds": 141.0,
-            "completed_monotonic_seconds": 155.0,
-            "recovered_monotonic_seconds": 156.0,
-        }
-    )
+    second_ack = second_coordination["armed"]["acknowledgement"]
+    second_recovery = second_coordination["completed"]["recovery_acknowledgement"]
+    host_ack_fields = {
+        "host_ack_command_started_monotonic_seconds": 1_003.3,
+        "host_fence_validated_monotonic_seconds": 1_003.0,
+        "host_reinspected_monotonic_seconds": 1_003.2,
+    }
+    for document in (second_ack, second_recovery):
+        document.update(host_ack_fields)
+        document.pop("coordination_payload_sha256")
+        document["coordination_payload_sha256"] = _canonical_digest(document)
+    second["authority_fence"]["host_validated_monotonic_seconds"] = 1_003.0
     second.update(
         {
             "host_operation_completed_monotonic_seconds": 1_009.0,
@@ -1882,20 +2403,20 @@ def test_restart_evidence_rejects_pre_origin_and_overlapping_host_operations() -
     )
     second_coordination["armed"].update(
         {
-            "host_armed_started_monotonic_seconds": 1_003.0,
-            "host_monitor_acknowledged_monotonic_seconds": 1_004.0,
+            "host_ack_command_completed_monotonic_seconds": 1_004.0,
+            "host_ack_command_started_monotonic_seconds": 1_003.3,
+            "host_armed_started_monotonic_seconds": 1_001.5,
+            "host_monitor_acknowledged_monotonic_seconds": 1_002.0,
         }
     )
     second_coordination["completed"].update(
         {
-            "host_completed_marker_monotonic_seconds": 1_010.0,
-            "host_monitor_recovered_monotonic_seconds": 1_011.0,
+            "host_completion_command_completed_monotonic_seconds": 1_009.4,
+            "host_completion_command_started_monotonic_seconds": 1_009.2,
+            "host_monitor_recovered_monotonic_seconds": 1_010.5,
         }
     )
-    evidence = evaluate_restart_evidence(
-        [first, second],
-        workload_started_monotonic=100.0,
-    )
+    evidence = _evaluate_restart_records([first, second])
     assert evidence == {
         "passed": False,
         "reason": "host restart operations overlap globally",
@@ -1904,10 +2425,7 @@ def test_restart_evidence_rejects_pre_origin_and_overlapping_host_operations() -
 
 def test_planned_unavailable_is_per_node_and_must_overlap_exact_restart_window() -> None:
     restart = _restart_record()
-    restart_evidence = evaluate_restart_evidence(
-        [restart],
-        workload_started_monotonic=100.0,
-    )
+    restart_evidence = _evaluate_restart_records([restart])
     samples = _timed_health_samples(duration_seconds=30.0, interval_seconds=10.0)
     armed_marker = restart["workload_coordination"]["armed"]["marker"]
     samples[1]["completed_elapsed_seconds"] = 11.3
@@ -1915,8 +2433,11 @@ def test_planned_unavailable_is_per_node_and_must_overlap_exact_restart_window()
         "observation": {
             "completed_elapsed_seconds": 11.2,
             "metrics_observed_elapsed_seconds": None,
-            "request_retries": 1,
-            "started_elapsed_seconds": 10.01,
+            "request_count": 0,
+            "request_path": "/v1/metrics",
+            "request_retries": 0,
+            "retry_errors": {"first_error": None, "last_error": None},
+            "started_elapsed_seconds": 10.0,
         },
         "planned_unavailable": armed_marker,
     }
@@ -2043,11 +2564,20 @@ def test_active_time_throughput_floor_passes_and_fails_at_exact_boundary() -> No
 def test_independent_sampler_is_not_starved_by_a_long_inline_workload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+
     class FakeClient:
         retry_count = 0
 
         def __init__(self, **_kwargs: Any) -> None:
             pass
+
+    revision = 0
 
     def sample(
         _client: object,
@@ -2056,26 +2586,36 @@ def test_independent_sampler_is_not_starved_by_a_long_inline_workload(
         observation_origin_monotonic: float,
         **_kwargs: Any,
     ) -> dict[str, Any]:
+        nonlocal revision
+        revision += 1
         observed = time.monotonic() - observation_origin_monotonic
+        nodes: dict[str, Any] = {}
+        for node in NODES:
+            document = _sampled_health_node(
+                node,
+                revision=revision,
+                scheduled=observed,
+                manifest=manifest,
+            )
+            document["observation"] = {
+                "completed_elapsed_seconds": observed,
+                "metrics_observed_elapsed_seconds": observed,
+                "request_count": 1,
+                "request_path": "/v1/metrics",
+                "request_retries": 0,
+                "retry_errors": {"first_error": None, "last_error": None},
+                "started_elapsed_seconds": observed,
+            }
+            nodes[node] = document
         return {
             "audit_catchup_nodes": [],
             "audit_error_recoveries": [],
             "elapsed_seconds": elapsed_s,
-            "nodes": {
-                node: {
-                    "audit_exporter": {"max_stall_s": 15.0},
-                    "observation": {
-                        "completed_elapsed_seconds": observed,
-                        "metrics_observed_elapsed_seconds": observed,
-                        "request_retries": 0,
-                        "started_elapsed_seconds": observed,
-                    },
-                }
-                for node in NODES
-            },
+            "nodes": nodes,
             "planned_unavailable_nodes": [],
         }
 
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
     monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
     monkeypatch.setattr(soak_scenario, "_health_sample", sample)
     started = time.monotonic()
@@ -2187,51 +2727,41 @@ def test_planned_restart_live_window_expires_only_before_completion(
 ) -> None:
     marker_path = tmp_path / "restart.json"
     acknowledgement_path = tmp_path / "restart-ack.json"
-    marker = {
-        "armed_monotonic_seconds": 100.0,
-        "episode": 0,
-        "restart_id": "restart-0-warden-a",
-        "service": "warden-a",
-        "state": "armed",
-    }
-    acknowledgement = {
-        **{
-            key: marker[key]
-            for key in (
-                "armed_monotonic_seconds",
-                "episode",
-                "restart_id",
-                "service",
-            )
-        },
-        "acknowledged_monotonic_seconds": 111.0,
-    }
+    pause_acknowledgement_path = tmp_path / "pause-ack.json"
+    restart = _restart_record()
+    coordination = restart["workload_coordination"]
+    marker = coordination["armed"]["marker"]
+    acknowledgement = coordination["armed"]["acknowledgement"]
+    pause_acknowledgement = coordination["quiescence"]["acknowledgement"]
     marker_path.write_text(soak_scenario.json.dumps(marker), encoding="utf-8")
     acknowledgement_path.write_text(
         soak_scenario.json.dumps(acknowledgement),
         encoding="utf-8",
     )
+    pause_acknowledgement_path.write_text(
+        soak_scenario.json.dumps(pause_acknowledgement),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(soak_scenario, "WORKLOAD_RESTART", marker_path)
     monkeypatch.setattr(soak_scenario, "WORKLOAD_RESTART_ACK", acknowledgement_path)
-    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 141.001)
+    monkeypatch.setattr(soak_scenario, "WORKLOAD_PAUSE_ACK", pause_acknowledgement_path)
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 142.001)
     with pytest.raises(RuntimeError, match="live 30s"):
         soak_scenario._planned_restart_window(
             "warden-a",
             observation_started_monotonic=140.0,
-            prior_authority_anchor=_core_authority_status("warden-a"),
+            prior_authority_anchor=acknowledgement["prior_authority_anchor"],
+            prior_authority_checkpoint=acknowledgement["prior_authority_checkpoint"],
+            prior_observation=acknowledgement["prior_observation"],
         )
 
-    completed = {
-        **marker,
-        "completed_monotonic_seconds": 141.0,
-        "state": "completed",
-    }
+    completed = coordination["completed"]["marker"]
     marker_path.write_text(soak_scenario.json.dumps(completed), encoding="utf-8")
-    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 141.5)
+    monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 126.5)
     assert (
         soak_scenario._planned_restart_window(
             "warden-a",
-            observation_started_monotonic=140.0,
+            observation_started_monotonic=120.0,
         )
         == completed
     )
@@ -2247,21 +2777,9 @@ def test_restart_deadline_accepts_ack_after_a_post_arm_live_observation(
 
     marker_path = tmp_path / "restart.json"
     acknowledgement_path = tmp_path / "restart-ack.json"
-    marker = {
-        "armed_monotonic_seconds": 104.0,
-        "completed_monotonic_seconds": 120.0,
-        "episode": 0,
-        "restart_id": "restart-0-warden-a",
-        "service": "warden-a",
-        "state": "completed",
-    }
-    acknowledgement = {
-        "acknowledged_monotonic_seconds": 106.0,
-        "armed_monotonic_seconds": 104.0,
-        "episode": 0,
-        "restart_id": "restart-0-warden-a",
-        "service": "warden-a",
-    }
+    restart = _restart_record()
+    marker = restart["workload_coordination"]["completed"]["marker"]
+    acknowledgement = restart["workload_coordination"]["armed"]["acknowledgement"]
     marker_path.write_text(soak_scenario.json.dumps(marker), encoding="utf-8")
     acknowledgement_path.write_text(
         soak_scenario.json.dumps(acknowledgement),
@@ -2331,8 +2849,10 @@ def test_restart_ack_wait_and_host_operations_use_hard_deadlines(
             object(),  # type: ignore[arg-type]
             "warden-a",
             armed={},
+            authority_fence={},
             completion_deadline_monotonic=Clock.current - 1.0,
             elapsed_s=0.0,
+            prior_identity={},
             workload=Process(),  # type: ignore[arg-type]
         )
 
@@ -2826,21 +3346,7 @@ def _audit_health_sample(
 
 @pytest.mark.parametrize(
     "last_error",
-    (
-        TRANSIENT_BUSY_ERROR,
-        (
-            "StorageError: could not connect to the audit archive "
-            "(sqlite_errorname=SQLITE_BUSY_RECOVERY, sqlite_errorcode=261)"
-        ),
-        (
-            "StorageError: could not connect to the audit archive "
-            "(sqlite_errorname=SQLITE_BUSY_SNAPSHOT, sqlite_errorcode=517)"
-        ),
-        (
-            "StorageError: could not connect to the audit archive "
-            "(sqlite_errorname=SQLITE_BUSY_TIMEOUT, sqlite_errorcode=773)"
-        ),
-    ),
+    (TRANSIENT_BUSY_ERROR,),
 )
 def test_bounded_audit_exporter_accepts_exact_isolated_transient_status(
     last_error: str,
@@ -2871,10 +3377,37 @@ def test_bounded_audit_exporter_accepts_exact_isolated_transient_status(
             {
                 "last_error": (
                     "StorageError: could not connect to the audit archive "
+                    "(sqlite_errorname=SQLITE_BUSY_RECOVERY, sqlite_errorcode=261)"
+                )
+            },
+            "malformed bounded",
+        ),
+        (
+            {
+                "last_error": (
+                    "StorageError: could not connect to the audit archive "
+                    "(sqlite_errorname=SQLITE_BUSY_SNAPSHOT, sqlite_errorcode=517)"
+                )
+            },
+            "malformed bounded",
+        ),
+        (
+            {
+                "last_error": (
+                    "StorageError: could not connect to the audit archive "
+                    "(sqlite_errorname=SQLITE_BUSY_TIMEOUT, sqlite_errorcode=773)"
+                )
+            },
+            "malformed bounded",
+        ),
+        (
+            {
+                "last_error": (
+                    "StorageError: could not connect to the audit archive "
                     "(sqlite_errorname=SQLITE_IOERR, sqlite_errorcode=10)"
                 )
             },
-            "non-tolerable",
+            "malformed bounded",
         ),
         (
             {
@@ -2883,7 +3416,7 @@ def test_bounded_audit_exporter_accepts_exact_isolated_transient_status(
                     "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=5)"
                 )
             },
-            "non-tolerable",
+            "malformed bounded",
         ),
         (
             {
@@ -2892,7 +3425,7 @@ def test_bounded_audit_exporter_accepts_exact_isolated_transient_status(
                     "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=6)"
                 )
             },
-            "non-tolerable",
+            "malformed bounded",
         ),
         (
             {
@@ -2901,7 +3434,7 @@ def test_bounded_audit_exporter_accepts_exact_isolated_transient_status(
                     f"(sqlite_errorname=SQLITE_BUSY_{'A' * 53}, sqlite_errorcode=5)"
                 )
             },
-            "non-tolerable",
+            "malformed bounded",
         ),
         ({"last_error": TRANSIENT_BUSY_ERROR, "last_success_ns": None}, "prior success"),
         (
@@ -2936,10 +3469,17 @@ def test_audit_error_budget_rejects_repeated_or_cross_node_samples_live(
 def test_health_sample_recovers_one_error_inside_only_the_remaining_stall_window(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+
     class FakeClient:
         def __init__(self) -> None:
             self.metrics_calls = {node: 0 for node in NODES}
-            self.recovery_windows: list[float] = []
 
         def request(
             self,
@@ -2947,73 +3487,92 @@ def test_health_sample_recovers_one_error_inside_only_the_remaining_stall_window
             node: str,
             path: str,
             *,
-            retry_timeout_s: float | None = None,
+            single_attempt: bool = False,
         ) -> dict[str, Any]:
-            if retry_timeout_s is not None:
-                self.recovery_windows.append(retry_timeout_s)
-            if path == "/v1/invariants":
-                return {
-                    "consumed": [1],
-                    "free_pool": [9],
-                    "healthy": True,
-                    "lease_residual": [0],
-                    "transferred_in": [0],
-                    "transferred_out": [0],
-                }
-            if path == "/v1/audit/verify":
-                return {"valid": True}
-            if path == "/v1/maintenance/authority-status":
-                return _core_authority_status(node)
+            assert path == "/v1/metrics"
+            assert single_attempt is True
             self.metrics_calls[node] += 1
+            exporter: dict[str, Any] | None = None
             if node == "warden-a" and self.metrics_calls[node] == 1:
-                status = _audit_status(
+                exporter = _audit_status(
                     last_error=TRANSIENT_BUSY_ERROR,
                     oldest_pending_age_s=None,
                     pending=0,
                     stalled_for_s=5.0,
                 )
-            else:
-                status = _clean_audit_status()
-            return {
-                **_audit_document(status),
-                "authority_anchor": _core_authority_status(node),
-                "peer_dispatcher": {},
-                "receipts": {"total": 1},
-                "storage_capacity": {"healthy": True},
-                "transfers": {},
-            }
+            return _observation_snapshot(
+                node,
+                revision=self.metrics_calls[node],
+                audit_exporter_override=exporter,
+                manifest=manifest,
+            )
 
-    current = 100.0
-
-    def monotonic() -> float:
-        nonlocal current
-        current += 0.1
-        return current
-
-    monkeypatch.setattr(soak_scenario.time, "monotonic", monotonic)
     client = FakeClient()
     budget = AuditErrorBudget()
-    sample = _health_sample(
+    first_sample = _health_sample(
         client,  # type: ignore[arg-type]
         elapsed_s=20.0,
         audit_error_budget=budget,
     )
     assert budget.error_sample_count == AUDIT_ERROR_SAMPLE_BUDGET
+    assert budget.recovered_error_sample_count == 0
+    assert budget.unresolved_error_nodes == {"warden-a"}
+    assert first_sample["audit_error_recoveries"] == []
+    assert first_sample["audit_catchup_nodes"] == ["warden-a"]
+
+    recovered_sample = _health_sample(
+        client,  # type: ignore[arg-type]
+        elapsed_s=22.0,
+        audit_error_budget=budget,
+    )
     assert budget.recovered_error_sample_count == 1
     assert budget.unresolved_error_nodes == set()
-    assert len(sample["audit_error_recoveries"]) == 1
-    recovery = sample["audit_error_recoveries"][0]
-    assert recovery["node"] == "warden-a"
-    assert recovery["elapsed_seconds"] > sample["elapsed_seconds"]
-    assert recovery["remaining_stall_window_seconds"] == 10.0
-    assert client.recovery_windows and 0 < max(client.recovery_windows) <= 10.0
-    summary = _audit_progress_summary([sample], audit_error_budget=budget)
+    assert recovered_sample["audit_error_recoveries"] == [
+        {
+            "elapsed_seconds": 22.0,
+            "node": "warden-a",
+            "recovered_by_later_scheduled_sample": True,
+        }
+    ]
+    summary = _audit_progress_summary(
+        [first_sample, recovered_sample],
+        audit_error_budget=budget,
+    )
     assert summary["bounded_progress"] is True
     assert summary["error_evidence_complete"] is True
     assert summary["error_sample_count"] == 1
     assert summary["recorded_error_sample_count"] == 1
     assert summary["recovered_error_sample_count"] == 1
     assert summary["unresolved_error_nodes"] == []
+
+    with pytest.raises(RuntimeError, match="invalid later-scheduled"):
+        _audit_progress_summary([recovered_sample])
+
+    duplicated = copy.deepcopy(recovered_sample)
+    duplicated["audit_error_recoveries"] *= 2
+    with pytest.raises(RuntimeError, match="duplicated warden-a recovery"):
+        _audit_progress_summary([first_sample, duplicated])
+
+    extra_field = copy.deepcopy(recovered_sample)
+    extra_field["audit_error_recoveries"][0]["unexpected"] = True
+    with pytest.raises(RuntimeError, match="invalid later-scheduled"):
+        _audit_progress_summary([first_sample, extra_field])
+
+    wrong_time = copy.deepcopy(recovered_sample)
+    wrong_time["audit_error_recoveries"][0]["elapsed_seconds"] = 22.001
+    with pytest.raises(RuntimeError, match="invalid later-scheduled"):
+        _audit_progress_summary([first_sample, wrong_time])
+
+    immediate_style = copy.deepcopy(recovered_sample)
+    immediate_style["audit_error_recoveries"] = [
+        {
+            "elapsed_seconds": 22.001,
+            "node": "warden-a",
+            "remaining_stall_window_seconds": 10.0,
+        }
+    ]
+    with pytest.raises(RuntimeError, match="invalid later-scheduled"):
+        _audit_progress_summary([first_sample, immediate_style])
 
 
 def test_audit_recovery_deadline_is_anchored_to_initial_metrics_observation(
@@ -3255,38 +3814,51 @@ def test_audit_progress_summary_rejects_recovery_beyond_remaining_stall_window()
         _audit_progress_summary([sample])
 
 
-def test_health_sample_accepts_only_bounded_audit_catchup() -> None:
+def test_health_sample_accepts_only_bounded_audit_catchup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+
     class FakeClient:
         @staticmethod
-        def request(_method: str, _node: str, path: str) -> dict[str, Any]:
-            if path == "/v1/invariants":
-                return {
-                    "consumed": [1],
-                    "free_pool": [9],
-                    "healthy": True,
-                    "lease_residual": [0],
-                    "transferred_in": [0],
-                    "transferred_out": [0],
-                }
-            if path == "/v1/audit/verify":
-                return {"valid": True}
-            if path == "/v1/maintenance/authority-status":
-                return _core_authority_status(_node)
-            return {
-                "audit_exporter": _audit_status(),
-                "audit_outbox": {"unpublished_count": 5},
-                "authority_anchor": _core_authority_status(_node),
-                "peer_dispatcher": {"pending_records": 0, "prepared_transfers": 0},
-                "ready": False,
-                "receipts": {"total": 1},
-                "service_ready": True,
-                "storage_capacity": {"healthy": True},
-                "transfers": {"in_flight_count": 0, "inbound_gap_count": 0},
-            }
+        def request(
+            _method: str,
+            node: str,
+            path: str,
+            *,
+            single_attempt: bool = False,
+        ) -> dict[str, Any]:
+            assert path == "/v1/metrics"
+            assert single_attempt is True
+            exporter = (
+                _audit_status(last_error=TRANSIENT_BUSY_ERROR) if node == "warden-a" else None
+            )
+            return _observation_snapshot(
+                node,
+                revision=1,
+                audit_exporter_override=exporter,
+                manifest=manifest,
+            )
 
-    sample = _health_sample(FakeClient(), elapsed_s=2.75)  # type: ignore[arg-type]
-    assert sample["audit_catchup_nodes"] == list(NODES)
+    budget = AuditErrorBudget()
+    sample = _health_sample(
+        FakeClient(),  # type: ignore[arg-type]
+        elapsed_s=2.75,
+        audit_error_budget=budget,
+    )
+    assert sample["audit_catchup_nodes"] == ["warden-a"]
     assert sample["nodes"]["warden-a"]["audit_exporter"]["pending"] == 5
+    assert (
+        sample["nodes"]["warden-a"]["observation_snapshot"]["audit_exporter"]["last_error"]
+        == TRANSIENT_BUSY_ERROR
+    )
+    assert budget.unresolved_error_nodes == {"warden-a"}
     assert _is_converged(sample) is False
 
 
@@ -3321,25 +3893,40 @@ def _converged_health_response(path: str) -> dict[str, Any]:
     }
 
 
-def test_health_sample_uses_metrics_authority_with_nine_shared_deadline_requests(
+def test_health_sample_uses_one_raw_observation_per_node_with_shared_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+
     class FakeClient:
         def __init__(self) -> None:
             self.deadlines: list[float | None] = []
             self.paths: list[str] = []
+            self.single_attempts: list[bool] = []
 
         def request(
             self,
             _method: str,
-            _node: str,
+            node: str,
             path: str,
             *,
             deadline_monotonic: float | None = None,
+            single_attempt: bool = False,
         ) -> dict[str, Any]:
             self.deadlines.append(deadline_monotonic)
             self.paths.append(path)
-            return _converged_health_response(path)
+            self.single_attempts.append(single_attempt)
+            return _observation_snapshot(
+                node,
+                revision=1,
+                manifest=manifest,
+            )
 
     monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: 90.0)
     client = FakeClient()
@@ -3349,40 +3936,70 @@ def test_health_sample_uses_metrics_authority_with_nine_shared_deadline_requests
         deadline=100.0,
     )
     assert _is_converged(sample) is True
-    assert client.deadlines == [100.0] * 9
-    assert client.paths == [
-        path for _node in NODES for path in ("/v1/invariants", "/v1/audit/verify", "/v1/metrics")
-    ]
-    assert "/v1/maintenance/authority-status" not in client.paths
+    assert client.deadlines == [100.0] * len(NODES)
+    assert client.paths == ["/v1/metrics"] * len(NODES)
+    assert client.single_attempts == [True] * len(NODES)
+    for node in NODES:
+        document = sample["nodes"][node]
+        assert document["observation"] == {
+            "completed_elapsed_seconds": 1.0,
+            "metrics_observed_elapsed_seconds": 1.0,
+            "request_count": 1,
+            "request_path": "/v1/metrics",
+            "request_retries": 0,
+            "retry_errors": {"first_error": None, "last_error": None},
+            "started_elapsed_seconds": 1.0,
+        }
+        assert (
+            document["observation_snapshot_id"] == document["observation_snapshot"]["snapshot_id"]
+        )
+        assert document["observation_generation"] == document["observation_snapshot"]["generation"]
+        assert document["observation_revision"] == document["observation_snapshot"]["revision"]
+        assert document["authority_anchor"] == document["observation_snapshot"]["authority_anchor"]
 
 
-def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
+def test_settle_rejects_a_third_raw_observation_that_completes_after_shared_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     current = 0.0
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
 
     class FakeClient:
         def __init__(self, **_kwargs: Any) -> None:
             self.calls = 0
             self.deadlines: list[float | None] = []
+            self.paths: list[str] = []
+            self.single_attempts: list[bool] = []
 
         def request(
             self,
             _method: str,
-            _node: str,
+            node: str,
             path: str,
             *,
             deadline_monotonic: float | None = None,
+            single_attempt: bool = False,
         ) -> dict[str, Any]:
             nonlocal current
             self.calls += 1
             self.deadlines.append(deadline_monotonic)
-            if self.calls == 9:
+            self.paths.append(path)
+            self.single_attempts.append(single_attempt)
+            if self.calls == len(NODES):
                 current = 1.001
-            return _converged_health_response(path)
+            return _observation_snapshot(
+                node,
+                revision=1,
+                manifest=manifest,
+            )
 
     client = FakeClient()
-    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: None)
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
     monkeypatch.setattr(soak_scenario, "ClusterClient", lambda **_kwargs: client)
     monkeypatch.setattr(soak_scenario.time, "monotonic", lambda: current)
     monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
@@ -3393,8 +4010,10 @@ def test_settle_rejects_a_ninth_response_that_completes_after_shared_deadline(
     )
     with pytest.raises(RuntimeError, match="did not settle"):
         soak_scenario.wait_converged(arguments)
-    assert client.calls == 9
-    assert client.deadlines == [1.0] * 9
+    assert client.calls == len(NODES)
+    assert client.deadlines == [1.0] * len(NODES)
+    assert client.paths == ["/v1/metrics"] * len(NODES)
+    assert client.single_attempts == [True] * len(NODES)
 
 
 @pytest.mark.parametrize("probe_name", ("wait_converged", "verify_final"))
@@ -3402,44 +4021,46 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
     monkeypatch: pytest.MonkeyPatch,
     probe_name: str,
 ) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+
     class FakeClient:
-        @staticmethod
+        def __init__(self) -> None:
+            self.paths: list[str] = []
+            self.options: list[dict[str, Any]] = []
+
         def request(
+            self,
             _method: str,
-            _node: str,
+            node: str,
             path: str,
             **_kwargs: Any,
         ) -> dict[str, Any]:
-            if path == "/v1/invariants":
-                return {
-                    "consumed": [1],
-                    "free_pool": [9],
-                    "healthy": True,
-                    "lease_residual": [0],
-                    "transferred_in": [0],
-                    "transferred_out": [0],
-                }
-            if path == "/v1/audit/verify":
-                return {"valid": True}
+            self.paths.append(path)
+            self.options.append(dict(_kwargs))
             if path == "/v1/maintenance/authority-status":
-                return _core_authority_status(_node)
+                return _core_authority_status(node)
+            assert path == "/v1/metrics"
             status = _audit_status(
                 last_error=TRANSIENT_BUSY_ERROR,
                 oldest_pending_age_s=None,
                 pending=0,
                 stalled_for_s=5.0,
             )
-            return {
-                **_audit_document(status),
-                "authority_anchor": _core_authority_status(_node),
-                "peer_dispatcher": {},
-                "receipts": {"total": 1},
-                "storage_capacity": {"healthy": True},
-                "transfers": {},
-            }
+            return _observation_snapshot(
+                node,
+                revision=1,
+                audit_exporter_override=status,
+                manifest=manifest,
+            )
 
-    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: None)
-    monkeypatch.setattr(soak_scenario, "ClusterClient", lambda **_kwargs: FakeClient())
+    client = FakeClient()
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+    monkeypatch.setattr(soak_scenario, "ClusterClient", lambda **_kwargs: client)
     if probe_name == "verify_final":
         monkeypatch.setattr(
             soak_scenario,
@@ -3454,6 +4075,19 @@ def test_settle_and_final_probes_reject_errors_outside_shared_budget(
     probe = getattr(soak_scenario, probe_name)
     with pytest.raises(RuntimeError, match="outside the shared workload error budget"):
         probe(arguments)
+    assert client.paths == [
+        "/v1/metrics",
+        "/v1/maintenance/authority-status",
+    ]
+    assert set(client.options[0]) == {"deadline_monotonic", "single_attempt"}
+    assert client.options[0]["single_attempt"] is True
+    assert isinstance(client.options[0]["deadline_monotonic"], float)
+    assert set(client.options[1]) == {"deadline_monotonic", "retry_timeout_s"}
+    assert (
+        client.options[1]["retry_timeout_s"] == soak_scenario.AUTHORITY_FAILURE_DIAGNOSTIC_SECONDS
+    )
+    assert isinstance(client.options[1]["deadline_monotonic"], float)
+    assert client.options[1]["deadline_monotonic"] > client.options[0]["deadline_monotonic"]
 
 
 def test_final_verification_retains_typed_executor_startup_admission_failure(
@@ -3547,8 +4181,19 @@ def test_final_verification_retains_typed_executor_startup_admission_failure(
     ),
 )
 def test_health_sample_does_not_mask_core_or_aggregate_readiness_failures(
-    service_ready: bool, ready: bool, match: str
+    monkeypatch: pytest.MonkeyPatch,
+    service_ready: bool,
+    ready: bool,
+    match: str,
 ) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+
     class FakeClient:
         def __init__(self) -> None:
             self.paths: list[str] = []
@@ -3561,26 +4206,24 @@ def test_health_sample_does_not_mask_core_or_aggregate_readiness_failures(
             **_options: Any,
         ) -> dict[str, Any]:
             self.paths.append(path)
-            if path == "/v1/invariants":
-                return {"healthy": True}
-            if path == "/v1/audit/verify":
-                return {"valid": True}
             if path == "/v1/maintenance/authority-status":
                 return _core_authority_status(_node)
-            return {
-                "audit_exporter": _audit_status(),
-                "authority_anchor": _core_authority_status(_node),
-                "ready": ready,
-                "service_ready": service_ready,
-                "storage_capacity": {"healthy": True},
-            }
+            assert path == "/v1/metrics"
+            exporter = _audit_status() if service_ready else None
+            snapshot = _observation_snapshot(
+                _node,
+                revision=1,
+                audit_exporter_override=exporter,
+                manifest=manifest,
+            )
+            snapshot["ready"] = ready
+            snapshot["service_ready"] = service_ready
+            return snapshot
 
     client = FakeClient()
     with pytest.raises(soak_scenario.HealthObservationError, match=match) as raised:
         _health_sample(client, elapsed_s=1.0)  # type: ignore[arg-type]
     assert client.paths == [
-        "/v1/invariants",
-        "/v1/audit/verify",
         "/v1/metrics",
         "/v1/maintenance/authority-status",
     ]
@@ -3622,7 +4265,8 @@ def test_workload_pause_acknowledges_and_records_exact_interval(
     pause = tmp_path / "pause.json"
     acknowledgement = tmp_path / "pause-ack.json"
     pause.write_text(
-        '{"episode":4,"pause_id":"pause-4","requested_monotonic_seconds":90.0}\n',
+        '{"episode":4,"pause_id":"pause-4","reason":"partition",'
+        '"requested_monotonic_seconds":90.0,"restart_id":null,"service":null}\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(soak_scenario, "WORKLOAD_PAUSE", pause)
@@ -3646,16 +4290,22 @@ def test_workload_pause_acknowledges_and_records_exact_interval(
         "observed_elapsed_seconds": 50.0,
         "observed_monotonic_seconds": 100.0,
         "pause_id": "pause-4",
+        "reason": "partition",
         "requested_monotonic_seconds": 90.0,
+        "restart_id": None,
         "resumed_elapsed_seconds": 50.0,
         "resumed_monotonic_seconds": 100.0,
+        "service": None,
     }
     assert soak_scenario.json.loads(acknowledgement.read_text(encoding="utf-8")) == {
         "episode": 4,
         "observed_monotonic_seconds": 100.0,
         "pause_id": "pause-4",
         "paused": True,
+        "reason": "partition",
         "requested_monotonic_seconds": 90.0,
+        "restart_id": None,
+        "service": None,
     }
 
 
@@ -3674,7 +4324,7 @@ def test_workload_pause_fails_immediately_with_exited_workload_diagnostics() -> 
         def run(self, *_args: Any, **_kwargs: Any) -> None:
             raise AssertionError("pause coordination must not run after workload exit")
 
-    with pytest.raises(WorkloadExitedError, match="before partition pause 7") as captured:
+    with pytest.raises(WorkloadExitedError, match="before workload pause 7") as captured:
         _pause_workload(
             UnusedHarness(),  # type: ignore[arg-type]
             7,

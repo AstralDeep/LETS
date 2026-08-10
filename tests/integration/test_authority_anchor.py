@@ -863,7 +863,8 @@ def test_authority_admission_fence_is_atomic_idempotent_and_terminal(tmp_path: P
     assert status["state"] == "healthy"
     assert status["unresolved_transport_faults"] == 0
     assert status["permanent_faults"] == 0
-    assert anchor.calls == calls
+    assert anchor.calls == calls + 1
+    fenced_calls = anchor.calls
     assert (
         store.fence_authority_admission(
             restart_id="restart-0001",
@@ -879,7 +880,7 @@ def test_authority_admission_fence_is_atomic_idempotent_and_terminal(tmp_path: P
         store.clear_capacity_fault()
     with pytest.raises(StorageError, match="admission is fenced"):
         store.checkpoint()
-    assert anchor.calls == calls
+    assert anchor.calls == fenced_calls
     with pytest.raises(ConflictError, match="already fenced"):
         store.fence_authority_admission(
             restart_id="restart-0002",
@@ -952,8 +953,6 @@ def test_authority_fence_waits_for_active_work_then_rejects_queued_transaction(
     store = SQLiteStorage.initialize(
         tmp_path / "warden.sqlite3", "warden-a", (10,), **_options(anchor)
     )
-    ordered = OrderedRLock()
-    store._authority_transaction_lock = cast(Any, ordered)
     lifetime = cast(str, store.authority_anchor_status()["lifetime_id"])
     active_entered = threading.Event()
     release_active = threading.Event()
@@ -989,7 +988,11 @@ def test_authority_fence_waits_for_active_work_then_rejects_queued_transaction(
 
     fence_thread = threading.Thread(target=fence)
     fence_thread.start()
-    ordered.wait_for_tickets(2)
+    with store._authority_admission_condition:
+        assert store._authority_admission_condition.wait_for(
+            lambda: 2 in store._authority_admission_waiters.values(),
+            timeout=5,
+        )
     queued_fence_status = store.authority_anchor_status()
     assert queued_fence_status["admission_fenced"] is False
     assert queued_fence_status["fence_id"] is None
@@ -1003,7 +1006,11 @@ def test_authority_fence_waits_for_active_work_then_rejects_queued_transaction(
 
     queued = threading.Thread(target=queued_transaction)
     queued.start()
-    ordered.wait_for_tickets(3)
+    with store._authority_admission_condition:
+        assert store._authority_admission_condition.wait_for(
+            lambda: 0 in store._authority_admission_waiters.values(),
+            timeout=5,
+        )
     assert not fence_result
     release_active.set()
     active.join(timeout=5)
@@ -1014,7 +1021,7 @@ def test_authority_fence_waits_for_active_work_then_rejects_queued_transaction(
     assert len(queued_errors) == 1
     assert isinstance(queued_errors[0], StorageError)
     assert "admission is fenced" in str(queued_errors[0])
-    assert connect_calls == 0
+    assert connect_calls == 1
     store.close()
 
 

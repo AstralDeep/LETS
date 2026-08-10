@@ -40,6 +40,7 @@ WORKLOAD_PAUSE_ACK_PATH = "/scenario/soak-workload-pause-ack.json"
 WORKLOAD_RESTART_PATH = "/scenario/soak-workload-restart.json"
 WORKLOAD_RESTART_ACK_PATH = "/scenario/soak-workload-restart-ack.json"
 WORKLOAD_START_PATH = "/scenario/soak-workload-start.json"
+WORKLOAD_JOURNAL_PATH = "/scenario/soak-workload-journal.json"
 DEFAULT_EVIDENCE = ROOT / "results" / "generated" / "production-profile-soak.json"
 IMAGE_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 CONTAINER_ID = re.compile(r"\A[0-9a-f]{12,64}\Z")
@@ -134,11 +135,132 @@ EXECUTOR_AUTHORITY_CHECKPOINT_FIELDS = frozenset(
 )
 EXECUTOR_AUTHORITY_CHECKPOINT_FORMAT = "LETS-EXECUTOR-AUTHORITY-ANCHOR/1"
 EXECUTOR_AUTHORITY_SCHEMA_VERSION = 5
+CORE_AUTHORITY_CHECKPOINT_FIELDS = frozenset(
+    {
+        "audit_hash",
+        "audit_sequence",
+        "clock_floor_ns",
+        "config_epoch",
+        "database_instance_id",
+        "envelope_id",
+        "format",
+        "schema_version",
+        "signing_key_id",
+        "signing_public_key_sha256",
+        "state_digest",
+        "state_revision",
+        "tenant_id",
+        "warden_id",
+    }
+)
+TERMINAL_AUDIT_PROOF_FIELDS = frozenset(
+    {
+        "authority_checkpoint_sha256",
+        "authority_state_revision",
+        "database_instance_id",
+        "generation",
+        "lifetime_id",
+        "schema",
+        "schema_definition_sha256",
+        "startup_full_verification_at_ns",
+        "valid",
+        "verification_mode",
+        "verified_at_ns",
+        "verified_head_hash",
+        "verified_head_sequence",
+    }
+)
+CORE_AUTHORITY_FENCE_FIELDS = frozenset(
+    {
+        "authority_anchor",
+        "authority_checkpoint",
+        "fenced_at_monotonic_ns",
+        "lifetime_id",
+        "namespace_process_id",
+        "restart_id",
+        "schema",
+        "terminal_audit_proof",
+        "warden_id",
+    }
+)
+OBSERVATION_DYNAMIC_FIELDS = frozenset(
+    {
+        "age_ns",
+        "authority_anchor",
+        "capture_status",
+        "fresh",
+        "ready",
+        "served_at_monotonic_ns",
+        "service_ready",
+    }
+)
+OBSERVATION_IMMUTABLE_FIELDS = frozenset(
+    {
+        "audit_exporter",
+        "audit_outbox",
+        "audit_verification",
+        "authority_checkpoint",
+        "capture_duration_ns",
+        "capture_started_monotonic_ns",
+        "captured_at_monotonic_ns",
+        "captured_at_ns",
+        "captured_authority_anchor",
+        "checked_at_ns",
+        "clock_healthy",
+        "core_state_revision",
+        "database_instance_id",
+        "generation",
+        "invariant",
+        "invariant_healthy",
+        "leases",
+        "lifetime_id",
+        "max_age_ns",
+        "observation_eligible",
+        "peer_dispatcher",
+        "published_at_monotonic_ns",
+        "published_at_ns",
+        "receipts",
+        "resources",
+        "revision",
+        "runtime",
+        "schema",
+        "signing_key_healthy",
+        "snapshot_id",
+        "sqlite_schema_sha256",
+        "storage_capacity",
+        "transfers",
+    }
+)
+OBSERVATION_AUDIT_FIELDS = frozenset(
+    {
+        "captured_head_hash",
+        "captured_head_sequence",
+        "catching_up",
+        "error_type",
+        "lag",
+        "last_full_verification_at_ns",
+        "page_size",
+        "schema_definition_sha256",
+        "sticky_failure",
+        "sweep_cursor_sequence",
+        "sweep_last_completed_at_ns",
+        "sweep_last_completed_head_hash",
+        "sweep_last_completed_head_sequence",
+        "sweep_target_sequence",
+        "valid",
+        "verified_through_hash",
+        "verified_through_sequence",
+    }
+)
+OBSERVATION_MAX_RESPONSE_BYTES = 20 * 1024
 DEFAULT_RESTART_INTERVAL_SECONDS = 900.0
 MIN_RESTART_EPISODES = len(WARDENS)
 TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE = 15.0
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
 MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
+PLANNED_FENCE_ATTEMPT_SECONDS = 95.0
+PLANNED_FENCE_PREPARATION_SECONDS = 120.0
+PLANNED_PRE_ACK_RESERVE_SECONDS = 10.0
 RELEASE_PATH_ROTATIONS = MIN_RESTART_EPISODES
 SMOKE_PATH_ROTATIONS = 1
 MINIMUM_RETRY_ALLOWANCE = 24
@@ -154,6 +276,33 @@ FAILED_EVIDENCE_MAX_TEXT_BYTES = 16_384
 FAILURE_COMMAND_TIMEOUT_SECONDS = 5.0
 FAILURE_DOWN_TIMEOUT_SECONDS = 30.0
 FAILURE_LOG_TIMEOUT_SECONDS = 10.0
+FAILURE_ARTIFACT_MAX_BYTES = 80 * 1024 * 1024
+WORKLOAD_FINALIZATION_ALLOWANCE_SECONDS = 45.0
+SCENARIO_DURABLE_COORDINATION_HELPERS = r"""
+import json,os
+from contextlib import suppress
+from pathlib import Path
+
+def publish_json(path, document):
+    temporary=path.with_suffix(path.suffix+'.tmp')
+    encoded=(json.dumps(document,allow_nan=False,separators=(',',':'),sort_keys=True)+'\n').encode()
+    try:
+        with temporary.open('wb') as stream:
+            stream.write(encoded); stream.flush(); os.fsync(stream.fileno())
+        os.replace(temporary,path)
+        with path.open('r+b') as published: os.fsync(published.fileno())
+        directory=os.open(path.parent,os.O_RDONLY|getattr(os,'O_DIRECTORY',0))
+        try: os.fsync(directory)
+        finally: os.close(directory)
+    finally:
+        with suppress(OSError): temporary.unlink()
+
+def unlink_json(path):
+    path.unlink(missing_ok=True)
+    directory=os.open(path.parent,os.O_RDONLY|getattr(os,'O_DIRECTORY',0))
+    try: os.fsync(directory)
+    finally: os.close(directory)
+"""
 VOLUME_KEYS = {
     "trust",
     "client",
@@ -466,6 +615,18 @@ class WorkloadExitedError(RuntimeError):
         )
 
 
+class WorkloadTimeoutError(RuntimeError):
+    """The host-side workload CLI outlived its exact monotonic deadline."""
+
+    def __init__(self, *, deadline_monotonic: float, observed_monotonic: float) -> None:
+        self.deadline_monotonic = deadline_monotonic
+        self.observed_monotonic = observed_monotonic
+        super().__init__(
+            "soak workload exceeded its host deadline; "
+            f"deadline={deadline_monotonic:.6f} observed={observed_monotonic:.6f}"
+        )
+
+
 class FinalVerificationError(RuntimeError):
     """Carry a failed terminal capture after its partial result was persisted."""
 
@@ -543,9 +704,11 @@ def chaos_start_shutdown_margin_seconds(configuration: SoakConfiguration) -> flo
         MAXIMUM_CYCLE_LATENCY_SECONDS,
         configuration.retry_timeout_seconds + 30.0,
     )
+    if configuration.smoke:
+        return max(CHAOS_START_SHUTDOWN_MARGIN_SECONDS, maximum_cycle_latency + 30.0)
     return max(
         CHAOS_START_SHUTDOWN_MARGIN_SECONDS,
-        maximum_cycle_latency + 30.0,
+        maximum_cycle_latency + PLANNED_FENCE_PREPARATION_SECONDS + MAXIMUM_PLANNED_RESTART_SECONDS,
     )
 
 
@@ -790,6 +953,620 @@ def _valid_executor_authority_checkpoint(value: object) -> TypeGuard[dict[str, A
     )
 
 
+def _valid_core_authority_checkpoint(
+    value: object,
+    *,
+    node: str,
+) -> TypeGuard[dict[str, Any]]:
+    if not isinstance(value, dict) or set(value) != CORE_AUTHORITY_CHECKPOINT_FIELDS:
+        return False
+    clock_floor = value.get("clock_floor_ns")
+    return bool(
+        value.get("format") == "LETS-AUTHORITY-ANCHOR/1"
+        and value.get("warden_id") == node
+        and value.get("tenant_id") == "production-acceptance-tenant"
+        and value.get("envelope_id") == "production-acceptance-envelope"
+        and type(value.get("config_epoch")) is int
+        and value.get("config_epoch") == 1
+        and type(value.get("schema_version")) is int
+        and value.get("schema_version") == 2
+        and _valid_evidence_identifier(value.get("signing_key_id"))
+        and all(
+            _valid_canonical_digest(value.get(field_name))
+            for field_name in (
+                "audit_hash",
+                "database_instance_id",
+                "signing_public_key_sha256",
+                "state_digest",
+            )
+        )
+        and type(value.get("audit_sequence")) is int
+        and -1 <= value["audit_sequence"] <= AUTHORITY_COUNTER_MAX
+        and type(value.get("state_revision")) is int
+        and 0 <= value["state_revision"] <= AUTHORITY_COUNTER_MAX
+        and (
+            clock_floor is None
+            or (type(clock_floor) is int and 0 <= clock_floor <= AUTHORITY_COUNTER_MAX)
+        )
+    )
+
+
+def _core_checkpoint_extends(
+    prior: dict[str, Any],
+    current: dict[str, Any],
+) -> bool:
+    stable = (
+        "config_epoch",
+        "database_instance_id",
+        "envelope_id",
+        "format",
+        "schema_version",
+        "signing_key_id",
+        "signing_public_key_sha256",
+        "tenant_id",
+        "warden_id",
+    )
+    prior_floor = prior.get("clock_floor_ns")
+    current_floor = current.get("clock_floor_ns")
+    return bool(
+        all(current.get(field_name) == prior.get(field_name) for field_name in stable)
+        and current["state_revision"] >= prior["state_revision"]
+        and current["audit_sequence"] >= prior["audit_sequence"]
+        and not (type(prior_floor) is int and type(current_floor) is not int)
+        and not (
+            type(prior_floor) is int and type(current_floor) is int and current_floor < prior_floor
+        )
+        and (
+            current["state_revision"] != prior["state_revision"]
+            or current["state_digest"] == prior["state_digest"]
+        )
+        and (
+            current["audit_sequence"] != prior["audit_sequence"]
+            or current["audit_hash"] == prior["audit_hash"]
+        )
+    )
+
+
+def _sha256_json(value: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[str, Any]]:
+    """Independently validate one retained cache document for offline release evidence."""
+
+    if not isinstance(value, dict) or set(value) != (
+        OBSERVATION_IMMUTABLE_FIELDS | OBSERVATION_DYNAMIC_FIELDS
+    ):
+        return False
+    try:
+        encoded = json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return False
+    if len(encoded) > OBSERVATION_MAX_RESPONSE_BYTES:
+        return False
+
+    def integer(name: str, minimum: int = 0) -> int | None:
+        candidate = value.get(name)
+        if type(candidate) is not int or not minimum <= candidate <= AUTHORITY_COUNTER_MAX:
+            return None
+        return candidate
+
+    generation = value.get("generation")
+    lifetime = value.get("lifetime_id")
+    snapshot_id = value.get("snapshot_id")
+    immutable = {
+        key: item
+        for key, item in value.items()
+        if key not in OBSERVATION_DYNAMIC_FIELDS and key != "snapshot_id"
+    }
+    if (
+        value.get("schema") != "lets.observation-snapshot/v1"
+        or not isinstance(generation, str)
+        or re.fullmatch(r"[0-9a-f]{32}", generation) is None
+        or not isinstance(lifetime, str)
+        or re.fullmatch(r"[0-9a-f]{32}", lifetime) is None
+        or snapshot_id != _sha256_json(immutable)
+        or integer("revision", 1) is None
+        or integer("capture_started_monotonic_ns") is None
+        or integer("captured_at_ns") is None
+        or integer("captured_at_monotonic_ns") is None
+        or integer("published_at_ns") is None
+        or integer("published_at_monotonic_ns") is None
+        or integer("capture_duration_ns") is None
+        or integer("checked_at_ns") is None
+        or integer("age_ns") is None
+        or integer("served_at_monotonic_ns") is None
+        or value.get("max_age_ns") != 15_000_000_000
+        or value.get("fresh") is not True
+        or value.get("service_ready") is not True
+        or value.get("observation_eligible") is not True
+        or value.get("invariant_healthy") is not True
+        or value.get("clock_healthy") is not True
+        or value.get("signing_key_healthy") is not True
+    ):
+        return False
+    if (
+        value["capture_started_monotonic_ns"] > value["captured_at_monotonic_ns"]
+        or value["captured_at_monotonic_ns"] > value["published_at_monotonic_ns"]
+        or value["capture_duration_ns"]
+        != value["published_at_monotonic_ns"] - value["capture_started_monotonic_ns"]
+        or value["published_at_ns"] < value["captured_at_ns"]
+        or value["served_at_monotonic_ns"] < value["published_at_monotonic_ns"]
+        or value["age_ns"] != value["served_at_monotonic_ns"] - value["captured_at_monotonic_ns"]
+        or value["age_ns"] >= value["max_age_ns"]
+    ):
+        return False
+    capture = value.get("capture_status")
+    if (
+        not isinstance(capture, dict)
+        or set(capture)
+        != {
+            "attempt_sequence",
+            "capture_in_progress",
+            "last_attempt_monotonic_ns",
+            "last_error_type",
+            "last_successful_attempt_sequence",
+        }
+        or type(capture.get("attempt_sequence")) is not int
+        or not 1 <= capture["attempt_sequence"] <= AUTHORITY_COUNTER_MAX
+        or type(capture.get("capture_in_progress")) is not bool
+        or type(capture.get("last_attempt_monotonic_ns")) is not int
+        or not 0 <= capture["last_attempt_monotonic_ns"] <= AUTHORITY_COUNTER_MAX
+        or capture.get("last_error_type") is not None
+        or type(capture.get("last_successful_attempt_sequence")) is not int
+        or not 1 <= capture["last_successful_attempt_sequence"] <= capture["attempt_sequence"]
+        or (
+            capture["capture_in_progress"] is False
+            and capture["last_successful_attempt_sequence"] != capture["attempt_sequence"]
+        )
+    ):
+        return False
+    captured_authority = value.get("captured_authority_anchor")
+    current_authority = value.get("authority_anchor")
+    if not (
+        _valid_authority_status(captured_authority, fenced=False, terminal=True)
+        and _valid_authority_status(current_authority, fenced=False, terminal=True)
+        and captured_authority["lifetime_id"] == lifetime
+        and current_authority["lifetime_id"] == lifetime
+        and captured_authority["namespace_process_id"] == current_authority["namespace_process_id"]
+        and all(
+            current_authority[field_name] >= captured_authority[field_name]
+            for field_name in AUTHORITY_COUNTER_FIELDS
+        )
+        and (
+            captured_authority["first_fault"] is None
+            or captured_authority["first_fault"] == current_authority["first_fault"]
+        )
+    ):
+        return False
+    checkpoint = value.get("authority_checkpoint")
+    audit = value.get("audit_verification")
+    if not (
+        _valid_core_authority_checkpoint(checkpoint, node=node)
+        and value.get("database_instance_id") == checkpoint["database_instance_id"]
+        and value.get("core_state_revision") == checkpoint["state_revision"]
+        and isinstance(value.get("sqlite_schema_sha256"), str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", value["sqlite_schema_sha256"]) is not None
+        and isinstance(audit, dict)
+        and set(audit) == OBSERVATION_AUDIT_FIELDS
+        and audit.get("valid") is True
+        and audit.get("sticky_failure") is False
+        and audit.get("catching_up") is False
+        and audit.get("error_type") is None
+        and audit.get("lag") == 0
+        and audit.get("captured_head_sequence") == checkpoint["audit_sequence"]
+        and audit.get("verified_through_sequence") == checkpoint["audit_sequence"]
+        and audit.get("schema_definition_sha256") == value["sqlite_schema_sha256"]
+        and type(audit.get("last_full_verification_at_ns")) is int
+        and audit["last_full_verification_at_ns"] > 0
+        and type(audit.get("page_size")) is int
+        and 1 <= audit["page_size"] <= 1_000
+        and all(
+            type(audit.get(field_name)) is int and -1 <= audit[field_name] <= AUTHORITY_COUNTER_MAX
+            for field_name in (
+                "sweep_cursor_sequence",
+                "sweep_last_completed_head_sequence",
+                "sweep_target_sequence",
+            )
+        )
+        and type(audit.get("sweep_last_completed_at_ns")) is int
+        and audit["last_full_verification_at_ns"]
+        <= audit["sweep_last_completed_at_ns"]
+        <= value["captured_at_ns"]
+        and isinstance(audit.get("sweep_last_completed_head_hash"), str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", audit["sweep_last_completed_head_hash"])
+        is not None
+    ):
+        return False
+    try:
+        checkpoint_audit_hash = base64.urlsafe_b64decode(checkpoint["audit_hash"] + "=")
+    except (TypeError, ValueError):
+        return False
+    checkpoint_hash = f"sha256:{checkpoint_audit_hash.hex()}"
+    if (
+        len(checkpoint_audit_hash) != 32
+        or audit.get("captured_head_hash") != checkpoint_hash
+        or audit.get("verified_through_hash") != checkpoint_hash
+        or not audit["sweep_cursor_sequence"]
+        <= audit["sweep_target_sequence"]
+        <= audit["captured_head_sequence"]
+        or audit["sweep_last_completed_head_sequence"] > audit["sweep_target_sequence"]
+        or (
+            audit["sweep_last_completed_head_sequence"] == audit["captured_head_sequence"]
+            and audit["sweep_last_completed_head_hash"] != checkpoint_hash
+        )
+    ):
+        return False
+    resource_fields = {
+        "consumed",
+        "free_pool",
+        "initial_share",
+        "lease_residual",
+        "transferred_in",
+        "transferred_out",
+    }
+    resources = value.get("resources")
+    invariant = value.get("invariant")
+    if not (
+        isinstance(resources, dict)
+        and set(resources) == resource_fields
+        and isinstance(invariant, dict)
+        and set(invariant)
+        == resource_fields
+        | {"checked_at_ns", "config_epoch", "envelope_id", "healthy", "tenant_id"}
+        and invariant.get("tenant_id") == "production-acceptance-tenant"
+        and invariant.get("envelope_id") == "production-acceptance-envelope"
+        and invariant.get("config_epoch") == 1
+        and invariant.get("checked_at_ns") == value["checked_at_ns"]
+        and invariant.get("healthy") is True
+        and all(resources[field_name] == invariant[field_name] for field_name in resource_fields)
+    ):
+        return False
+    vectors = [invariant[field_name] for field_name in sorted(resource_fields)]
+    if not (
+        all(isinstance(vector, list) and vector for vector in vectors)
+        and len({len(cast(list[Any], vector)) for vector in vectors}) == 1
+        and all(
+            type(item) is int and 0 <= item <= AUTHORITY_COUNTER_MAX
+            for vector in vectors
+            for item in cast(list[Any], vector)
+        )
+    ):
+        return False
+    for index in range(len(cast(list[Any], invariant["initial_share"]))):
+        if (
+            invariant["initial_share"][index] + invariant["transferred_in"][index]
+            != invariant["free_pool"][index]
+            + invariant["lease_residual"][index]
+            + invariant["consumed"][index]
+            + invariant["transferred_out"][index]
+        ):
+            return False
+    exact_maps: tuple[tuple[str, frozenset[str]], ...] = (
+        ("runtime", frozenset({"changed_at_ns", "changed_by", "generation", "mode", "reason"})),
+        ("leases", frozenset({"by_status", "total"})),
+        ("receipts", frozenset({"total"})),
+        (
+            "transfers",
+            frozenset(
+                {
+                    "in_flight_count",
+                    "inbound_gap_count",
+                    "incoming_compacted_high_water",
+                    "incoming_contiguous_high_water",
+                    "incoming_streams",
+                    "outgoing_acked_high_water",
+                    "outgoing_compacted_high_water",
+                    "outgoing_streams",
+                }
+            ),
+        ),
+        ("audit_outbox", frozenset({"oldest_unpublished_age_ns", "unpublished_count"})),
+    )
+    if any(
+        not isinstance(value.get(name), dict) or set(value[name]) != fields
+        for name, fields in exact_maps
+    ):
+        return False
+    runtime = value["runtime"]
+    leases = value["leases"]
+    receipts = value["receipts"]
+    transfers = value["transfers"]
+    outbox = value["audit_outbox"]
+    if (
+        runtime.get("mode") != "ACTIVE"
+        or type(runtime.get("generation")) is not int
+        or not 0 <= runtime["generation"] <= AUTHORITY_COUNTER_MAX
+        or type(runtime.get("changed_at_ns")) is not int
+        or not 0 <= runtime["changed_at_ns"] <= AUTHORITY_COUNTER_MAX
+        or not isinstance(runtime.get("changed_by"), str)
+        or not isinstance(runtime.get("reason"), str)
+        or type(leases.get("total")) is not int
+        or not 0 <= leases["total"] <= AUTHORITY_COUNTER_MAX
+        or not isinstance(leases.get("by_status"), dict)
+        or any(
+            not isinstance(key, str)
+            or type(item) is not int
+            or not 0 <= item <= AUTHORITY_COUNTER_MAX
+            for key, item in leases["by_status"].items()
+        )
+        or sum(leases["by_status"].values()) != leases["total"]
+        or type(receipts.get("total")) is not int
+        or not 0 <= receipts["total"] <= AUTHORITY_COUNTER_MAX
+        or any(
+            type(transfers[field_name]) is not int
+            or not 0 <= transfers[field_name] <= AUTHORITY_COUNTER_MAX
+            for field_name in transfers
+        )
+        or any(
+            type(outbox[field_name]) is not int
+            or not 0 <= outbox[field_name] <= AUTHORITY_COUNTER_MAX
+            for field_name in outbox
+        )
+    ):
+        return False
+    capacity = value.get("storage_capacity")
+    peer = value.get("peer_dispatcher")
+    exporter = value.get("audit_exporter")
+    capacity_fields = frozenset(
+        {
+            "additional_shared_memory_bytes",
+            "database_bytes",
+            "effective_database_bytes",
+            "filesystem_free_bytes",
+            "free_pages",
+            "healthy",
+            "logical_live_bytes",
+            "main_database_bytes",
+            "max_database_bytes",
+            "max_page_count",
+            "min_free_disk_bytes",
+            "page_count",
+            "page_size",
+            "prior_full_error",
+            "remaining_main_growth_bytes",
+            "required_filesystem_free_bytes",
+            "reserve_pages",
+            "reusable_bytes",
+            "shared_memory_bytes",
+            "wal_bytes",
+            "worst_case_shared_memory_bytes",
+            "worst_case_transaction_wal_bytes",
+        }
+    )
+    peer_fields = frozenset(
+        {
+            "configured_peers",
+            "delivered_records",
+            "durable_retry",
+            "failed_records",
+            "healthy",
+            "last_cycle_ns",
+            "last_error",
+            "pending_records",
+            "prepared_transfers",
+            "running",
+            "superseded_records",
+        }
+    )
+    exporter_fields = frozenset(
+        {
+            "archive_reconciled",
+            "configured",
+            "healthy",
+            "last_error",
+            "last_success_ns",
+            "max_pending",
+            "max_stall_s",
+            "oldest_pending_age_s",
+            "pending",
+            "publish_blocked",
+            "publish_timeout_s",
+            "running",
+            "sink_call_blocked",
+            "stalled_for_s",
+        }
+    )
+    return bool(
+        isinstance(capacity, dict)
+        and set(capacity) == capacity_fields
+        and capacity.get("healthy") is True
+        and type(capacity.get("prior_full_error")) is bool
+        and all(
+            (
+                capacity[field_name] is None
+                or (
+                    type(capacity[field_name]) is int
+                    and 0 <= capacity[field_name] <= AUTHORITY_COUNTER_MAX
+                )
+                if field_name in {"filesystem_free_bytes", "max_database_bytes"}
+                else type(capacity[field_name]) is int
+                and 0 <= capacity[field_name] <= AUTHORITY_COUNTER_MAX
+            )
+            for field_name in capacity_fields - {"healthy", "prior_full_error"}
+        )
+        and isinstance(peer, dict)
+        and set(peer) == peer_fields
+        and peer.get("healthy") is True
+        and peer.get("running") is True
+        and peer.get("last_error") is None
+        and type(peer.get("last_cycle_ns")) is int
+        and 0 <= peer["last_cycle_ns"] <= AUTHORITY_COUNTER_MAX
+        and all(
+            type(peer[field_name]) is int and 0 <= peer[field_name] <= AUTHORITY_COUNTER_MAX
+            for field_name in peer_fields
+            - {"durable_retry", "healthy", "last_cycle_ns", "last_error", "running"}
+        )
+        and (
+            peer.get("durable_retry") is None
+            or (
+                isinstance(peer["durable_retry"], dict)
+                and set(peer["durable_retry"])
+                == {
+                    "attempt_count",
+                    "exception_class",
+                    "next_retry_delay_seconds",
+                    "record_kind",
+                    "target_warden",
+                }
+                and type(peer["durable_retry"].get("attempt_count")) is int
+                and 0 <= peer["durable_retry"]["attempt_count"] <= AUTHORITY_COUNTER_MAX
+                and isinstance(peer["durable_retry"].get("exception_class"), str)
+                and _finite_number(peer["durable_retry"].get("next_retry_delay_seconds"))
+                and peer["durable_retry"]["next_retry_delay_seconds"] >= 0
+                and isinstance(peer["durable_retry"].get("record_kind"), str)
+                and isinstance(peer["durable_retry"].get("target_warden"), str)
+            )
+        )
+        and isinstance(exporter, dict)
+        and set(exporter) == exporter_fields
+        and all(
+            type(exporter.get(field_name)) is bool
+            for field_name in (
+                "archive_reconciled",
+                "configured",
+                "healthy",
+                "publish_blocked",
+                "running",
+                "sink_call_blocked",
+            )
+        )
+        and type(exporter.get("pending")) is int
+        and 0 <= exporter["pending"] <= AUTHORITY_COUNTER_MAX
+        and type(exporter.get("max_pending")) is int
+        and 0 <= exporter["max_pending"] <= AUTHORITY_COUNTER_MAX
+        and exporter.get("configured") is True
+        and exporter.get("running") is True
+        and exporter.get("publish_blocked") is False
+        and exporter.get("sink_call_blocked") is False
+        and exporter["pending"] <= exporter["max_pending"]
+        and all(
+            _finite_number(exporter.get(field_name)) and exporter[field_name] >= 0
+            for field_name in ("max_stall_s", "publish_timeout_s", "stalled_for_s")
+        )
+        and (
+            exporter.get("oldest_pending_age_s") is None
+            or (
+                _finite_number(exporter.get("oldest_pending_age_s"))
+                and exporter["oldest_pending_age_s"] >= 0
+            )
+        )
+        and (
+            exporter.get("last_error") is None
+            or exporter.get("last_error") == "StorageError:sqlite_busy"
+        )
+        and (
+            exporter.get("last_success_ns") is None
+            or (
+                type(exporter["last_success_ns"]) is int
+                and 0 < exporter["last_success_ns"] <= AUTHORITY_COUNTER_MAX
+            )
+        )
+        and (outbox["unpublished_count"] != 0 or outbox["oldest_unpublished_age_ns"] == 0)
+        and (
+            (exporter.get("last_error") is None)
+            == (exporter.get("archive_reconciled") is True and exporter.get("healthy") is True)
+        )
+        and (exporter.get("last_error") is None or exporter.get("last_success_ns") is not None)
+        and value.get("ready") is (exporter.get("healthy") is True and peer.get("healthy") is True)
+    )
+
+
+def _valid_terminal_fence_result(
+    result: object,
+    *,
+    node: str,
+    restart_id: str,
+    expected_lifetime: str,
+    prior_authority: dict[str, Any],
+    prior_observation: dict[str, Any],
+    full_audit_verification: bool,
+) -> bool:
+    terminal = result.get("terminal") if isinstance(result, dict) else None
+    authority = terminal.get("authority_anchor") if isinstance(terminal, dict) else None
+    checkpoint = terminal.get("authority_checkpoint") if isinstance(terminal, dict) else None
+    proof = terminal.get("terminal_audit_proof") if isinstance(terminal, dict) else None
+    prior_checkpoint = prior_observation.get("authority_checkpoint")
+    prior_audit = prior_observation.get("audit_verification")
+    verified_head_hash = proof.get("verified_head_hash") if isinstance(proof, dict) else None
+    checkpoint_audit_hash = checkpoint.get("audit_hash") if isinstance(checkpoint, dict) else None
+    if not (
+        isinstance(result, dict)
+        and set(result) == {"node", "request_retry_count", "schema", "status", "terminal"}
+        and result.get("schema") == "lets.production-profile-authority-fence/v1"
+        and result.get("status") == "passed"
+        and result.get("node") == node
+        and type(result.get("request_retry_count")) is int
+        and result["request_retry_count"] >= 0
+        and isinstance(terminal, dict)
+        and set(terminal) == CORE_AUTHORITY_FENCE_FIELDS
+        and terminal.get("schema") == "lets.authority-admission-fence/v1"
+        and terminal.get("restart_id") == restart_id
+        and terminal.get("warden_id") == node
+        and terminal.get("lifetime_id") == expected_lifetime
+        and type(terminal.get("namespace_process_id")) is int
+        and terminal["namespace_process_id"] > 0
+        and type(terminal.get("fenced_at_monotonic_ns")) is int
+        and terminal["fenced_at_monotonic_ns"] >= 0
+        and _valid_authority_status(authority, fenced=True, terminal=True)
+        and authority.get("lifetime_id") == expected_lifetime
+        and authority.get("fence_id") == restart_id
+        and terminal.get("namespace_process_id") == authority.get("namespace_process_id")
+        and terminal.get("fenced_at_monotonic_ns") == authority.get("fenced_at_monotonic_ns")
+        and authority.get("namespace_process_id") == prior_authority.get("namespace_process_id")
+        and all(
+            cast(int, authority.get(field_name)) >= cast(int, prior_authority.get(field_name))
+            for field_name in AUTHORITY_COUNTER_FIELDS
+        )
+        and (
+            prior_authority.get("first_fault") is None
+            or authority.get("first_fault") == prior_authority.get("first_fault")
+        )
+        and _valid_core_authority_checkpoint(checkpoint, node=node)
+        and _valid_core_authority_checkpoint(prior_checkpoint, node=node)
+        and _core_checkpoint_extends(prior_checkpoint, checkpoint)
+        and isinstance(proof, dict)
+        and set(proof) == TERMINAL_AUDIT_PROOF_FIELDS
+        and proof.get("schema") == "lets.terminal-audit-proof/v1"
+        and proof.get("valid") is True
+        and proof.get("verification_mode")
+        == ("full" if full_audit_verification else "trusted-startup-plus-tail")
+        and proof.get("lifetime_id") == expected_lifetime
+        and proof.get("generation") == prior_observation.get("generation")
+        and proof.get("schema_definition_sha256") == prior_observation.get("sqlite_schema_sha256")
+        and isinstance(prior_audit, dict)
+        and proof.get("startup_full_verification_at_ns")
+        == prior_audit.get("last_full_verification_at_ns")
+        and type(proof.get("verified_at_ns")) is int
+        and proof["verified_at_ns"] > 0
+        and proof.get("verified_head_sequence") == checkpoint.get("audit_sequence")
+        and proof.get("authority_state_revision") == checkpoint.get("state_revision")
+        and proof.get("database_instance_id") == checkpoint.get("database_instance_id")
+        and proof.get("authority_checkpoint_sha256") == _sha256_json(checkpoint)
+        and isinstance(verified_head_hash, str)
+        and isinstance(checkpoint_audit_hash, str)
+    ):
+        return False
+    try:
+        audit_hash = base64.urlsafe_b64decode(checkpoint_audit_hash + "=")
+    except (TypeError, ValueError):
+        return False
+    return verified_head_hash == f"sha256:{audit_hash.hex()}"
+
+
 def _executor_checkpoint_stable_identity(value: dict[str, Any]) -> tuple[object, ...]:
     return tuple(
         value[field_name]
@@ -809,16 +1586,24 @@ def _executor_checkpoint_stable_identity(value: dict[str, Any]) -> tuple[object,
 def evaluate_restart_evidence(
     restarts: object,
     *,
+    restart_quiescence_intervals: object,
     workload_started_monotonic: float,
 ) -> dict[str, Any]:
     """Bind each cadence exclusion to one exact host-executed planned restart."""
 
-    if not isinstance(restarts, list) or not _finite_number(workload_started_monotonic):
+    if (
+        not isinstance(restarts, list)
+        or not isinstance(restart_quiescence_intervals, list)
+        or len(restart_quiescence_intervals) != len(restarts)
+        or not _finite_number(workload_started_monotonic)
+    ):
         return {"passed": False, "reason": "missing restart evidence"}
     bindings: dict[str, dict[str, Any]] = {}
     windows_by_node: dict[str, list[dict[str, Any]]] = {node: [] for node in WARDENS}
     global_windows: list[dict[str, Any]] = []
     host_intervals: list[tuple[float, float]] = []
+    quiesced_seconds = 0.0
+    prior_quiescence_end = -math.inf
     for expected_episode, restart in enumerate(restarts):
         if not isinstance(restart, dict):
             return {"passed": False, "reason": "malformed restart record"}
@@ -826,6 +1611,7 @@ def evaluate_restart_evidence(
         host_started = restart.get("host_operation_started_monotonic_seconds")
         host_completed = restart.get("host_operation_completed_monotonic_seconds")
         coordination = restart.get("workload_coordination")
+        workload_quiescence = restart_quiescence_intervals[expected_episode]
         if (
             service not in WARDENS
             or service != WARDENS[expected_episode % len(WARDENS)]
@@ -834,11 +1620,17 @@ def evaluate_restart_evidence(
             or not float(host_started) < float(host_completed)
             or float(host_completed) - float(host_started) > MAXIMUM_PLANNED_RESTART_SECONDS
             or not isinstance(coordination, dict)
+            or not isinstance(workload_quiescence, dict)
         ):
             return {"passed": False, "reason": "unbounded or malformed host restart"}
         armed = coordination.get("armed")
         completed = coordination.get("completed")
-        if not isinstance(armed, dict) or not isinstance(completed, dict):
+        quiescence = coordination.get("quiescence")
+        if (
+            not isinstance(armed, dict)
+            or not isinstance(completed, dict)
+            or not isinstance(quiescence, dict)
+        ):
             return {"passed": False, "reason": "restart coordination is incomplete"}
         armed_marker = armed.get("marker")
         armed_ack = armed.get("acknowledgement")
@@ -851,28 +1643,40 @@ def evaluate_restart_evidence(
             return {"passed": False, "reason": "restart marker lifecycle is incomplete"}
         host_armed_started = armed.get("host_armed_started_monotonic_seconds")
         host_monitor_acknowledged = armed.get("host_monitor_acknowledged_monotonic_seconds")
-        host_completed_marker = completed.get("host_completed_marker_monotonic_seconds")
+        host_ack_command_started = armed.get("host_ack_command_started_monotonic_seconds")
+        host_ack_command_completed = armed.get("host_ack_command_completed_monotonic_seconds")
+        host_completion_command_started = completed.get(
+            "host_completion_command_started_monotonic_seconds"
+        )
+        host_completion_command_completed = completed.get(
+            "host_completion_command_completed_monotonic_seconds"
+        )
         host_monitor_recovered = completed.get("host_monitor_recovered_monotonic_seconds")
         if not all(
             _finite_number(value)
             for value in (
                 host_armed_started,
                 host_monitor_acknowledged,
-                host_completed_marker,
+                host_ack_command_started,
+                host_ack_command_completed,
+                host_completion_command_started,
+                host_completion_command_completed,
                 host_monitor_recovered,
             )
-        ) or not float(cast(int | float, host_armed_started)) <= float(
-            cast(int | float, host_monitor_acknowledged)
-        ) <= float(host_started) < float(host_completed) <= float(
-            cast(int | float, host_completed_marker)
-        ) <= float(cast(int | float, host_monitor_recovered)):
+        ):
             return {"passed": False, "reason": "host restart lifecycle is unbound"}
         typed_armed = cast(dict[str, Any], armed_marker)
         typed_ack = cast(dict[str, Any], armed_ack)
         typed_completed = cast(dict[str, Any], completed_marker)
         typed_recovery = cast(dict[str, Any], recovery_ack)
         restart_id = typed_armed.get("restart_id")
-        identity = ("armed_monotonic_seconds", "episode", "restart_id", "service")
+        identity = (
+            "armed_monotonic_seconds",
+            "episode",
+            "quiesce_pause_id",
+            "restart_id",
+            "service",
+        )
         if (
             not isinstance(restart_id, str)
             or not restart_id
@@ -883,6 +1687,7 @@ def evaluate_restart_evidence(
             )
             or typed_armed.get("episode") != expected_episode
             or typed_armed.get("service") != service
+            or typed_armed.get("quiesce_pause_id") != workload_quiescence.get("pause_id")
             or typed_armed.get("state") != "armed"
             or typed_armed.get("completed_monotonic_seconds") is not None
             or typed_completed.get("state") != "completed"
@@ -892,21 +1697,72 @@ def evaluate_restart_evidence(
         ):
             return {"passed": False, "reason": "restart marker identity is inconsistent"}
         acknowledged = typed_ack.get("acknowledged_monotonic_seconds")
+        prepared = typed_ack.get("observed_monotonic_seconds")
+        quiesced = typed_ack.get("quiesced_monotonic_seconds")
+        fence_validated = typed_ack.get("host_fence_validated_monotonic_seconds")
+        reinspected = typed_ack.get("host_reinspected_monotonic_seconds")
+        ack_command_started = typed_ack.get("host_ack_command_started_monotonic_seconds")
         completed_at = typed_completed.get("completed_monotonic_seconds")
         recovered = typed_recovery.get("recovered_monotonic_seconds")
+        prepared_payload = dict(typed_ack)
+        prepared_payload.pop("coordination_payload_sha256", None)
+        recovered_payload = dict(typed_recovery)
+        recovered_payload.pop("coordination_payload_sha256", None)
         if (
             not _finite_number(typed_armed.get("armed_monotonic_seconds"))
+            or not _finite_number(prepared)
+            or not _finite_number(quiesced)
+            or not _finite_number(fence_validated)
+            or not _finite_number(reinspected)
+            or not _finite_number(ack_command_started)
             or not _finite_number(acknowledged)
             or not _finite_number(completed_at)
             or not _finite_number(recovered)
+            or type(typed_ack.get("coordination_revision")) is not int
+            or typed_ack["coordination_revision"] <= 0
+            or typed_ack.get("coordination_payload_sha256") != _canonical_digest(prepared_payload)
+            or type(typed_recovery.get("coordination_revision")) is not int
+            or typed_recovery["coordination_revision"] != typed_ack["coordination_revision"] + 1
+            or typed_recovery.get("coordination_payload_sha256")
+            != _canonical_digest(recovered_payload)
+            or any(
+                typed_recovery.get(field_name) != field_value
+                for field_name, field_value in typed_ack.items()
+                if field_name not in {"coordination_payload_sha256", "coordination_revision"}
+            )
             or typed_recovery.get("acknowledged_monotonic_seconds") != acknowledged
             or typed_recovery.get("completed_monotonic_seconds") != completed_at
-            or not float(typed_armed["armed_monotonic_seconds"])
+            or not float(quiesced)
+            <= float(typed_armed["armed_monotonic_seconds"])
+            <= float(prepared)
             <= float(acknowledged)
             <= float(completed_at)
             <= float(recovered)
+            or not float(cast(int | float, host_armed_started))
+            <= float(cast(int | float, host_monitor_acknowledged))
+            <= float(fence_validated)
+            <= float(reinspected)
+            <= float(ack_command_started)
+            == float(cast(int | float, host_ack_command_started))
+            <= float(cast(int | float, host_ack_command_completed))
+            <= float(host_started)
+            < float(host_completed)
+            <= float(cast(int | float, host_completion_command_started))
+            <= float(cast(int | float, host_completion_command_completed))
+            <= float(cast(int | float, host_monitor_recovered))
+            or float(prepared) - float(typed_armed["armed_monotonic_seconds"])
+            > HEALTH_CADENCE_LIMIT_SECONDS
+            or float(fence_validated) - float(cast(int | float, host_armed_started))
+            > PLANNED_FENCE_PREPARATION_SECONDS - PLANNED_PRE_ACK_RESERVE_SECONDS
+            or float(acknowledged) - float(prepared) > PLANNED_FENCE_PREPARATION_SECONDS
             or float(completed_at) - float(acknowledged) > MAXIMUM_PLANNED_RESTART_SECONDS
             or float(recovered) - float(completed_at) > HEALTH_CADENCE_LIMIT_SECONDS
+            or float(cast(int | float, host_ack_command_started))
+            - float(cast(int | float, host_armed_started))
+            > PLANNED_FENCE_PREPARATION_SECONDS
+            or float(cast(int | float, host_monitor_recovered))
+            - float(cast(int | float, host_ack_command_started))
+            > MAXIMUM_PLANNED_RESTART_SECONDS
         ):
             return {"passed": False, "reason": "restart acknowledgement timing is invalid"}
         authority_fence = restart.get("authority_fence")
@@ -919,13 +1775,32 @@ def evaluate_restart_evidence(
         new_authority = restart.get("new_authority_anchor")
         recovered_authority = typed_recovery.get("recovered_authority_anchor")
         expected_recovered = typed_completed.get("expected_recovered_authority_identity")
+        prior_identity = {
+            "container_id": restart.get("prior_container_id"),
+            "host_pid": restart.get("prior_pid"),
+            "oom_killed": False,
+            "restart_count": (
+                restart.get("restart_counts", {}).get("prior")
+                if isinstance(restart.get("restart_counts"), dict)
+                else None
+            ),
+            "state": {
+                "OOMKilled": False,
+                "Pid": restart.get("prior_pid"),
+                "Status": "running",
+            },
+            "status": "running",
+        }
         if (
             not _valid_authority_status(prior_authority, fenced=False, terminal=True)
             or not isinstance(authority_fence, dict)
             or authority_fence.get("prior_authority_anchor") != prior_authority
             or authority_fence.get("host_container_id") != restart.get("prior_container_id")
             or authority_fence.get("host_pid") != restart.get("prior_pid")
+            or authority_fence.get("host_validated_monotonic_seconds") != fence_validated
             or not isinstance(fence_terminal, dict)
+            or typed_ack.get("fence_terminal_sha256") != _canonical_digest(fence_terminal)
+            or typed_ack.get("target_identity_sha256") != _canonical_digest(prior_identity)
             or fence_terminal.get("restart_id") != restart_id
             or fence_terminal.get("warden_id") != service
             or not _valid_authority_status(terminal_authority, fenced=True, terminal=True)
@@ -952,12 +1827,81 @@ def evaluate_restart_evidence(
             or restart.get("new_pid") == restart.get("prior_pid")
         ):
             return {"passed": False, "reason": "restart authority lifetime binding is invalid"}
+        q_marker = quiescence.get("marker")
+        q_ack = quiescence.get("acknowledgement")
+        q_start = quiescence.get("authorized_start")
+        q_end = quiescence.get("authorized_end")
+        if not all(isinstance(item, dict) for item in (q_marker, q_ack, q_start, q_end)):
+            return {"passed": False, "reason": "restart quiescence token is incomplete"}
+        q_marker = cast(dict[str, Any], q_marker)
+        q_ack = cast(dict[str, Any], q_ack)
+        q_start = cast(dict[str, Any], q_start)
+        q_end = cast(dict[str, Any], q_end)
+        pause_identity = (
+            "episode",
+            "pause_id",
+            "reason",
+            "requested_monotonic_seconds",
+            "restart_id",
+            "service",
+        )
+        q_observed = workload_quiescence.get("observed_monotonic_seconds")
+        q_resumed = workload_quiescence.get("resumed_monotonic_seconds")
+        q_clipped = workload_quiescence.get("measurement_clipped_duration_seconds")
+        q_authorized_start = q_start.get("authorized_start_monotonic_seconds")
+        q_authorized_end = q_end.get("authorized_end_monotonic_seconds")
+        q_resume_requested = quiescence.get("workload_resume_requested_monotonic_seconds")
+        if (
+            any(q_ack.get(key) != q_marker.get(key) for key in pause_identity)
+            or any(q_start.get(key) != q_marker.get(key) for key in pause_identity)
+            or any(q_end.get(key) != q_marker.get(key) for key in pause_identity)
+            or any(workload_quiescence.get(key) != q_marker.get(key) for key in pause_identity)
+            or q_marker.get("episode") != expected_episode
+            or q_marker.get("pause_id") != typed_armed.get("quiesce_pause_id")
+            or q_marker.get("reason") != "planned_restart"
+            or q_marker.get("restart_id") != restart_id
+            or q_marker.get("service") != service
+            or q_ack.get("paused") is not True
+            or q_ack.get("observed_monotonic_seconds") != q_observed
+            or q_observed != quiesced
+            or not all(
+                _finite_number(item)
+                for item in (
+                    q_observed,
+                    q_resumed,
+                    q_clipped,
+                    q_authorized_start,
+                    q_authorized_end,
+                    q_resume_requested,
+                )
+            )
+            or not float(q_marker["requested_monotonic_seconds"])
+            <= float(cast(int | float, q_observed))
+            <= float(cast(int | float, q_authorized_start))
+            <= float(typed_armed["armed_monotonic_seconds"])
+            <= float(prepared)
+            <= float(acknowledged)
+            <= float(completed_at)
+            <= float(recovered)
+            <= float(cast(int | float, q_authorized_end))
+            <= float(cast(int | float, q_resume_requested))
+            <= float(cast(int | float, q_resumed))
+            or float(cast(int | float, q_observed)) < prior_quiescence_end
+            or not 0
+            <= float(cast(int | float, q_clipped))
+            <= float(cast(int | float, q_resumed)) - float(cast(int | float, q_observed)) + 0.002
+        ):
+            return {"passed": False, "reason": "restart quiescence binding is invalid"}
+        prior_quiescence_end = float(cast(int | float, q_resumed))
+        quiesced_seconds += float(cast(int | float, q_clipped))
         window = {
             "end_elapsed_seconds": float(completed_at) - workload_started_monotonic,
             "episode": expected_episode,
             "restart_id": restart_id,
             "service": service,
-            "start_elapsed_seconds": float(acknowledged) - workload_started_monotonic,
+            "start_elapsed_seconds": (
+                float(typed_armed["armed_monotonic_seconds"]) - workload_started_monotonic
+            ),
         }
         if (
             window["start_elapsed_seconds"] < 0
@@ -969,6 +1913,10 @@ def evaluate_restart_evidence(
             **window,
             "armed_marker": typed_armed,
             "completed_marker": typed_completed,
+            "prior_lifetime_id": prior_authority["lifetime_id"],
+            "recovered_lifetime_id": new_authority["lifetime_id"],
+            "prior_authority_anchor": prior_authority,
+            "recovered_authority_anchor": new_authority,
         }
         windows_by_node[cast(str, service)].append(window)
         global_windows.append(window)
@@ -1001,6 +1949,7 @@ def evaluate_restart_evidence(
             default=0.0,
         ),
         "passed": True,
+        "workload_quiesced_seconds": round(quiesced_seconds, 6),
         "windows_by_node": windows_by_node,
     }
 
@@ -1064,6 +2013,8 @@ def evaluate_health_cadence(
     observations: dict[str, list[float]] = {node: [] for node in WARDENS}
     unavailable_counts = {node: 0 for node in WARDENS}
     acknowledged_unavailable_restart_ids: set[str] = set()
+    prior_observations: dict[str, dict[str, Any]] = {}
+    metrics_request_count = 0
     prior_started = -math.inf
     prior_completed = -math.inf
     scheduled_samples = zip(samples, expected_schedule, strict=True)
@@ -1119,6 +2070,7 @@ def evaluate_health_cadence(
         ):
             return {"passed": False, "reason": "health sample elapsed origin is inconsistent"}
         actual_planned: list[str] = []
+        sample_request_count = 0
         for node in WARDENS:
             document = nodes[node]
             if not isinstance(document, dict):
@@ -1126,10 +2078,22 @@ def evaluate_health_cadence(
             observation = document.get("observation")
             if not isinstance(observation, dict):
                 return {"passed": False, "reason": "health node observation is missing"}
+            if set(observation) != {
+                "completed_elapsed_seconds",
+                "metrics_observed_elapsed_seconds",
+                "request_count",
+                "request_path",
+                "request_retries",
+                "retry_errors",
+                "started_elapsed_seconds",
+            }:
+                return {"passed": False, "reason": "health request evidence is non-exact"}
             observed_started = observation.get("started_elapsed_seconds")
             observed_metrics = observation.get("metrics_observed_elapsed_seconds")
             observed_completed = observation.get("completed_elapsed_seconds")
             retries = observation.get("request_retries")
+            request_count = observation.get("request_count")
+            retry_errors = observation.get("retry_errors")
             if (
                 not _finite_number(observed_started)
                 or not _finite_number(observed_completed)
@@ -1139,11 +2103,25 @@ def evaluate_health_cadence(
                 or isinstance(retries, bool)
                 or not isinstance(retries, int)
                 or retries < 0
+                or observation.get("request_path") != "/v1/metrics"
+                or type(request_count) is not int
+                or request_count not in {0, 1}
+                or not isinstance(retry_errors, dict)
+                or set(retry_errors) != {"first_error", "last_error"}
+                or any(
+                    item is not None and not isinstance(item, str) for item in retry_errors.values()
+                )
             ):
                 return {"passed": False, "reason": "health node timing is invalid"}
+            sample_request_count += request_count
+            metrics_request_count += request_count
             planned = document.get("planned_unavailable")
             if planned is not None:
-                if not isinstance(planned, dict) or observed_metrics is not None:
+                if (
+                    not isinstance(planned, dict)
+                    or observed_metrics is not None
+                    or request_count not in {0, 1}
+                ):
                     return {"passed": False, "reason": "planned unavailability is malformed"}
                 restart_id = planned.get("restart_id")
                 binding = bindings.get(restart_id)
@@ -1178,12 +2156,106 @@ def evaluate_health_cadence(
                 ):
                     acknowledged_unavailable_restart_ids.add(cast(str, restart_id))
                 continue
+            if request_count != 1:
+                return {"passed": False, "reason": "available node did not use one metrics GET"}
+            if not _finite_number(observed_metrics):
+                return {"passed": False, "reason": "health node observation is not live"}
+            snapshot = document.get("observation_snapshot")
+            if not _valid_observation_snapshot(snapshot, node=node):
+                return {"passed": False, "reason": "raw observation snapshot is invalid"}
+            invariant_projection = {
+                key: snapshot["invariant"][key]
+                for key in (
+                    "consumed",
+                    "free_pool",
+                    "healthy",
+                    "lease_residual",
+                    "transferred_in",
+                    "transferred_out",
+                )
+            }
+            if (
+                document.get("authority_anchor") != snapshot["authority_anchor"]
+                or document.get("audit_outbox") != snapshot["audit_outbox"]
+                or document.get("invariant") != invariant_projection
+                or document.get("peer_dispatcher") != snapshot["peer_dispatcher"]
+                or document.get("ready") != snapshot["ready"]
+                or document.get("service_ready") != snapshot["service_ready"]
+                or document.get("receipts") != snapshot["receipts"]
+                or document.get("storage_capacity") != snapshot["storage_capacity"]
+                or document.get("transfers") != snapshot["transfers"]
+                or document.get("observation_generation") != snapshot["generation"]
+                or document.get("observation_revision") != snapshot["revision"]
+                or document.get("observation_snapshot_id") != snapshot["snapshot_id"]
+            ):
+                return {"passed": False, "reason": "raw observation projections diverge"}
+            prior_observation = prior_observations.get(node)
+            if prior_observation is not None:
+                prior_snapshot = cast(dict[str, Any], prior_observation["snapshot"])
+                same_lifetime = snapshot["lifetime_id"] == prior_snapshot["lifetime_id"]
+                prior_authority = prior_snapshot["authority_anchor"]
+                current_authority = snapshot["authority_anchor"]
+                if (
+                    snapshot["snapshot_id"] == prior_snapshot["snapshot_id"]
+                    or snapshot["database_instance_id"] != prior_snapshot["database_instance_id"]
+                    or snapshot["sqlite_schema_sha256"] != prior_snapshot["sqlite_schema_sha256"]
+                    or not _core_checkpoint_extends(
+                        prior_snapshot["authority_checkpoint"],
+                        snapshot["authority_checkpoint"],
+                    )
+                    or snapshot["captured_at_monotonic_ns"]
+                    <= prior_snapshot["captured_at_monotonic_ns"]
+                    or snapshot["published_at_monotonic_ns"]
+                    <= prior_snapshot["published_at_monotonic_ns"]
+                    or (
+                        same_lifetime
+                        and (
+                            snapshot["generation"] != prior_snapshot["generation"]
+                            or snapshot["revision"] <= prior_snapshot["revision"]
+                            or current_authority["namespace_process_id"]
+                            != prior_authority["namespace_process_id"]
+                            or any(
+                                current_authority[field_name] < prior_authority[field_name]
+                                for field_name in AUTHORITY_COUNTER_FIELDS
+                            )
+                            or (
+                                prior_authority["first_fault"] is not None
+                                and current_authority["first_fault"]
+                                != prior_authority["first_fault"]
+                            )
+                        )
+                    )
+                    or (
+                        not same_lifetime
+                        and (
+                            snapshot["generation"] == prior_snapshot["generation"]
+                            or not any(
+                                binding.get("service") == node
+                                and binding.get("prior_lifetime_id")
+                                == prior_snapshot["lifetime_id"]
+                                and binding.get("recovered_lifetime_id") == snapshot["lifetime_id"]
+                                and binding.get("prior_authority_anchor") == prior_authority
+                                and binding.get("recovered_authority_anchor") == current_authority
+                                and float(binding.get("start_elapsed_seconds", math.inf))
+                                >= float(prior_observation["observed_elapsed"])
+                                and float(binding.get("end_elapsed_seconds", math.inf))
+                                <= float(observed_metrics)
+                                for binding in bindings.values()
+                                if isinstance(binding, dict)
+                            )
+                        )
+                    )
+                ):
+                    return {"passed": False, "reason": "raw observation lineage is invalid"}
+            prior_observations[node] = {
+                "observed_elapsed": float(observed_metrics),
+                "snapshot": snapshot,
+            }
             exporter = document.get("audit_exporter")
             if (
                 not isinstance(exporter, dict)
                 or not _finite_number(exporter.get("max_stall_s"))
                 or float(exporter["max_stall_s"]) != HEALTH_CADENCE_LIMIT_SECONDS
-                or not _finite_number(observed_metrics)
                 or not float(observed_started)
                 <= float(observed_metrics)
                 <= float(observed_completed)
@@ -1192,6 +2264,10 @@ def evaluate_health_cadence(
             observations[node].append(float(observed_metrics))
         if sorted(actual_planned) != sorted(cast(list[str], planned_nodes)):
             return {"passed": False, "reason": "planned-unavailable node list is inconsistent"}
+        if (not actual_planned and sample_request_count != len(WARDENS)) or (
+            actual_planned and sample_request_count not in {len(WARDENS) - 1, len(WARDENS)}
+        ):
+            return {"passed": False, "reason": "health sample request count is inconsistent"}
     if acknowledged_unavailable_restart_ids != set(bindings):
         return {
             "passed": False,
@@ -1217,6 +2293,7 @@ def evaluate_health_cadence(
         "maximum_gap_seconds": round(maximum_gap, 6),
         "passed": maximum_gap <= HEALTH_CADENCE_LIMIT_SECONDS + 0.002,
         "planned_unavailable_samples_by_node": unavailable_counts,
+        "metrics_request_count": metrics_request_count,
         "sample_count": len(samples),
         "strictly_increasing": True,
     }
@@ -1227,15 +2304,23 @@ def evaluate_pause_evidence(
     *,
     configuration: SoakConfiguration,
     partitions: object,
+    restart_evidence: dict[str, Any],
     workload_start: object,
 ) -> dict[str, Any]:
     """Cross-bind workload pause records to conservative host-authorized intervals."""
 
     pause_intervals = result.get("pause_intervals")
-    if not isinstance(pause_intervals, list) or not isinstance(partitions, list):
+    restart_intervals = result.get("restart_quiescence_intervals")
+    if (
+        not isinstance(pause_intervals, list)
+        or not isinstance(restart_intervals, list)
+        or not isinstance(partitions, list)
+        or restart_evidence.get("passed") is not True
+    ):
         return {"passed": False, "reason": "pause or partition evidence is missing"}
     if (
         result.get("pause_interval_count") != len(pause_intervals)
+        or result.get("restart_quiescence_interval_count") != len(restart_intervals)
         or len(pause_intervals) != len(partitions)
         or not _finite_number(result.get("measurement_window_seconds"))
         or abs(float(result["measurement_window_seconds"]) - configuration.duration_seconds) > 0.002
@@ -1307,6 +2392,27 @@ def evaluate_pause_evidence(
             and pause.get("observed_monotonic_seconds")
             == typed_ack.get("observed_monotonic_seconds")
             and typed_ack.get("paused") is True
+            and pause.get("reason")
+            == typed_marker.get("reason")
+            == typed_ack.get("reason")
+            == typed_start.get("reason")
+            == typed_end.get("reason")
+            == coordination.get("reason")
+            == "partition"
+            and pause.get("restart_id")
+            == typed_marker.get("restart_id")
+            == typed_ack.get("restart_id")
+            == typed_start.get("restart_id")
+            == typed_end.get("restart_id")
+            == coordination.get("restart_id")
+            is None
+            and pause.get("service")
+            == typed_marker.get("service")
+            == typed_ack.get("service")
+            == typed_start.get("service")
+            == typed_end.get("service")
+            == coordination.get("service")
+            is None
         )
         numeric_fields = (
             typed_marker.get("requested_monotonic_seconds"),
@@ -1422,21 +2528,43 @@ def evaluate_pause_evidence(
         )
     reported_paused = result.get("paused_workload_seconds")
     reported_active = result.get("active_workload_seconds")
-    active_seconds = configuration.duration_seconds - authorized_paused
+    restart_paused = restart_evidence.get("workload_quiesced_seconds")
+    combined_intervals = sorted(
+        [*pause_intervals, *restart_intervals],
+        key=lambda item: (
+            float(item.get("observed_monotonic_seconds", math.inf))
+            if isinstance(item, dict)
+            else math.inf
+        ),
+    )
+    if (
+        not _finite_number(restart_paused)
+        or any(not isinstance(item, dict) for item in combined_intervals)
+        or any(
+            float(cast(dict[str, Any], right)["observed_monotonic_seconds"])
+            < float(cast(dict[str, Any], left)["resumed_monotonic_seconds"])
+            for left, right in pairwise(combined_intervals)
+        )
+    ):
+        return {"passed": False, "reason": "partition and restart pauses overlap"}
+    total_workload_paused = workload_paused + float(restart_paused)
+    total_authorized_paused = authorized_paused + float(restart_paused)
+    active_seconds = configuration.duration_seconds - total_authorized_paused
     if (
         not _finite_number(reported_paused)
         or not _finite_number(reported_active)
-        or abs(float(reported_paused) - workload_paused) > 0.002
-        or abs(float(reported_active) - (configuration.duration_seconds - workload_paused)) > 0.002
+        or abs(float(reported_paused) - total_workload_paused) > 0.002
+        or abs(float(reported_active) - (configuration.duration_seconds - total_workload_paused))
+        > 0.002
         or active_seconds < 0
     ):
         return {"passed": False, "reason": "reported active-time arithmetic is forged"}
     return {
         "active_workload_seconds": round(active_seconds, 6),
-        "authorized_paused_seconds": round(authorized_paused, 6),
+        "authorized_paused_seconds": round(total_authorized_paused, 6),
         "bindings": bindings,
         "passed": True,
-        "workload_reported_paused_seconds": round(workload_paused, 6),
+        "workload_reported_paused_seconds": round(total_workload_paused, 6),
     }
 
 
@@ -1789,6 +2917,7 @@ def evaluate_authority_evidence(
         "host_container_id",
         "host_exec_attempts",
         "host_pid",
+        "host_validated_monotonic_seconds",
         "prior_authority_anchor",
         "result",
     }
@@ -1799,15 +2928,7 @@ def evaluate_authority_evidence(
         "status",
         "terminal",
     }
-    authority_fence_terminal_fields = {
-        "authority_anchor",
-        "fenced_at_monotonic_ns",
-        "lifetime_id",
-        "namespace_process_id",
-        "restart_id",
-        "schema",
-        "warden_id",
-    }
+    authority_fence_terminal_fields = CORE_AUTHORITY_FENCE_FIELDS
     for restart in restarts:
         if not isinstance(restart, dict):
             return failed("planned restart authority evidence is malformed")
@@ -1834,6 +2955,7 @@ def evaluate_authority_evidence(
             or set(fence) != authority_fence_fields
             or type(fence.get("host_exec_attempts")) is not int
             or fence["host_exec_attempts"] < 1
+            or not _finite_number(fence.get("host_validated_monotonic_seconds"))
             or not isinstance(marker, dict)
             or not isinstance(armed_ack, dict)
             or not isinstance(result, dict)
@@ -1865,6 +2987,19 @@ def evaluate_authority_evidence(
             or fence.get("host_pid") != restart.get("prior_pid")
             or not _valid_authority_status(prior_authority, fenced=False, terminal=True)
             or prior_authority != armed_ack.get("prior_authority_anchor")
+            or fence.get("host_validated_monotonic_seconds")
+            != armed_ack.get("host_fence_validated_monotonic_seconds")
+            or armed_ack.get("fence_terminal_sha256") != _canonical_digest(terminal)
+            or not isinstance(armed_ack.get("prior_observation"), dict)
+            or not _valid_terminal_fence_result(
+                result,
+                node=cast(str, service),
+                restart_id=cast(str, marker.get("restart_id")),
+                expected_lifetime=cast(str, prior_authority.get("lifetime_id")),
+                prior_authority=prior_authority,
+                prior_observation=cast(dict[str, Any], armed_ack.get("prior_observation")),
+                full_audit_verification=False,
+            )
             or authority.get("lifetime_id") != prior_authority.get("lifetime_id")
             or authority.get("namespace_process_id") != prior_authority.get("namespace_process_id")
             or any(
@@ -1904,6 +3039,20 @@ def evaluate_authority_evidence(
     for node in WARDENS:
         terminal = core_terminal_fences[node]
         authority = terminal.get("authority_anchor") if isinstance(terminal, dict) else None
+        final_document = verification_final_nodes.get(node)
+        final_snapshot = (
+            final_document.get("authority_anchor") if isinstance(final_document, dict) else None
+        )
+        final_observation = (
+            final_document.get("observation_snapshot") if isinstance(final_document, dict) else None
+        )
+        terminal_result = {
+            "node": node,
+            "request_retry_count": 0,
+            "schema": "lets.production-profile-authority-fence/v1",
+            "status": "passed",
+            "terminal": terminal,
+        }
         if (
             not isinstance(terminal, dict)
             or set(terminal) != authority_fence_terminal_fields
@@ -1923,6 +3072,17 @@ def evaluate_authority_evidence(
             != f"final-verification-{workload_configuration.get('seed')}-{node}"
             or authority.get("lifetime_id") in core_lifetimes
             or authority.get("lifetime_id") in executor_lifetimes
+            or not _valid_authority_status(final_snapshot, fenced=False, terminal=True)
+            or not _valid_observation_snapshot(final_observation, node=node)
+            or not _valid_terminal_fence_result(
+                terminal_result,
+                node=node,
+                restart_id=cast(str, terminal.get("restart_id")),
+                expected_lifetime=cast(str, final_snapshot.get("lifetime_id")),
+                prior_authority=final_snapshot,
+                prior_observation=final_observation,
+                full_audit_verification=True,
+            )
         ):
             return failed("final core authority terminal is invalid or repeated")
         core_lifetimes.add(cast(str, authority["lifetime_id"]))
@@ -1930,13 +3090,8 @@ def evaluate_authority_evidence(
         terminal_statuses.append(authority)
         final_core_authorities[node] = authority
 
-        final_document = verification_final_nodes.get(node)
-        final_snapshot = (
-            final_document.get("authority_anchor") if isinstance(final_document, dict) else None
-        )
         if (
-            not _valid_authority_status(final_snapshot, fenced=False, terminal=True)
-            or authority["lifetime_id"] != final_snapshot["lifetime_id"]
+            authority["lifetime_id"] != final_snapshot["lifetime_id"]
             or authority["namespace_process_id"] != final_snapshot["namespace_process_id"]
             or any(
                 authority[field_name] < final_snapshot[field_name]
@@ -2111,6 +3266,7 @@ def evaluate_workload_result(
     workload_started = result.get("started_monotonic_seconds")
     restart_evidence = evaluate_restart_evidence(
         restarts,
+        restart_quiescence_intervals=result.get("restart_quiescence_intervals"),
         workload_started_monotonic=(
             float(workload_started) if _finite_number(workload_started) else math.nan
         ),
@@ -2119,6 +3275,7 @@ def evaluate_workload_result(
         result,
         configuration=configuration,
         partitions=partitions,
+        restart_evidence=restart_evidence,
         workload_start=workload_start,
     )
     validated_active_seconds = (
@@ -3293,11 +4450,56 @@ def _pre_sigkill_resource_checkpoint(
     }
 
 
-def _scenario_result(harness: Harness, path: str) -> dict[str, Any]:
-    command = (
-        "import json; from pathlib import Path; "
-        f"print(json.dumps(json.loads(Path({path!r}).read_text()),sort_keys=True))"
-    )
+def _scenario_result(
+    harness: Harness,
+    path: str,
+    *,
+    timeout: float = 60.0,
+    maximum_bytes: int = FAILURE_ARTIFACT_MAX_BYTES,
+) -> dict[str, Any]:
+    command = f"""
+import json
+import os
+import stat
+from pathlib import Path
+
+def unique(pairs):
+    result = {{}}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {{key}}")
+        result[key] = value
+    return result
+
+def reject(value):
+    raise ValueError(f"non-finite JSON number: {{value}}")
+
+path = Path({path!r})
+if not hasattr(os, "O_NOFOLLOW"):
+    raise RuntimeError("scenario platform lacks no-follow file admission")
+descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+try:
+    file_status = os.fstat(descriptor)
+    if not stat.S_ISREG(file_status.st_mode):
+        raise ValueError("scenario artifact is not a regular file")
+    if file_status.st_size > {maximum_bytes!r}:
+        raise ValueError("scenario artifact exceeds its byte bound")
+    chunks = []
+    remaining = {maximum_bytes!r} + 1
+    while remaining:
+        chunk = os.read(descriptor, min(remaining, 64 * 1024))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    raw = b"".join(chunks)
+finally:
+    os.close(descriptor)
+if len(raw) > {maximum_bytes!r}:
+    raise ValueError("scenario artifact exceeds its byte bound")
+value = json.loads(raw, object_pairs_hook=unique, parse_constant=reject)
+print(json.dumps(value, allow_nan=False, separators=(",", ":"), sort_keys=True))
+"""
     output = harness.compose(
         "run",
         "--rm",
@@ -3306,8 +4508,10 @@ def _scenario_result(harness: Harness, path: str) -> dict[str, Any]:
         "python",
         "-c",
         command,
-        timeout=60,
+        timeout=timeout,
     )
+    if len(output.encode("utf-8", errors="replace")) > maximum_bytes + 65_536:
+        raise RuntimeError(f"scenario result {path} exceeded its stdout byte bound")
     for line in reversed(output.splitlines()):
         try:
             value = json.loads(line)
@@ -3316,6 +4520,548 @@ def _scenario_result(harness: Harness, path: str) -> dict[str, Any]:
         if isinstance(value, dict):
             return cast(dict[str, Any], value)
     raise RuntimeError(f"scenario result {path} was not readable: {output}")
+
+
+def _validated_workload_artifact(
+    candidate: object,
+    *,
+    compact: bool,
+    configuration: SoakConfiguration,
+    expected_run_id: str,
+    started_monotonic_seconds: object,
+) -> dict[str, Any] | None:
+    if not isinstance(candidate, dict):
+        return None
+    expected_configuration = {
+        "cycle_interval_seconds": configuration.cycle_interval_seconds,
+        "duration_seconds": configuration.duration_seconds,
+        "executor_reopen_every_cycles": configuration.executor_reopen_every_cycles,
+        "health_interval_seconds": configuration.health_interval_seconds,
+        "retry_timeout_seconds": configuration.retry_timeout_seconds,
+        "seed": configuration.seed,
+        "transfer_every_cycles": configuration.transfer_every_cycles,
+    }
+    allowed_statuses = {"failed", "running"} if compact else {"failed", "passed"}
+    revision = candidate.get("journal_revision")
+    if (
+        candidate.get("schema") != "lets.production-profile-soak-workload/v2"
+        or type(candidate.get("artifact_revision")) is not int
+        or candidate.get("artifact_revision") != 1
+        or type(revision) is not int
+        or revision <= 0
+        or candidate.get("run_id") != expected_run_id
+        or candidate.get("started_monotonic_seconds") != started_monotonic_seconds
+        or not isinstance(candidate.get("configuration"), dict)
+        or _canonical_digest(cast(dict[str, Any], candidate["configuration"]))
+        != _canonical_digest(expected_configuration)
+        or candidate.get("status") not in allowed_statuses
+        or (compact and candidate.get("journal_compact") is not True)
+        or (not compact and "journal_compact" in candidate)
+        or not isinstance(candidate.get("health_monitor"), dict)
+        or not isinstance(candidate.get("health_samples"), list)
+    ):
+        return None
+    claimed_digest = candidate.get("artifact_payload_sha256")
+    payload = dict(candidate)
+    payload.pop("artifact_payload_sha256", None)
+    if claimed_digest != _canonical_digest(payload):
+        return None
+    return cast(dict[str, Any], candidate)
+
+
+def _harvest_failure_artifacts(
+    harness: Harness,
+    *,
+    configuration: SoakConfiguration,
+    expected_run_id: str,
+    workload_start: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    """Boundedly retain strict scenario artifacts before its volume is removed."""
+
+    # Critical workload identity and journals are read first. Optional marker
+    # volume can never consume their bounded harvest allowance.
+    paths = {
+        "start": WORKLOAD_START_PATH,
+        "workload_journal": WORKLOAD_JOURNAL_PATH,
+        "workload": "/scenario/soak-workload.json",
+        "pause_ack": WORKLOAD_PAUSE_ACK_PATH,
+        "pause_marker": WORKLOAD_PAUSE_PATH,
+        "restart_ack": WORKLOAD_RESTART_ACK_PATH,
+        "restart_marker": WORKLOAD_RESTART_PATH,
+        "verification": "/scenario/soak-verification.json",
+    }
+    result: dict[str, Any] = {
+        "attempted": True,
+        "captured": False,
+        "error": None,
+        "artifacts": {},
+    }
+    documents: dict[str, dict[str, Any]] = {}
+    command = f"""
+import hashlib
+import json
+import os
+import stat
+from pathlib import Path
+
+PATHS = {paths!r}
+MAXIMUM = {FAILURE_ARTIFACT_MAX_BYTES!r}
+CAPS = {{
+    "start": 64 * 1024,
+    "workload_journal": 2 * 1024 * 1024,
+    "workload": 64 * 1024 * 1024,
+}}
+
+def unique(pairs):
+    result = {{}}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {{key}}")
+        result[key] = value
+    return result
+
+def reject(value):
+    raise ValueError(f"non-finite JSON number: {{value}}")
+
+artifacts = {{}}
+total = 0
+if not hasattr(os, "O_NOFOLLOW"):
+    raise RuntimeError("scenario platform lacks no-follow artifact admission")
+for name, raw_path in PATHS.items():
+    path = Path(raw_path)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        artifacts[name] = {{"state": "missing"}}
+        continue
+    except OSError as error:
+        artifacts[name] = {{
+            "state": "invalid",
+            "error_type": type(error).__name__,
+        }}
+        continue
+    try:
+        file_status = os.fstat(descriptor)
+        if not stat.S_ISREG(file_status.st_mode):
+            artifacts[name] = {{"state": "invalid", "error_type": "NotRegularFile"}}
+            continue
+        remaining = MAXIMUM - total
+        per_file = CAPS.get(name, remaining)
+        if file_status.st_size > per_file or file_status.st_size > remaining:
+            artifacts[name] = {{"state": "oversized"}}
+            continue
+        chunks = []
+        read_remaining = min(per_file, remaining) + 1
+        while read_remaining:
+            chunk = os.read(descriptor, min(read_remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            read_remaining -= len(chunk)
+        raw = b"".join(chunks)
+    except OSError as error:
+        artifacts[name] = {{
+            "state": "invalid",
+            "error_type": type(error).__name__,
+        }}
+        continue
+    finally:
+        os.close(descriptor)
+    total += len(raw)
+    if len(raw) > per_file or len(raw) > MAXIMUM or total > MAXIMUM:
+        artifacts[name] = {{"state": "oversized"}}
+        continue
+    try:
+        document = json.loads(raw, object_pairs_hook=unique, parse_constant=reject)
+        if not isinstance(document, dict):
+            raise ValueError("artifact is not an object")
+    except Exception as error:
+        artifacts[name] = {{
+            "error_type": type(error).__name__,
+            "state": "invalid",
+        }}
+        continue
+    artifacts[name] = {{
+        "bytes": len(raw),
+        "document": document,
+        "raw_sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
+        "state": "captured",
+    }}
+print(json.dumps(
+    {{"artifacts": artifacts}},
+    allow_nan=False,
+    separators=(",", ":"),
+    sort_keys=True,
+))
+"""
+    try:
+        output = harness.compose(
+            "run",
+            "--rm",
+            "--no-deps",
+            "scenario",
+            "python",
+            "-c",
+            command,
+            timeout=FAILURE_LOG_TIMEOUT_SECONDS,
+        )
+        if len(output.encode("utf-8", errors="replace")) > FAILURE_ARTIFACT_MAX_BYTES + 65_536:
+            raise RuntimeError("failure artifact harvest exceeded its stdout byte bound")
+        envelope: dict[str, Any] | None = None
+        for line in reversed(output.splitlines()):
+            try:
+                candidate = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict) and set(candidate) == {"artifacts"}:
+                envelope = candidate
+                break
+        if envelope is None or not isinstance(envelope.get("artifacts"), dict):
+            raise RuntimeError("failure artifact harvest returned no exact envelope")
+        metadata_records: dict[str, Any] = {}
+        for name, artifact in cast(dict[str, Any], envelope["artifacts"]).items():
+            if name not in paths or not isinstance(artifact, dict):
+                raise RuntimeError("failure artifact harvest returned an unknown record")
+            state = artifact.get("state")
+            if state == "captured":
+                document = artifact.get("document")
+                if not isinstance(document, dict):
+                    raise RuntimeError(f"harvested {name} artifact is not an object")
+                documents[name] = document
+                metadata_records[name] = {
+                    "bytes": artifact.get("bytes"),
+                    "canonical_sha256": _canonical_digest(document),
+                    "raw_sha256": artifact.get("raw_sha256"),
+                    "state": state,
+                }
+            elif state in {"missing", "invalid", "oversized"}:
+                metadata_records[name] = {
+                    key: artifact[key] for key in ("error_type", "state") if key in artifact
+                }
+            else:
+                raise RuntimeError(f"harvested {name} artifact has invalid state")
+        result["artifacts"] = metadata_records
+        start = documents.get("start")
+        workload = documents.get("workload")
+        workload_journal = documents.get("workload_journal")
+        start_fields = {
+            "cycle_interval_seconds",
+            "duration_seconds",
+            "executor_reopen_every_cycles",
+            "health_interval_seconds",
+            "retry_timeout_seconds",
+            "run_id",
+            "schema",
+            "seed",
+            "started_monotonic_seconds",
+            "transfer_every_cycles",
+        }
+        if (
+            not isinstance(start, dict)
+            or set(start) != start_fields
+            or start.get("schema") != "lets.production-profile-soak-workload-start/v1"
+            or start.get("run_id") != expected_run_id
+            or workload_start is None
+            or _canonical_digest(start)
+            != _canonical_digest({key: workload_start.get(key) for key in start_fields})
+            or not _finite_number(start.get("started_monotonic_seconds"))
+            or float(start["started_monotonic_seconds"]) <= 0
+            or type(start.get("seed")) is not int
+            or type(start.get("executor_reopen_every_cycles")) is not int
+            or type(start.get("transfer_every_cycles")) is not int
+        ):
+            raise RuntimeError("failure harvest start artifact identity is invalid")
+
+        def validated_workload(
+            candidate: object,
+            *,
+            compact: bool,
+        ) -> dict[str, Any] | None:
+            return _validated_workload_artifact(
+                candidate,
+                compact=compact,
+                configuration=configuration,
+                expected_run_id=expected_run_id,
+                started_monotonic_seconds=start.get("started_monotonic_seconds"),
+            )
+
+        final_workload = validated_workload(workload, compact=False)
+        journal_workload = validated_workload(workload_journal, compact=True)
+        selected_workload = final_workload
+        selected_source = "workload"
+        if final_workload is not None and journal_workload is not None:
+            final_revision = cast(int, final_workload["journal_revision"])
+            journal_revision = cast(int, journal_workload["journal_revision"])
+            if final_revision == journal_revision + 1:
+                pass
+            elif journal_revision >= final_revision:
+                selected_workload = journal_workload
+                selected_source = "workload_journal"
+                result["final_workload_state"] = "stale"
+            else:
+                raise RuntimeError("failure harvest workload revisions are inconsistent")
+        elif selected_workload is None:
+            selected_workload = journal_workload
+            selected_source = "workload_journal"
+        if selected_workload is None:
+            raise RuntimeError("failure harvest retained no valid workload artifact")
+        documents["workload"] = selected_workload
+        result["selected_workload_artifact"] = selected_source
+        project_identity = expected_run_id.removesuffix("-workload-run")
+        coordination_documents: dict[str, dict[str, Any]] = {}
+
+        def finite_positive(value: object) -> bool:
+            return bool(_finite_number(value) and float(value) > 0)
+
+        pause_identity_fields = {
+            "episode",
+            "pause_id",
+            "reason",
+            "requested_monotonic_seconds",
+            "restart_id",
+            "service",
+        }
+
+        def valid_pause_identity(document: object) -> bool:
+            if not isinstance(document, dict) or not pause_identity_fields <= set(document):
+                return False
+            reason = document.get("reason")
+            pause_id = document.get("pause_id")
+            restart_id = document.get("restart_id")
+            service = document.get("service")
+            if (
+                type(document.get("episode")) is not int
+                or document["episode"] < 0
+                or not isinstance(pause_id, str)
+                or not finite_positive(document.get("requested_monotonic_seconds"))
+            ):
+                return False
+            if reason == "partition":
+                return bool(
+                    restart_id is None
+                    and service is None
+                    and pause_id.startswith(f"{project_identity}-partition-pause-")
+                )
+            return bool(
+                reason == "planned_restart"
+                and service in WARDENS
+                and isinstance(restart_id, str)
+                and restart_id.startswith(f"{project_identity}-planned-restart-")
+                and pause_id == f"{restart_id}-quiesce"
+            )
+
+        pause_marker = documents.get("pause_marker")
+        if (
+            isinstance(pause_marker, dict)
+            and set(pause_marker) == pause_identity_fields
+            and valid_pause_identity(pause_marker)
+        ):
+            coordination_documents["pause_marker"] = pause_marker
+        pause_ack = documents.get("pause_ack")
+        if (
+            isinstance(pause_ack, dict)
+            and set(pause_ack) == pause_identity_fields | {"observed_monotonic_seconds", "paused"}
+            and valid_pause_identity(pause_ack)
+            and pause_ack.get("paused") is True
+            and finite_positive(pause_ack.get("observed_monotonic_seconds"))
+            and float(pause_ack["observed_monotonic_seconds"])
+            >= float(pause_ack["requested_monotonic_seconds"])
+            and (
+                pause_marker is None
+                or not isinstance(pause_marker, dict)
+                or not any(
+                    pause_ack.get(key) != pause_marker.get(key) for key in pause_identity_fields
+                )
+            )
+        ):
+            coordination_documents["pause_ack"] = pause_ack
+        restart_marker = documents.get("restart_marker")
+        restart_base_fields = {
+            "armed_monotonic_seconds",
+            "episode",
+            "quiesce_pause_id",
+            "restart_id",
+            "service",
+            "state",
+        }
+        restart_complete_fields = restart_base_fields | {
+            "completed_monotonic_seconds",
+            "expected_recovered_authority_identity",
+        }
+        if isinstance(restart_marker, dict) and (
+            frozenset(restart_marker)
+            in {frozenset(restart_base_fields), frozenset(restart_complete_fields)}
+            and restart_marker.get("state") in {"armed", "completed"}
+            and type(restart_marker.get("episode")) is int
+            and restart_marker["episode"] >= 0
+            and restart_marker.get("service") in WARDENS
+            and isinstance(restart_marker.get("restart_id"), str)
+            and restart_marker["restart_id"].startswith(f"{project_identity}-planned-restart-")
+            and restart_marker.get("quiesce_pause_id") == f"{restart_marker['restart_id']}-quiesce"
+            and finite_positive(restart_marker.get("armed_monotonic_seconds"))
+            and (
+                (
+                    restart_marker.get("state") == "armed"
+                    and set(restart_marker) == restart_base_fields
+                )
+                or (
+                    restart_marker.get("state") == "completed"
+                    and set(restart_marker) == restart_complete_fields
+                    and finite_positive(restart_marker.get("completed_monotonic_seconds"))
+                    and float(restart_marker["completed_monotonic_seconds"])
+                    >= float(restart_marker["armed_monotonic_seconds"])
+                    and isinstance(
+                        restart_marker.get("expected_recovered_authority_identity"), dict
+                    )
+                    and re.fullmatch(
+                        r"[0-9a-f]{32}",
+                        str(
+                            restart_marker["expected_recovered_authority_identity"].get(
+                                "lifetime_id"
+                            )
+                        ),
+                    )
+                    is not None
+                    and type(
+                        restart_marker["expected_recovered_authority_identity"].get(
+                            "namespace_process_id"
+                        )
+                    )
+                    is int
+                    and restart_marker["expected_recovered_authority_identity"][
+                        "namespace_process_id"
+                    ]
+                    > 0
+                )
+            )
+        ):
+            coordination_documents["restart_marker"] = restart_marker
+        restart_ack = documents.get("restart_ack")
+        restart_ack_base = {
+            "armed_monotonic_seconds",
+            "coordination_payload_sha256",
+            "coordination_revision",
+            "episode",
+            "prior_authority_anchor",
+            "prior_authority_checkpoint",
+            "prior_observation",
+            "quiesce_pause_id",
+            "quiesced_monotonic_seconds",
+            "restart_id",
+            "service",
+            "observed_monotonic_seconds",
+        }
+        restart_ack_fenced = restart_ack_base | {
+            "acknowledged_monotonic_seconds",
+            "fence_terminal_sha256",
+            "host_ack_command_started_monotonic_seconds",
+            "host_fence_validated_monotonic_seconds",
+            "host_reinspected_monotonic_seconds",
+            "target_identity_sha256",
+        }
+        restart_ack_recovered = restart_ack_fenced | {
+            "completed_monotonic_seconds",
+            "recovered_authority_anchor",
+            "recovered_monotonic_seconds",
+        }
+        restart_ack_payload = dict(restart_ack) if isinstance(restart_ack, dict) else {}
+        restart_ack_payload.pop("coordination_payload_sha256", None)
+        if isinstance(restart_ack, dict) and (
+            frozenset(restart_ack)
+            in {
+                frozenset(restart_ack_base),
+                frozenset(restart_ack_fenced),
+                frozenset(restart_ack_recovered),
+            }
+            and type(restart_ack.get("episode")) is int
+            and restart_ack["episode"] >= 0
+            and restart_ack.get("service") in WARDENS
+            and isinstance(restart_ack.get("restart_id"), str)
+            and restart_ack["restart_id"].startswith(f"{project_identity}-planned-restart-")
+            and restart_ack.get("quiesce_pause_id") == f"{restart_ack['restart_id']}-quiesce"
+            and finite_positive(restart_ack.get("armed_monotonic_seconds"))
+            and finite_positive(restart_ack.get("quiesced_monotonic_seconds"))
+            and finite_positive(restart_ack.get("observed_monotonic_seconds"))
+            and float(restart_ack["quiesced_monotonic_seconds"])
+            <= float(restart_ack["armed_monotonic_seconds"])
+            <= float(restart_ack["observed_monotonic_seconds"])
+            and type(restart_ack.get("coordination_revision")) is int
+            and restart_ack["coordination_revision"] > 0
+            and restart_ack.get("coordination_payload_sha256")
+            == _canonical_digest(restart_ack_payload)
+            and isinstance(restart_ack.get("prior_authority_anchor"), dict)
+            and isinstance(restart_ack.get("prior_authority_checkpoint"), dict)
+            and isinstance(restart_ack.get("prior_observation"), dict)
+            and (
+                set(restart_ack) == restart_ack_base
+                or (
+                    finite_positive(restart_ack.get("acknowledged_monotonic_seconds"))
+                    and float(restart_ack["observed_monotonic_seconds"])
+                    <= float(restart_ack["acknowledged_monotonic_seconds"])
+                    and float(restart_ack["acknowledged_monotonic_seconds"])
+                    - float(restart_ack["observed_monotonic_seconds"])
+                    <= PLANNED_FENCE_PREPARATION_SECONDS
+                    and all(
+                        finite_positive(restart_ack.get(field_name))
+                        for field_name in (
+                            "host_ack_command_started_monotonic_seconds",
+                            "host_fence_validated_monotonic_seconds",
+                            "host_reinspected_monotonic_seconds",
+                        )
+                    )
+                    and float(restart_ack["host_fence_validated_monotonic_seconds"])
+                    <= float(restart_ack["host_reinspected_monotonic_seconds"])
+                    <= float(restart_ack["host_ack_command_started_monotonic_seconds"])
+                    and re.fullmatch(
+                        r"sha256:[0-9a-f]{64}",
+                        str(restart_ack.get("fence_terminal_sha256")),
+                    )
+                    is not None
+                    and re.fullmatch(
+                        r"sha256:[0-9a-f]{64}",
+                        str(restart_ack.get("target_identity_sha256")),
+                    )
+                    is not None
+                    and (
+                        set(restart_ack) == restart_ack_fenced
+                        or (
+                            set(restart_ack) == restart_ack_recovered
+                            and finite_positive(restart_ack.get("completed_monotonic_seconds"))
+                            and finite_positive(restart_ack.get("recovered_monotonic_seconds"))
+                            and float(restart_ack["acknowledged_monotonic_seconds"])
+                            <= float(restart_ack["completed_monotonic_seconds"])
+                            <= float(restart_ack["recovered_monotonic_seconds"])
+                            and isinstance(restart_ack.get("recovered_authority_anchor"), dict)
+                        )
+                    )
+                )
+            )
+            and (
+                restart_marker is None
+                or not isinstance(restart_marker, dict)
+                or all(
+                    restart_ack.get(key) == restart_marker.get(key)
+                    for key in (
+                        "armed_monotonic_seconds",
+                        "episode",
+                        "quiesce_pause_id",
+                        "restart_id",
+                        "service",
+                    )
+                )
+            )
+        ):
+            coordination_documents["restart_ack"] = restart_ack
+        result["coordination_documents"] = coordination_documents
+        result["captured"] = True
+        result["canonical_sha256"] = _canonical_digest(cast(dict[str, Any], result["artifacts"]))
+    except BaseException as exc:
+        documents = {}
+        result["error"] = {
+            "message": _bounded_text(str(exc)),
+            "type": f"{type(exc).__module__}.{type(exc).__qualname__}",
+        }
+    return result, documents
 
 
 def _container_json(
@@ -3376,23 +5122,45 @@ def _wait_workload_start(
                 document = json.loads(last)
             except json.JSONDecodeError:
                 document = None
+            start_fields = {
+                "cycle_interval_seconds",
+                "duration_seconds",
+                "executor_reopen_every_cycles",
+                "health_interval_seconds",
+                "retry_timeout_seconds",
+                "run_id",
+                "schema",
+                "seed",
+                "started_monotonic_seconds",
+                "transfer_every_cycles",
+            }
             if (
                 isinstance(document, dict)
+                and set(document) == start_fields
                 and document.get("run_id") == expected_run_id
                 and _finite_number(document.get("started_monotonic_seconds"))
-                and document.get("duration_seconds") == harness.configuration.duration_seconds
-                and document.get("cycle_interval_seconds")
-                == harness.configuration.cycle_interval_seconds
-                and document.get("health_interval_seconds")
-                == harness.configuration.health_interval_seconds
-                and document.get("retry_timeout_seconds")
-                == harness.configuration.retry_timeout_seconds
-                and document.get("transfer_every_cycles")
-                == harness.configuration.transfer_every_cycles
-                and document.get("executor_reopen_every_cycles")
-                == harness.configuration.executor_reopen_every_cycles
-                and document.get("seed") == harness.configuration.seed
+                and float(document["started_monotonic_seconds"]) > 0
+                and type(document.get("transfer_every_cycles")) is int
+                and type(document.get("executor_reopen_every_cycles")) is int
+                and type(document.get("seed")) is int
                 and document.get("schema") == "lets.production-profile-soak-workload-start/v1"
+                and _canonical_digest(document)
+                == _canonical_digest(
+                    {
+                        "cycle_interval_seconds": harness.configuration.cycle_interval_seconds,
+                        "duration_seconds": harness.configuration.duration_seconds,
+                        "executor_reopen_every_cycles": (
+                            harness.configuration.executor_reopen_every_cycles
+                        ),
+                        "health_interval_seconds": harness.configuration.health_interval_seconds,
+                        "retry_timeout_seconds": harness.configuration.retry_timeout_seconds,
+                        "run_id": expected_run_id,
+                        "schema": "lets.production-profile-soak-workload-start/v1",
+                        "seed": harness.configuration.seed,
+                        "started_monotonic_seconds": document["started_monotonic_seconds"],
+                        "transfer_every_cycles": harness.configuration.transfer_every_cycles,
+                    }
+                )
             ):
                 return {
                     **document,
@@ -3408,17 +5176,41 @@ def _pause_workload(
     harness: Harness,
     episode: int,
     workload: subprocess.Popen[str],
+    *,
+    pause_id: str | None = None,
+    reason: str = "partition",
+    restart_id: str | None = None,
+    service: str | None = None,
 ) -> dict[str, Any]:
-    _require_workload_running(workload, context=f"before partition pause {episode}")
-    pause_id = f"{harness.project}-partition-pause-{episode:06d}"
-    write_script = (
-        "import json,sys,time; from pathlib import Path; "
-        f"target=Path({WORKLOAD_PAUSE_PATH!r}); temporary=target.with_suffix('.tmp'); "
-        f"Path({WORKLOAD_PAUSE_ACK_PATH!r}).unlink(missing_ok=True); "
+    _require_workload_running(workload, context=f"before workload pause {episode}")
+    expected_pause_id = (
+        f"{harness.project}-partition-pause-{episode:06d}" if pause_id is None else pause_id
+    )
+    if (
+        not isinstance(expected_pause_id, str)
+        or not expected_pause_id
+        or len(expected_pause_id.encode("utf-8")) > 256
+        or any(ord(character) < 0x21 or ord(character) > 0x7E for character in expected_pause_id)
+    ):
+        raise RuntimeError("workload pause identity is invalid")
+    if (
+        reason not in {"partition", "planned_restart"}
+        or (reason == "partition" and (restart_id is not None or service is not None))
+        or (
+            reason == "planned_restart"
+            and (not isinstance(restart_id, str) or not restart_id or service not in WARDENS)
+        )
+    ):
+        raise RuntimeError("workload pause reason binding is invalid")
+    write_script = SCENARIO_DURABLE_COORDINATION_HELPERS + (
+        "\nimport sys,time; "
+        f"target=Path({WORKLOAD_PAUSE_PATH!r}); "
+        f"unlink_json(Path({WORKLOAD_PAUSE_ACK_PATH!r})); "
         "document={'episode':int(sys.argv[1]),'pause_id':sys.argv[2],"
-        "'requested_monotonic_seconds':time.monotonic()}; "
-        "temporary.write_text(json.dumps(document,sort_keys=True)+'\\n'); "
-        "temporary.replace(target); print(json.dumps(document,sort_keys=True))"
+        "'reason':sys.argv[3],'requested_monotonic_seconds':time.monotonic(),"
+        "'restart_id':None if sys.argv[4]=='-' else sys.argv[4],"
+        "'service':None if sys.argv[5]=='-' else sys.argv[5]}; "
+        "publish_json(target,document); print(json.dumps(document,sort_keys=True))"
     )
     host_request_started = time.monotonic()
     try:
@@ -3431,7 +5223,10 @@ def _pause_workload(
                 "-c",
                 write_script,
                 str(episode),
-                pause_id,
+                expected_pause_id,
+                reason,
+                "-" if restart_id is None else restart_id,
+                "-" if service is None else service,
             ],
             timeout=30,
         )
@@ -3447,7 +5242,10 @@ def _pause_workload(
     if (
         not isinstance(marker, dict)
         or marker.get("episode") != episode
-        or marker.get("pause_id") != pause_id
+        or marker.get("pause_id") != expected_pause_id
+        or marker.get("reason") != reason
+        or marker.get("restart_id") != restart_id
+        or marker.get("service") != service
         or not isinstance(marker.get("requested_monotonic_seconds"), (int, float))
         or isinstance(marker.get("requested_monotonic_seconds"), bool)
     ):
@@ -3482,7 +5280,10 @@ def _pause_workload(
             if (
                 isinstance(acknowledgement, dict)
                 and acknowledgement.get("episode") == episode
-                and acknowledgement.get("pause_id") == pause_id
+                and acknowledgement.get("pause_id") == expected_pause_id
+                and acknowledgement.get("reason") == reason
+                and acknowledgement.get("restart_id") == restart_id
+                and acknowledgement.get("service") == service
                 and acknowledgement.get("paused") is True
                 and acknowledgement.get("requested_monotonic_seconds")
                 == marker["requested_monotonic_seconds"]
@@ -3500,7 +5301,8 @@ def _pause_workload(
                     "import json,time; from pathlib import Path; "
                     f"marker=json.loads(Path({WORKLOAD_PAUSE_PATH!r}).read_text()); "
                     f"ack=json.loads(Path({WORKLOAD_PAUSE_ACK_PATH!r}).read_text()); "
-                    "identity=('episode','pause_id','requested_monotonic_seconds'); "
+                    "identity=('episode','pause_id','reason','requested_monotonic_seconds',"
+                    "'restart_id','service'); "
                     "assert all(marker[k]==ack[k] for k in identity); "
                     "document={k:marker[k] for k in identity}; "
                     "document['authorized_start_monotonic_seconds']=time.monotonic(); "
@@ -3530,7 +5332,14 @@ def _pause_workload(
                     not isinstance(authorized_start, dict)
                     or any(
                         authorized_start.get(key) != marker.get(key)
-                        for key in ("episode", "pause_id", "requested_monotonic_seconds")
+                        for key in (
+                            "episode",
+                            "pause_id",
+                            "reason",
+                            "requested_monotonic_seconds",
+                            "restart_id",
+                            "service",
+                        )
                     )
                     or not isinstance(
                         authorized_start.get("authorized_start_monotonic_seconds"),
@@ -3566,7 +5375,8 @@ def _authorize_pause_end(harness: Harness, *, timeout: float = 30) -> dict[str, 
         "import json,time; from pathlib import Path; "
         f"marker=json.loads(Path({WORKLOAD_PAUSE_PATH!r}).read_text()); "
         f"ack=json.loads(Path({WORKLOAD_PAUSE_ACK_PATH!r}).read_text()); "
-        "identity=('episode','pause_id','requested_monotonic_seconds'); "
+        "identity=('episode','pause_id','reason','requested_monotonic_seconds',"
+        "'restart_id','service'); "
         "assert all(marker[k]==ack[k] for k in identity); "
         "document={k:marker[k] for k in identity}; "
         "document['authorized_end_monotonic_seconds']=time.monotonic(); "
@@ -3604,18 +5414,19 @@ def _resume_workload(
     authorized_end: dict[str, Any] | None = None,
     timeout: float = 30,
 ) -> dict[str, Any]:
-    script = (
-        "import json,sys,time; from pathlib import Path; "
+    script = SCENARIO_DURABLE_COORDINATION_HELPERS + (
+        "\nimport sys,time; "
         f"marker=Path({WORKLOAD_PAUSE_PATH!r}); ack=Path({WORKLOAD_PAUSE_ACK_PATH!r}); "
         "request=json.loads(marker.read_text()); acknowledgement=json.loads(ack.read_text()); "
-        "identity=('episode','pause_id','requested_monotonic_seconds'); "
+        "identity=('episode','pause_id','reason','requested_monotonic_seconds',"
+        "'restart_id','service'); "
         "assert all(request[k]==acknowledgement[k] for k in identity); "
         "assert sys.argv[1]=='emergency' or (request['episode']==int(sys.argv[1]) "
         "and request['pause_id']==sys.argv[2] "
         "and str(request['requested_monotonic_seconds'])==sys.argv[3]); "
         "document={k:request[k] for k in identity}; "
         "document['resume_requested_monotonic_seconds']=time.monotonic(); "
-        "marker.unlink(); ack.unlink(); "
+        "unlink_json(marker); unlink_json(ack); "
         "print(json.dumps(document,sort_keys=True))"
     )
     started = time.monotonic()
@@ -3665,13 +5476,16 @@ def _wait_restart_acknowledgement(
     marker: dict[str, Any],
     required_field: str,
     workload: subprocess.Popen[str],
+    timeout_seconds: float = HEALTH_CADENCE_LIMIT_SECONDS,
 ) -> dict[str, Any]:
     read_script = (
         "import sys; from pathlib import Path; "
         f"path=Path({WORKLOAD_RESTART_ACK_PATH!r}); "
         "sys.stdout.write(path.read_text() if path.exists() else '')"
     )
-    deadline = time.monotonic() + HEALTH_CADENCE_LIMIT_SECONDS
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise RuntimeError("restart acknowledgement timeout is invalid")
+    deadline = time.monotonic() + timeout_seconds
     last = ""
     while time.monotonic() < deadline:
         _require_workload_running(workload, context=f"waiting for restart {required_field}")
@@ -3693,7 +5507,13 @@ def _wait_restart_acknowledgement(
                 acknowledgement = json.loads(last)
             except json.JSONDecodeError:
                 acknowledgement = None
-            identity = ("restart_id", "episode", "service", "armed_monotonic_seconds")
+            identity = (
+                "restart_id",
+                "episode",
+                "service",
+                "armed_monotonic_seconds",
+                "quiesce_pause_id",
+            )
             if (
                 isinstance(acknowledgement, dict)
                 and all(acknowledgement.get(key) == marker.get(key) for key in identity)
@@ -3738,45 +5558,69 @@ def _arm_restart_window(
     harness: Harness,
     *,
     episode: int,
+    quiesce_pause_id: str,
     service: str,
     workload: subprocess.Popen[str],
 ) -> dict[str, Any]:
     restart_id = f"{harness.project}-planned-restart-{episode:06d}-{service}"
-    script = (
-        "import json,sys,time; from pathlib import Path; "
-        f"target=Path({WORKLOAD_RESTART_PATH!r}); temporary=target.with_suffix('.tmp'); "
-        f"Path({WORKLOAD_RESTART_ACK_PATH!r}).unlink(missing_ok=True); "
-        "document={'armed_monotonic_seconds':time.monotonic(),"
-        "'episode':int(sys.argv[1]),'restart_id':sys.argv[2],"
-        "'service':sys.argv[3],'state':'armed'}; "
-        "temporary.write_text(json.dumps(document,sort_keys=True)+'\\n'); "
-        "temporary.replace(target); print(json.dumps(document,sort_keys=True))"
+    script = SCENARIO_DURABLE_COORDINATION_HELPERS + (
+        "\nimport sys,time; "
+        f"target=Path({WORKLOAD_RESTART_PATH!r}); "
+        f"acknowledgement=Path({WORKLOAD_RESTART_ACK_PATH!r}); "
+        "identity={'episode':int(sys.argv[1]),'restart_id':sys.argv[2],"
+        "'service':sys.argv[3],'quiesce_pause_id':sys.argv[4]}; "
+        "document=json.loads(target.read_text()) if target.exists() else None; "
+        "assert document is None or (set(document)==set(identity)|"
+        "{'armed_monotonic_seconds','state'} and document['state']=='armed' and "
+        "all(document[key]==value for key,value in identity.items())); "
+        "unlink_json(acknowledgement) if document is None else None; "
+        "document=({'armed_monotonic_seconds':time.monotonic(),**identity,'state':'armed'} "
+        "if document is None else document); "
+        "publish_json(target,document) if not target.exists() else None; "
+        "print(json.dumps(document,allow_nan=False,separators=(',',':'),sort_keys=True))"
     )
     _require_workload_running(workload, context=f"before arming planned restart {episode}")
     host_armed_started = time.monotonic()
-    process = harness.run(
-        [
-            "docker",
-            "exec",
-            harness.workload_container,
-            "python",
-            "-c",
-            script,
-            str(episode),
-            restart_id,
-            service,
-        ],
-        timeout=30,
-    )
+    command = [
+        "docker",
+        "exec",
+        harness.workload_container,
+        "python",
+        "-c",
+        script,
+        str(episode),
+        restart_id,
+        service,
+        quiesce_pause_id,
+    ]
     try:
+        process = harness.run(command, timeout=30)
         marker = json.loads(process.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"planned restart marker was malformed: {process.stdout!r}") from exc
+    except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
+        # docker-exec can lose its response after the rename and directory fsync.
+        # Recover only the exact durable marker; a missing/partial marker fails
+        # before authority admission can be fenced or the process can be killed.
+        marker = _scenario_result(
+            harness,
+            WORKLOAD_RESTART_PATH,
+            timeout=HEALTH_CADENCE_LIMIT_SECONDS,
+            maximum_bytes=64 * 1024,
+        )
     if (
         not isinstance(marker, dict)
+        or set(marker)
+        != {
+            "armed_monotonic_seconds",
+            "episode",
+            "quiesce_pause_id",
+            "restart_id",
+            "service",
+            "state",
+        }
         or marker.get("episode") != episode
         or marker.get("restart_id") != restart_id
         or marker.get("service") != service
+        or marker.get("quiesce_pause_id") != quiesce_pause_id
         or marker.get("state") != "armed"
         or not isinstance(marker.get("armed_monotonic_seconds"), (int, float))
         or isinstance(marker.get("armed_monotonic_seconds"), bool)
@@ -3785,7 +5629,7 @@ def _arm_restart_window(
     acknowledgement = _wait_restart_acknowledgement(
         harness,
         marker=marker,
-        required_field="acknowledged_monotonic_seconds",
+        required_field="observed_monotonic_seconds",
         workload=workload,
     )
     return {
@@ -3812,76 +5656,159 @@ def _complete_restart_window(
     if not _valid_authority_status(replacement_authority, fenced=False, terminal=True):
         raise RuntimeError("planned restart replacement authority is invalid")
     script = (
-        "import json,sys,time; from pathlib import Path; "
-        f"target=Path({WORKLOAD_RESTART_PATH!r}); document=json.loads(target.read_text()); "
-        "assert document['restart_id']==sys.argv[1] and document['state']=='armed'; "
-        "document['expected_recovered_authority_identity']=json.loads(sys.argv[2]); "
-        "document['completed_monotonic_seconds']=time.monotonic(); "
-        "document['state']='completed'; temporary=target.with_suffix('.tmp'); "
-        "temporary.write_text(json.dumps(document,sort_keys=True)+'\\n'); "
-        "temporary.replace(target); print(json.dumps(document,sort_keys=True))"
+        SCENARIO_DURABLE_COORDINATION_HELPERS
+        + r"""
+import hashlib,sys,time
+target=Path(sys.argv[1]); acknowledgement_path=Path(sys.argv[2])
+restart_id=sys.argv[3]; replacement_identity=json.loads(sys.argv[4])
+document=json.loads(target.read_text(encoding='utf-8'))
+acknowledgement=json.loads(acknowledgement_path.read_text(encoding='utf-8'))
+def digest(value):
+    payload=dict(value); payload.pop('coordination_payload_sha256',None)
+    encoded=json.dumps(payload,allow_nan=False,separators=(',',':'),sort_keys=True).encode()
+    return 'sha256:'+hashlib.sha256(encoded).hexdigest()
+identity=('armed_monotonic_seconds','episode','quiesce_pause_id','restart_id','service')
+assert document['restart_id']==restart_id==acknowledgement['restart_id']
+assert all(document[key]==acknowledgement[key] for key in identity)
+assert acknowledgement['coordination_payload_sha256']==digest(acknowledgement)
+acknowledged=float(acknowledgement['acknowledged_monotonic_seconds'])
+if document['state']=='armed':
+    completed=time.monotonic()
+    assert acknowledged<=completed and completed-acknowledged<=30.0
+    document['expected_recovered_authority_identity']=replacement_identity
+    document['completed_monotonic_seconds']=completed
+    document['state']='completed'
+    publish_json(target,document)
+else:
+    assert document['state']=='completed'
+    assert document['expected_recovered_authority_identity']==replacement_identity
+    completed=float(document['completed_monotonic_seconds'])
+    assert acknowledged<=completed and completed-acknowledged<=30.0
+print(json.dumps(document,allow_nan=False,separators=(',',':'),sort_keys=True))
+"""
     )
     host_completion_started = time.monotonic()
     remaining = completion_deadline_monotonic - host_completion_started
     if remaining <= 0:
         raise RuntimeError("planned restart exceeded its 30s completion-marker budget")
-    process = harness.run(
-        [
-            "docker",
-            "exec",
-            harness.workload_container,
-            "python",
-            "-c",
-            script,
-            str(marker["restart_id"]),
-            json.dumps(replacement_identity, sort_keys=True, separators=(",", ":")),
-        ],
-        timeout=remaining,
-    )
+    command = [
+        "docker",
+        "exec",
+        harness.workload_container,
+        "python",
+        "-c",
+        script,
+        WORKLOAD_RESTART_PATH,
+        WORKLOAD_RESTART_ACK_PATH,
+        str(marker["restart_id"]),
+        json.dumps(replacement_identity, sort_keys=True, separators=(",", ":")),
+    ]
     try:
+        process = harness.run(command, timeout=remaining)
         completed_marker = json.loads(process.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"completed restart marker was malformed: {process.stdout!r}") from exc
+    except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
+        # A completed marker may already be durable even when docker-exec loses
+        # its response.  Re-read that exact file within the same host deadline.
+        read_remaining = completion_deadline_monotonic - time.monotonic()
+        if read_remaining <= 0:
+            raise RuntimeError(
+                "planned restart exceeded its 30s completion-marker budget"
+            ) from None
+        completed_marker = _scenario_result(
+            harness,
+            WORKLOAD_RESTART_PATH,
+            timeout=read_remaining,
+            maximum_bytes=64 * 1024,
+        )
+    host_completion_completed = time.monotonic()
     if (
         not isinstance(completed_marker, dict)
         or any(
             completed_marker.get(key) != marker.get(key)
-            for key in ("armed_monotonic_seconds", "episode", "restart_id", "service")
+            for key in (
+                "armed_monotonic_seconds",
+                "episode",
+                "quiesce_pause_id",
+                "restart_id",
+                "service",
+            )
         )
         or completed_marker.get("state") != "completed"
+        or set(completed_marker)
+        != {
+            "armed_monotonic_seconds",
+            "completed_monotonic_seconds",
+            "episode",
+            "expected_recovered_authority_identity",
+            "quiesce_pause_id",
+            "restart_id",
+            "service",
+            "state",
+        }
         or not isinstance(completed_marker.get("completed_monotonic_seconds"), (int, float))
         or isinstance(completed_marker.get("completed_monotonic_seconds"), bool)
     ):
         raise RuntimeError(f"completed restart marker identity mismatch: {completed_marker!r}")
+    recovery_remaining = completion_deadline_monotonic - time.monotonic()
+    if recovery_remaining <= 0:
+        raise RuntimeError("planned restart exceeded its 30s monitor-recovery budget")
     recovery = _wait_restart_acknowledgement(
         harness,
         marker=completed_marker,
         required_field="recovered_monotonic_seconds",
         workload=workload,
+        timeout_seconds=recovery_remaining,
     )
     if recovery.get("recovered_authority_anchor") != replacement_authority:
         raise RuntimeError("sampler recovery did not bind the exact replacement authority")
     cleanup_script = (
-        "import json,sys; from pathlib import Path; "
-        f"marker=Path({WORKLOAD_RESTART_PATH!r}); ack=Path({WORKLOAD_RESTART_ACK_PATH!r}); "
-        "document=json.loads(marker.read_text()); acknowledgement=json.loads(ack.read_text()); "
-        "assert document['restart_id']==sys.argv[1]==acknowledgement['restart_id']; "
-        "marker.unlink(); ack.unlink()"
+        SCENARIO_DURABLE_COORDINATION_HELPERS
+        + r"""
+import sys
+marker=Path(sys.argv[1]); acknowledgement=Path(sys.argv[2]); restart_id=sys.argv[3]
+for path in (marker,acknowledgement):
+    if path.exists():
+        document=json.loads(path.read_text(encoding='utf-8'))
+        assert document['restart_id']==restart_id
+        unlink_json(path)
+result={'acknowledgement_exists':acknowledgement.exists(),'marker_exists':marker.exists()}
+assert not any(result.values())
+print(json.dumps(result,allow_nan=False,separators=(',',':'),sort_keys=True))
+"""
     )
-    harness.run(
-        [
-            "docker",
-            "exec",
-            harness.workload_container,
-            "python",
-            "-c",
-            cleanup_script,
-            str(marker["restart_id"]),
-        ],
-        timeout=30,
-    )
+    cleanup_command = [
+        "docker",
+        "exec",
+        harness.workload_container,
+        "python",
+        "-c",
+        cleanup_script,
+        WORKLOAD_RESTART_PATH,
+        WORKLOAD_RESTART_ACK_PATH,
+        str(marker["restart_id"]),
+    ]
+    cleanup_result: dict[str, Any] | None = None
+    for attempt in range(2):
+        cleanup_remaining = completion_deadline_monotonic - time.monotonic()
+        if cleanup_remaining <= 0:
+            raise RuntimeError("planned restart exceeded its 30s coordination-cleanup budget")
+        try:
+            cleaned = harness.run(cleanup_command, timeout=cleanup_remaining)
+            candidate = json.loads(cleaned.stdout)
+            if isinstance(candidate, dict):
+                cleanup_result = candidate
+        except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
+            if attempt == 0:
+                continue
+            raise
+        if cleanup_result == {"acknowledgement_exists": False, "marker_exists": False}:
+            break
+        cleanup_result = None
+    if cleanup_result != {"acknowledgement_exists": False, "marker_exists": False}:
+        raise RuntimeError("planned restart coordination files were not durably removed")
     return {
-        "host_completed_marker_monotonic_seconds": host_completion_started,
+        "host_completion_command_completed_monotonic_seconds": host_completion_completed,
+        "host_completion_command_started_monotonic_seconds": host_completion_started,
         "host_monitor_recovered_monotonic_seconds": time.monotonic(),
         "marker": completed_marker,
         "recovery_acknowledgement": recovery,
@@ -4065,7 +5992,12 @@ def _final_verify(harness: Harness) -> dict[str, Any]:
 
 
 def _canonical_digest(value: dict[str, Any]) -> str:
-    payload = json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload = json.dumps(
+        value,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
@@ -4073,13 +6005,28 @@ def _write_evidence_atomic(output: Path, evidence: dict[str, Any]) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.{uuid.uuid4().hex}.tmp")
     try:
-        temporary.write_text(
-            json.dumps(evidence, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
+        encoded = (json.dumps(evidence, allow_nan=False, indent=2, sort_keys=True) + "\n").encode(
+            "utf-8"
         )
-        temporary.replace(output)
+        with temporary.open("wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, output)
+        with output.open("r+b") as published:
+            os.fsync(published.fileno())
+        if os.name != "nt":
+            directory_fd = os.open(
+                output.parent,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
-        temporary.unlink(missing_ok=True)
+        with suppress(OSError):
+            temporary.unlink(missing_ok=True)
 
 
 def _bounded_records(records: list[dict[str, Any]], *, maximum: int) -> list[dict[str, Any]]:
@@ -4376,6 +6323,7 @@ def _fence_restart_authority(
     if not isinstance(marker, dict) or not isinstance(acknowledgement, dict):
         raise RuntimeError("planned restart lacks an exact workload acknowledgement")
     prior_authority = acknowledgement.get("prior_authority_anchor")
+    prior_observation = acknowledgement.get("prior_observation")
     expected_lifetime = (
         prior_authority.get("lifetime_id") if isinstance(prior_authority, dict) else None
     )
@@ -4389,6 +6337,7 @@ def _fence_restart_authority(
         or not isinstance(expected_lifetime, str)
         or re.fullmatch(r"[0-9a-f]{32}", expected_lifetime) is None
         or not isinstance(restart_id, str)
+        or not isinstance(prior_observation, dict)
     ):
         raise RuntimeError("planned restart acknowledgement authority status is invalid")
     evidence = {} if attempt_evidence is None else attempt_evidence
@@ -4410,55 +6359,14 @@ def _fence_restart_authority(
         return f"{type(error).__module__}.{type(error).__qualname__}"[:128]
 
     def valid_result(result: object) -> bool:
-        terminal = result.get("terminal") if isinstance(result, dict) else None
-        terminal_authority = (
-            terminal.get("authority_anchor") if isinstance(terminal, dict) else None
-        )
-        return bool(
-            isinstance(result, dict)
-            and set(result) == {"node", "request_retry_count", "schema", "status", "terminal"}
-            and result.get("schema") == "lets.production-profile-authority-fence/v1"
-            and result.get("status") == "passed"
-            and result.get("node") == service
-            and type(result.get("request_retry_count")) is int
-            and result["request_retry_count"] >= 0
-            and isinstance(terminal, dict)
-            and set(terminal)
-            == {
-                "authority_anchor",
-                "fenced_at_monotonic_ns",
-                "lifetime_id",
-                "namespace_process_id",
-                "restart_id",
-                "schema",
-                "warden_id",
-            }
-            and terminal.get("schema") == "lets.authority-admission-fence/v1"
-            and type(terminal.get("namespace_process_id")) is int
-            and terminal["namespace_process_id"] > 0
-            and type(terminal.get("fenced_at_monotonic_ns")) is int
-            and terminal["fenced_at_monotonic_ns"] >= 0
-            and terminal.get("restart_id") == restart_id
-            and terminal.get("warden_id") == service
-            and terminal.get("lifetime_id") == expected_lifetime
-            and _valid_authority_status(terminal_authority, fenced=True, terminal=True)
-            and terminal_authority.get("lifetime_id") == expected_lifetime
-            and terminal_authority.get("fence_id") == restart_id
-            and terminal.get("namespace_process_id")
-            == terminal_authority.get("namespace_process_id")
-            and terminal.get("fenced_at_monotonic_ns")
-            == terminal_authority.get("fenced_at_monotonic_ns")
-            and terminal_authority.get("namespace_process_id")
-            == prior_authority.get("namespace_process_id")
-            and all(
-                cast(int, terminal_authority.get(field_name))
-                >= cast(int, prior_authority.get(field_name))
-                for field_name in AUTHORITY_COUNTER_FIELDS
-            )
-            and (
-                prior_authority.get("first_fault") is None
-                or terminal_authority.get("first_fault") == prior_authority.get("first_fault")
-            )
+        return _valid_terminal_fence_result(
+            result,
+            node=service,
+            restart_id=restart_id,
+            expected_lifetime=expected_lifetime,
+            prior_authority=cast(dict[str, Any], prior_authority),
+            prior_observation=cast(dict[str, Any], prior_observation),
+            full_audit_verification=False,
         )
 
     def record_read(
@@ -4502,7 +6410,11 @@ def _fence_restart_authority(
                 "/scenario/authority-fence-"
                 f"{int(marker['episode']):06d}-attempt-{attempt_number}.json"
             )
-            exec_timeout = min(7.0, max(0.05, available() - 1.5))
+            exec_timeout = min(
+                PLANNED_FENCE_ATTEMPT_SECONDS,
+                max(0.05, available() - 1.5),
+            )
+            child_retry_timeout = max(0.05, exec_timeout - 5.0)
             attempt = {
                 "exec_completed_monotonic_seconds": None,
                 "exec_error_type": None,
@@ -4534,7 +6446,7 @@ def _fence_restart_authority(
                 "--expected-lifetime-id",
                 expected_lifetime,
                 "--retry-timeout-seconds",
-                str(min(7.0, exec_timeout)),
+                str(child_retry_timeout),
                 "--seed",
                 str(harness.configuration.seed + 3_000_000 + int(marker["episode"])),
                 "--output",
@@ -4584,9 +6496,10 @@ def _fence_restart_authority(
                 record_read(attempt, error=None, outcome="invalid_response", returncode=0)
                 continue
             record_read(attempt, error=None, outcome="valid", returncode=0)
+            validated_at = time.monotonic()
             evidence.update(
                 {
-                    "completed_monotonic_seconds": time.monotonic(),
+                    "completed_monotonic_seconds": validated_at,
                     "resolved": True,
                     "resolved_attempt": attempt["ordinal"],
                     "status": "resolved",
@@ -4596,6 +6509,7 @@ def _fence_restart_authority(
                 "host_container_id": prior_identity["container_id"],
                 "host_exec_attempts": len(attempts),
                 "host_pid": prior_identity["host_pid"],
+                "host_validated_monotonic_seconds": validated_at,
                 "prior_authority_anchor": prior_authority,
                 "result": result,
             }
@@ -4674,13 +6588,185 @@ def _read_restarted_authority(
     return authority
 
 
+def _stamp_fenced_restart_acknowledgement(
+    harness: Harness,
+    *,
+    armed: dict[str, Any],
+    authority_fence: dict[str, Any],
+    deadline_monotonic: float,
+    host_reinspected_monotonic: float,
+    target_identity: dict[str, Any],
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
+    """CAS the authoritative 30s ACK only after exact terminal proof and reinspection."""
+
+    marker = cast(dict[str, Any], armed["marker"])
+    prepared = cast(dict[str, Any], armed["acknowledgement"])
+    terminal_result = cast(dict[str, Any], authority_fence["result"])
+    terminal = terminal_result.get("terminal")
+    fence_validated = authority_fence.get("host_validated_monotonic_seconds")
+    if (
+        not isinstance(terminal, dict)
+        or not _finite_number(fence_validated)
+        or not _finite_number(host_reinspected_monotonic)
+        or float(host_reinspected_monotonic) < float(fence_validated)
+        or type(prepared.get("coordination_revision")) is not int
+        or prepared["coordination_revision"] <= 0
+        or not isinstance(prepared.get("coordination_payload_sha256"), str)
+        or "acknowledged_monotonic_seconds" in prepared
+    ):
+        raise RuntimeError("planned restart pre-ack state is invalid")
+    terminal_digest = _canonical_digest(terminal)
+    target_identity_digest = _canonical_digest(target_identity)
+    script = r"""
+import hashlib,json,math,os,sys,time
+from pathlib import Path
+
+path=Path(sys.argv[1]); expected_revision=int(sys.argv[2]); expected_payload=sys.argv[3]
+terminal_digest=sys.argv[4]; fence_validated=float(sys.argv[5]); reinspected=float(sys.argv[6])
+ack_command_started=float(sys.argv[7]); restart_id=sys.argv[8]; target_identity_digest=sys.argv[9]
+document=json.loads(path.read_text(encoding='utf-8'))
+def digest(value):
+    payload=dict(value); payload.pop('coordination_payload_sha256',None)
+    encoded=json.dumps(payload,allow_nan=False,separators=(',',':'),sort_keys=True).encode()
+    return 'sha256:'+hashlib.sha256(encoded).hexdigest()
+assert document['restart_id']==restart_id
+if 'acknowledged_monotonic_seconds' not in document:
+    assert document['coordination_revision']==expected_revision
+    assert document['coordination_payload_sha256']==expected_payload==digest(document)
+    assert fence_validated<=reinspected<=ack_command_started
+    acknowledged=time.monotonic()
+    assert document['observed_monotonic_seconds']<=acknowledged
+    assert acknowledged-document['observed_monotonic_seconds']<=120.0
+    document['fence_terminal_sha256']=terminal_digest
+    document['host_fence_validated_monotonic_seconds']=fence_validated
+    document['host_reinspected_monotonic_seconds']=reinspected
+    document['host_ack_command_started_monotonic_seconds']=ack_command_started
+    document['target_identity_sha256']=target_identity_digest
+    document['acknowledged_monotonic_seconds']=acknowledged
+    document['coordination_revision']=expected_revision+1
+    document['coordination_payload_sha256']=digest(document)
+    temporary=path.with_suffix(path.suffix+'.tmp')
+    encoded=(json.dumps(document,allow_nan=False,separators=(',',':'),sort_keys=True)+'\n').encode()
+    with temporary.open('wb') as stream:
+        stream.write(encoded); stream.flush(); os.fsync(stream.fileno())
+    os.replace(temporary,path)
+    with path.open('r+b') as published: os.fsync(published.fileno())
+    directory=os.open(path.parent,os.O_RDONLY|getattr(os,'O_DIRECTORY',0))
+    try: os.fsync(directory)
+    finally: os.close(directory)
+published=json.loads(path.read_text(encoding='utf-8'))
+assert published==document and published['coordination_payload_sha256']==digest(published)
+assert published['fence_terminal_sha256']==terminal_digest
+assert published['target_identity_sha256']==target_identity_digest
+print(json.dumps(published,allow_nan=False,separators=(',',':'),sort_keys=True))
+"""
+    _require_workload_running(workload, context="before authoritative restart acknowledgement")
+    host_ack_command_started = time.monotonic()
+    if (
+        host_ack_command_started < host_reinspected_monotonic
+        or host_ack_command_started >= deadline_monotonic
+    ):
+        raise RuntimeError("planned restart exhausted its pre-ack deadline")
+    armed["host_ack_command_started_monotonic_seconds"] = host_ack_command_started
+    command = [
+        "docker",
+        "exec",
+        harness.workload_container,
+        "python",
+        "-c",
+        script,
+        WORKLOAD_RESTART_ACK_PATH,
+        str(prepared["coordination_revision"]),
+        cast(str, prepared["coordination_payload_sha256"]),
+        terminal_digest,
+        str(float(fence_validated)),
+        str(host_reinspected_monotonic),
+        str(host_ack_command_started),
+        cast(str, marker["restart_id"]),
+        target_identity_digest,
+    ]
+    acknowledged: dict[str, Any] | None = None
+    try:
+        remaining = deadline_monotonic - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("planned restart exhausted its pre-ack deadline")
+        result = harness.run(command, timeout=min(5.0, remaining))
+        candidate = json.loads(result.stdout)
+        if isinstance(candidate, dict):
+            acknowledged = candidate
+    except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
+        # A lost docker-exec response may follow a durable successful CAS.  Re-read
+        # the same revision; no kill is authorized until the exact binding returns.
+        acknowledged = _wait_restart_acknowledgement(
+            harness,
+            marker=marker,
+            required_field="acknowledged_monotonic_seconds",
+            workload=workload,
+            timeout_seconds=max(0.001, min(5.0, deadline_monotonic - time.monotonic())),
+        )
+    finally:
+        armed["host_ack_command_completed_monotonic_seconds"] = time.monotonic()
+    if not isinstance(acknowledged, dict):
+        raise RuntimeError("planned restart acknowledgement was not returned")
+    expected_identity = {
+        key: marker[key]
+        for key in (
+            "armed_monotonic_seconds",
+            "episode",
+            "quiesce_pause_id",
+            "restart_id",
+            "service",
+        )
+    }
+    acknowledged_at = acknowledged.get("acknowledged_monotonic_seconds")
+    expected_fields = set(prepared) | {
+        "acknowledged_monotonic_seconds",
+        "fence_terminal_sha256",
+        "host_ack_command_started_monotonic_seconds",
+        "host_fence_validated_monotonic_seconds",
+        "host_reinspected_monotonic_seconds",
+        "target_identity_sha256",
+    }
+    payload = dict(acknowledged)
+    payload.pop("coordination_payload_sha256", None)
+    if (
+        set(acknowledged) != expected_fields
+        or any(acknowledged.get(key) != value for key, value in expected_identity.items())
+        or any(
+            acknowledged.get(key) != value
+            for key, value in prepared.items()
+            if key not in {"coordination_payload_sha256", "coordination_revision"}
+        )
+        or acknowledged.get("fence_terminal_sha256") != terminal_digest
+        or acknowledged.get("host_fence_validated_monotonic_seconds") != fence_validated
+        or acknowledged.get("host_reinspected_monotonic_seconds") != host_reinspected_monotonic
+        or acknowledged.get("host_ack_command_started_monotonic_seconds")
+        != host_ack_command_started
+        or acknowledged.get("target_identity_sha256") != target_identity_digest
+        or type(acknowledged.get("coordination_revision")) is not int
+        or acknowledged["coordination_revision"] != prepared["coordination_revision"] + 1
+        or acknowledged.get("coordination_payload_sha256") != _canonical_digest(payload)
+        or not _finite_number(acknowledged_at)
+        or not _finite_number(prepared.get("observed_monotonic_seconds"))
+        or float(acknowledged_at) < float(cast(int | float, prepared["observed_monotonic_seconds"]))
+        or float(acknowledged_at) - float(cast(int | float, prepared["observed_monotonic_seconds"]))
+        > PLANNED_FENCE_PREPARATION_SECONDS
+        or armed["host_ack_command_completed_monotonic_seconds"] > deadline_monotonic
+    ):
+        raise RuntimeError("planned restart acknowledgement proof binding is invalid")
+    return acknowledged
+
+
 def _restart(
     harness: Harness,
     service: str,
     *,
     armed: dict[str, Any],
+    authority_fence: dict[str, Any],
     completion_deadline_monotonic: float,
     elapsed_s: float,
+    prior_identity: dict[str, Any],
     evidence_record: dict[str, Any] | None = None,
     workload: subprocess.Popen[str],
 ) -> dict[str, Any]:
@@ -4694,13 +6780,6 @@ def _restart(
             raise RuntimeError("planned restart exceeded its 30s completion budget")
         return value
 
-    prior_container = harness.container(service, timeout=remaining())
-    prior_identity = _inspect_restart_target(
-        harness,
-        service=service,
-        container=prior_container,
-        timeout=remaining(),
-    )
     prior_container = cast(str, prior_identity["container_id"])
     prior = cast(dict[str, Any], prior_identity["state"])
     prior_pid = cast(int, prior_identity["host_pid"])
@@ -4721,32 +6800,6 @@ def _restart(
         or prior_restart_count != 0
     ):
         raise RuntimeError(f"{service} was unhealthy before planned SIGKILL: {prior!r}")
-    marker = cast(dict[str, Any], armed.get("marker"))
-    authority_fence_attempt: dict[str, Any] = {
-        "episode": marker.get("episode"),
-        "service": service,
-    }
-    if evidence_record is not None:
-        evidence_record.update(
-            {
-                "authority_fence_attempt": authority_fence_attempt,
-                "status": "authority_fence_in_progress",
-            }
-        )
-    try:
-        authority_fence = _fence_restart_authority(
-            harness,
-            service=service,
-            armed=armed,
-            prior_identity=prior_identity,
-            deadline_monotonic=completion_deadline_monotonic,
-            attempt_evidence=authority_fence_attempt,
-            workload=workload,
-        )
-    except BaseException:
-        if evidence_record is not None:
-            evidence_record["status"] = "authority_fence_unresolved"
-        raise
     if evidence_record is not None:
         evidence_record.update(
             {
@@ -5059,6 +7112,11 @@ def run_soak(
             expected_run_id=f"{harness.project}-workload-run",
             workload=workload,
         )
+        workload_host_deadline = (
+            float(workload_start["host_received_monotonic_seconds"])
+            + configuration.duration_seconds
+            + WORKLOAD_FINALIZATION_ALLOWANCE_SECONDS
+        )
         chaos_started = time.monotonic()
         next_partition = chaos_started + configuration.partition_interval_seconds
         restore_partition_at: float | None = None
@@ -5067,6 +7125,11 @@ def run_soak(
         restart_index = 0
         while workload.poll() is None:
             now = time.monotonic()
+            if now >= workload_host_deadline:
+                raise WorkloadTimeoutError(
+                    deadline_monotonic=workload_host_deadline,
+                    observed_monotonic=now,
+                )
             elapsed = now - chaos_started
             if (
                 not partitioned
@@ -5157,19 +7220,18 @@ def run_soak(
                 )
                 next_partition = time.monotonic() + configuration.partition_interval_seconds
                 restore_partition_at = None
-            if now >= next_restart and may_start_chaos_episode(configuration, elapsed_s=elapsed):
+            if (
+                not partitioned
+                and not workload_paused
+                and now >= next_restart
+                and may_start_chaos_episode(configuration, elapsed_s=elapsed)
+            ):
                 prior_restart_deadline = next_restart
                 service = WARDENS[restart_index % len(WARDENS)]
                 checkpoint_elapsed = time.monotonic() - chaos_started
                 _require_workload_running(
                     workload,
                     context=f"before planned SIGKILL of {service}",
-                )
-                armed_restart = _arm_restart_window(
-                    harness,
-                    episode=restart_index,
-                    service=service,
-                    workload=workload,
                 )
                 resource_checkpoint = _pre_sigkill_resource_checkpoint(
                     harness,
@@ -5179,23 +7241,121 @@ def run_soak(
                     configuration=configuration,
                     bounds=resource_bounds,
                 )
-                restart_completion_deadline = (
-                    float(armed_restart["host_monitor_acknowledged_monotonic_seconds"])
-                    + MAXIMUM_PLANNED_RESTART_SECONDS
+                prior_container = harness.container(service, timeout=30.0)
+                prior_identity = _inspect_restart_target(
+                    harness,
+                    service=service,
+                    container=prior_container,
+                    timeout=30.0,
+                )
+                pre_arm_elapsed = time.monotonic() - chaos_started
+                if not may_start_chaos_episode(
+                    configuration,
+                    elapsed_s=pre_arm_elapsed,
+                ):
+                    # Resource and identity checks deliberately happen before the
+                    # workload acknowledges the bounded restart window.  If they
+                    # consumed the shutdown margin, leave the node untouched and
+                    # do not create a marker which the host can no longer honor.
+                    next_restart = float("inf")
+                    continue
+                _require_workload_running(
+                    workload,
+                    context=f"immediately before quiescing planned SIGKILL of {service}",
+                )
+                restart_id = f"{harness.project}-planned-restart-{restart_index:06d}-{service}"
+                quiesce_pause_id = f"{restart_id}-quiesce"
+                workload_paused = True
+                restart_quiescence = _pause_workload(
+                    harness,
+                    restart_index,
+                    workload,
+                    pause_id=quiesce_pause_id,
+                    reason="planned_restart",
+                    restart_id=restart_id,
+                    service=service,
+                )
+                armed_restart = _arm_restart_window(
+                    harness,
+                    episode=restart_index,
+                    quiesce_pause_id=quiesce_pause_id,
+                    service=service,
+                    workload=workload,
                 )
                 restart_record: dict[str, Any] = {
                     "resource_checkpoint": resource_checkpoint,
                     "service": service,
-                    "status": "armed",
-                    "workload_coordination": {"armed": armed_restart},
+                    "status": "fence_preparing",
+                    "workload_coordination": {
+                        "armed": armed_restart,
+                        "quiescence": restart_quiescence,
+                    },
                 }
                 restarts.append(restart_record)
+                prepared_acknowledgement = cast(dict[str, Any], armed_restart["acknowledgement"])
+                prepared_at = prepared_acknowledgement.get("observed_monotonic_seconds")
+                host_armed_started = armed_restart.get("host_armed_started_monotonic_seconds")
+                if not _finite_number(prepared_at) or not _finite_number(host_armed_started):
+                    raise RuntimeError("planned restart preparation timestamp is invalid")
+                preparation_deadline = float(host_armed_started) + PLANNED_FENCE_PREPARATION_SECONDS
+                if preparation_deadline - time.monotonic() <= PLANNED_PRE_ACK_RESERVE_SECONDS:
+                    raise RuntimeError(
+                        "planned restart preparation exhausted its post-fence reserve"
+                    )
+                authority_fence_attempt: dict[str, Any] = {
+                    "episode": restart_index,
+                    "service": service,
+                }
+                restart_record["authority_fence_attempt"] = authority_fence_attempt
+                authority_fence = _fence_restart_authority(
+                    harness,
+                    service=service,
+                    armed=armed_restart,
+                    prior_identity=prior_identity,
+                    deadline_monotonic=(preparation_deadline - PLANNED_PRE_ACK_RESERVE_SECONDS),
+                    attempt_evidence=authority_fence_attempt,
+                    workload=workload,
+                )
+                post_fence_identity = _inspect_restart_target(
+                    harness,
+                    service=service,
+                    container=cast(str, prior_identity["container_id"]),
+                    timeout=max(
+                        0.001,
+                        preparation_deadline - time.monotonic(),
+                    ),
+                )
+                host_reinspected = time.monotonic()
+                if post_fence_identity != prior_identity:
+                    raise RuntimeError(
+                        "planned restart target changed before authoritative acknowledgement"
+                    )
+                acknowledgement = _stamp_fenced_restart_acknowledgement(
+                    harness,
+                    armed=armed_restart,
+                    authority_fence=authority_fence,
+                    deadline_monotonic=preparation_deadline,
+                    host_reinspected_monotonic=host_reinspected,
+                    target_identity=prior_identity,
+                    workload=workload,
+                )
+                armed_restart["acknowledgement"] = acknowledgement
+                host_ack_command_started = armed_restart.get(
+                    "host_ack_command_started_monotonic_seconds"
+                )
+                if not _finite_number(host_ack_command_started):
+                    raise RuntimeError("planned restart host acknowledgement bracket is invalid")
+                restart_completion_deadline = (
+                    float(host_ack_command_started) + MAXIMUM_PLANNED_RESTART_SECONDS
+                )
                 restart = _restart(
                     harness,
                     service,
                     armed=armed_restart,
+                    authority_fence=authority_fence,
                     completion_deadline_monotonic=restart_completion_deadline,
                     elapsed_s=checkpoint_elapsed,
+                    prior_identity=prior_identity,
                     evidence_record=restart_record,
                     workload=workload,
                 )
@@ -5210,7 +7370,16 @@ def run_soak(
                 restart["workload_coordination"] = {
                     "armed": armed_restart,
                     "completed": completed_restart,
+                    "quiescence": restart_quiescence,
                 }
+                authorized_end = _authorize_pause_end(harness)
+                resume_coordination = _resume_workload(
+                    harness,
+                    authorized_end=authorized_end,
+                )
+                workload_paused = False
+                restart_quiescence["authorized_end"] = authorized_end
+                restart_quiescence.update(resume_coordination)
                 restart["status"] = "completed"
                 restart_index += 1
                 next_restart = _next_restart_deadline(
@@ -5236,6 +7405,19 @@ def run_soak(
             raise RuntimeError(
                 f"soak workload failed ({workload.returncode})\n{workload_stdout}{workload_stderr}"
             )
+        # Retain and validate the successful workload before any later recovery,
+        # terminal verification, fence, or cleanup can fail.
+        workload_result = _scenario_result(harness, "/scenario/soak-workload.json")
+        validated_workload_result = _validated_workload_artifact(
+            workload_result,
+            compact=False,
+            configuration=configuration,
+            expected_run_id=f"{harness.project}-workload-run",
+            started_monotonic_seconds=workload_start.get("started_monotonic_seconds"),
+        )
+        if validated_workload_result is None or validated_workload_result.get("status") != "passed":
+            raise RuntimeError("successful workload artifact failed its revision/digest binding")
+        workload_result = validated_workload_result
         if partitioned:
             if restore_partition_at is not None:
                 while time.monotonic() < restore_partition_at:
@@ -5294,7 +7476,6 @@ def run_soak(
         except FinalVerificationError as exc:
             verification = exc.result
             raise
-        workload_result = _scenario_result(harness, "/scenario/soak-workload.json")
         workload_evaluation = evaluate_workload_result(
             workload_result,
             configuration,
@@ -5433,6 +7614,115 @@ def run_soak(
         )
         return evidence
     except Exception as error:
+        # Stop and collect the host CLI first, then retain the scenario volume's
+        # structured journal before any container/volume cleanup can begin.
+        secondary_errors: list[dict[str, str]] = []
+        try:
+            workload_status = _failed_workload_status(
+                workload,
+                stdout=workload_stdout,
+                stderr=workload_stderr,
+                error=error,
+            )
+        except BaseException as status_error:
+            secondary_errors.append(
+                {
+                    "stage": "workload_status",
+                    "message": _bounded_text(str(status_error)),
+                    "type": f"{type(status_error).__module__}.{type(status_error).__qualname__}",
+                }
+            )
+            workload_status = {
+                "host_cli_terminated": False,
+                "return_code": None,
+                "started": workload is not None,
+                "state": "status_collection_failed",
+                "stderr": _bounded_text(workload_stderr),
+                "stdout": _bounded_text(workload_stdout),
+            }
+        failure_harvest: dict[str, Any]
+        harvested_documents: dict[str, dict[str, Any]]
+        if workload_start is None:
+            failure_harvest = {
+                "attempted": False,
+                "captured": False,
+                "error": None,
+                "reason": "workload did not publish its start identity",
+                "artifacts": {},
+            }
+            harvested_documents = {}
+        else:
+            try:
+                failure_harvest, harvested_documents = _harvest_failure_artifacts(
+                    harness,
+                    configuration=configuration,
+                    expected_run_id=f"{harness.project}-workload-run",
+                    workload_start=workload_start,
+                )
+            except BaseException as harvest_error:
+                secondary_errors.append(
+                    {
+                        "stage": "failure_harvest",
+                        "message": _bounded_text(str(harvest_error)),
+                        "type": (
+                            f"{type(harvest_error).__module__}.{type(harvest_error).__qualname__}"
+                        ),
+                    }
+                )
+                failure_harvest = {
+                    "attempted": True,
+                    "captured": False,
+                    "error": secondary_errors[-1],
+                    "artifacts": {},
+                }
+                harvested_documents = {}
+        if failure_harvest.get("captured") is True and not workload_result:
+            workload_result = harvested_documents["workload"]
+        harvested_verification = harvested_documents.get("verification")
+        if (
+            verification is None
+            and isinstance(harvested_verification, dict)
+            and harvested_verification.get("schema")
+            == "lets.production-profile-soak-verification/v1"
+        ):
+            verification = harvested_verification
+
+        harvest_checkpoint_published = False
+        try:
+            harvest_checkpoint: dict[str, Any] = {
+                "cleanup": {"performed": False, "reason": "pending failure diagnostics"},
+                "configuration": asdict(configuration),
+                "error": {
+                    "message": _bounded_text(str(error)),
+                    "type": f"{type(error).__module__}.{type(error).__qualname__}",
+                },
+                "failure_harvest": failure_harvest,
+                "orchestration": {
+                    "compose_project": harness.project,
+                    "phase": phase,
+                    "workload_start": workload_start,
+                },
+                "passed": False,
+                "schema": "lets.production-profile-soak/v2",
+                "secondary_errors": secondary_errors,
+                "started_at": started_at.isoformat().replace("+00:00", "Z"),
+                "workload": workload_result,
+                "workload_status": workload_status,
+            }
+            harvest_checkpoint["evidence_payload_sha256"] = _canonical_digest(harvest_checkpoint)
+            _write_evidence_atomic(output, harvest_checkpoint)
+            harvest_checkpoint_published = True
+        except BaseException as publication_error:
+            secondary_errors.append(
+                {
+                    "stage": "post_harvest_evidence_publication",
+                    "message": _bounded_text(str(publication_error)),
+                    "type": (
+                        f"{type(publication_error).__module__}."
+                        f"{type(publication_error).__qualname__}"
+                    ),
+                }
+            )
         failure_resource_capture: dict[str, Any] = {
             "attempted": False,
             "captured": False,
@@ -5442,17 +7732,27 @@ def run_soak(
             failure_elapsed = time.monotonic() - (
                 chaos_started if chaos_started is not None else started_monotonic
             )
-            failure_resource_capture = _capture_failure_resource_sample(
-                harness,
-                elapsed_s=max(0.0, failure_elapsed),
-                samples=resource_samples,
-            )
-        workload_status = _failed_workload_status(
-            workload,
-            stdout=workload_stdout,
-            stderr=workload_stderr,
-            error=error,
-        )
+            try:
+                failure_resource_capture = _capture_failure_resource_sample(
+                    harness,
+                    elapsed_s=max(0.0, failure_elapsed),
+                    samples=resource_samples,
+                )
+            except BaseException as resource_error:
+                secondary_errors.append(
+                    {
+                        "stage": "failure_resource_capture",
+                        "message": _bounded_text(str(resource_error)),
+                        "type": (
+                            f"{type(resource_error).__module__}.{type(resource_error).__qualname__}"
+                        ),
+                    }
+                )
+                failure_resource_capture = {
+                    "attempted": True,
+                    "captured": False,
+                    "error": secondary_errors[-1],
+                }
         if chaos_started is not None and chaos_completed is None:
             chaos_completed = time.monotonic()
         if started_cluster:
@@ -5476,7 +7776,48 @@ def run_soak(
                     check=False,
                     timeout=FAILURE_LOG_TIMEOUT_SECONDS,
                 )
-        if started_cluster and not keep and not cleanup_attempted:
+
+        # Durably publish the primary error and harvested hashes before any
+        # operation may remove the scenario volume. If this write fails, retain
+        # every resource instead of destroying the only remaining evidence.
+        precleanup_published = harvest_checkpoint_published
+        try:
+            precleanup_evidence: dict[str, Any] = {
+                "cleanup": {"performed": False, "reason": "pending failure cleanup"},
+                "configuration": asdict(configuration),
+                "error": {
+                    "message": _bounded_text(str(error)),
+                    "type": f"{type(error).__module__}.{type(error).__qualname__}",
+                },
+                "failure_harvest": failure_harvest,
+                "orchestration": {
+                    "compose_project": harness.project,
+                    "phase": phase,
+                    "workload_start": workload_start,
+                },
+                "passed": False,
+                "schema": "lets.production-profile-soak/v2",
+                "secondary_errors": secondary_errors,
+                "started_at": started_at.isoformat().replace("+00:00", "Z"),
+                "workload": workload_result,
+                "workload_status": workload_status,
+            }
+            precleanup_evidence["evidence_payload_sha256"] = _canonical_digest(precleanup_evidence)
+            _write_evidence_atomic(output, precleanup_evidence)
+            precleanup_published = True
+        except BaseException as publication_error:
+            secondary_errors.append(
+                {
+                    "stage": "precleanup_evidence_publication",
+                    "message": _bounded_text(str(publication_error)),
+                    "type": (
+                        f"{type(publication_error).__module__}."
+                        f"{type(publication_error).__qualname__}"
+                    ),
+                }
+            )
+
+        if started_cluster and not keep and not cleanup_attempted and precleanup_published:
             cleanup_attempted = True
             workload_container_cleanup: dict[str, Any] = {
                 "attempted": False,
@@ -5510,6 +7851,11 @@ def run_soak(
                     "reason": "cleanup failed",
                     "workload_container": workload_container_cleanup,
                 }
+        elif started_cluster and not precleanup_published:
+            cleanup = {
+                "performed": False,
+                "reason": "cleanup skipped because pre-cleanup evidence publication failed",
+            }
         elif keep:
             cleanup = {
                 "performed": False,
@@ -5561,6 +7907,7 @@ def run_soak(
                 "type": f"{type(error).__module__}.{type(error).__qualname__}",
             },
             "image": image,
+            "failure_harvest": failure_harvest,
             "orchestration": {
                 "chaos_completed_monotonic_seconds": chaos_completed,
                 "chaos_started_monotonic_seconds": chaos_started,
@@ -5576,6 +7923,7 @@ def run_soak(
             },
             "resources": partial_resources,
             "schema": "lets.production-profile-soak/v2",
+            "secondary_errors": secondary_errors,
             "source": source_before,
             "started_at": started_at.isoformat().replace("+00:00", "Z"),
             "verification": verification,
@@ -5583,25 +7931,44 @@ def run_soak(
             "workload_evaluation": workload_evaluation,
             "workload_status": workload_status,
         }
-        failed_evidence["evidence_payload_sha256"] = _canonical_digest(failed_evidence)
         evidence_write_error: str | None = None
         try:
+            failed_evidence["evidence_payload_sha256"] = _canonical_digest(failed_evidence)
             _write_evidence_atomic(output, failed_evidence)
-        except Exception as write_error:
+        except BaseException as write_error:
             evidence_write_error = _bounded_text(str(write_error))
-        print(
-            json.dumps(
+            secondary_errors.append(
                 {
-                    "evidence": str(output),
-                    "evidence_payload_sha256": failed_evidence["evidence_payload_sha256"],
-                    "evidence_write_error": evidence_write_error,
-                    "status": "failed",
-                },
-                sort_keys=True,
+                    "stage": "final_failure_evidence_publication",
+                    "message": evidence_write_error,
+                    "type": f"{type(write_error).__module__}.{type(write_error).__qualname__}",
+                }
             )
-        )
-        if failure_logs:
-            print(_bounded_text(failure_logs))
+        try:
+            print(
+                json.dumps(
+                    {
+                        "evidence": str(output),
+                        "evidence_payload_sha256": failed_evidence.get("evidence_payload_sha256"),
+                        "evidence_write_error": evidence_write_error,
+                        "status": "failed",
+                    },
+                    allow_nan=False,
+                    sort_keys=True,
+                )
+            )
+            if failure_logs:
+                print(_bounded_text(failure_logs))
+        except BaseException as reporting_error:
+            secondary_errors.append(
+                {
+                    "stage": "failure_reporting",
+                    "message": _bounded_text(str(reporting_error)),
+                    "type": (
+                        f"{type(reporting_error).__module__}.{type(reporting_error).__qualname__}"
+                    ),
+                }
+            )
         raise
 
 

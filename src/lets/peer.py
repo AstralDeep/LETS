@@ -115,6 +115,7 @@ class PeerDispatcher:
         self._max_concurrency = max_concurrency
         self._stop = threading.Event()
         self._run_lock = threading.Lock()
+        self._status_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._last_cycle_ns: int | None = None
         self._last_error: str | None = None
@@ -151,6 +152,21 @@ class PeerDispatcher:
             return require_warden_id(cast(str, value), field="durable retry target_warden")
         except (TypeError, ValueError):
             return "unknown"
+
+    def _record_status(
+        self,
+        *,
+        error: str | None,
+        cycle_ns: int | None = None,
+    ) -> None:
+        with self._status_lock:
+            self._last_error = error
+            if cycle_ns is not None:
+                self._last_cycle_ns = cycle_ns
+
+    def _record_cycle(self, cycle_ns: int) -> None:
+        with self._status_lock:
+            self._last_cycle_ns = cycle_ns
 
     @staticmethod
     def _object(payload: object, label: str) -> dict[str, Any]:
@@ -194,7 +210,7 @@ class PeerDispatcher:
                 )
                 next_attempt_ns = min((1 << 63) - 1, now_ns + delay_ns)
                 message = self._exception_class(error)
-                self._last_error = message
+                self._record_status(error=message)
             cursor = connection.execute(
                 """
                 UPDATE peer_delivery_state
@@ -481,7 +497,7 @@ class PeerDispatcher:
                     try:
                         future.result()
                     except Exception as error:
-                        self._last_error = self._exception_class(error)
+                        self._record_status(error=self._exception_class(error))
 
     def _create_checkpoints(self) -> None:
         cursor = self._checkpoint_cursor or ""
@@ -557,7 +573,7 @@ class PeerDispatcher:
                     through_sequence=int(row[1]),
                 )
             except Exception as error:
-                self._last_error = self._exception_class(error)
+                self._record_status(error=self._exception_class(error))
 
     def run_once(self) -> None:
         """Run one bounded discovery and delivery cycle."""
@@ -565,15 +581,17 @@ class PeerDispatcher:
         if not self._run_lock.acquire(blocking=False):
             return
         try:
-            self._last_error = None
+            self._record_status(error=None)
             self._create_checkpoints()
             self._deliver_pending()
             self._prune_terminal()
             self._prune_compacted_transfer_history()
-            self._last_cycle_ns = time.time_ns()
+            self._record_cycle(time.time_ns())
         except Exception as error:
-            self._last_cycle_ns = time.time_ns()
-            self._last_error = self._exception_class(error)
+            self._record_status(
+                error=self._exception_class(error),
+                cycle_ns=time.time_ns(),
+            )
         finally:
             self._run_lock.release()
 
@@ -600,7 +618,7 @@ class PeerDispatcher:
             try:
                 client.close()
             except Exception as error:
-                self._last_error = self._exception_class(error)
+                self._record_status(error=self._exception_class(error))
         if self._thread is not None:
             deadline = max(
                 5.0,
@@ -611,10 +629,14 @@ class PeerDispatcher:
                 raise RuntimeError("peer dispatcher did not stop within its deadline")
             self._thread = None
 
-    def status(self) -> dict[str, object]:
-        with self._store.read() as transaction:
-            row = transaction.connection.execute(
-                """
+    def durable_status(
+        self,
+        connection: Any,
+        *,
+        now_ns: int,
+    ) -> dict[str, object]:
+        row = connection.execute(
+            """
                 SELECT
                     SUM(
                         CASE WHEN delivered_at_ns IS NULL AND superseded_at_ns IS NULL
@@ -627,20 +649,20 @@ class PeerDispatcher:
                     )
                 FROM peer_delivery_state
                 """
-            ).fetchone()
-            counters = transaction.connection.execute(
-                """
+        ).fetchone()
+        counters = connection.execute(
+            """
                 SELECT SUM(delivered_count), SUM(superseded_count)
                 FROM peer_delivery_counters
                 """
-            ).fetchone()
-            prepared = int(
-                transaction.connection.execute(
-                    "SELECT COUNT(*) FROM outgoing_transfers WHERE status = 'PREPARED'"
-                ).fetchone()[0]
-            )
-            retry_row = transaction.connection.execute(
-                """
+        ).fetchone()
+        prepared = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM outgoing_transfers WHERE status = 'PREPARED'"
+            ).fetchone()[0]
+        )
+        retry_row = connection.execute(
+            """
                 SELECT attempts, next_attempt_ns, last_error, record_kind, target_warden
                 FROM peer_delivery_state
                 WHERE delivered_at_ns IS NULL
@@ -649,10 +671,10 @@ class PeerDispatcher:
                 ORDER BY created_at_ns, record_kind, record_id, target_warden
                 LIMIT 1
                 """
-            ).fetchone()
+        ).fetchone()
         durable_retry: dict[str, object] | None = None
         if retry_row is not None:
-            remaining_ns = max(0, int(retry_row[1]) - time.time_ns())
+            remaining_ns = max(0, int(retry_row[1]) - now_ns)
             delay_seconds = min(
                 MAX_PEER_RETRY_DELAY_SECONDS,
                 remaining_ns / 1_000_000_000,
@@ -665,16 +687,33 @@ class PeerDispatcher:
                 "target_warden": self._stored_target_warden(retry_row[4]),
             }
         return {
-            "configured_peers": len(self._clients),
             "pending_records": 0 if row[0] is None else int(row[0]),
             "delivered_records": 0 if counters[0] is None else int(counters[0]),
             "superseded_records": 0 if counters[1] is None else int(counters[1]),
             "failed_records": 0 if row[1] is None else int(row[1]),
             "prepared_transfers": prepared,
             "durable_retry": durable_retry,
-            "last_cycle_ns": self._last_cycle_ns,
-            "last_error": self._last_error,
         }
+
+    def volatile_status(self) -> dict[str, object]:
+        with self._status_lock:
+            thread = self._thread
+            running = thread is not None and thread.is_alive()
+            return {
+                "configured_peers": len(self._clients),
+                "healthy": (
+                    running and self._last_cycle_ns is not None and self._last_error is None
+                ),
+                "last_cycle_ns": self._last_cycle_ns,
+                "last_error": self._last_error,
+                "running": running,
+            }
+
+    def status(self) -> dict[str, object]:
+        now_ns = time.time_ns()
+        with self._store.read() as transaction:
+            durable = self.durable_status(transaction.connection, now_ns=now_ns)
+        return {**durable, **self.volatile_status()}
 
 
 __all__ = [

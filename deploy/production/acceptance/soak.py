@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import os
 import re
 import ssl
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass, field
+from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 import httpx
 from nacl.signing import SigningKey
@@ -57,18 +62,23 @@ WORKLOAD_PAUSE = Path("/scenario/soak-workload-pause.json")
 WORKLOAD_PAUSE_ACK = Path("/scenario/soak-workload-pause-ack.json")
 WORKLOAD_RESTART = Path("/scenario/soak-workload-restart.json")
 WORKLOAD_RESTART_ACK = Path("/scenario/soak-workload-restart-ack.json")
+_RESTART_ACK_LOCK = threading.Lock()
 WORKLOAD_START = Path("/scenario/soak-workload-start.json")
 WORKLOAD_RESULT = Path("/scenario/soak-workload.json")
+WORKLOAD_JOURNAL = Path("/scenario/soak-workload-journal.json")
+WORKLOAD_ARTIFACT_MAX_BYTES = 64 * 1024 * 1024
+WORKLOAD_JOURNAL_MAX_BYTES = 2 * 1024 * 1024
+WORKLOAD_JOURNAL_CYCLE_SECONDS = 5.0
+OBSERVATION_RESPONSE_MAX_BYTES = 20 * 1024
+GENERAL_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
 MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
+MAXIMUM_PLANNED_FENCE_PREPARATION_SECONDS = 120.0
 AUTHORITY_FAILURE_DIAGNOSTIC_SECONDS = 7.0
-AUDIT_ERROR_MAX_BYTES = 4_096
+AUDIT_ERROR_MAX_BYTES = 64
 AUDIT_ERROR_SAMPLE_BUDGET = 1
 AUTHORITY_COUNTER_MAX = (1 << 63) - 1
-AUDIT_TRANSIENT_CONNECT_BUSY = re.compile(
-    r"\AStorageError: could not connect to the audit archive "
-    r"\(sqlite_errorname=(SQLITE_BUSY(?:_[A-Z0-9_]+)?), sqlite_errorcode=([0-9]+)\)\Z"
-)
+AUDIT_TRANSIENT_CONNECT_BUSY = "StorageError:sqlite_busy"
 LATENCY_BUCKETS_MS = (
     5,
     10,
@@ -114,6 +124,25 @@ def _coordination_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"{path} is not a coordination JSON object")
     return cast(dict[str, Any], value)
+
+
+def _bounded_response_json(value: bytes) -> object:
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in result:
+                raise ValueError(f"duplicate response key: {key}")
+            result[key] = item
+        return result
+
+    def reject(constant: str) -> object:
+        raise ValueError(f"non-finite response number: {constant}")
+
+    return json.loads(
+        value,
+        object_pairs_hook=unique,
+        parse_constant=reject,
+    )
 
 
 def _tls_context() -> ssl.SSLContext:
@@ -176,6 +205,7 @@ class ClusterClient:
         self.retry_count = 0
         self._retry_scope_first_error: str | None = None
         self._retry_scope_last_error: str | None = None
+        self.last_request_attempt_count = 0
 
     def begin_retry_scope(self) -> None:
         self._retry_scope_first_error = None
@@ -210,11 +240,13 @@ class ClusterClient:
         method: str,
         node: str,
         path: str,
-        response: httpx.Response,
+        response_body: bytes,
+        response_headers: httpx.Headers,
+        response_status: int,
     ) -> str:
         problem_code: object = None
         try:
-            problem = response.json()
+            problem = _bounded_response_json(response_body)
         except (ValueError, TypeError):
             problem = None
         if isinstance(problem, dict):
@@ -222,9 +254,9 @@ class ClusterClient:
         correlation: object = None
         if isinstance(body, dict):
             correlation = body.get("request_id", body.get("restart_id"))
-        response_id = response.headers.get("x-request-id")
+        response_id = response_headers.get("x-request-id")
         return (
-            f"http_status:{response.status_code};"
+            f"http_status:{response_status};"
             f"code:{cls._retry_component(problem_code, maximum=64)};"
             f"method:{cls._retry_component(method, maximum=16)};"
             f"node:{cls._retry_component(node, maximum=32)};"
@@ -248,10 +280,10 @@ class ClusterClient:
         retry_timeout_s: float | None = None,
         deadline_monotonic: float | None = None,
         interrupt: Callable[[], None] | None = None,
+        single_attempt: bool = False,
     ) -> dict[str, Any]:
         self._raise_if_aborted()
-        if interrupt is not None:
-            interrupt()
+        self.last_request_attempt_count = 0
         retry_window = (
             self._retry_timeout_s
             if retry_timeout_s is None
@@ -272,7 +304,17 @@ class ClusterClient:
             if interrupt is not None:
                 interrupt()
             headers = {"authorization": f"Bearer {self._tokens.issue()}"}
-            request_timeout = max(0.001, min(10.0, deadline - time.monotonic()))
+            request_timeout_cap = (
+                90.0
+                if path == "/v1/maintenance/authority-fence"
+                else 65.0
+                if path == "/v1/audit/verify"
+                else 10.0
+            )
+            request_timeout = max(
+                0.001,
+                min(request_timeout_cap, deadline - time.monotonic()),
+            )
             try:
                 with httpx.Client(
                     verify=self._tls,
@@ -282,32 +324,64 @@ class ClusterClient:
                     if attempted_requests > 0:
                         self.retry_count += 1
                     attempted_requests += 1
-                    response = client.request(method, f"{NODE_URLS[node]}{path}", json=body)
+                    self.last_request_attempt_count = attempted_requests
+                    maximum_response = (
+                        OBSERVATION_RESPONSE_MAX_BYTES
+                        if method == "GET" and path == "/v1/metrics"
+                        else GENERAL_RESPONSE_MAX_BYTES
+                    )
+                    with client.stream(
+                        method,
+                        f"{NODE_URLS[node]}{path}",
+                        json=body,
+                    ) as response:
+                        content_length = response.headers.get("content-length")
+                        if (
+                            content_length is not None
+                            and content_length.isascii()
+                            and content_length.isdecimal()
+                            and int(content_length) > maximum_response
+                        ):
+                            raise RuntimeError(f"{node}{path} exceeded its response byte bound")
+                        chunks: list[bytes] = []
+                        response_bytes = 0
+                        for chunk in response.iter_bytes():
+                            response_bytes += len(chunk)
+                            if response_bytes > maximum_response:
+                                raise RuntimeError(f"{node}{path} exceeded its response byte bound")
+                            chunks.append(chunk)
+                        response_body = b"".join(chunks)
+                        response_status = response.status_code
+                        response_headers = response.headers
             except httpx.TransportError as exc:
                 last_error = f"transport:{type(exc).__name__}"
-                if interrupt is not None:
-                    interrupt()
             else:
-                if response.status_code == expected:
-                    value = response.json()
+                if response_status == expected:
+                    value = _bounded_response_json(response_body)
                     if not isinstance(value, dict):
                         raise RuntimeError(f"{node}{path} returned a non-object response")
                     if time.monotonic() > deadline:
                         last_error = "response completed after the shared deadline"
                         self._record_retry_error("deadline:late_response")
                         break
-                    if interrupt is not None:
-                        interrupt()
                     return cast(dict[str, Any], value)
                 last_error = self._http_retry_error(
                     body=body,
                     method=method,
                     node=node,
                     path=path,
-                    response=response,
+                    response_body=response_body,
+                    response_headers=response_headers,
+                    response_status=response_status,
                 )
-                if response.status_code not in {429, 500, 502, 503, 504}:
+                if response_status not in {429, 500, 502, 503, 504}:
                     raise RuntimeError(f"{method} {node}{path} failed: {last_error}")
+            finally:
+                if attempted_requests > 0 and interrupt is not None:
+                    interrupt()
+            if single_attempt:
+                self._record_retry_error(last_error)
+                break
             self._record_retry_error(last_error)
             delay = min(0.2, max(0.0, deadline - time.monotonic()))
             if self._abort_event is None:
@@ -378,6 +452,7 @@ def scheduled_transfer_pair(cycle: int, transfer_every_cycles: int) -> tuple[str
     return TRANSFER_PAIRS[transfer_ordinal % len(TRANSFER_PAIRS)]
 
 
+@lru_cache(maxsize=1)
 def _verified_manifest() -> ClusterManifest:
     manifest = ClusterManifest.load(TRUST / "manifest.json")
     operator = _object(TRUST / "operator.json")
@@ -839,6 +914,14 @@ def _finite_nonnegative(value: object, *, field: str, node: str) -> float:
     return float(value)
 
 
+def _is_finite_number(value: object) -> bool:
+    return bool(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+    )
+
+
 _AUTHORITY_STATUS_FIELDS = frozenset(
     {
         "admission_fenced",
@@ -1003,12 +1086,791 @@ def _bounded_authority_anchor_status(
     return {field_name: value[field_name] for field_name in sorted(_AUTHORITY_STATUS_FIELDS)}
 
 
+_OBSERVATION_DYNAMIC_FIELDS = frozenset(
+    {
+        "age_ns",
+        "authority_anchor",
+        "capture_status",
+        "fresh",
+        "ready",
+        "served_at_monotonic_ns",
+        "service_ready",
+    }
+)
+_OBSERVATION_IMMUTABLE_FIELDS = frozenset(
+    {
+        "audit_exporter",
+        "audit_outbox",
+        "audit_verification",
+        "authority_checkpoint",
+        "capture_duration_ns",
+        "capture_started_monotonic_ns",
+        "captured_at_monotonic_ns",
+        "captured_at_ns",
+        "captured_authority_anchor",
+        "checked_at_ns",
+        "clock_healthy",
+        "core_state_revision",
+        "database_instance_id",
+        "generation",
+        "invariant",
+        "invariant_healthy",
+        "leases",
+        "lifetime_id",
+        "max_age_ns",
+        "observation_eligible",
+        "peer_dispatcher",
+        "published_at_monotonic_ns",
+        "published_at_ns",
+        "receipts",
+        "resources",
+        "revision",
+        "runtime",
+        "schema",
+        "signing_key_healthy",
+        "snapshot_id",
+        "sqlite_schema_sha256",
+        "storage_capacity",
+        "transfers",
+    }
+)
+_AUTHORITY_CHECKPOINT_FIELDS = frozenset(
+    {
+        "audit_hash",
+        "audit_sequence",
+        "clock_floor_ns",
+        "config_epoch",
+        "database_instance_id",
+        "envelope_id",
+        "format",
+        "schema_version",
+        "signing_key_id",
+        "signing_public_key_sha256",
+        "state_digest",
+        "state_revision",
+        "tenant_id",
+        "warden_id",
+    }
+)
+
+
+def _validated_authority_checkpoint(value: object, *, node: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != _AUTHORITY_CHECKPOINT_FIELDS:
+        raise RuntimeError(f"{node} returned malformed authority checkpoint")
+    manifest = _verified_manifest()
+    local = manifest.warden(node)
+    expected_signers = {
+        (
+            key.key_id,
+            b64url_encode(hashlib.sha256(key.public_key).digest()),
+        )
+        for key in local.keys
+    }
+    binary_fields = (
+        "audit_hash",
+        "database_instance_id",
+        "signing_public_key_sha256",
+        "state_digest",
+    )
+    try:
+        decoded = {
+            field_name: b64url_decode(cast(str, value.get(field_name)))
+            for field_name in binary_fields
+        }
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{node} returned malformed checkpoint digests") from exc
+    if (
+        value.get("format") != "LETS-AUTHORITY-ANCHOR/1"
+        or value.get("warden_id") != node
+        or value.get("tenant_id") != manifest.tenant_id
+        or value.get("envelope_id") != manifest.envelope_id
+        or type(value.get("config_epoch")) is not int
+        or value.get("config_epoch") != manifest.config_epoch
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 2
+        or (value.get("signing_key_id"), value.get("signing_public_key_sha256"))
+        not in expected_signers
+        or type(value.get("audit_sequence")) is not int
+        or not -1 <= value["audit_sequence"] <= AUTHORITY_COUNTER_MAX
+        or type(value.get("state_revision")) is not int
+        or not 0 <= value["state_revision"] <= AUTHORITY_COUNTER_MAX
+        or type(value.get("clock_floor_ns")) not in {int, type(None)}
+        or (
+            type(value.get("clock_floor_ns")) is int
+            and not 0 <= cast(int, value["clock_floor_ns"]) <= AUTHORITY_COUNTER_MAX
+        )
+        or any(len(item) != 32 for item in decoded.values())
+    ):
+        raise RuntimeError(f"{node} returned inconsistent authority checkpoint")
+    return cast(dict[str, Any], value)
+
+
+_CHECKPOINT_STABLE_FIELDS = frozenset(
+    {
+        "config_epoch",
+        "database_instance_id",
+        "envelope_id",
+        "format",
+        "schema_version",
+        "signing_key_id",
+        "signing_public_key_sha256",
+        "tenant_id",
+        "warden_id",
+    }
+)
+
+
+def _validate_checkpoint_progression(
+    prior: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    node: str,
+) -> None:
+    """Require one authority checkpoint to extend, never splice, its predecessor."""
+
+    prior_floor = prior.get("clock_floor_ns")
+    current_floor = current.get("clock_floor_ns")
+    if (
+        any(current[field] != prior[field] for field in _CHECKPOINT_STABLE_FIELDS)
+        or cast(int, current["state_revision"]) < cast(int, prior["state_revision"])
+        or cast(int, current["audit_sequence"]) < cast(int, prior["audit_sequence"])
+        or (type(prior_floor) is int and type(current_floor) is not int)
+        or (type(prior_floor) is int and type(current_floor) is int and current_floor < prior_floor)
+        or (
+            current["state_revision"] == prior["state_revision"]
+            and current["state_digest"] != prior["state_digest"]
+        )
+        or (
+            current["audit_sequence"] == prior["audit_sequence"]
+            and current["audit_hash"] != prior["audit_hash"]
+        )
+    ):
+        raise RuntimeError(f"{node} authority checkpoint did not extend its predecessor")
+
+
+def _observation_json(value: dict[str, Any]) -> bytes:
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _validated_observation(metrics: object, *, node: str) -> dict[str, Any]:
+    if not isinstance(metrics, dict) or set(metrics) != (
+        _OBSERVATION_IMMUTABLE_FIELDS | _OBSERVATION_DYNAMIC_FIELDS
+    ):
+        raise RuntimeError(f"{node} returned a non-exact observation envelope")
+    if len(_observation_json(metrics)) > OBSERVATION_RESPONSE_MAX_BYTES:
+        raise RuntimeError(f"{node} observation exceeds its response byte bound")
+
+    def integer(field: str, *, minimum: int = 0) -> int:
+        value = metrics.get(field)
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            raise RuntimeError(f"{node} returned invalid observation {field}")
+        return value
+
+    if metrics.get("schema") != "lets.observation-snapshot/v1":
+        raise RuntimeError(f"{node} returned an unsupported observation schema")
+    generation = metrics.get("generation")
+    lifetime = metrics.get("lifetime_id")
+    snapshot_id = metrics.get("snapshot_id")
+    if (
+        not isinstance(generation, str)
+        or re.fullmatch(r"[0-9a-f]{32}", generation) is None
+        or not isinstance(lifetime, str)
+        or re.fullmatch(r"[0-9a-f]{32}", lifetime) is None
+        or not isinstance(snapshot_id, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", snapshot_id) is None
+    ):
+        raise RuntimeError(f"{node} returned invalid observation identity")
+    immutable = {
+        key: value
+        for key, value in metrics.items()
+        if key not in _OBSERVATION_DYNAMIC_FIELDS and key != "snapshot_id"
+    }
+    expected_snapshot_id = f"sha256:{hashlib.sha256(_observation_json(immutable)).hexdigest()}"
+    if snapshot_id != expected_snapshot_id:
+        raise RuntimeError(f"{node} observation payload digest is invalid")
+    revision = integer("revision", minimum=1)
+    capture_started = integer("capture_started_monotonic_ns")
+    captured_monotonic = integer("captured_at_monotonic_ns")
+    published_monotonic = integer("published_at_monotonic_ns")
+    capture_duration = integer("capture_duration_ns")
+    captured_at_ns = integer("captured_at_ns")
+    if (
+        not capture_started <= captured_monotonic <= published_monotonic
+        or capture_duration != published_monotonic - capture_started
+        or integer("published_at_ns") < captured_at_ns
+        or integer("max_age_ns") != 15_000_000_000
+    ):
+        raise RuntimeError(f"{node} returned inconsistent observation timestamps")
+    age_ns = integer("age_ns")
+    served_at = integer("served_at_monotonic_ns")
+    if (
+        served_at < published_monotonic
+        or age_ns != served_at - captured_monotonic
+        or age_ns >= 15_000_000_000
+        or metrics.get("fresh") is not True
+    ):
+        raise RuntimeError(f"{node} returned a stale observation")
+    capture_status = metrics.get("capture_status")
+    if (
+        not isinstance(capture_status, dict)
+        or set(capture_status)
+        != {
+            "attempt_sequence",
+            "capture_in_progress",
+            "last_attempt_monotonic_ns",
+            "last_error_type",
+            "last_successful_attempt_sequence",
+        }
+        or type(capture_status.get("attempt_sequence")) is not int
+        or capture_status["attempt_sequence"] <= 0
+        or type(capture_status.get("capture_in_progress")) is not bool
+        or type(capture_status.get("last_attempt_monotonic_ns")) is not int
+        or capture_status["last_attempt_monotonic_ns"] < 0
+        or capture_status.get("last_error_type") is not None
+        or type(capture_status.get("last_successful_attempt_sequence")) is not int
+        or capture_status["last_successful_attempt_sequence"] <= 0
+        or capture_status["last_successful_attempt_sequence"] > capture_status["attempt_sequence"]
+        or (
+            capture_status["capture_in_progress"] is False
+            and capture_status["last_successful_attempt_sequence"]
+            != capture_status["attempt_sequence"]
+        )
+    ):
+        raise RuntimeError(f"{node} returned an unhealthy capture status")
+    captured_authority = _bounded_authority_anchor_status(
+        metrics.get("captured_authority_anchor"),
+        node=node,
+        require_healthy=True,
+    )
+    current_authority = _bounded_authority_anchor_status(
+        metrics.get("authority_anchor"),
+        node=node,
+        require_healthy=True,
+    )
+    if (
+        captured_authority.get("lifetime_id") != lifetime
+        or current_authority.get("lifetime_id") != lifetime
+        or captured_authority.get("namespace_process_id")
+        != current_authority.get("namespace_process_id")
+        or any(
+            cast(int, current_authority[field_name]) < cast(int, captured_authority[field_name])
+            for field_name in _AUTHORITY_COUNTER_FIELDS
+        )
+        or (
+            captured_authority.get("first_fault") is not None
+            and current_authority.get("first_fault") != captured_authority.get("first_fault")
+        )
+    ):
+        raise RuntimeError(f"{node} returned an inconsistent current authority lineage")
+    checkpoint = _validated_authority_checkpoint(
+        metrics.get("authority_checkpoint"),
+        node=node,
+    )
+    try:
+        checkpoint_audit_hash = b64url_decode(cast(str, checkpoint.get("audit_hash")))
+        database_instance = b64url_decode(cast(str, checkpoint.get("database_instance_id")))
+        state_digest = b64url_decode(cast(str, checkpoint.get("state_digest")))
+        signing_digest = b64url_decode(cast(str, checkpoint.get("signing_public_key_sha256")))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{node} returned malformed checkpoint digests") from exc
+    audit_sequence = checkpoint.get("audit_sequence")
+    state_revision = checkpoint.get("state_revision")
+    if (
+        checkpoint.get("format") != "LETS-AUTHORITY-ANCHOR/1"
+        or checkpoint.get("warden_id") != node
+        or checkpoint.get("tenant_id") != TENANT_ID
+        or checkpoint.get("envelope_id") != ENVELOPE_ID
+        or type(audit_sequence) is not int
+        or audit_sequence < -1
+        or type(state_revision) is not int
+        or state_revision < 0
+        or len(checkpoint_audit_hash) != 32
+        or len(database_instance) != 32
+        or len(state_digest) != 32
+        or len(signing_digest) != 32
+        or type(metrics.get("core_state_revision")) is not int
+        or metrics.get("core_state_revision") != state_revision
+        or metrics.get("database_instance_id") != checkpoint.get("database_instance_id")
+    ):
+        raise RuntimeError(f"{node} returned inconsistent authority checkpoint")
+    audit = metrics.get("audit_verification")
+    expected_audit_fields = {
+        "captured_head_hash",
+        "captured_head_sequence",
+        "catching_up",
+        "error_type",
+        "lag",
+        "last_full_verification_at_ns",
+        "page_size",
+        "schema_definition_sha256",
+        "sticky_failure",
+        "sweep_cursor_sequence",
+        "sweep_last_completed_at_ns",
+        "sweep_last_completed_head_hash",
+        "sweep_last_completed_head_sequence",
+        "sweep_target_sequence",
+        "valid",
+        "verified_through_hash",
+        "verified_through_sequence",
+    }
+    checkpoint_hash_text = f"sha256:{checkpoint_audit_hash.hex()}"
+    if (
+        not isinstance(audit, dict)
+        or set(audit) != expected_audit_fields
+        or audit.get("valid") is not True
+        or audit.get("sticky_failure") is not False
+        or audit.get("catching_up") is not False
+        or audit.get("error_type") is not None
+        or audit.get("lag") != 0
+        or audit.get("captured_head_sequence") != audit_sequence
+        or audit.get("verified_through_sequence") != audit_sequence
+        or audit.get("captured_head_hash") != checkpoint_hash_text
+        or audit.get("verified_through_hash") != checkpoint_hash_text
+        or type(audit.get("last_full_verification_at_ns")) is not int
+        or audit["last_full_verification_at_ns"] <= 0
+        or audit.get("schema_definition_sha256") != metrics.get("sqlite_schema_sha256")
+        or not isinstance(audit.get("schema_definition_sha256"), str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            cast(str, audit["schema_definition_sha256"]),
+        )
+        is None
+        or type(audit.get("sweep_cursor_sequence")) is not int
+        or audit["sweep_cursor_sequence"] < -1
+        or type(audit.get("sweep_target_sequence")) is not int
+        or audit["sweep_target_sequence"] < -1
+        or audit["sweep_cursor_sequence"] > audit["sweep_target_sequence"]
+        or type(audit.get("sweep_last_completed_at_ns")) is not int
+        or audit["sweep_last_completed_at_ns"] <= 0
+        or audit["sweep_last_completed_at_ns"] > captured_at_ns
+        or type(audit.get("sweep_last_completed_head_sequence")) is not int
+        or audit["sweep_last_completed_head_sequence"] < -1
+        or not isinstance(audit.get("sweep_last_completed_head_hash"), str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            cast(str, audit["sweep_last_completed_head_hash"]),
+        )
+        is None
+    ):
+        raise RuntimeError(f"{node} returned an unbound incremental audit proof")
+    invariant = metrics.get("invariant")
+    resources = metrics.get("resources")
+    resource_fields = {
+        "consumed",
+        "free_pool",
+        "initial_share",
+        "lease_residual",
+        "transferred_in",
+        "transferred_out",
+    }
+    invariant_fields = resource_fields | {
+        "checked_at_ns",
+        "config_epoch",
+        "envelope_id",
+        "healthy",
+        "tenant_id",
+    }
+    dimension_count = len(_verified_manifest().resources)
+
+    def resource_vector(value: object) -> TypeGuard[list[int]]:
+        return bool(
+            isinstance(value, list)
+            and len(value) == dimension_count
+            and all(type(item) is int and 0 <= item <= AUTHORITY_COUNTER_MAX for item in value)
+        )
+
+    resource_vectors_valid = bool(
+        isinstance(invariant, dict)
+        and all(resource_vector(invariant.get(field)) for field in resource_fields)
+    )
+    initial_share = invariant.get("initial_share") if isinstance(invariant, dict) else None
+    transferred_in = invariant.get("transferred_in") if isinstance(invariant, dict) else None
+    free_pool = invariant.get("free_pool") if isinstance(invariant, dict) else None
+    lease_residual = invariant.get("lease_residual") if isinstance(invariant, dict) else None
+    consumed = invariant.get("consumed") if isinstance(invariant, dict) else None
+    transferred_out = invariant.get("transferred_out") if isinstance(invariant, dict) else None
+    local_conservation_valid = bool(
+        resource_vectors_valid
+        and resource_vector(initial_share)
+        and resource_vector(transferred_in)
+        and resource_vector(free_pool)
+        and resource_vector(lease_residual)
+        and resource_vector(consumed)
+        and resource_vector(transferred_out)
+        and all(
+            initial_share[index] + transferred_in[index]
+            == free_pool[index] + lease_residual[index] + consumed[index] + transferred_out[index]
+            for index in range(dimension_count)
+        )
+    )
+
+    if (
+        not isinstance(invariant, dict)
+        or set(invariant) != invariant_fields
+        or not isinstance(resources, dict)
+        or set(resources) != resource_fields
+        or any(resources[field] != invariant[field] for field in resource_fields)
+        or not resource_vectors_valid
+        or not local_conservation_valid
+        or invariant.get("tenant_id") != TENANT_ID
+        or invariant.get("envelope_id") != ENVELOPE_ID
+        or type(invariant.get("config_epoch")) is not int
+        or invariant.get("config_epoch") != _verified_manifest().config_epoch
+        or type(invariant.get("checked_at_ns")) is not int
+        or invariant.get("checked_at_ns") != metrics.get("checked_at_ns")
+        or invariant.get("healthy") is not True
+        or metrics.get("invariant_healthy") is not True
+        or metrics.get("clock_healthy") is not True
+        or metrics.get("signing_key_healthy") is not True
+        or metrics.get("observation_eligible") is not True
+    ):
+        raise RuntimeError(f"{node} returned inconsistent core observation facts")
+    runtime = metrics.get("runtime")
+    capacity = metrics.get("storage_capacity")
+    leases = metrics.get("leases")
+    receipts = metrics.get("receipts")
+    transfers = metrics.get("transfers")
+    outbox = metrics.get("audit_outbox")
+    peer = metrics.get("peer_dispatcher")
+    exporter = metrics.get("audit_exporter")
+    capacity_fields = {
+        "additional_shared_memory_bytes",
+        "database_bytes",
+        "effective_database_bytes",
+        "filesystem_free_bytes",
+        "free_pages",
+        "healthy",
+        "logical_live_bytes",
+        "main_database_bytes",
+        "max_database_bytes",
+        "max_page_count",
+        "min_free_disk_bytes",
+        "page_count",
+        "page_size",
+        "prior_full_error",
+        "remaining_main_growth_bytes",
+        "required_filesystem_free_bytes",
+        "reserve_pages",
+        "reusable_bytes",
+        "shared_memory_bytes",
+        "wal_bytes",
+        "worst_case_shared_memory_bytes",
+        "worst_case_transaction_wal_bytes",
+    }
+    transfer_fields = {
+        "in_flight_count",
+        "inbound_gap_count",
+        "incoming_compacted_high_water",
+        "incoming_contiguous_high_water",
+        "incoming_streams",
+        "outgoing_acked_high_water",
+        "outgoing_compacted_high_water",
+        "outgoing_streams",
+    }
+    peer_fields = {
+        "configured_peers",
+        "delivered_records",
+        "durable_retry",
+        "failed_records",
+        "healthy",
+        "last_cycle_ns",
+        "last_error",
+        "pending_records",
+        "prepared_transfers",
+        "running",
+        "superseded_records",
+    }
+    exporter_fields = {
+        "archive_reconciled",
+        "configured",
+        "healthy",
+        "last_error",
+        "last_success_ns",
+        "max_pending",
+        "max_stall_s",
+        "oldest_pending_age_s",
+        "pending",
+        "publish_blocked",
+        "publish_timeout_s",
+        "running",
+        "sink_call_blocked",
+        "stalled_for_s",
+    }
+    capacity_numbers_valid = isinstance(capacity, dict) and all(
+        (
+            capacity[field_name] is None
+            or (type(capacity[field_name]) is int and capacity[field_name] >= 0)
+            if field_name in {"filesystem_free_bytes", "max_database_bytes"}
+            else type(capacity[field_name]) is int and capacity[field_name] >= 0
+        )
+        for field_name in capacity_fields - {"healthy", "prior_full_error"}
+    )
+    by_status = leases.get("by_status") if isinstance(leases, dict) else None
+    durable_retry = peer.get("durable_retry") if isinstance(peer, dict) else None
+    if (
+        not isinstance(runtime, dict)
+        or set(runtime) != {"changed_at_ns", "changed_by", "generation", "mode", "reason"}
+        or runtime.get("mode") != "ACTIVE"
+        or type(runtime.get("generation")) is not int
+        or runtime["generation"] < 0
+        or type(runtime.get("changed_at_ns")) is not int
+        or runtime["changed_at_ns"] < 0
+        or not isinstance(runtime.get("changed_by"), str)
+        or not isinstance(runtime.get("reason"), str)
+        or not isinstance(capacity, dict)
+        or set(capacity) != capacity_fields
+        or not capacity_numbers_valid
+        or type(capacity.get("healthy")) is not bool
+        or type(capacity.get("prior_full_error")) is not bool
+        or capacity.get("healthy") is not True
+        or not isinstance(leases, dict)
+        or set(leases) != {"by_status", "total"}
+        or type(leases.get("total")) is not int
+        or leases["total"] < 0
+        or not isinstance(by_status, dict)
+        or any(
+            not isinstance(key, str) or type(value) is not int or value < 0
+            for key, value in by_status.items()
+        )
+        or sum(cast(dict[str, int], by_status).values()) != leases["total"]
+        or not isinstance(receipts, dict)
+        or set(receipts) != {"total"}
+        or type(receipts.get("total")) is not int
+        or receipts["total"] < 0
+        or not isinstance(transfers, dict)
+        or set(transfers) != transfer_fields
+        or any(
+            type(transfers[field]) is not int or transfers[field] < 0 for field in transfer_fields
+        )
+        or not isinstance(outbox, dict)
+        or set(outbox) != {"oldest_unpublished_age_ns", "unpublished_count"}
+        or type(outbox.get("oldest_unpublished_age_ns")) is not int
+        or outbox["oldest_unpublished_age_ns"] < 0
+        or type(outbox.get("unpublished_count")) is not int
+        or outbox["unpublished_count"] < 0
+        or not isinstance(peer, dict)
+        or set(peer) != peer_fields
+        or any(
+            type(peer[field]) is not int or peer[field] < 0
+            for field in peer_fields - {"durable_retry", "healthy", "last_error", "running"}
+        )
+        or type(peer.get("healthy")) is not bool
+        or type(peer.get("running")) is not bool
+        or (peer.get("last_error") is not None and not isinstance(peer.get("last_error"), str))
+        or (
+            durable_retry is not None
+            and (
+                not isinstance(durable_retry, dict)
+                or set(durable_retry)
+                != {
+                    "attempt_count",
+                    "exception_class",
+                    "next_retry_delay_seconds",
+                    "record_kind",
+                    "target_warden",
+                }
+                or type(durable_retry.get("attempt_count")) is not int
+                or durable_retry["attempt_count"] < 0
+                or not isinstance(durable_retry.get("exception_class"), str)
+                or not _is_finite_number(durable_retry.get("next_retry_delay_seconds"))
+                or float(durable_retry["next_retry_delay_seconds"]) < 0
+                or not isinstance(durable_retry.get("record_kind"), str)
+                or not isinstance(durable_retry.get("target_warden"), str)
+            )
+        )
+        or not isinstance(exporter, dict)
+        or set(exporter) != exporter_fields
+        or any(
+            type(exporter[field]) is not bool
+            for field in {
+                "archive_reconciled",
+                "configured",
+                "healthy",
+                "publish_blocked",
+                "running",
+                "sink_call_blocked",
+            }
+        )
+        or any(
+            type(exporter[field]) is not int or exporter[field] < 0
+            for field in {"max_pending", "pending"}
+        )
+        or any(
+            not _is_finite_number(exporter[field]) or float(exporter[field]) < 0
+            for field in {"max_stall_s", "publish_timeout_s", "stalled_for_s"}
+        )
+        or (
+            exporter.get("oldest_pending_age_s") is not None
+            and (
+                not _is_finite_number(exporter.get("oldest_pending_age_s"))
+                or float(exporter["oldest_pending_age_s"]) < 0
+            )
+        )
+        or type(exporter.get("last_success_ns")) not in {int, type(None)}
+        or (type(exporter.get("last_success_ns")) is int and exporter["last_success_ns"] < 0)
+        or (
+            exporter.get("last_error") is not None
+            and not isinstance(exporter.get("last_error"), str)
+        )
+    ):
+        raise RuntimeError(f"{node} returned inconsistent aggregate readiness")
+    if metrics.get("service_ready") is not True:
+        raise RuntimeError(f"{node} core service is not ready")
+    if metrics.get("ready") is not (
+        exporter.get("healthy") is True and peer.get("healthy") is True
+    ):
+        raise RuntimeError(f"{node} returned inconsistent aggregate readiness")
+    metrics["authority_anchor"] = current_authority
+    metrics["captured_authority_anchor"] = captured_authority
+    metrics["revision"] = revision
+    return cast(dict[str, Any], metrics)
+
+
+_TERMINAL_AUDIT_PROOF_FIELDS = frozenset(
+    {
+        "authority_checkpoint_sha256",
+        "authority_state_revision",
+        "database_instance_id",
+        "generation",
+        "lifetime_id",
+        "schema",
+        "schema_definition_sha256",
+        "startup_full_verification_at_ns",
+        "valid",
+        "verification_mode",
+        "verified_at_ns",
+        "verified_head_hash",
+        "verified_head_sequence",
+    }
+)
+_AUTHORITY_FENCE_FIELDS = frozenset(
+    {
+        "authority_anchor",
+        "authority_checkpoint",
+        "fenced_at_monotonic_ns",
+        "lifetime_id",
+        "namespace_process_id",
+        "restart_id",
+        "schema",
+        "terminal_audit_proof",
+        "warden_id",
+    }
+)
+
+
+def _validated_terminal_fence(
+    terminal: object,
+    *,
+    node: str,
+    expected_lifetime_id: str,
+    restart_id: str,
+    full_audit_verification: bool,
+    prior_authority: dict[str, Any] | None = None,
+    prior_observation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(terminal, dict) or set(terminal) != _AUTHORITY_FENCE_FIELDS:
+        raise RuntimeError(f"{node} returned a non-exact authority fence response")
+    authority = _bounded_authority_anchor_status(
+        terminal.get("authority_anchor"),
+        node=node,
+        require_healthy=True,
+        allow_fenced=True,
+    )
+    checkpoint = _validated_authority_checkpoint(
+        terminal.get("authority_checkpoint"),
+        node=node,
+    )
+    proof = terminal.get("terminal_audit_proof")
+    expected_mode = "full" if full_audit_verification else "trusted-startup-plus-tail"
+    if not isinstance(proof, dict) or set(proof) != _TERMINAL_AUDIT_PROOF_FIELDS:
+        raise RuntimeError(f"{node} returned malformed terminal audit proof")
+    checkpoint_digest = f"sha256:{hashlib.sha256(_observation_json(checkpoint)).hexdigest()}"
+    try:
+        checkpoint_audit_hash = b64url_decode(cast(str, checkpoint["audit_hash"]))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{node} returned malformed terminal audit hash") from exc
+    if (
+        terminal.get("schema") != "lets.authority-admission-fence/v1"
+        or terminal.get("restart_id") != restart_id
+        or terminal.get("warden_id") != node
+        or terminal.get("lifetime_id") != expected_lifetime_id
+        or type(terminal.get("namespace_process_id")) is not int
+        or terminal["namespace_process_id"] <= 0
+        or type(terminal.get("fenced_at_monotonic_ns")) is not int
+        or terminal["fenced_at_monotonic_ns"] < 0
+        or authority.get("lifetime_id") != expected_lifetime_id
+        or authority.get("admission_fenced") is not True
+        or authority.get("fence_id") != restart_id
+        or terminal.get("namespace_process_id") != authority.get("namespace_process_id")
+        or terminal.get("fenced_at_monotonic_ns") != authority.get("fenced_at_monotonic_ns")
+        or proof.get("schema") != "lets.terminal-audit-proof/v1"
+        or proof.get("valid") is not True
+        or proof.get("verification_mode") != expected_mode
+        or proof.get("lifetime_id") != expected_lifetime_id
+        or not isinstance(proof.get("generation"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", cast(str, proof["generation"])) is None
+        or type(proof.get("verified_at_ns")) is not int
+        or proof["verified_at_ns"] <= 0
+        or type(proof.get("startup_full_verification_at_ns")) is not int
+        or proof["startup_full_verification_at_ns"] <= 0
+        or proof["startup_full_verification_at_ns"] > proof["verified_at_ns"]
+        or proof.get("verified_head_sequence") != checkpoint.get("audit_sequence")
+        or proof.get("verified_head_hash") != f"sha256:{checkpoint_audit_hash.hex()}"
+        or proof.get("authority_state_revision") != checkpoint.get("state_revision")
+        or proof.get("database_instance_id") != checkpoint.get("database_instance_id")
+        or proof.get("authority_checkpoint_sha256") != checkpoint_digest
+        or not isinstance(proof.get("schema_definition_sha256"), str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}",
+            cast(str, proof["schema_definition_sha256"]),
+        )
+        is None
+    ):
+        raise RuntimeError(f"{node} returned an unbound terminal authority proof")
+    if prior_authority is not None and (
+        authority.get("namespace_process_id") != prior_authority.get("namespace_process_id")
+        or any(
+            cast(int, authority[field_name]) < cast(int, prior_authority[field_name])
+            for field_name in _AUTHORITY_COUNTER_FIELDS
+        )
+        or (
+            prior_authority.get("first_fault") is not None
+            and authority.get("first_fault") != prior_authority.get("first_fault")
+        )
+    ):
+        raise RuntimeError(f"{node} terminal authority status moved backward")
+    if prior_observation is not None:
+        prior_checkpoint = _validated_authority_checkpoint(
+            prior_observation.get("authority_checkpoint"),
+            node=node,
+        )
+        prior_audit = prior_observation.get("audit_verification")
+        _validate_checkpoint_progression(prior_checkpoint, checkpoint, node=node)
+        if (
+            prior_observation.get("lifetime_id") != expected_lifetime_id
+            or proof.get("generation") != prior_observation.get("generation")
+            or proof.get("schema_definition_sha256")
+            != prior_observation.get("sqlite_schema_sha256")
+            or not isinstance(prior_audit, dict)
+            or proof.get("startup_full_verification_at_ns")
+            != prior_audit.get("last_full_verification_at_ns")
+        ):
+            raise RuntimeError(f"{node} terminal proof is not bound to its prior observation")
+    result = dict(terminal)
+    result["authority_anchor"] = authority
+    result["authority_checkpoint"] = checkpoint
+    result["terminal_audit_proof"] = proof
+    return result
+
+
 def _allowed_transient_audit_error(value: str) -> bool:
-    match = AUDIT_TRANSIENT_CONNECT_BUSY.fullmatch(value)
-    if match is None or len(match.group(1)) > 64:
-        return False
-    error_code = int(match.group(2))
-    return error_code <= 0x7FFFFFFF and error_code & 0xFF == 5
+    return value == AUDIT_TRANSIENT_CONNECT_BUSY
 
 
 def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
@@ -1261,57 +2123,189 @@ class HealthObservationError(RuntimeError):
 
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    encoded = (
+        json.dumps(
+            value,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    try:
+        with temporary.open("wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        with path.open("r+b") as published:
+            os.fsync(published.fileno())
+        if os.name != "nt":
+            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_fd = os.open(path.parent, directory_flags)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    finally:
+        if temporary.exists():
+            with suppress(OSError):
+                temporary.unlink()
+
+
+def _coordination_payload_sha256(value: dict[str, Any]) -> str:
+    payload = dict(value)
+    payload.pop("coordination_payload_sha256", None)
+    encoded = json.dumps(
+        payload,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _seal_workload_artifact(
+    value: dict[str, Any],
+    *,
+    journal_revision: int,
+    maximum_bytes: int = WORKLOAD_ARTIFACT_MAX_BYTES,
+) -> dict[str, Any]:
+    """Bind one atomic workload artifact to its monotone journal revision."""
+
+    if type(journal_revision) is not int or journal_revision <= 0:
+        raise ValueError("workload journal revision must be a positive integer")
+    if type(maximum_bytes) is not int or maximum_bytes <= 0:
+        raise ValueError("workload artifact byte bound must be a positive integer")
+    sealed = dict(value)
+    sealed["artifact_revision"] = 1
+    sealed["journal_revision"] = journal_revision
+    sealed.pop("artifact_payload_sha256", None)
+    payload = json.dumps(
+        sealed,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    sealed["artifact_payload_sha256"] = f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    encoded = json.dumps(
+        sealed,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(encoded) + 1 > maximum_bytes:
+        raise ValueError("workload artifact exceeds its encoded byte bound")
+    return sealed
 
 
 def _restart_acknowledgement(
     marker: dict[str, Any],
     *,
-    acknowledged_monotonic: float | None = None,
+    observed_monotonic: float | None = None,
+    quiesced_monotonic: float | None = None,
     recovered_monotonic: float | None = None,
     recovered_authority_anchor: dict[str, Any] | None = None,
     prior_authority_anchor: dict[str, Any] | None = None,
+    prior_authority_checkpoint: dict[str, Any] | None = None,
+    prior_observation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    acknowledgement: dict[str, Any] = {
+    identity: dict[str, Any] = {
         "armed_monotonic_seconds": marker["armed_monotonic_seconds"],
         "episode": marker["episode"],
+        "quiesce_pause_id": marker["quiesce_pause_id"],
         "restart_id": marker["restart_id"],
         "service": marker["service"],
     }
-    if WORKLOAD_RESTART_ACK.exists():
-        try:
-            current = _coordination_object(WORKLOAD_RESTART_ACK)
-        except FileNotFoundError:
-            current = None
+
+    with _RESTART_ACK_LOCK:
+        acknowledgement = dict(identity)
+        current: dict[str, Any] | None = None
+        if WORKLOAD_RESTART_ACK.exists():
+            try:
+                current = _coordination_object(WORKLOAD_RESTART_ACK)
+            except FileNotFoundError:
+                current = None
         if current is not None:
-            if not all(current.get(key) == acknowledgement[key] for key in acknowledgement):
+            if (
+                any(current.get(key) != value for key, value in identity.items())
+                or type(current.get("coordination_revision")) is not int
+                or current["coordination_revision"] <= 0
+                or current.get("coordination_payload_sha256")
+                != _coordination_payload_sha256(current)
+            ):
                 raise RuntimeError(f"planned restart acknowledgement identity changed: {current!r}")
-            acknowledgement.update(current)
-    if prior_authority_anchor is not None:
-        existing_authority = acknowledgement.get("prior_authority_anchor")
-        if existing_authority is not None and existing_authority != prior_authority_anchor:
-            raise RuntimeError("planned restart acknowledgement authority identity changed")
-        acknowledgement["prior_authority_anchor"] = prior_authority_anchor
-    if acknowledged_monotonic is not None:
-        acknowledgement.setdefault("acknowledged_monotonic_seconds", acknowledged_monotonic)
-    if recovered_monotonic is not None:
-        acknowledgement["completed_monotonic_seconds"] = marker.get("completed_monotonic_seconds")
-        acknowledgement.setdefault("recovered_monotonic_seconds", recovered_monotonic)
-    if recovered_authority_anchor is not None:
-        expected = marker.get("expected_recovered_authority_identity")
-        actual = {
-            "lifetime_id": recovered_authority_anchor.get("lifetime_id"),
-            "namespace_process_id": recovered_authority_anchor.get("namespace_process_id"),
-        }
-        if expected != actual:
-            raise RuntimeError("recovered authority does not match the host-bound replacement")
-        existing = acknowledgement.get("recovered_authority_anchor")
-        if existing is not None and existing != recovered_authority_anchor:
-            raise RuntimeError("planned restart recovered authority identity changed")
-        acknowledgement["recovered_authority_anchor"] = recovered_authority_anchor
-    _write_json_atomic(WORKLOAD_RESTART_ACK, acknowledgement)
-    return acknowledgement
+            acknowledgement = current
+        changed = current is None
+
+        def bind(field_name: str, value: object | None, *, error: str) -> None:
+            nonlocal changed
+            if value is None:
+                return
+            existing = acknowledgement.get(field_name)
+            if existing is not None and existing != value:
+                raise RuntimeError(error)
+            if existing is None:
+                acknowledgement[field_name] = value
+                changed = True
+
+        def bind_first(field_name: str, value: object | None) -> None:
+            nonlocal changed
+            if value is not None and acknowledgement.get(field_name) is None:
+                acknowledgement[field_name] = value
+                changed = True
+
+        bind(
+            "prior_authority_anchor",
+            prior_authority_anchor,
+            error="planned restart acknowledgement authority identity changed",
+        )
+        bind(
+            "prior_authority_checkpoint",
+            prior_authority_checkpoint,
+            error="planned restart acknowledgement checkpoint changed",
+        )
+        bind(
+            "prior_observation",
+            prior_observation,
+            error="planned restart acknowledgement observation identity changed",
+        )
+        bind_first("observed_monotonic_seconds", observed_monotonic)
+        bind(
+            "quiesced_monotonic_seconds",
+            quiesced_monotonic,
+            error="planned restart quiescence timestamp changed",
+        )
+        if recovered_monotonic is not None:
+            bind(
+                "completed_monotonic_seconds",
+                marker.get("completed_monotonic_seconds"),
+                error="planned restart completion timestamp changed",
+            )
+            bind_first("recovered_monotonic_seconds", recovered_monotonic)
+        if recovered_authority_anchor is not None:
+            expected = marker.get("expected_recovered_authority_identity")
+            actual = {
+                "lifetime_id": recovered_authority_anchor.get("lifetime_id"),
+                "namespace_process_id": recovered_authority_anchor.get("namespace_process_id"),
+            }
+            if expected != actual:
+                raise RuntimeError("recovered authority does not match the host-bound replacement")
+            bind(
+                "recovered_authority_anchor",
+                recovered_authority_anchor,
+                error="planned restart recovered authority identity changed",
+            )
+        if not changed:
+            return acknowledgement
+        acknowledgement["coordination_revision"] = (
+            1 if current is None else cast(int, current["coordination_revision"]) + 1
+        )
+        acknowledgement["coordination_payload_sha256"] = _coordination_payload_sha256(
+            acknowledgement
+        )
+        _write_json_atomic(WORKLOAD_RESTART_ACK, acknowledgement)
+        return acknowledgement
 
 
 def _planned_restart_window(
@@ -1319,6 +2313,8 @@ def _planned_restart_window(
     *,
     observation_started_monotonic: float,
     prior_authority_anchor: dict[str, Any] | None = None,
+    prior_authority_checkpoint: dict[str, Any] | None = None,
+    prior_observation: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Return the durable exact restart marker only when it overlaps this observation."""
 
@@ -1334,6 +2330,7 @@ def _planned_restart_window(
     state = marker.get("state")
     armed = marker.get("armed_monotonic_seconds")
     completed = marker.get("completed_monotonic_seconds")
+    quiesce_pause_id = marker.get("quiesce_pause_id")
     if (
         not isinstance(restart_id, str)
         or not restart_id
@@ -1342,6 +2339,8 @@ def _planned_restart_window(
         or episode < 0
         or service not in NODES
         or state not in {"armed", "completed"}
+        or not isinstance(quiesce_pause_id, str)
+        or not quiesce_pause_id
         or isinstance(armed, bool)
         or not isinstance(armed, (int, float))
         or not math.isfinite(float(armed))
@@ -1369,10 +2368,32 @@ def _planned_restart_window(
             node=node,
             require_healthy=True,
         )
+        try:
+            pause_acknowledgement = _coordination_object(WORKLOAD_PAUSE_ACK)
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "planned restart lacks its main-thread quiescence acknowledgement"
+            ) from exc
+        quiesced = pause_acknowledgement.get("observed_monotonic_seconds")
+        if (
+            pause_acknowledgement.get("pause_id") != quiesce_pause_id
+            or pause_acknowledgement.get("reason") != "planned_restart"
+            or pause_acknowledgement.get("restart_id") != restart_id
+            or pause_acknowledgement.get("service") != service
+            or pause_acknowledgement.get("paused") is not True
+            or isinstance(quiesced, bool)
+            or not isinstance(quiesced, (int, float))
+            or not math.isfinite(float(quiesced))
+            or float(quiesced) > float(armed)
+        ):
+            raise RuntimeError("planned restart quiescence acknowledgement is invalid")
         acknowledgement = _restart_acknowledgement(
             marker,
-            acknowledged_monotonic=now,
+            observed_monotonic=now,
+            quiesced_monotonic=float(quiesced),
             prior_authority_anchor=prior_authority_anchor,
+            prior_authority_checkpoint=prior_authority_checkpoint,
+            prior_observation=prior_observation,
         )
     else:
         if not WORKLOAD_RESTART_ACK.exists():
@@ -1383,20 +2404,101 @@ def _planned_restart_window(
             raise RuntimeError(
                 "completed planned restart lost its pre-SIGKILL acknowledgement"
             ) from exc
-    identity = ("armed_monotonic_seconds", "episode", "restart_id", "service")
+    identity = (
+        "armed_monotonic_seconds",
+        "episode",
+        "quiesce_pause_id",
+        "restart_id",
+        "service",
+    )
+    observed = acknowledgement.get("observed_monotonic_seconds")
+    quiesced = acknowledgement.get("quiesced_monotonic_seconds")
     acknowledged = acknowledgement.get("acknowledged_monotonic_seconds")
     if (
         any(acknowledgement.get(key) != marker.get(key) for key in identity)
-        or isinstance(acknowledged, bool)
-        or not isinstance(acknowledged, (int, float))
-        or not math.isfinite(float(acknowledged))
-        or not float(armed) <= float(acknowledged) <= now
+        or type(acknowledgement.get("coordination_revision")) is not int
+        or acknowledgement["coordination_revision"] <= 0
+        or acknowledgement.get("coordination_payload_sha256")
+        != _coordination_payload_sha256(acknowledgement)
+        or isinstance(observed, bool)
+        or not isinstance(observed, (int, float))
+        or not math.isfinite(float(observed))
+        or not float(armed) <= float(observed) <= now
+        or (
+            quiesced is not None
+            and (
+                isinstance(quiesced, bool)
+                or not isinstance(quiesced, (int, float))
+                or not math.isfinite(float(quiesced))
+                or not float(quiesced) <= float(armed) <= float(observed)
+            )
+        )
+        or (
+            acknowledged is not None
+            and (
+                quiesced is None
+                or isinstance(acknowledged, bool)
+                or not isinstance(acknowledged, (int, float))
+                or not math.isfinite(float(acknowledged))
+                or not float(observed) <= float(acknowledged) <= now
+                or float(acknowledged) - float(observed) > MAXIMUM_PLANNED_FENCE_PREPARATION_SECONDS
+                or not isinstance(acknowledgement.get("fence_terminal_sha256"), str)
+                or re.fullmatch(
+                    r"sha256:[0-9a-f]{64}",
+                    cast(str, acknowledgement.get("fence_terminal_sha256")),
+                )
+                is None
+                or not isinstance(acknowledgement.get("target_identity_sha256"), str)
+                or re.fullmatch(
+                    r"sha256:[0-9a-f]{64}",
+                    cast(str, acknowledgement.get("target_identity_sha256")),
+                )
+                is None
+                or not isinstance(
+                    acknowledgement.get("host_fence_validated_monotonic_seconds"),
+                    (int, float),
+                )
+                or isinstance(acknowledgement.get("host_fence_validated_monotonic_seconds"), bool)
+                or not isinstance(
+                    acknowledgement.get("host_reinspected_monotonic_seconds"),
+                    (int, float),
+                )
+                or isinstance(acknowledgement.get("host_reinspected_monotonic_seconds"), bool)
+                or not isinstance(
+                    acknowledgement.get("host_ack_command_started_monotonic_seconds"),
+                    (int, float),
+                )
+                or isinstance(
+                    acknowledgement.get("host_ack_command_started_monotonic_seconds"), bool
+                )
+                or not math.isfinite(
+                    float(acknowledgement["host_fence_validated_monotonic_seconds"])
+                )
+                or not math.isfinite(float(acknowledgement["host_reinspected_monotonic_seconds"]))
+                or not math.isfinite(
+                    float(acknowledgement["host_ack_command_started_monotonic_seconds"])
+                )
+                or not float(acknowledgement["host_fence_validated_monotonic_seconds"])
+                <= float(acknowledgement["host_reinspected_monotonic_seconds"])
+                <= float(acknowledgement["host_ack_command_started_monotonic_seconds"])
+            )
+        )
     ):
         raise RuntimeError(
             "planned restart acknowledgement is malformed or stale: "
             f"marker={marker!r} acknowledgement={acknowledgement!r}"
         )
-    if state == "armed" and now - float(acknowledged) > MAXIMUM_PLANNED_RESTART_SECONDS:
+    if (
+        state == "armed"
+        and acknowledged is None
+        and now - float(observed) > MAXIMUM_PLANNED_FENCE_PREPARATION_SECONDS
+    ):
+        raise RuntimeError("planned restart fence preparation exceeded its bounded window")
+    if (
+        state == "armed"
+        and acknowledged is not None
+        and now - float(acknowledged) > MAXIMUM_PLANNED_RESTART_SECONDS
+    ):
         try:
             refreshed = _coordination_object(WORKLOAD_RESTART)
         except FileNotFoundError:
@@ -1430,19 +2532,17 @@ def _planned_restart_window(
                 raise RuntimeError(
                     "completed planned restart lost its pre-SIGKILL acknowledgement"
                 ) from exc
-        if (
+            acknowledged = acknowledgement.get("acknowledged_monotonic_seconds")
+        if state == "completed" and (
             any(acknowledgement.get(key) != marker.get(key) for key in identity)
             or isinstance(acknowledged, bool)
             or not isinstance(acknowledged, (int, float))
             or not math.isfinite(float(acknowledged))
             or not float(armed) <= float(acknowledged) <= now
             or (
-                state == "completed"
-                and (
-                    float(cast(int | float, completed)) < float(acknowledged)
-                    or float(cast(int | float, completed)) - float(acknowledged)
-                    > MAXIMUM_PLANNED_RESTART_SECONDS
-                )
+                float(cast(int | float, completed)) < float(acknowledged)
+                or float(cast(int | float, completed)) - float(acknowledged)
+                > MAXIMUM_PLANNED_RESTART_SECONDS
             )
         ):
             raise RuntimeError(
@@ -1481,6 +2581,41 @@ def _acknowledge_completed_restart(
         )
 
 
+def _require_planned_lifetime_change(
+    node: str,
+    *,
+    prior_authority: dict[str, Any],
+    prior_checkpoint: dict[str, Any],
+    prior_observation: dict[str, Any],
+    current_authority: dict[str, Any],
+) -> None:
+    """Bind an observed core lifetime change to its completed durable restart episode."""
+
+    try:
+        marker = _coordination_object(WORKLOAD_RESTART)
+        acknowledgement = _coordination_object(WORKLOAD_RESTART_ACK)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"{node} changed lifetime without planned restart evidence") from exc
+    identity = (
+        "armed_monotonic_seconds",
+        "episode",
+        "quiesce_pause_id",
+        "restart_id",
+        "service",
+    )
+    if (
+        marker.get("state") != "completed"
+        or marker.get("service") != node
+        or any(acknowledgement.get(key) != marker.get(key) for key in identity)
+        or acknowledgement.get("prior_authority_anchor") != prior_authority
+        or acknowledgement.get("prior_authority_checkpoint") != prior_checkpoint
+        or acknowledgement.get("prior_observation") != prior_observation
+        or acknowledgement.get("recovered_authority_anchor") != current_authority
+        or current_authority.get("lifetime_id") == prior_authority.get("lifetime_id")
+    ):
+        raise RuntimeError(f"{node} lifetime change is not bound to its planned restart")
+
+
 def _health_sample(
     client: ClusterClient,
     *,
@@ -1506,6 +2641,7 @@ def _health_sample(
             interrupt_planned_restart(node, observation_started)
 
         request_options: dict[str, Any] = {}
+        request_options["single_attempt"] = True
         if planned_restart_reader is not None:
             request_options["interrupt"] = interrupt
         if deadline is None:
@@ -1546,6 +2682,14 @@ def _health_sample(
                     "last_error": cast(str | None, value.get("last_error")),
                 }
         return {"first_error": None, "last_error": None}
+
+    def observation_request_count(*, planned_unavailable: bool) -> int:
+        value = getattr(client, "last_request_attempt_count", 1)
+        if type(value) is not int or value not in ({0, 1} if planned_unavailable else {1}):
+            raise RuntimeError(
+                "health observation did not use its exact single-attempt request budget"
+            )
+        return value
 
     def raise_health_failure(
         node: str,
@@ -1600,27 +2744,16 @@ def _health_sample(
         authority_anchor: dict[str, Any] | None = None
         metrics_observed_monotonic: float | None = None
         try:
-            invariant = request(
-                node,
-                "/v1/invariants",
-                observation_started=observation_started,
-            )
-            audit = request(
-                node,
-                "/v1/audit/verify",
-                observation_started=observation_started,
-            )
-            metrics = request(
-                node,
-                "/v1/metrics",
-                observation_started=observation_started,
+            metrics = _validated_observation(
+                request(
+                    node,
+                    "/v1/metrics",
+                    observation_started=observation_started,
+                ),
+                node=node,
             )
             metrics_observed_monotonic = time.monotonic()
-            authority_anchor = _bounded_authority_anchor_status(
-                metrics.get("authority_anchor"),
-                node=node,
-                require_healthy=True,
-            )
+            authority_anchor = cast(dict[str, Any], metrics["authority_anchor"])
         except PlannedNodeUnavailableError as exc:
             observation_completed = time.monotonic()
             nodes[node] = {
@@ -1632,6 +2765,8 @@ def _health_sample(
                     "metrics_observed_elapsed_seconds": None,
                     "request_retries": int(getattr(client, "retry_count", 0)) - retry_count_before,
                     "retry_errors": retry_scope(),
+                    "request_count": observation_request_count(planned_unavailable=True),
+                    "request_path": "/v1/metrics",
                     "started_elapsed_seconds": round(observation_started - origin, 6),
                 },
                 "planned_unavailable": exc.window,
@@ -1649,8 +2784,7 @@ def _health_sample(
         try:
             audit_exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
             capacity = metrics.get("storage_capacity")
-            if invariant.get("healthy") is not True or audit.get("valid") is not True:
-                raise RuntimeError(f"{node} reported unhealthy invariants or audit chain")
+            invariant = cast(dict[str, Any], metrics["invariant"])
             if not isinstance(capacity, dict) or capacity.get("healthy") is not True:
                 raise RuntimeError(f"{node} storage capacity is unhealthy")
             if metrics.get("service_ready") is not True:
@@ -1681,6 +2815,10 @@ def _health_sample(
                 "receipts": metrics.get("receipts"),
                 "storage_capacity": capacity,
                 "transfers": metrics.get("transfers"),
+                "observation_generation": metrics.get("generation"),
+                "observation_revision": metrics.get("revision"),
+                "observation_snapshot_id": metrics.get("snapshot_id"),
+                "observation_snapshot": metrics,
             }
         except BaseException as exc:
             raise_health_failure(
@@ -1696,26 +2834,17 @@ def _health_sample(
                         "workload error budget"
                     )
                 audit_error_budget.observe_error(node)
-                audit_interrupt: Callable[[], None] | None = None
-                if planned_restart_reader is not None:
-
-                    def audit_interrupt(
-                        observed_node: str = node,
-                        observed_started: float = observation_started,
-                    ) -> None:
-                        interrupt_planned_restart(observed_node, observed_started)
-
-                recovery = _poll_audit_error_recovery(
-                    client,
-                    node=node,
-                    initial_exporter=audit_exporter,
-                    initial_elapsed_s=elapsed_s,
-                    initial_observed_monotonic=metrics_observed_monotonic,
-                    shared_deadline=deadline,
-                    interrupt=audit_interrupt,
-                )
+            elif (
+                audit_error_budget is not None and node in audit_error_budget.unresolved_error_nodes
+            ):
                 audit_error_budget.mark_recovered(node)
-                audit_error_recoveries.append(recovery)
+                audit_error_recoveries.append(
+                    {
+                        "elapsed_seconds": round(elapsed_s, 6),
+                        "node": node,
+                        "recovered_by_later_scheduled_sample": True,
+                    }
+                )
             observation_completed = time.monotonic()
             _acknowledge_completed_restart(
                 node,
@@ -1732,6 +2861,8 @@ def _health_sample(
                         int(getattr(client, "retry_count", 0)) - retry_count_before
                     ),
                     "retry_errors": retry_scope(),
+                    "request_count": observation_request_count(planned_unavailable=True),
+                    "request_path": "/v1/metrics",
                     "started_elapsed_seconds": round(observation_started - origin, 6),
                 },
                 "planned_unavailable": exc.window,
@@ -1752,6 +2883,8 @@ def _health_sample(
             ),
             "request_retries": int(getattr(client, "retry_count", 0)) - retry_count_before,
             "retry_errors": retry_scope(),
+            "request_count": observation_request_count(planned_unavailable=False),
+            "request_path": "/v1/metrics",
             "started_elapsed_seconds": round(observation_started - origin, 6),
         }
     sample = {
@@ -1775,6 +2908,7 @@ class HealthSampler:
         retry_timeout_seconds: float,
         seed: int,
         failure_event: threading.Event,
+        on_sample: Callable[[], None] | None = None,
     ) -> None:
         if (
             not math.isfinite(started_monotonic)
@@ -1801,6 +2935,8 @@ class HealthSampler:
         self._samples: list[dict[str, Any]] = []
         self._last_observed_monotonic: dict[str, float] = {}
         self._last_authority_status: dict[str, dict[str, Any]] = {}
+        self._last_observation_identity: dict[str, dict[str, Any]] = {}
+        self._on_sample = on_sample
         self._thread = threading.Thread(
             target=self._run,
             name="lets-production-soak-health-monitor",
@@ -1846,31 +2982,47 @@ class HealthSampler:
                     and not isinstance(marker_started, bool)
                     and math.isfinite(float(marker_started))
                 ):
+                    prepared_at = (
+                        acknowledgement.get("observed_monotonic_seconds")
+                        if isinstance(acknowledgement, dict)
+                        else None
+                    )
                     acknowledged_at = (
                         acknowledgement.get("acknowledged_monotonic_seconds")
                         if isinstance(acknowledgement, dict)
                         else None
                     )
-                    marker_acknowledged = bool(
+                    marker_prepared = bool(
                         isinstance(acknowledgement, dict)
                         and acknowledgement.get("restart_id") == marker.get("restart_id")
                         and acknowledgement.get("episode") == marker.get("episode")
                         and acknowledgement.get("service") == marker.get("service")
                         and acknowledgement.get("armed_monotonic_seconds") == marker_started
+                        and isinstance(prepared_at, (int, float))
+                        and not isinstance(prepared_at, bool)
+                        and math.isfinite(float(prepared_at))
+                        and float(marker_started) <= float(prepared_at)
+                    )
+                    marker_acknowledged = bool(
+                        marker_prepared
                         and isinstance(acknowledged_at, (int, float))
                         and not isinstance(acknowledged_at, bool)
                         and math.isfinite(float(acknowledged_at))
-                        and observed
-                        <= float(acknowledged_at)
-                        <= observed + HEALTH_CADENCE_LIMIT_SECONDS
-                        and float(marker_started) <= float(acknowledged_at)
+                        and float(cast(int | float, prepared_at)) <= float(acknowledged_at)
                     )
                     if (
                         marker.get("state") == "armed"
                         and marker_completed is None
-                        and marker_acknowledged
+                        and marker_prepared
                     ):
-                        if (
+                        if not marker_acknowledged and (
+                            time.monotonic() - float(cast(int | float, prepared_at))
+                            > MAXIMUM_PLANNED_FENCE_PREPARATION_SECONDS
+                        ):
+                            raise RuntimeError(
+                                "planned restart fence preparation exceeded its bounded window"
+                            )
+                        if marker_acknowledged and (
                             time.monotonic() - float(cast(int | float, acknowledged_at))
                             > MAXIMUM_PLANNED_RESTART_SECONDS
                         ):
@@ -1882,6 +3034,7 @@ class HealthSampler:
                             identity = (
                                 "armed_monotonic_seconds",
                                 "episode",
+                                "quiesce_pause_id",
                                 "restart_id",
                                 "service",
                             )
@@ -1902,7 +3055,7 @@ class HealthSampler:
                                 )
                             marker = refreshed
                             marker_completed = refreshed_completed
-                        else:
+                        if marker.get("state") == "armed":
                             continue
                     if (
                         marker.get("state") == "completed"
@@ -1927,10 +3080,33 @@ class HealthSampler:
         with self._lock:
             prior = self._last_authority_status.get(node)
             prior_copy = None if prior is None else dict(prior)
+            prior_identity = self._last_observation_identity.get(node)
+            prior_checkpoint = (
+                None
+                if prior_identity is None
+                else dict(cast(dict[str, Any], prior_identity["authority_checkpoint"]))
+            )
+            prior_observation = (
+                None
+                if prior_identity is None
+                else {
+                    "audit_verification": {
+                        "last_full_verification_at_ns": prior_identity[
+                            "startup_full_verification_at_ns"
+                        ]
+                    },
+                    "authority_checkpoint": prior_checkpoint,
+                    "generation": prior_identity["generation"],
+                    "lifetime_id": prior_identity["lifetime_id"],
+                    "sqlite_schema_sha256": prior_identity["sqlite_schema_sha256"],
+                }
+            )
         return _planned_restart_window(
             node,
             observation_started_monotonic=observation_started_monotonic,
             prior_authority_anchor=prior_copy,
+            prior_authority_checkpoint=prior_checkpoint,
+            prior_observation=prior_observation,
         )
 
     def _sample(self, *, index: int, scheduled: float) -> None:
@@ -1973,6 +3149,101 @@ class HealthSampler:
             }
         )
         with self._lock:
+            for node in NODES:
+                document = sample["nodes"][node]
+                if isinstance(document.get("planned_unavailable"), dict):
+                    continue
+                authority = cast(dict[str, Any], document["authority_anchor"])
+                prior_authority = self._last_authority_status.get(node)
+                if (
+                    prior_authority is not None
+                    and authority["lifetime_id"] == prior_authority["lifetime_id"]
+                    and (
+                        authority["namespace_process_id"] != prior_authority["namespace_process_id"]
+                        or any(
+                            cast(int, authority[field_name])
+                            < cast(int, prior_authority[field_name])
+                            for field_name in _AUTHORITY_COUNTER_FIELDS
+                        )
+                        or (
+                            prior_authority.get("first_fault") is not None
+                            and authority.get("first_fault") != prior_authority.get("first_fault")
+                        )
+                    )
+                ):
+                    raise RuntimeError(f"{node} authority status moved backward")
+                snapshot = cast(dict[str, Any], document["observation_snapshot"])
+                checkpoint = cast(dict[str, Any], snapshot["authority_checkpoint"])
+                current = {
+                    "authority_checkpoint": dict(checkpoint),
+                    "generation": document.get("observation_generation"),
+                    "lifetime_id": authority["lifetime_id"],
+                    "revision": document.get("observation_revision"),
+                    "snapshot_id": document.get("observation_snapshot_id"),
+                    "core_state_revision": snapshot["core_state_revision"],
+                    "database_instance_id": snapshot["database_instance_id"],
+                    "sqlite_schema_sha256": snapshot["sqlite_schema_sha256"],
+                    "startup_full_verification_at_ns": cast(
+                        dict[str, Any], snapshot["audit_verification"]
+                    )["last_full_verification_at_ns"],
+                }
+                prior = self._last_observation_identity.get(node)
+                if prior is not None:
+                    same_lifetime = current["lifetime_id"] == prior["lifetime_id"]
+                    if same_lifetime and (
+                        current["generation"] != prior["generation"]
+                        or cast(int, current["revision"]) <= cast(int, prior["revision"])
+                        or current["database_instance_id"] != prior["database_instance_id"]
+                        or cast(int, current["core_state_revision"])
+                        < cast(int, prior["core_state_revision"])
+                    ):
+                        raise RuntimeError(
+                            f"{node} observation sequence did not advance in one lifetime"
+                        )
+                    if same_lifetime:
+                        if current["sqlite_schema_sha256"] != prior["sqlite_schema_sha256"]:
+                            raise RuntimeError(f"{node} SQLite schema identity changed")
+                        _validate_checkpoint_progression(
+                            cast(dict[str, Any], prior["authority_checkpoint"]),
+                            checkpoint,
+                            node=node,
+                        )
+                    else:
+                        if current["generation"] == prior["generation"]:
+                            raise RuntimeError(
+                                f"{node} observation generation survived a lifetime change"
+                            )
+                        if prior_authority is None:
+                            raise RuntimeError(f"{node} lifetime change lost prior authority")
+                        _require_planned_lifetime_change(
+                            node,
+                            prior_authority=prior_authority,
+                            prior_checkpoint=cast(dict[str, Any], prior["authority_checkpoint"]),
+                            prior_observation={
+                                "audit_verification": {
+                                    "last_full_verification_at_ns": prior[
+                                        "startup_full_verification_at_ns"
+                                    ]
+                                },
+                                "authority_checkpoint": prior["authority_checkpoint"],
+                                "generation": prior["generation"],
+                                "lifetime_id": prior["lifetime_id"],
+                                "sqlite_schema_sha256": prior["sqlite_schema_sha256"],
+                            },
+                            current_authority=authority,
+                        )
+                        if current["sqlite_schema_sha256"] != prior["sqlite_schema_sha256"]:
+                            raise RuntimeError(
+                                f"{node} SQLite schema identity changed across restart"
+                            )
+                        _validate_checkpoint_progression(
+                            cast(dict[str, Any], prior["authority_checkpoint"]),
+                            checkpoint,
+                            node=node,
+                        )
+                    if current["snapshot_id"] == prior["snapshot_id"]:
+                        raise RuntimeError(f"{node} reused an observation snapshot identity")
+                self._last_observation_identity[node] = current
             self._samples.append(sample)
             self._current_schedule = None
             for node in NODES:
@@ -1991,6 +3262,8 @@ class HealthSampler:
                 authority_anchor = document.get("authority_anchor")
                 if isinstance(authority_anchor, dict):
                     self._last_authority_status[node] = dict(authority_anchor)
+        if self._on_sample is not None:
+            self._on_sample()
 
     def _run(self) -> None:
         regular_index = 0
@@ -2034,6 +3307,14 @@ class HealthSampler:
                 self._failure_schedule = (
                     None if self._current_schedule is None else dict(self._current_schedule)
                 )
+            if self._on_sample is not None:
+                try:
+                    self._on_sample()
+                except BaseException as journal_error:
+                    exc.add_note(
+                        "secondary workload-journal publication error: "
+                        f"{type(journal_error).__name__}: {journal_error}"
+                    )
             self._failure_event.set()
         finally:
             with self._lock:
@@ -2294,7 +3575,29 @@ def _audit_progress_summary(
                     recorded_recovered_error_sample_count += 1
                     recorded_unresolved_error_nodes.remove(node)
             elif node in recovery_by_node:
-                raise RuntimeError(f"health sample recovered unfailed {node}: {sample!r}")
+                recovery = recovery_by_node.pop(node)
+                recovery_elapsed = recovery.get("elapsed_seconds")
+                if (
+                    set(recovery)
+                    != {
+                        "elapsed_seconds",
+                        "node",
+                        "recovered_by_later_scheduled_sample",
+                    }
+                    or recovery.get("recovered_by_later_scheduled_sample") is not True
+                    or node not in recorded_unresolved_error_nodes
+                    or isinstance(recovery_elapsed, bool)
+                    or not isinstance(recovery_elapsed, (int, float))
+                    or not math.isfinite(float(recovery_elapsed))
+                    or not math.isfinite(float(sample_elapsed))
+                    or float(recovery_elapsed) != float(sample_elapsed)
+                ):
+                    raise RuntimeError(
+                        f"health sample has invalid later-scheduled {node} audit recovery: "
+                        f"{sample!r}"
+                    )
+                recorded_recovered_error_sample_count += 1
+                recorded_unresolved_error_nodes.remove(node)
         if recovery_by_node:
             raise RuntimeError(f"health sample has unbound audit recoveries: {sample!r}")
     if audit_error_budget is None:
@@ -2360,9 +3663,21 @@ def _wait_if_paused(
     request = _coordination_object(WORKLOAD_PAUSE)
     episode = request.get("episode")
     pause_id = request.get("pause_id")
+    reason = request.get("reason")
     requested_monotonic = request.get("requested_monotonic_seconds")
+    restart_id = request.get("restart_id")
+    service = request.get("service")
     if (
-        isinstance(episode, bool)
+        set(request)
+        != {
+            "episode",
+            "pause_id",
+            "reason",
+            "requested_monotonic_seconds",
+            "restart_id",
+            "service",
+        }
+        or isinstance(episode, bool)
         or not isinstance(episode, int)
         or episode < 0
         or not isinstance(pause_id, str)
@@ -2371,6 +3686,12 @@ def _wait_if_paused(
         or not isinstance(requested_monotonic, (int, float))
         or not math.isfinite(float(requested_monotonic))
         or float(requested_monotonic) <= 0
+        or reason not in {"partition", "planned_restart"}
+        or (reason == "partition" and (restart_id is not None or service is not None))
+        or (
+            reason == "planned_restart"
+            and (not isinstance(restart_id, str) or not restart_id or service not in NODES)
+        )
     ):
         raise RuntimeError(f"invalid workload pause request: {request!r}")
     observed = time.monotonic()
@@ -2379,12 +3700,12 @@ def _wait_if_paused(
         "observed_monotonic_seconds": observed,
         "pause_id": pause_id,
         "paused": True,
+        "reason": reason,
         "requested_monotonic_seconds": float(requested_monotonic),
+        "restart_id": restart_id,
+        "service": service,
     }
-    WORKLOAD_PAUSE_ACK.write_text(
-        json.dumps(acknowledgement, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_json_atomic(WORKLOAD_PAUSE_ACK, acknowledgement)
     while WORKLOAD_PAUSE.exists():
         raise_monitor_error()
         try:
@@ -2404,7 +3725,10 @@ def _wait_if_paused(
         "observed_elapsed_seconds": round(observed - started, 6),
         "observed_monotonic_seconds": observed,
         "pause_id": pause_id,
+        "reason": reason,
         "requested_monotonic_seconds": float(requested_monotonic),
+        "restart_id": restart_id,
+        "service": service,
         "resumed_elapsed_seconds": round(resumed - started, 6),
         "resumed_monotonic_seconds": resumed,
     }
@@ -2412,23 +3736,29 @@ def _wait_if_paused(
 
 def _workload_time_evidence(
     pause_intervals: list[dict[str, Any]],
+    restart_quiescence_intervals: list[dict[str, Any]],
     *,
     started_monotonic: float,
     measurement_window_seconds: float,
 ) -> dict[str, Any]:
     measurement_end = started_monotonic + measurement_window_seconds
-    prior_end = started_monotonic
     paused_seconds = 0.0
-    for expected_episode, interval in enumerate(pause_intervals):
+    for intervals in (pause_intervals, restart_quiescence_intervals):
+        for expected_episode, interval in enumerate(intervals):
+            if interval.get("episode") != expected_episode:
+                raise RuntimeError(f"invalid workload pause episode evidence: {intervals!r}")
+    ordered_intervals = sorted(
+        [*pause_intervals, *restart_quiescence_intervals],
+        key=lambda interval: float(interval["observed_monotonic_seconds"]),
+    )
+    prior_end = started_monotonic
+    for interval in ordered_intervals:
         observed = float(interval["observed_monotonic_seconds"])
         resumed = float(interval["resumed_monotonic_seconds"])
-        if (
-            interval.get("episode") != expected_episode
-            or observed < prior_end
-            or resumed < observed
-        ):
+        if observed < prior_end or resumed < observed:
             raise RuntimeError(
-                f"invalid or overlapping workload pause evidence: {pause_intervals!r}"
+                "invalid or overlapping workload pause evidence: "
+                f"partition={pause_intervals!r} restart={restart_quiescence_intervals!r}"
             )
         clipped_start = max(started_monotonic, min(measurement_end, observed))
         clipped_end = max(clipped_start, min(measurement_end, resumed))
@@ -2453,6 +3783,8 @@ def _workload_time_evidence(
         "pause_interval_count": len(pause_intervals),
         "pause_intervals": pause_intervals,
         "paused_workload_seconds": round(paused_seconds, 6),
+        "restart_quiescence_interval_count": len(restart_quiescence_intervals),
+        "restart_quiescence_intervals": restart_quiescence_intervals,
     }
 
 
@@ -2481,6 +3813,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
     transfer_pair_counts = {f"{source}->{target}": 0 for source, target in TRANSFER_PAIRS}
     latency = LatencyHistogram()
     pause_intervals: list[dict[str, Any]] = []
+    restart_quiescence_intervals: list[dict[str, Any]] = []
     started = time.monotonic()
     run_id = str(arguments.run_id)
     if not run_id or len(run_id.encode("utf-8")) > 256:
@@ -2501,14 +3834,22 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
         },
     )
     deadline = started + arguments.duration_seconds
-    health_sampler = HealthSampler(
-        started_monotonic=started,
-        interval_seconds=arguments.health_interval_seconds,
-        retry_timeout_seconds=arguments.retry_timeout_seconds,
-        seed=arguments.seed + 1_000_000_000,
-        failure_event=failure_event,
-    )
     cycle = 0
+    journal_lock = threading.Lock()
+    journal_revision = 0
+    journal_last_cycle_publish = started
+    journal_counters = dict(counters)
+    journal_cycle = 0
+    workload_configuration = {
+        "cycle_interval_seconds": arguments.cycle_interval_seconds,
+        "duration_seconds": arguments.duration_seconds,
+        "executor_reopen_every_cycles": arguments.executor_reopen_every_cycles,
+        "health_interval_seconds": arguments.health_interval_seconds,
+        "retry_timeout_seconds": arguments.retry_timeout_seconds,
+        "seed": arguments.seed,
+        "transfer_every_cycles": arguments.transfer_every_cycles,
+    }
+    health_sampler: HealthSampler
 
     def current_executor() -> ExecutorBoundary:
         if executor is None:
@@ -2552,10 +3893,88 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             "transport_recovery_events": [],
         }
 
+    def publish_journal() -> None:
+        """Atomically retain a compact, bounded monitor/cycle checkpoint."""
+
+        nonlocal journal_revision
+        with journal_lock:
+            journal_revision += 1
+            observed_at = time.monotonic()
+            monitor = health_sampler.failure_snapshot(
+                workload_ended_monotonic=observed_at,
+            )
+            health_samples = cast(list[dict[str, Any]], monitor["health_samples"])
+            retained_health_samples = (
+                health_samples
+                if len(health_samples) <= 8
+                else health_samples[:1] + health_samples[-7:]
+            )
+            health_monitor = dict(cast(dict[str, Any], monitor["health_monitor"]))
+            if health_monitor.get("error") is None:
+                health_monitor["status"] = "running"
+                health_monitor["joined"] = False
+            partial = {
+                "configuration": workload_configuration,
+                "counters": dict(journal_counters),
+                "cycles": journal_cycle,
+                "duration_seconds": round(max(0.0, observed_at - started), 6),
+                "health_monitor": health_monitor,
+                "health_sample_count": int(monitor["health_sample_count"]),
+                "health_samples": retained_health_samples,
+                "health_samples_retained": len(retained_health_samples),
+                "health_samples_truncated": len(health_samples) - len(retained_health_samples),
+                "journal_compact": True,
+                "pause_interval_count": len(pause_intervals),
+                "pause_intervals": list(pause_intervals),
+                "restart_quiescence_interval_count": len(restart_quiescence_intervals),
+                "restart_quiescence_intervals": list(restart_quiescence_intervals),
+                "run_id": run_id,
+                "schema": "lets.production-profile-soak-workload/v2",
+                "started_monotonic_seconds": started,
+                "status": "failed" if health_monitor.get("error") is not None else "running",
+                "workload_window_seconds": monitor["workload_window_seconds"],
+            }
+            _write_json_atomic(
+                WORKLOAD_JOURNAL,
+                _seal_workload_artifact(
+                    partial,
+                    journal_revision=journal_revision,
+                    maximum_bytes=WORKLOAD_JOURNAL_MAX_BYTES,
+                ),
+            )
+
+    health_sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=arguments.health_interval_seconds,
+        retry_timeout_seconds=arguments.retry_timeout_seconds,
+        seed=arguments.seed + 1_000_000_000,
+        failure_event=failure_event,
+        on_sample=publish_journal,
+    )
+    publish_journal()
+
+    def wait_for_pause_boundary() -> None:
+        pause = _wait_if_paused(
+            failure_event=failure_event,
+            raise_monitor_error=health_sampler.raise_if_failed,
+            started=started,
+        )
+        if pause is None:
+            return
+        if pause.get("reason") == "planned_restart":
+            restart_quiescence_intervals.append(pause)
+        elif pause.get("reason") == "partition":
+            pause_intervals.append(pause)
+        else:  # pragma: no cover - _wait_if_paused rejects this first.
+            raise RuntimeError("workload pause reason was not retained")
+
     def request(*request_arguments: Any, **request_options: Any) -> dict[str, Any]:
         health_sampler.raise_if_failed()
         response = client.request(*request_arguments, **request_options)
         health_sampler.raise_if_failed()
+        # A restart pause arriving during a long request is acknowledged at
+        # the first post-response boundary, before another mutation can start.
+        wait_for_pause_boundary()
         return response
 
     def recover_executor_transport() -> bool:
@@ -2576,13 +3995,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
         health_sampler.start()
         while time.monotonic() < deadline:
             health_sampler.raise_if_failed()
-            pause = _wait_if_paused(
-                failure_event=failure_event,
-                raise_monitor_error=health_sampler.raise_if_failed,
-                started=started,
-            )
-            if pause is not None:
-                pause_intervals.append(pause)
+            wait_for_pause_boundary()
             if time.monotonic() >= deadline:
                 break
             cycle_started = time.monotonic()
@@ -2716,6 +4129,12 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                     recover_executor_transport()
                 health_sampler.raise_if_failed()
             latency.observe(time.monotonic() - cycle_started)
+            with journal_lock:
+                journal_counters = dict(counters)
+                journal_cycle = cycle
+            if time.monotonic() - journal_last_cycle_publish >= WORKLOAD_JOURNAL_CYCLE_SECONDS:
+                publish_journal()
+                journal_last_cycle_publish = time.monotonic()
             remaining = deadline - time.monotonic()
             if remaining > 0 and failure_event.wait(
                 min(arguments.cycle_interval_seconds, remaining)
@@ -2735,6 +4154,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
         audit_error_budget = cast(AuditErrorBudget, monitor_result["audit_error_budget"])
         time_evidence = _workload_time_evidence(
             pause_intervals,
+            restart_quiescence_intervals,
             started_monotonic=started,
             measurement_window_seconds=arguments.duration_seconds,
         )
@@ -2823,6 +4243,8 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                     },
                     "pause_interval_count": len(pause_intervals),
                     "pause_intervals": pause_intervals,
+                    "restart_quiescence_interval_count": len(restart_quiescence_intervals),
+                    "restart_quiescence_intervals": restart_quiescence_intervals,
                     "executor": executor_failure_snapshot(error),
                     "schema": "lets.production-profile-soak-workload/v2",
                     "run_id": run_id,
@@ -2857,12 +4279,21 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             "executor": executor_failure_snapshot(error),
             "pause_interval_count": len(pause_intervals),
             "pause_intervals": pause_intervals,
+            "restart_quiescence_interval_count": len(restart_quiescence_intervals),
+            "restart_quiescence_intervals": restart_quiescence_intervals,
             "run_id": run_id,
             "schema": "lets.production-profile-soak-workload/v2",
             "started_monotonic_seconds": started,
             "status": "failed",
             **health_sampler.failure_snapshot(workload_ended_monotonic=ended),
         }
+        try:
+            publish_journal()
+        except BaseException as journal_error:
+            error.add_note(
+                "secondary workload-journal publication error: "
+                f"{type(journal_error).__name__}: {journal_error}"
+            )
         raise WorkloadMonitorError(str(error), result=partial) from error
     finally:
         if executor is not None:
@@ -2984,6 +4415,55 @@ def fence_authority_for_restart(arguments: argparse.Namespace) -> dict[str, Any]
     _verified_manifest()
     if arguments.node not in NODES:
         raise RuntimeError("authority fence node is invalid")
+    marker = _coordination_object(WORKLOAD_RESTART)
+    acknowledgement = _coordination_object(WORKLOAD_RESTART_ACK)
+    identity = (
+        "armed_monotonic_seconds",
+        "episode",
+        "quiesce_pause_id",
+        "restart_id",
+        "service",
+    )
+    if (
+        marker.get("state") != "armed"
+        or any(acknowledgement.get(key) != marker.get(key) for key in identity)
+        or marker.get("restart_id") != arguments.restart_id
+        or marker.get("service") != arguments.node
+        or type(acknowledgement.get("coordination_revision")) is not int
+        or acknowledgement["coordination_revision"] <= 0
+        or acknowledgement.get("coordination_payload_sha256")
+        != _coordination_payload_sha256(acknowledgement)
+        or acknowledgement.get("acknowledged_monotonic_seconds") is not None
+        or isinstance(acknowledgement.get("quiesced_monotonic_seconds"), bool)
+        or not isinstance(acknowledgement.get("quiesced_monotonic_seconds"), (int, float))
+        or not math.isfinite(float(acknowledgement["quiesced_monotonic_seconds"]))
+        or isinstance(acknowledgement.get("observed_monotonic_seconds"), bool)
+        or not isinstance(acknowledgement.get("observed_monotonic_seconds"), (int, float))
+        or not math.isfinite(float(acknowledgement["observed_monotonic_seconds"]))
+        or not float(acknowledgement["quiesced_monotonic_seconds"])
+        <= float(marker["armed_monotonic_seconds"])
+        <= float(acknowledgement["observed_monotonic_seconds"])
+    ):
+        raise RuntimeError("planned restart fence preparation is not exact or quiesced")
+    prior_authority = _bounded_authority_anchor_status(
+        acknowledgement.get("prior_authority_anchor"),
+        node=arguments.node,
+        require_healthy=True,
+    )
+    prior_observation = acknowledgement.get("prior_observation")
+    if (
+        not isinstance(prior_observation, dict)
+        or set(prior_observation)
+        != {
+            "audit_verification",
+            "authority_checkpoint",
+            "generation",
+            "lifetime_id",
+            "sqlite_schema_sha256",
+        }
+        or prior_observation.get("lifetime_id") != arguments.expected_lifetime_id
+    ):
+        raise RuntimeError("planned restart lacks its exact prior observation binding")
     client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
     terminal = client.request(
         "POST",
@@ -2991,41 +4471,20 @@ def fence_authority_for_restart(arguments: argparse.Namespace) -> dict[str, Any]
         "/v1/maintenance/authority-fence",
         body={
             "expected_lifetime_id": arguments.expected_lifetime_id,
+            "full_audit_verification": False,
             "restart_id": arguments.restart_id,
         },
+        single_attempt=True,
     )
-    authority = _bounded_authority_anchor_status(
-        terminal.get("authority_anchor"),
+    terminal = _validated_terminal_fence(
+        terminal,
         node=arguments.node,
-        require_healthy=True,
-        allow_fenced=True,
+        expected_lifetime_id=arguments.expected_lifetime_id,
+        restart_id=arguments.restart_id,
+        full_audit_verification=False,
+        prior_authority=prior_authority,
+        prior_observation=cast(dict[str, Any], prior_observation),
     )
-    if (
-        set(terminal)
-        != {
-            "authority_anchor",
-            "fenced_at_monotonic_ns",
-            "lifetime_id",
-            "namespace_process_id",
-            "restart_id",
-            "schema",
-            "warden_id",
-        }
-        or terminal.get("schema") != "lets.authority-admission-fence/v1"
-        or type(terminal.get("namespace_process_id")) is not int
-        or terminal["namespace_process_id"] <= 0
-        or type(terminal.get("fenced_at_monotonic_ns")) is not int
-        or terminal["fenced_at_monotonic_ns"] < 0
-        or terminal.get("restart_id") != arguments.restart_id
-        or terminal.get("warden_id") != arguments.node
-        or terminal.get("lifetime_id") != arguments.expected_lifetime_id
-        or authority.get("lifetime_id") != arguments.expected_lifetime_id
-        or authority.get("admission_fenced") is not True
-        or authority.get("fence_id") != arguments.restart_id
-        or terminal.get("namespace_process_id") != authority.get("namespace_process_id")
-        or terminal.get("fenced_at_monotonic_ns") != authority.get("fenced_at_monotonic_ns")
-    ):
-        raise RuntimeError("authority fence response is not bound to the requested lifetime")
     return {
         "node": arguments.node,
         "request_retry_count": client.retry_count,
@@ -3089,6 +4548,7 @@ def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
     capture_started = time.monotonic()
     capture_deadline = capture_started + 90.0
     core_terminal_fences: dict[str, dict[str, Any]] = {}
+    core_full_audit_verifications: dict[str, dict[str, Any]] = {}
     executor_evidence: dict[str, Any] | None = None
 
     def remaining_capture_seconds() -> float:
@@ -3173,7 +4633,8 @@ def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
             },
             "wal_bytes": status.wal_bytes,
         }
-        for node in NODES:
+
+        def fence_core(node: str) -> tuple[dict[str, Any], int]:
             final_node = final_sample["nodes"][node]
             prior_authority = _bounded_authority_anchor_status(
                 final_node.get("authority_anchor"),
@@ -3182,54 +4643,45 @@ def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
             )
             fence_id = f"final-verification-{arguments.seed}-{node}"
             remaining = remaining_capture_seconds()
-            terminal = client.request(
+            fence_client = ClusterClient(
+                seed=arguments.seed + 3_000_000_000 + NODES.index(node),
+                retry_timeout_s=arguments.retry_timeout_seconds,
+            )
+            terminal = fence_client.request(
                 "POST",
                 node,
                 "/v1/maintenance/authority-fence",
                 body={
                     "expected_lifetime_id": prior_authority["lifetime_id"],
+                    "full_audit_verification": True,
                     "restart_id": fence_id,
                 },
                 retry_timeout_s=remaining,
                 deadline_monotonic=capture_deadline,
             )
             remaining_capture_seconds()
-            terminal_authority = _bounded_authority_anchor_status(
-                terminal.get("authority_anchor"),
+            terminal = _validated_terminal_fence(
+                terminal,
                 node=node,
-                require_healthy=True,
-                allow_fenced=True,
+                expected_lifetime_id=cast(str, prior_authority["lifetime_id"]),
+                restart_id=fence_id,
+                full_audit_verification=True,
+                prior_authority=prior_authority,
+                prior_observation=cast(dict[str, Any], final_node["observation_snapshot"]),
             )
-            if (
-                terminal.get("schema") != "lets.authority-admission-fence/v1"
-                or type(terminal.get("namespace_process_id")) is not int
-                or terminal["namespace_process_id"] <= 0
-                or type(terminal.get("fenced_at_monotonic_ns")) is not int
-                or terminal["fenced_at_monotonic_ns"] < 0
-                or terminal.get("restart_id") != fence_id
-                or terminal.get("warden_id") != node
-                or terminal.get("lifetime_id") != prior_authority["lifetime_id"]
-                or terminal_authority.get("lifetime_id") != prior_authority["lifetime_id"]
-                or terminal_authority.get("namespace_process_id")
-                != prior_authority.get("namespace_process_id")
-                or terminal_authority.get("admission_fenced") is not True
-                or terminal_authority.get("fence_id") != fence_id
-                or terminal.get("namespace_process_id")
-                != terminal_authority.get("namespace_process_id")
-                or terminal.get("fenced_at_monotonic_ns")
-                != terminal_authority.get("fenced_at_monotonic_ns")
-                or any(
-                    cast(int, terminal_authority[field_name])
-                    < cast(int, prior_authority[field_name])
-                    for field_name in _AUTHORITY_COUNTER_FIELDS
+            return terminal, fence_client.retry_count
+
+        with ThreadPoolExecutor(max_workers=len(NODES)) as fence_pool:
+            fence_futures = {node: fence_pool.submit(fence_core, node) for node in NODES}
+            for node in NODES:
+                terminal, fence_retries = fence_futures[node].result(
+                    timeout=remaining_capture_seconds()
                 )
-                or (
-                    prior_authority.get("first_fault") is not None
-                    and terminal_authority.get("first_fault") != prior_authority.get("first_fault")
+                core_terminal_fences[node] = terminal
+                core_full_audit_verifications[node] = dict(
+                    cast(dict[str, Any], terminal["terminal_audit_proof"])
                 )
-            ):
-                raise RuntimeError(f"{node} returned an invalid final authority fence")
-            core_terminal_fences[node] = terminal
+                client.retry_count += fence_retries
         capture_completed = time.monotonic()
         remaining_capture_seconds()
     except BaseException as exc:
@@ -3239,6 +4691,7 @@ def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
             "converged": True,
             "executor": executor_evidence,
             "final_health": final_sample,
+            "full_audit_verifications": core_full_audit_verifications,
             "package_version": metadata.version("lets-agent"),
             "request_retry_count": client.retry_count,
             "schema": "lets.production-profile-soak-verification/v1",
@@ -3263,6 +4716,7 @@ def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
         "convergence_seconds": round(capture_started - started, 3),
         "executor": executor_evidence,
         "final_health": final_sample,
+        "full_audit_verifications": core_full_audit_verifications,
         "terminal_authority_fences": core_terminal_fences,
         "terminal_capture": {
             "completed_monotonic_seconds": capture_completed,
@@ -3326,7 +4780,7 @@ def _arguments() -> argparse.Namespace:
     fence.add_argument("--node", choices=NODES, required=True)
     fence.add_argument("--restart-id", required=True)
     fence.add_argument("--expected-lifetime-id", required=True)
-    fence.add_argument("--retry-timeout-seconds", type=_positive, default=7.0)
+    fence.add_argument("--retry-timeout-seconds", type=_positive, default=28.0)
     fence.add_argument("--seed", type=int, default=20260809)
     fence.add_argument("--output", type=Path, required=True)
     authority_status = subcommands.add_parser("authority-status")
@@ -3356,11 +4810,25 @@ def main() -> int:
     except WorkloadMonitorError as exc:
         result = exc.result
         workload_error = exc
+    if arguments.command == "run":
+        journal_revision = 1
+        if WORKLOAD_JOURNAL.exists():
+            try:
+                existing = _object(WORKLOAD_JOURNAL)
+                existing_revision = existing.get("journal_revision")
+                if type(existing_revision) is int and existing_revision > 0:
+                    journal_revision = existing_revision + 1
+            except BaseException as exc:
+                if workload_error is not None:
+                    workload_error.add_note(
+                        f"secondary workload-journal read error: {type(exc).__name__}: {exc}"
+                    )
+        result = _seal_workload_artifact(
+            result,
+            journal_revision=journal_revision,
+        )
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
-    arguments.output.write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    _write_json_atomic(arguments.output, result)
     print(
         json.dumps(
             {
