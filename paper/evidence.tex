@@ -1,39 +1,53 @@
 % Evidence values are kept in one file so the manuscript cannot silently drift
 % from the final verification record. Update this file only from reproduced runs.
 \newcommand{\shadisplay}[8]{\texttt{sha256:#1}\allowbreak\texttt{#2}\allowbreak\texttt{#3}\allowbreak\texttt{#4}\allowbreak\texttt{#5}\allowbreak\texttt{#6}\allowbreak\texttt{#7}\allowbreak\texttt{#8}}
-\newcommand{\ArtifactVersion}{1.0.0}
-\newcommand{\EvidenceDate}{2026-08-09}
-\newcommand{\CoreSuiteSummary}{Ruff check and 125-file format check, strict mypy on 32 source files, uv lock check, and container build-context policy passed}
-\newcommand{\CoreTestsCollected}{409}
-\newcommand{\CoreTestSummary}{407 passed; 2 e2e deselected; 75.41\% branch-aware coverage}
-\newcommand{\CompatibilitySummary}{Python 3.11.15: 407 passed, 2 deselected, 75.39\% branch-aware coverage}
-\newcommand{\PackageSummary}{two byte-identical wheel/sdist builds, Twine and isolated import/CLI checks passed; Bandit 1.9.4 \code{-ll} and pip-audit 2.10.1 clean}
-\newcommand{\WheelBytes}{206,347}
-\newcommand{\WheelDigest}{sha256:30d68c41b311526870d534c863696c2bcefc7b639b3784e54f3ce5cded63566c}
-\newcommand{\WheelDigestDisplay}{\shadisplay{30d68c41}{b3115268}{70d534c8}{63696c2b}{cefc7b63}{9b3784e5}{4f3ce5cd}{ed63566c}}
-\newcommand{\SdistBytes}{189,923}
-\newcommand{\SdistDigest}{sha256:3f66fb8642956fe750d52e27c36458045f3d3d44ee44c00ddd8b79d566535b85}
-\newcommand{\SdistDigestDisplay}{\shadisplay{3f66fb86}{42956fe7}{50d52e27}{c3645804}{5f3d3d44}{ee44c00d}{dd8b79d5}{66535b85}}
-\newcommand{\CoverageFloor}{74\%}
+\newcommand{\ArtifactVersion}{1.0.5}
+\newcommand{\EvidenceDate}{2026-08-10}
+\newcommand{\CoreSuiteSummary}{Ruff check and 132-file format check, strict mypy on 35 source files, uv lock check, container build-context policy, and release-workflow checks passed}
+\newcommand{\CoreTestsCollected}{685}
+\newcommand{\CoreTestSummary}{683 passed; 2 Docker e2e deselected}
+\newcommand{\CompatibilitySummary}{required Ubuntu Python 3.11--3.14 and Windows Python 3.11/3.14 jobs passed}
+\newcommand{\PackageSummary}{two byte-identical wheel, sdist, and deployment-bundle builds; Twine 7.0.0, check-wheel-contents 0.6.3, exact archive parity, and isolated wheel/sdist import and CLI checks passed}
+\newcommand{\WheelBytes}{234,758}
+\newcommand{\WheelDigest}{sha256:8a2c1ffbfdab27b14aee1c71bbbbf4e22a21c66070c0e23c798a32c8fec8965c}
+\newcommand{\WheelDigestDisplay}{\shadisplay{8a2c1ffb}{fdab27b1}{4aee1c71}{bbbbf4e2}{2a21c660}{70c0e23c}{798a32c8}{fec8965c}}
+\newcommand{\SdistBytes}{217,581}
+\newcommand{\SdistDigest}{sha256:ede7d0945476b574607a021cdd09a957feb29f36e87cc3b2674e5fdb066db347}
+\newcommand{\SdistDigestDisplay}{\shadisplay{ede7d094}{5476b574}{607a021c}{dd09a957}{feb29f36}{e87cc3b2}{674e5fdb}{066db347}}
+\newcommand{\DeploymentBytes}{74,323}
+\newcommand{\DeploymentDigest}{sha256:b5c8cf34380934ef2977c8e03bd099afd66185b2d15c20424a3781b7fbcede4c}
+\newcommand{\DeploymentDigestDisplay}{\shadisplay{b5c8cf34}{380934ef}{2977c8e0}{3bd099af}{d66185b2}{d15c2042}{4a3781b7}{fbcede4c}}
 \newcommand{\ProductionAcceptanceResult}{passed}
-\newcommand{\ProductionAcceptanceDuration}{41.894 seconds}
-\newcommand{\ProductionRuntimeImageDigest}{sha256:336feda3da169ecffea8ab3f0b68858c5de304cafe2208ee696d714c6dab64c4}
-\newcommand{\ProductionRuntimeImageDigestDisplay}{\shadisplay{336feda3}{da169ecf}{fea8ab3f}{0b68858c}{5de304ca}{fe2208ee}{696d714c}{6dab64c4}}
-\newcommand{\ProductionRuntimeImageID}{sha256:5d397bb16c6da91199595f2344fcabc109f08af69ca02b5d5bc4c3bf8245eb38}
-\newcommand{\ProductionRuntimeImageIDDisplay}{\shadisplay{5d397bb1}{6c6da911}{99595f23}{44fcabc1}{09f08af6}{9ca02b5d}{5bc4c3bf}{8245eb38}}
-\newcommand{\ProductionEvidenceBytes}{4,414}
-\newcommand{\ProductionEvidenceDigest}{sha256:e9d8c47ab92b26c78c20552038be38641ba509047183ea7f36b1c34d0dbd353b}
-\newcommand{\ProductionEvidenceDigestDisplay}{\shadisplay{e9d8c47a}{b92b26c7}{8c205520}{38be3864}{1ba50904}{7183ea7f}{36b1c34d}{0dbd353b}}
-\newcommand{\ProductionManifestDigest}{sha256:80ebcdba5ae7d27f94248564b59c68dd75aaecceda70572eb301ec632acb40de}
-\newcommand{\ProductionManifestDigestDisplay}{\shadisplay{80ebcdba}{5ae7d27f}{94248564}{b59c68dd}{75aaecce}{da70572e}{b301ec63}{2acb40de}}
-\newcommand{\ProductionSourceDigest}{sha256:ba0ede68f6def3244bebe9a051239fc34a28f76f0cfb324d0816cc50714cf06f}
-\newcommand{\ProductionSourceDigestDisplay}{\shadisplay{ba0ede68}{f6def324}{4bebe9a0}{51239fc3}{4a28f76f}{0cfb324d}{0816cc50}{714cf06f}}
-\newcommand{\ProductionSourceCount}{167}
-\newcommand{\ProductionSourceCommit}{\texttt{8cd4b5e2f50c5d356de249aa93af2aef516e1fa6}}
+\newcommand{\ProductionAcceptanceDuration}{36.900 seconds}
+\newcommand{\ProductionRuntimeImageDigest}{sha256:a2bc64cb516f22c3cc71e7c0ed0b48f618ee125344b28b5ea3be9859a8fe622c}
+\newcommand{\ProductionRuntimeImageDigestDisplay}{\shadisplay{a2bc64cb}{516f22c3}{cc71e7c0}{ed0b48f6}{18ee1253}{44b28b5e}{a3be9859}{a8fe622c}}
+\newcommand{\ProductionRuntimeImageID}{sha256:bb84503ad40196d2dc1301ef12cf3774c919a4d8c9954cae57be0a9ff836cd99}
+\newcommand{\ProductionRuntimeImageIDDisplay}{\shadisplay{bb84503a}{d40196d2}{dc1301ef}{12cf3774}{c919a4d8}{c9954cae}{57be0a9f}{f836cd99}}
+\newcommand{\ProductionEvidenceBytes}{4,490}
+\newcommand{\ProductionEvidenceDigest}{sha256:ef5a47026e23ebc4c5149021b3db7365fce2975d98d5a2ea3dcbedb2520da00b}
+\newcommand{\ProductionEvidenceDigestDisplay}{\shadisplay{ef5a4702}{6e23ebc4}{c5149021}{b3db7365}{fce2975d}{98d5a2ea}{3dcbedb2}{520da00b}}
+\newcommand{\ProductionManifestDigest}{sha256:15d78e1690e38b5ddda94e8a2d6f7da9331557dfce120be0fc374d1a3b3f5337}
+\newcommand{\ProductionManifestDigestDisplay}{\shadisplay{15d78e16}{90e38b5d}{dda94e8a}{2d6f7da9}{331557df}{ce120be0}{fc374d1a}{3b3f5337}}
+\newcommand{\ProductionSourceDigest}{sha256:686a5382ffe645d8665af3f40789167fc7afdec106cba9e2f6c7248ff9a25ae3}
+\newcommand{\ProductionSourceDigestDisplay}{\shadisplay{686a5382}{ffe645d8}{665af3f4}{0789167f}{c7afdec1}{06cba9e2}{f6c7248f}{f9a25ae3}}
+\newcommand{\ProductionSourceCount}{175}
+\newcommand{\ProductionSourceCommit}{\texttt{0d3f5879723ce74b597b846fe909daa1d1086609}}
 \newcommand{\ProductionSQLiteVersion}{3.53.2}
 \newcommand{\ProductionTransferred}{10}
 \newcommand{\ProductionAuditRecordCounts}{6, 5, and 1}
 \newcommand{\ProductionSignerInvocations}{21, 9, and 4}
+\newcommand{\SoakResult}{passed}
+\newcommand{\SoakMeasurementDuration}{3,600 seconds}
+\newcommand{\SoakWallDuration}{3,657.799 seconds}
+\newcommand{\SoakCycles}{559}
+\newcommand{\SoakHealthSamples}{362}
+\newcommand{\SoakPartitionEpisodes}{27}
+\newcommand{\SoakRestartEpisodes}{3}
+\newcommand{\SoakEvidenceBytes}{24,066,673}
+\newcommand{\SoakEvidenceDigest}{sha256:5977a16f48127e641c43ed2d585598aad25595e97534c1506a4ed5bd2e29d245}
+\newcommand{\SoakEvidenceDigestDisplay}{\shadisplay{5977a16f}{48127e64}{1c43ed2d}{585598aa}{d25595e9}{7534c150}{6a4ed5bd}{2e29d245}}
+\newcommand{\SoakPayloadDigest}{sha256:d67162f8dd721ae6a7a1e66abc884d7a47615ad89c8d70fbe52764e6dcebcf30}
+\newcommand{\SoakPayloadDigestDisplay}{\shadisplay{d67162f8}{dd721ae6}{a7a1e66a}{bc884d7a}{47615ad8}{9c8d70fb}{e52764e6}{dcebcf30}}
 \newcommand{\ModelCheckBounds}{scalar budget 3; three wardens; at most three leases, two transfers, and two receipts; unit actions; depth 9}
 \newcommand{\ModelCheckSummary}{101,245 states, 318,558 transitions, and 66,072 idempotent self-loops; zero invariant violations}
 \newcommand{\ModelCheckTableSummary}{passed; 101,245 states}

@@ -73,7 +73,8 @@ in-memory research kernel. It includes independent SQLite-backed warden processe
 manifests, authenticated peer HTTP, sequenced exactly-once target credit for rights transfers,
 branch revocation, canonical signed JSON, externally anchored warden and executor authority,
 bounded maintenance, an authenticated HTTP API and a strict-decoding, bounded-retry client,
-operational tooling, and a host-neutral adapter. We give an inductive
+authority-safe immutable observation snapshots, quiescence-first terminal restart fencing,
+pre-cleanup failure-evidence harvesting, operational tooling, and a host-neutral adapter. We give an inductive
 conservation argument and state the availability cost:
 a partitioned site may spend only rights it already owns, so safety and local progress are
 preserved while remote capacity can be stranded. The artifact contains \CoreTestsCollected{}
@@ -125,7 +126,7 @@ active subtree.
 
 \subsection{Contributions and non-claims}
 
-This artifact makes five concrete contributions.
+This artifact makes six concrete contributions.
 
 \begin{enumerate}
   \item \impl{} A real multi-node runtime in which each warden has an independent process,
@@ -139,6 +140,9 @@ This artifact makes five concrete contributions.
   \item \designed{} An inductive safety argument for local and global vector conservation,
   capability attenuation, nested expiry, and receipt mediation, together with an explicit
   partition-availability trade-off.
+  \item \impl{} A bounded observation and restart-evidence lane that publishes one coherent,
+  authority-bound snapshot without request-path database admission, quiesces workload requests
+  before terminal fencing, and permits process replacement only after an exact durable fence proof.
   \item \checked{} Reproducible unit, security, property, crash-recovery, bounded-model, package,
   and real three-node fault evidence, with the evidence types kept distinct.
 \end{enumerate}
@@ -169,6 +173,7 @@ Partition behavior & Both directed A--B peer links disabled with a durable faile
 Restart behavior & Warden process replaced on its persisted authority unit; anchored state resumed and transfer converged & \measured \\
 Conservation & Inductive argument, SQL commit checks, property traces, bounded abstract checker, aggregate e2e assertion & \designed, \checked \\
 Rollback fencing & Database-instance and append-only history heads compared through external linearizable anchors & \impl, \checked \\
+Observation and restart & Immutable authority-bound snapshots, freshness failure, quiescence-first fence proof, and bounded pre-cleanup evidence & \impl, \checked \\
 Production profile & Admission requires one warden per host, mTLS, external providers, independent state/anchor/audit/backup domains, and an immutable image digest; one-host acceptance emulates the controls but not independent failure domains & \impl, \checked{} (one host) \\
 Byzantine wardens & No threshold authorization or replicated-state-machine defense & \future \\
 Active-subtree migration & Free-right transfer followed by target issuance only & \future \\
@@ -634,6 +639,29 @@ bundled recovery path covers warden core authority only, not schema-5 executor r
 claim anchor. Executor recovery is application-operated: fence effects, snapshot the replay
 database, retain the anchor separately, and require an anchored reopen.
 
+\subsection{Authority-safe observation and terminal replacement}
+
+Production health cannot safely bypass authority ordering by reading the SQLite WAL directly: a
+database commit can become visible before the external anchor compare-and-swap has acknowledged
+the branch. Version~\ArtifactVersion{} instead constructs an immutable observation through one
+priority, authority-safe read admission. The capture binds the database identity, authority
+lifetime and checkpoint, core revision, audit head and verifier state, runtime readiness,
+conservation vectors, peer/exporter state, schema hashes, and monotonic capture time into a
+canonical snapshot digest. Request handling serves that process-local snapshot asynchronously,
+without another storage admission or shared worker-thread hop. A capture failure immediately makes
+the retained document unready; age beyond the 15-second bound is returned explicitly as stale
+rather than hidden behind a transport timeout.
+
+Planned replacement separates preparation from the 30-second process-replacement window. The
+workload first quiesces at a completed request boundary. The host then validates an exact terminal
+audit proof and re-inspects the unchanged container before a durable container-clock
+acknowledgement binds the terminal proof and target identity. Only after that acknowledgement may
+the host issue \code{SIGKILL}; replacement identity, authority lifetime, checkpoint lineage, and
+completion are then checked within the acknowledged bound. The one-hour release harness retains
+bounded health, workload, coordination, resource, and failure diagnostics before it removes the
+scenario volume. These records support offline validation; they do not make the host clock and
+container monotonic clock numerically interchangeable.
+
 \subsection{Module decomposition}
 
 \begin{table}[ht]
@@ -652,6 +680,7 @@ Module & Responsibility \\
 \code{auth}, \code{api}, \code{client}, \code{peer} & Transport identity, signed HTTP/replay defense, durable peer dispatch, and client/CLI contracts \\
 \code{executor}, \code{executor_authority} & Independent receipt verification, schema-5 at-most-once claim, and external rollback anchor \\
 \code{authority}, \code{audit}, \code{recovery} & Warden monotonic CAS, independent contiguous audit export, and journaled bundles/restore \\
+\code{observation} & Priority coherent capture, incremental audit verification, immutable freshness-bound publication, and terminal audit proof \\
 \code{runtime}, \code{providers} & Selected signer/identity/anchor/audit provider contract and bundled generic profile \\
 \code{manifest} & Operator-signed cluster bootstrap and exact genesis-share validation \\
 \code{integrations} & Host-neutral lifecycle port and optional AstralDeep scope profile \\
@@ -746,6 +775,7 @@ Compatibility/package & \CompatibilitySummary; \PackageSummary & One additional 
 TLA+ TLC & \TLCCheckTableSummary & Scalar three-warden escrow/transfer/receipt kernel; finite and not a source-code refinement. \\
 Bounded checker & \ModelCheckTableSummary & \ModelCheckBounds; abstracts signatures, clocks, SQL, and HSM labels. \\
 Production acceptance & \ProductionAcceptanceResult{} in \ProductionAcceptanceDuration & Exact-digest candidate under one-host Linux Compose; mTLS, hardening, partition, restart, convergence, and anchored executor checks, not independent failure domains. \\
+Sustained production profile & \SoakResult{} for \SoakMeasurementDuration; \SoakHealthSamples{} health samples & One seeded exact-candidate run with bounded partitions and replacements; not a capacity benchmark or independent-failure-domain trial. \\
 Microbenchmarks & \StorageBenchmarkSummary & Development measurements only; no cross-system baseline unless reported with environment and repetitions. \\
 \bottomrule
 \end{tabularx}
@@ -770,17 +800,18 @@ type confusion, concurrent parent overdraw, transfer identity/sequence conflicts
 spelling, peer key validity, executor races, and canonical wire parsing. Recovery cases open a
 database after rollback, committed transaction, and abrupt process exit.
 
-The release gate ran the non-e2e suite with \code{ResourceWarning} promoted to an error and
-branch-aware coverage enabled: \CoreTestSummary, against a configured \CoverageFloor{} floor. The
+The release candidate's serial non-e2e gate ran with \code{ResourceWarning} promoted to an error:
+\CoreTestSummary. The
 two Docker e2e cases are reported separately so an unavailable Docker daemon cannot be hidden
-inside the core-suite result. A separate exact all-extras environment on Python~3.11.15 produced
-\CompatibilitySummary. Two clean package builds produced byte-identical artifacts; Twine,
-isolated base/server/client imports and CLI startup on Python~3.14, Bandit~1.9.4 at medium/high
-severity, and pip-audit~2.10.1 passed. These are bounded tool results, not an external security
-certification. Hosted CI for acceptance source commit \ProductionSourceCommit{} completed green;
-each Ubuntu non-e2e lane recorded the same Windows-only crash-harness skip. The wheel was
+inside the core-suite result. Required compatibility CI produced \CompatibilitySummary. Two clean,
+archive-derived package builds produced byte-identical artifacts; Twine, wheel-content and RECORD
+validation, exact source/archive parity, isolated base/server/client wheel and sdist imports, CLI
+startup on Python~3.14, Bandit~1.9.4 at medium/high severity, and pip-audit~2.10.1 passed. These are
+bounded tool results, not an external security certification. Hosted CI for acceptance source
+commit \ProductionSourceCommit{} completed green. The wheel was
 \WheelBytes{} bytes with digest \WheelDigestDisplay; the source distribution was \SdistBytes{} bytes
-with digest \SdistDigestDisplay.
+with digest \SdistDigestDisplay; and the exact 16-file deployment bundle was \DeploymentBytes{}
+bytes with digest \DeploymentDigestDisplay.
 
 \subsection{Frozen 1.0.0 storage measurements}
 
@@ -876,6 +907,24 @@ This scenario establishes that the hardened path exercised the exact candidate r
 in-process simulation. It ran three wardens in one Linux Compose project, so it does not establish
 independent physical failure or rollback domains, geographic independence, behavior under
 arbitrary schedules, long-duration stability, Byzantine tolerance, or external certification.
+
+\subsection{Sustained production-profile soak}
+
+\measured{} The same clean source and immutable candidate completed its sole unweakened
+\SoakMeasurementDuration{} measurement window in \SoakWallDuration{} of harness wall time. The
+run completed \SoakCycles{} workload cycles, all \SoakHealthSamples{} scheduled health samples,
+\SoakPartitionEpisodes{} bounded partition episodes, and \SoakRestartEpisodes{} quiescence-first
+planned replacements. It recorded zero health-cadence deadline misses and zero HTTP request
+retries. Independent workload, authority, conservation, resource, checkpoint-lineage, and
+terminal-fence admission all passed after the embedded release verifier reconstructed the raw
+evidence.
+
+The retained \SoakEvidenceBytes-byte record has raw digest \SoakEvidenceDigestDisplay{} and
+canonical payload digest \SoakPayloadDigestDisplay. This is one deterministic, seeded, one-host
+Compose run. It exercises sustained fault scheduling and bounded observability but does not prove a
+failure rate, throughput capacity, independent physical failure domains, WAN behavior, arbitrary
+schedules, or Byzantine tolerance. The signed-tag release workflow runs a separate mandatory soak
+before promotion rather than relabeling this local evidence.
 
 \section{Interoperability Profiles}
 
@@ -1158,9 +1207,9 @@ uv run --frozen ruff format --check .
 uv run --frozen mypy src
 uv run --frozen pytest -m "not e2e" `
   -W error::ResourceWarning --cov=lets --cov-report=term-missing
-$image_name = "127.0.0.1:25001/astraldeep/lets"
+$image_name = "127.0.0.1:25109/astraldeep/lets"
 $image_digest = "sha256:" + `
-  "336feda3da169ecffea8ab3f0b68858c5de304cafe2208ee696d714c6dab64c4"
+  "a2bc64cb516f22c3cc71e7c0ed0b48f618ee125344b28b5ea3be9859a8fe622c"
 $env:LETS_PRODUCTION_ACCEPTANCE_IMAGE = "$image_name@$image_digest"
 uv run --frozen python deploy/production/run_acceptance.py
 \end{verbatim}
