@@ -859,6 +859,44 @@ def _observation_snapshot(
     return snapshot
 
 
+def test_host_observation_validator_accepts_only_consistent_bounded_audit_catchup() -> None:
+    catchup = {
+        "archive_reconciled": False,
+        "healthy": False,
+        "last_error": None,
+        "last_success_ns": 50,
+        "oldest_pending_age_s": 2.0,
+        "pending": 5,
+        "stalled_for_s": 0.1,
+    }
+    snapshot = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        audit_exporter_override=catchup,
+    )
+
+    assert soak_runner._valid_observation_snapshot(snapshot, node="warden-a") is True
+
+    inconsistent_clean = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        audit_exporter_override=catchup | {"archive_reconciled": True, "healthy": False},
+    )
+    assert soak_runner._valid_observation_snapshot(inconsistent_clean, node="warden-a") is False
+
+    inconsistent_fault = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        audit_exporter_override=catchup
+        | {
+            "archive_reconciled": True,
+            "healthy": False,
+            "last_error": "StorageError:sqlite_busy",
+        },
+    )
+    assert soak_runner._valid_observation_snapshot(inconsistent_fault, node="warden-a") is False
+
+
 def _sampled_health_node(
     node: str,
     *,
@@ -2444,11 +2482,15 @@ def test_planned_unavailable_is_per_node_and_must_overlap_exact_restart_window()
             "request_path": "/v1/metrics",
             "request_retries": 0,
             "retry_errors": {"first_error": None, "last_error": None},
-            "started_elapsed_seconds": 10.0,
+            "started_elapsed_seconds": 11.0,
         },
         "planned_unavailable": armed_marker,
     }
     samples[1]["planned_unavailable_nodes"] = ["warden-a"]
+    assert (
+        restart_evidence["bindings"][armed_marker["restart_id"]]["start_elapsed_seconds"]
+        < samples[1]["nodes"]["warden-a"]["observation"]["started_elapsed_seconds"]
+    )
     assert (
         evaluate_health_cadence(
             samples,
@@ -2632,6 +2674,7 @@ def test_independent_sampler_is_not_starved_by_a_long_inline_workload(
         retry_timeout_seconds=1.0,
         seed=1,
         failure_event=threading.Event(),
+        final_observation_advance_seconds=0.01,
     )
     sampler.start()
     time.sleep(0.075)
@@ -2641,6 +2684,105 @@ def test_independent_sampler_is_not_starved_by_a_long_inline_workload(
     assert monitor["health_monitor"]["actual_sample_count"] >= 4
     scheduled = [item["scheduled_elapsed_seconds"] for item in monitor["samples"]]
     assert scheduled[:4] == pytest.approx([0.0, 0.02, 0.04, 0.06], abs=0.005)
+
+
+def test_terminal_health_sample_waits_for_a_new_publisher_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signers = {node: Ed25519Signer.generate(f"production-{node}-key") for node in NODES}
+    manifest = _manifest(
+        signers,
+        Ed25519Signer.generate("production-operator-key"),
+        _nodes(),
+    )
+
+    class FakeClient:
+        retry_count = 0
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    revision = 0
+    last_publication = float("-inf")
+
+    def sample(
+        _client: object,
+        *,
+        elapsed_s: float,
+        observation_origin_monotonic: float,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        nonlocal last_publication, revision
+        now = time.monotonic()
+        if now - last_publication >= 0.025:
+            revision += 1
+            last_publication = now
+        observed = now - observation_origin_monotonic
+        nodes: dict[str, Any] = {}
+        for node in NODES:
+            document = _sampled_health_node(
+                node,
+                revision=revision,
+                scheduled=observed,
+                manifest=manifest,
+            )
+            document["observation"] = {
+                "completed_elapsed_seconds": observed,
+                "metrics_observed_elapsed_seconds": observed,
+                "request_count": 1,
+                "request_path": "/v1/metrics",
+                "request_retries": 0,
+                "retry_errors": {"first_error": None, "last_error": None},
+                "started_elapsed_seconds": observed,
+            }
+            nodes[node] = document
+        return {
+            "audit_catchup_nodes": [],
+            "audit_error_recoveries": [],
+            "elapsed_seconds": elapsed_s,
+            "nodes": nodes,
+            "planned_unavailable_nodes": [],
+        }
+
+    monkeypatch.setattr(soak_scenario, "_verified_manifest", lambda: manifest)
+    monkeypatch.setattr(soak_scenario, "ClusterClient", FakeClient)
+    monkeypatch.setattr(soak_scenario, "_health_sample", sample)
+    regular_samples_completed = threading.Event()
+    completed_samples = 0
+
+    def on_sample() -> None:
+        nonlocal completed_samples
+        completed_samples += 1
+        if completed_samples == 2:
+            regular_samples_completed.set()
+
+    started = time.monotonic()
+    sampler = HealthSampler(
+        started_monotonic=started,
+        interval_seconds=0.05,
+        retry_timeout_seconds=1.0,
+        seed=12,
+        failure_event=threading.Event(),
+        on_sample=on_sample,
+        final_observation_advance_seconds=0.04,
+    )
+    sampler.start()
+    assert regular_samples_completed.wait(timeout=2.0)
+    ended = time.monotonic()
+    sampler.finish(workload_ended_monotonic=ended)
+    monitor = sampler.result(workload_ended_monotonic=ended)
+
+    assert monitor["health_monitor"]["actual_sample_count"] == 3
+    assert monitor["health_monitor"]["expected_sample_count"] == 3
+    assert [
+        sample["nodes"]["warden-a"]["observation_revision"] for sample in monitor["samples"]
+    ] == [1, 2, 3]
+    terminal = monitor["samples"][-1]
+    assert terminal["scheduled_elapsed_seconds"] == pytest.approx(
+        ended - started,
+        abs=0.005,
+    )
+    assert terminal["started_elapsed_seconds"] - terminal["scheduled_elapsed_seconds"] >= 0.02
 
 
 def test_monitor_error_sets_abort_and_retains_structured_failure_snapshot(

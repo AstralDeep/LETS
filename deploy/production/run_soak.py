@@ -1476,10 +1476,9 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
             )
         )
         and (outbox["unpublished_count"] != 0 or outbox["oldest_unpublished_age_ns"] == 0)
-        and (
-            (exporter.get("last_error") is None)
-            == (exporter.get("archive_reconciled") is True and exporter.get("healthy") is True)
-        )
+        and exporter.get("healthy")
+        is (exporter.get("last_error") is None and exporter.get("archive_reconciled") is True)
+        and (exporter.get("last_error") is None or exporter.get("archive_reconciled") is False)
         and (exporter.get("last_error") is None or exporter.get("last_success_ns") is not None)
         and value.get("ready") is (exporter.get("healthy") is True and peer.get("healthy") is True)
     )
@@ -2149,11 +2148,11 @@ def evaluate_health_cadence(
                     return {"passed": False, "reason": "unavailable node lacks an exact restart"}
                 actual_planned.append(node)
                 unavailable_counts[node] += 1
-                if planned.get("state") == "armed" and (
-                    float(observed_started)
-                    <= float(binding["start_elapsed_seconds"])
-                    <= float(observed_completed)
-                ):
+                # The exact armed marker must be observed while its restart
+                # window overlaps this health attempt. The validation above
+                # already proves that overlap; the request itself need not
+                # straddle the acknowledgement's start instant.
+                if planned.get("state") == "armed":
                     acknowledged_unavailable_restart_ids.add(cast(str, restart_id))
                 continue
             if request_count != 1:
