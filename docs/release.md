@@ -88,13 +88,24 @@ links and replacing warden processes with `SIGKILL`. An independent monitor, wit
 client and an absolute schedule anchored to workload start, records raw per-node observation
 timing. The release verifier enforces a hard 15-second maximum gap for each node independently of
 sample-batch timing or a runtime-reported stall bound. A planned `SIGKILL` may exclude only the
-exact killed node's sampler-acknowledged, host-authorized restart interval. Merely arming a marker
-grants no exclusion: the prior live observation through the first exact monitor acknowledgment must
-remain within 15 seconds. The acknowledgment-to-completion exclusion window is capped at 30
-seconds, while arming-to-ack remains inside that prior 15-second cadence; the first
-validated post-completion observation is due within 15 seconds, and the marker identity must bind
-all three records. Every other node remains continuously observed. Missed monitor deadlines,
-monitor errors, or retained-sample truncation fail the soak.
+exact killed node's sampler-acknowledged, host-authorized restart interval. Before the host may send
+the signal, it must resolve an authenticated snapshot-and-fence response that exactly binds the old
+container ID, host PID, namespace PID, warden, process-lifetime ID, and restart ID; unresolved or
+malformed fence evidence forbids the kill. Merely arming a marker grants no exclusion: the prior
+live observation through the first exact monitor acknowledgment must remain within 15 seconds. The
+acknowledgment-to-completion exclusion window is capped at 30 seconds, while arming-to-ack remains
+inside that prior 15-second cadence; the first validated post-completion observation is due within
+15 seconds, and the marker identity must bind all three records. Every old and replacement
+authority lifetime receives an exact terminal status, and every other node remains continuously
+observed. Missed monitor deadlines, monitor errors, or retained-sample truncation fail the soak.
+
+The executor harness deliberately injects one fault after its SQLite claim `COMMIT` and after the
+external CAS durably succeeds, then reports the outcome as a classified lost reply. The original
+call must raise without executing the protected effect; the same store lifetime must reconcile and
+durably confirm the committed head after its cooldown; and retrying the same receipt must raise
+`ReplayError` with the effect count still zero. Across every terminal core and executor lifetime,
+raw transport faults, episodes, attempts, and recoveries must each total exactly one, and permanent
+faults must total zero. Any natural second episode fails promotion.
 
 The workload records its exact acknowledged pause intervals. The host requires a unique one-to-one
 binding between every workload interval and its own recorded partition-coordination window. A
@@ -116,6 +127,9 @@ With the default transfer and reopen frequencies, the path-coverage floor is 54 
 workload-counter relationships, directed-pair counts, executor evidence, and per-cycle latency
 bounds remain mandatory. Cluster settle and final convergence poll only until success; the
 configured 180 seconds is a maximum deadline, not a fixed wait or an extension to the soak duration.
+Mutating harness retries preserve the exact idempotency or restart identifier and issue a later HTTP
+request, which enters a separate storage transaction. They never imply that the failed storage or
+executor call was retried internally.
 
 The soak also checks invariants, audit and dispatcher health, final conservation and backlog
 convergence, and explicit RSS, file-descriptor, database, WAL, audit, and signer growth bounds. It
@@ -139,6 +153,16 @@ retained sample counts must agree with zero truncation. Final convergence requir
 to be reconciled, empty, and free of
 `last_error`. This evidence bounds sampled observations; it does not claim to count errors that
 begin and recover entirely between samples.
+Final verification runs inside the trusted workload step while it still owns the executor SQLite
+and independent-anchor volumes. It performs a fresh no-create open, SQLite integrity check, and
+exact anchor reconciliation, captures the final executor lifetime, and snapshot-and-fences all
+surviving core lifetimes within one terminal deadline. The host evaluator and publication workflow
+then validate the exact terminal schemas, identities, sequences, clock floors, counters, and
+lifetime relationships from the raw record. The JSON does not contain the canonical executor
+`claim_history` event ledger, so those later verifiers do not independently replay arbitrary
+intermediate claim digests; live SQLite integrity and locally contiguous-history reconciliation are
+part of the trusted same-step harness.
+
 Its machine record binds the exact OCI digest and config ID to the clean release commit,
 source-tree digest, and soak-harness hashes. A failed soak captures a final resource sample before
 cleanup, then atomically writes and uploads a bounded structured failure record that includes the

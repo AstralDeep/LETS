@@ -20,14 +20,17 @@ from nacl.signing import SigningKey
 
 from lets.canonical import b64url_decode, b64url_encode, canonical_json, strict_json_loads
 from lets.crypto import PublicKeyRegistry
-from lets.errors import ReplayError
+from lets.errors import AuthorityAnchorTransportError, ReplayError
 from lets.executor import (
     ExecutorPolicy,
     ReceiptVerifier,
     SQLiteReceiptReplayStore,
     executor_replay_identity,
 )
-from lets.executor_authority import ProcessFileExecutorAuthorityAnchor
+from lets.executor_authority import (
+    ExecutorAuthorityCheckpoint,
+    ProcessFileExecutorAuthorityAnchor,
+)
 from lets.manifest import ClusterManifest
 from lets.models import Receipt
 
@@ -55,10 +58,13 @@ WORKLOAD_PAUSE_ACK = Path("/scenario/soak-workload-pause-ack.json")
 WORKLOAD_RESTART = Path("/scenario/soak-workload-restart.json")
 WORKLOAD_RESTART_ACK = Path("/scenario/soak-workload-restart-ack.json")
 WORKLOAD_START = Path("/scenario/soak-workload-start.json")
+WORKLOAD_RESULT = Path("/scenario/soak-workload.json")
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
 MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
+AUTHORITY_FAILURE_DIAGNOSTIC_SECONDS = 7.0
 AUDIT_ERROR_MAX_BYTES = 4_096
 AUDIT_ERROR_SAMPLE_BUDGET = 1
+AUTHORITY_COUNTER_MAX = (1 << 63) - 1
 AUDIT_TRANSIENT_CONNECT_BUSY = re.compile(
     r"\AStorageError: could not connect to the audit archive "
     r"\(sqlite_errorname=(SQLITE_BUSY(?:_[A-Z0-9_]+)?), sqlite_errorcode=([0-9]+)\)\Z"
@@ -168,6 +174,64 @@ class ClusterClient:
         self._retry_timeout_s = retry_timeout_s
         self._abort_event = abort_event
         self.retry_count = 0
+        self._retry_scope_first_error: str | None = None
+        self._retry_scope_last_error: str | None = None
+
+    def begin_retry_scope(self) -> None:
+        self._retry_scope_first_error = None
+        self._retry_scope_last_error = None
+
+    def retry_scope(self) -> dict[str, str | None]:
+        return {
+            "first_error": self._retry_scope_first_error,
+            "last_error": self._retry_scope_last_error,
+        }
+
+    def _record_retry_error(self, value: str) -> None:
+        bounded = value[:512]
+        if self._retry_scope_first_error is None:
+            self._retry_scope_first_error = bounded
+        self._retry_scope_last_error = bounded
+
+    @staticmethod
+    def _retry_component(value: object, *, maximum: int) -> str:
+        if not isinstance(value, str) or not value:
+            return "none"
+        bounded = value[:maximum]
+        if any(ord(character) < 0x20 or ord(character) == 0x7F for character in bounded):
+            return "invalid"
+        return bounded
+
+    @classmethod
+    def _http_retry_error(
+        cls,
+        *,
+        body: dict[str, Any] | None,
+        method: str,
+        node: str,
+        path: str,
+        response: httpx.Response,
+    ) -> str:
+        problem_code: object = None
+        try:
+            problem = response.json()
+        except (ValueError, TypeError):
+            problem = None
+        if isinstance(problem, dict):
+            problem_code = problem.get("code")
+        correlation: object = None
+        if isinstance(body, dict):
+            correlation = body.get("request_id", body.get("restart_id"))
+        response_id = response.headers.get("x-request-id")
+        return (
+            f"http_status:{response.status_code};"
+            f"code:{cls._retry_component(problem_code, maximum=64)};"
+            f"method:{cls._retry_component(method, maximum=16)};"
+            f"node:{cls._retry_component(node, maximum=32)};"
+            f"path:{cls._retry_component(path, maximum=160)};"
+            f"request:{cls._retry_component(correlation, maximum=128)};"
+            f"response:{cls._retry_component(response_id, maximum=128)}"
+        )
 
     def _raise_if_aborted(self) -> None:
         if self._abort_event is not None and self._abort_event.is_set():
@@ -216,7 +280,7 @@ class ClusterClient:
                 ) as client:
                     response = client.request(method, f"{NODE_URLS[node]}{path}", json=body)
             except httpx.TransportError as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
+                last_error = f"transport:{type(exc).__name__}"
                 if interrupt is not None:
                     interrupt()
             else:
@@ -226,14 +290,23 @@ class ClusterClient:
                         raise RuntimeError(f"{node}{path} returned a non-object response")
                     if time.monotonic() > deadline:
                         last_error = "response completed after the shared deadline"
+                        self.retry_count += 1
+                        self._record_retry_error("deadline:late_response")
                         break
                     if interrupt is not None:
                         interrupt()
                     return cast(dict[str, Any], value)
-                last_error = f"HTTP {response.status_code}: {response.text[:500]}"
+                last_error = self._http_retry_error(
+                    body=body,
+                    method=method,
+                    node=node,
+                    path=path,
+                    response=response,
+                )
                 if response.status_code not in {429, 500, 502, 503, 504}:
                     raise RuntimeError(f"{method} {node}{path} failed: {last_error}")
             self.retry_count += 1
+            self._record_retry_error(last_error)
             delay = min(0.2, max(0.0, deadline - time.monotonic()))
             if self._abort_event is None:
                 time.sleep(delay)
@@ -330,6 +403,43 @@ def _registry(manifest: ClusterManifest) -> PublicKeyRegistry:
     return registry
 
 
+class _SoakFaultInjectingExecutorAnchor(ProcessFileExecutorAuthorityAnchor):
+    """Inject one classified post-COMMIT lost reply for the acceptance matrix."""
+
+    def __init__(self, state: dict[str, bool]) -> None:
+        super().__init__(EXECUTOR_ANCHOR, timeout_s=5)
+        self._injection_state = state
+
+    def reconcile(
+        self,
+        checkpoint: ExecutorAuthorityCheckpoint,
+        *,
+        claim_digest_at: Callable[[int], bytes | None],
+        initialize: bool = False,
+    ) -> None:
+        super().reconcile(
+            checkpoint,
+            claim_digest_at=claim_digest_at,
+            initialize=initialize,
+        )
+        if (
+            self._injection_state["armed"]
+            and not self._injection_state["injected"]
+            and checkpoint.claim_sequence > 0
+        ):
+            self._injection_state["injected"] = True
+            self.close()
+            raise AuthorityAnchorTransportError(
+                "injected detail is sanitized",
+                reason="helper_eof",
+                operation="compare-and-set",
+                request_flushed=True,
+                mutation_uncertain=True,
+                helper_pid=None,
+                helper_exit_code=None,
+            )
+
+
 class ExecutorBoundary:
     def __init__(self, manifest: ClusterManifest) -> None:
         self._registry = _registry(manifest)
@@ -352,22 +462,62 @@ class ExecutorBoundary:
         self.claims = 0
         self.replay_rejections = 0
         self.reopen_count = 0
-        self._open(initialize=not EXECUTOR_DATABASE.exists())
+        self.transport_recovery_events: list[dict[str, Any]] = []
+        self.lifecycle_admission_failures: list[dict[str, Any]] = []
+        self.terminal_statuses: list[dict[str, Any]] = []
+        self._terminal_status: dict[str, Any] | None = None
+        self._observed_lifetimes: set[str] = set()
+        self._transport_injection_state = {"armed": False, "injected": False}
+        self._pending_transport_fault: dict[str, Any] | None = None
+        self._open(initialize=not EXECUTOR_DATABASE.exists(), phase="startup")
 
-    def _open(self, *, initialize: bool) -> None:
-        self._anchor = ProcessFileExecutorAuthorityAnchor(EXECUTOR_ANCHOR, timeout_s=5)
-        if initialize:
-            self._store = SQLiteReceiptReplayStore.initialize(
-                EXECUTOR_DATABASE,
-                authority_anchor=self._anchor,
-                identity=self._identity,
+    def _open(self, *, initialize: bool, phase: str) -> None:
+        self._transport_injection_state["armed"] = False
+        self._anchor = _SoakFaultInjectingExecutorAnchor(self._transport_injection_state)
+        try:
+            if initialize:
+                self._store = SQLiteReceiptReplayStore.initialize(
+                    EXECUTOR_DATABASE,
+                    authority_anchor=self._anchor,
+                    identity=self._identity,
+                )
+            else:
+                self._store = SQLiteReceiptReplayStore(
+                    EXECUTOR_DATABASE,
+                    authority_anchor=self._anchor,
+                )
+        except AuthorityAnchorTransportError as exc:
+            self.lifecycle_admission_failures.append(
+                {
+                    "anchor_preserved": EXECUTOR_ANCHOR.exists(),
+                    "database_preserved": EXECUTOR_DATABASE.exists(),
+                    "error": {
+                        "helper_exit_code": exc.helper_exit_code,
+                        "helper_pid": exc.helper_pid,
+                        "mutation_uncertain": exc.mutation_uncertain,
+                        "operation": exc.operation,
+                        "reason": exc.reason,
+                        "request_flushed": exc.request_flushed,
+                    },
+                    "phase": phase,
+                }
             )
-        else:
-            self._store = SQLiteReceiptReplayStore(
-                EXECUTOR_DATABASE,
-                authority_anchor=self._anchor,
-            )
+            self._store = None
+            self._verifier = None
+            self._anchor.close()
+            self._anchor = None
+            raise
         self._verifier = ReceiptVerifier(self._registry, self._store, self._policy)
+        lifetime = self._store.authority_status().get("lifetime_id")
+        if (
+            not isinstance(lifetime, str)
+            or re.fullmatch(r"[0-9a-f]{32}", lifetime) is None
+            or lifetime in self._observed_lifetimes
+        ):
+            raise RuntimeError("executor authority lifetime identity is invalid or reused")
+        self._observed_lifetimes.add(lifetime)
+        self._terminal_status = None
+        self._transport_injection_state["armed"] = True
 
     @property
     def store(self) -> SQLiteReceiptReplayStore:
@@ -381,11 +531,13 @@ class ExecutorBoundary:
             raise RuntimeError("executor verifier is closed")
         return self._verifier
 
-    def claim(self, receipt: Receipt) -> None:
-        self.verifier.verify_and_claim(receipt)
+    @property
+    def transport_recovery_pending(self) -> bool:
+        return self._pending_transport_fault is not None
+
+    def _record_claim(self, receipt: Receipt) -> None:
         self.claims += 1
         self.last_receipt = receipt
-        self._require_replay_rejection(receipt)
 
     def _require_replay_rejection(self, receipt: Receipt) -> None:
         try:
@@ -395,13 +547,186 @@ class ExecutorBoundary:
             return
         raise RuntimeError("executor accepted a duplicate production receipt")
 
+    def _record_transport_failure(
+        self,
+        receipt: Receipt,
+        failure: AuthorityAnchorTransportError,
+        *,
+        phase: str,
+        primary_returned: bool,
+        claim_already_counted: bool,
+    ) -> None:
+        if self.transport_recovery_events or self._pending_transport_fault is not None:
+            raise RuntimeError(
+                "executor transport recovery budget was already consumed"
+            ) from failure
+        faulted = self.store.authority_status()
+        if (
+            faulted.get("state") != "recoverable_transport_fault"
+            or faulted.get("unresolved_transport_faults") != 1
+            or faulted.get("transport_faults") != 1
+            or faulted.get("transport_fault_episodes") != 1
+        ):
+            raise RuntimeError("executor transport fault status is inconsistent") from failure
+        self._pending_transport_fault = {
+            "claim_already_counted": claim_already_counted,
+            "failure": failure,
+            "faulted_authority_anchor": faulted,
+            "phase": phase,
+            "primary_returned": primary_returned,
+            "receipt": receipt,
+        }
+
+    def recover_pending_authority(self) -> None:
+        pending = self._pending_transport_fault
+        if pending is None:
+            raise RuntimeError("executor has no pending transport fault to recover")
+        faulted = cast(dict[str, Any], pending["faulted_authority_anchor"])
+        failure = cast(AuthorityAnchorTransportError, pending["failure"])
+        retry_not_before = faulted.get("retry_not_before_monotonic_ns")
+        if type(retry_not_before) is not int:
+            raise RuntimeError("executor transport recovery omitted its cooldown") from failure
+        remaining_ns = retry_not_before - time.monotonic_ns()
+        if remaining_ns > 5_000_000_000:
+            raise RuntimeError(
+                "executor transport recovery cooldown exceeded its bound"
+            ) from failure
+        if remaining_ns > 0:
+            time.sleep(remaining_ns / 1_000_000_000 + 0.001)
+        recovered_snapshot = self.store.status()
+        if (
+            not recovered_snapshot.rollback_protected
+            or not recovered_snapshot.authority_healthy
+            or recovered_snapshot.authority_checkpoint is None
+        ):
+            raise RuntimeError("executor transport recovery did not restore exact authority")
+        recovered = self.store.authority_status()
+        if (
+            recovered.get("state") != "healthy"
+            or recovered.get("transport_faults") != 1
+            or recovered.get("transport_fault_episodes") != 1
+            or recovered.get("transport_recovery_attempts") != 1
+            or recovered.get("transport_recoveries") != 1
+            or recovered.get("unresolved_transport_faults") != 0
+            or recovered.get("permanent_faults") != 0
+        ):
+            raise RuntimeError("executor transport recovery counters are inconsistent")
+        pending["recovered_authority_anchor"] = recovered
+
+    def retry_pending_claim(self) -> bool:
+        pending = self._pending_transport_fault
+        if pending is None or "recovered_authority_anchor" not in pending:
+            raise RuntimeError("executor authority must recover before the pending receipt retry")
+        receipt = cast(Receipt, pending["receipt"])
+        phase = cast(str, pending["phase"])
+        primary_returned = cast(bool, pending["primary_returned"])
+        claim_already_counted = cast(bool, pending["claim_already_counted"])
+        retry_outcome: str
+        effect_executed: bool
+        replay_failure: ReplayError | None = None
+        try:
+            self.verifier.verify_and_claim(receipt)
+        except ReplayError as exc:
+            replay_failure = exc
+            retry_outcome = "replay_rejected"
+            self.replay_rejections += 1
+            if not claim_already_counted:
+                self._record_claim(receipt)
+            effect_executed = primary_returned or claim_already_counted
+        else:
+            if primary_returned or claim_already_counted:
+                raise RuntimeError("executor reaccepted a receipt known to be durably claimed")
+            retry_outcome = "claimed"
+            self._record_claim(receipt)
+            self._require_replay_rejection(receipt)
+            effect_executed = True
+        if retry_outcome == "claimed":
+            durable_claim_outcome = "claimed_on_retry"
+        elif phase == "primary_claim" and not primary_returned:
+            durable_claim_outcome = "burned_before_response"
+        else:
+            durable_claim_outcome = "claimed_before_faulting_probe"
+        event = {
+            "durable_claim_outcome": durable_claim_outcome,
+            "faulting_call_effect_executed": False,
+            "faulted_authority_anchor": pending["faulted_authority_anchor"],
+            "ordinal": len(self.transport_recovery_events),
+            "original_call_raised": True,
+            "original_transport_error": {
+                "helper_exit_code": cast(
+                    AuthorityAnchorTransportError, pending["failure"]
+                ).helper_exit_code,
+                "helper_pid": cast(AuthorityAnchorTransportError, pending["failure"]).helper_pid,
+                "mutation_uncertain": cast(
+                    AuthorityAnchorTransportError, pending["failure"]
+                ).mutation_uncertain,
+                "operation": cast(AuthorityAnchorTransportError, pending["failure"]).operation,
+                "reason": cast(AuthorityAnchorTransportError, pending["failure"]).reason,
+                "request_flushed": cast(
+                    AuthorityAnchorTransportError, pending["failure"]
+                ).request_flushed,
+            },
+            "phase": phase,
+            "primary_returned": primary_returned,
+            "protected_effect_executed_after_recovery": (
+                effect_executed and phase != "reopen_replay_probe"
+            ),
+            "receipt_id": receipt.receipt_id,
+            "recovered_authority_anchor": pending["recovered_authority_anchor"],
+            "retry_outcome": retry_outcome,
+        }
+        self.transport_recovery_events.append(event)
+        self._pending_transport_fault = None
+        if replay_failure is not None:
+            raise replay_failure
+        return effect_executed
+
+    def claim_once(self, receipt: Receipt) -> bool:
+        if self._pending_transport_fault is not None:
+            raise RuntimeError("executor transport fault recovery is pending")
+        try:
+            self.verifier.verify_and_claim(receipt)
+        except AuthorityAnchorTransportError as exc:
+            self._record_transport_failure(
+                receipt,
+                exc,
+                phase="primary_claim",
+                primary_returned=False,
+                claim_already_counted=False,
+            )
+            raise
+        try:
+            self._require_replay_rejection(receipt)
+        except AuthorityAnchorTransportError as exc:
+            self._record_transport_failure(
+                receipt,
+                exc,
+                phase="replay_probe",
+                primary_returned=True,
+                claim_already_counted=False,
+            )
+            raise
+        self._record_claim(receipt)
+        return True
+
     def reopen(self) -> None:
         previous = self.last_receipt
-        self.close()
-        self._open(initialize=False)
+        self.capture_terminal_status()
+        self.close(capture_terminal=False)
+        self._open(initialize=False, phase="reopen")
         self.reopen_count += 1
         if previous is not None:
-            self._require_replay_rejection(previous)
+            try:
+                self._require_replay_rejection(previous)
+            except AuthorityAnchorTransportError as exc:
+                self._record_transport_failure(
+                    previous,
+                    exc,
+                    phase="reopen_replay_probe",
+                    primary_returned=True,
+                    claim_already_counted=True,
+                )
+                raise
 
     def status(self) -> dict[str, Any]:
         status = self.store.status()
@@ -410,13 +735,14 @@ class ExecutorBoundary:
         integrity = self.store.integrity_check()
         if integrity != ("ok",):
             raise RuntimeError(f"executor replay integrity failed: {integrity!r}")
-        if self._anchor is None:
-            raise RuntimeError("executor authority anchor is closed")
-        checkpoint = self._anchor.read_current()
+        checkpoint = status.authority_checkpoint
+        if checkpoint is None:
+            raise RuntimeError("executor authority checkpoint is unavailable")
         if checkpoint.claim_sequence != status.claim_sequence:
             raise RuntimeError("executor database and authority anchor claim heads disagree")
         return {
             "anchor": checkpoint.to_dict(),
+            "authority_anchor": self.store.authority_status(),
             "authority_healthy": status.authority_healthy,
             "claim_sequence": status.claim_sequence,
             "database_bytes": status.database_bytes,
@@ -428,12 +754,70 @@ class ExecutorBoundary:
             "wal_bytes": status.wal_bytes,
         }
 
-    def close(self) -> None:
+    def capture_terminal_status(self) -> dict[str, Any]:
+        if self._terminal_status is not None:
+            return self._terminal_status
+        snapshot = self.status()
+        authority = snapshot.get("authority_anchor")
+        if not isinstance(authority, dict):
+            raise RuntimeError("executor terminal authority status is malformed")
+        lifetime = authority.get("lifetime_id")
+        if not isinstance(lifetime, str):
+            raise RuntimeError("executor terminal authority lifetime is missing")
+        terminal = {
+            "ordinal": len(self.terminal_statuses),
+            "source": "workload",
+            "lifetime_id": lifetime,
+            "status": snapshot,
+        }
+        self.terminal_statuses.append(terminal)
+        self._terminal_status = snapshot
+        return snapshot
+
+    def close(self, *, capture_terminal: bool = True) -> None:
+        if capture_terminal and self._store is not None and self._terminal_status is None:
+            self.capture_terminal_status()
         self._verifier = None
         self._store = None
         if self._anchor is not None:
             self._anchor.close()
             self._anchor = None
+
+    def failure_snapshot(self) -> dict[str, Any]:
+        pending = self._pending_transport_fault
+        pending_snapshot: dict[str, Any] | None = None
+        if pending is not None:
+            failure = cast(AuthorityAnchorTransportError, pending["failure"])
+            receipt = cast(Receipt, pending["receipt"])
+            pending_snapshot = {
+                "faulted_authority_anchor": pending["faulted_authority_anchor"],
+                "original_call_raised": True,
+                "original_transport_error": {
+                    "helper_exit_code": failure.helper_exit_code,
+                    "helper_pid": failure.helper_pid,
+                    "mutation_uncertain": failure.mutation_uncertain,
+                    "operation": failure.operation,
+                    "reason": failure.reason,
+                    "request_flushed": failure.request_flushed,
+                },
+                "phase": pending["phase"],
+                "primary_returned": pending["primary_returned"],
+                "receipt_id": receipt.receipt_id,
+            }
+            if "recovered_authority_anchor" in pending:
+                pending_snapshot["recovered_authority_anchor"] = pending[
+                    "recovered_authority_anchor"
+                ]
+        return {
+            "authority_anchor": (None if self._store is None else self._store.authority_status()),
+            "claims": self.claims,
+            "lifecycle_admission_failures": list(self.lifecycle_admission_failures),
+            "pending_transport_fault": pending_snapshot,
+            "reopen_count": self.reopen_count,
+            "replay_rejections": self.replay_rejections,
+            "terminal_statuses": list(self.terminal_statuses),
+            "transport_recovery_events": list(self.transport_recovery_events),
+        }
 
 
 def _sum(vectors: list[list[int]]) -> list[int]:
@@ -451,6 +835,170 @@ def _finite_nonnegative(value: object, *, field: str, node: str) -> float:
     ):
         raise RuntimeError(f"{node} audit exporter returned invalid {field}: {value!r}")
     return float(value)
+
+
+_AUTHORITY_STATUS_FIELDS = frozenset(
+    {
+        "admission_fenced",
+        "enabled",
+        "fault_reason",
+        "fault_stage",
+        "fence_id",
+        "fenced_at_monotonic_ns",
+        "first_fault",
+        "healthy",
+        "lifetime_id",
+        "namespace_process_id",
+        "permanent_faults",
+        "retry_not_before_monotonic_ns",
+        "state",
+        "transport_fault_episodes",
+        "transport_faults",
+        "transport_recoveries",
+        "transport_recovery_attempts",
+        "unresolved_transport_faults",
+    }
+)
+_AUTHORITY_COUNTER_FIELDS = (
+    "transport_faults",
+    "transport_fault_episodes",
+    "transport_recovery_attempts",
+    "transport_recoveries",
+    "permanent_faults",
+)
+_AUTHORITY_FIRST_FAULT_FIELDS = frozenset(
+    {
+        "helper_exit_code",
+        "helper_pid",
+        "mutation_uncertain",
+        "operation",
+        "reason",
+        "request_flushed",
+        "stage",
+    }
+)
+
+
+def _bounded_authority_anchor_status(
+    value: object,
+    *,
+    node: str,
+    require_healthy: bool,
+    allow_fenced: bool = False,
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != _AUTHORITY_STATUS_FIELDS:
+        raise RuntimeError(f"{node} returned malformed authority anchor status")
+    state = value.get("state")
+    healthy = value.get("healthy")
+    enabled = value.get("enabled")
+    lifetime = value.get("lifetime_id")
+    namespace_pid = value.get("namespace_process_id")
+    fenced = value.get("admission_fenced")
+    if (
+        enabled is not True
+        or state
+        not in {
+            "healthy",
+            "recoverable_transport_fault",
+            "permanent_fault",
+        }
+        or type(healthy) is not bool
+        or healthy is not (state == "healthy")
+        or not isinstance(lifetime, str)
+        or re.fullmatch(r"[0-9a-f]{32}", lifetime) is None
+        or type(namespace_pid) is not int
+        or namespace_pid <= 0
+        or type(fenced) is not bool
+    ):
+        raise RuntimeError(f"{node} returned inconsistent authority anchor identity or state")
+    if require_healthy and state != "healthy":
+        raise RuntimeError(f"{node} authority anchor is not healthy")
+    fence_id = value.get("fence_id")
+    fenced_at = value.get("fenced_at_monotonic_ns")
+    if fenced:
+        if (
+            not allow_fenced
+            or not isinstance(fence_id, str)
+            or not 1 <= len(fence_id) <= 128
+            or type(fenced_at) is not int
+            or fenced_at < 0
+        ):
+            raise RuntimeError(f"{node} returned invalid fenced authority state")
+    elif fence_id is not None or fenced_at is not None:
+        raise RuntimeError(f"{node} returned stale authority fence metadata")
+    counters: dict[str, int] = {}
+    for field_name in _AUTHORITY_COUNTER_FIELDS:
+        counter = value.get(field_name)
+        if type(counter) is not int or not 0 <= counter <= AUTHORITY_COUNTER_MAX:
+            raise RuntimeError(f"{node} returned invalid authority counter {field_name}")
+        counters[field_name] = counter
+    unresolved = value.get("unresolved_transport_faults")
+    if type(unresolved) is not int or unresolved not in {0, 1}:
+        raise RuntimeError(f"{node} returned invalid unresolved authority fault gauge")
+    if (
+        counters["transport_faults"] < counters["transport_fault_episodes"]
+        or counters["transport_fault_episodes"] < counters["transport_recoveries"]
+        or counters["transport_recovery_attempts"] < counters["transport_recoveries"]
+        or unresolved != int(state == "recoverable_transport_fault")
+        or (state == "permanent_fault" and counters["permanent_faults"] == 0)
+    ):
+        raise RuntimeError(f"{node} returned inconsistent authority fault counters")
+    fault_stage = value.get("fault_stage")
+    fault_reason = value.get("fault_reason")
+    retry_not_before = value.get("retry_not_before_monotonic_ns")
+    if fault_stage is not None and fault_stage not in {"pre_begin", "post_commit"}:
+        raise RuntimeError(f"{node} returned invalid authority fault stage")
+    if fault_reason is not None and (
+        not isinstance(fault_reason, str) or re.fullmatch(r"[a-z0-9_]{1,64}", fault_reason) is None
+    ):
+        raise RuntimeError(f"{node} returned invalid authority fault reason")
+    if state == "healthy":
+        if fault_stage is not None or fault_reason is not None or retry_not_before is not None:
+            raise RuntimeError(f"{node} retained current fault metadata while healthy")
+    elif state == "recoverable_transport_fault":
+        if (
+            fault_stage is None
+            or fault_reason is None
+            or type(retry_not_before) is not int
+            or retry_not_before < 0
+        ):
+            raise RuntimeError(f"{node} omitted recoverable authority fault metadata")
+    elif retry_not_before is not None:
+        raise RuntimeError(f"{node} retained a retry deadline for a permanent fault")
+    first_fault = value.get("first_fault")
+    if first_fault is None:
+        if counters["transport_faults"] != 0:
+            raise RuntimeError(f"{node} omitted its first authority transport fault")
+    else:
+        if (
+            not isinstance(first_fault, dict)
+            or set(first_fault) != _AUTHORITY_FIRST_FAULT_FIELDS
+            or counters["transport_faults"] == 0
+            or first_fault.get("stage") not in {"pre_begin", "post_commit"}
+            or first_fault.get("operation") not in AuthorityAnchorTransportError.OPERATIONS
+            or type(first_fault.get("request_flushed")) is not bool
+            or type(first_fault.get("mutation_uncertain")) is not bool
+            or first_fault.get("reason") not in AuthorityAnchorTransportError.REASONS
+            or (
+                first_fault.get("operation") == "read"
+                and first_fault.get("mutation_uncertain") is True
+            )
+            or (
+                first_fault.get("reason")
+                in {"helper_start", "helper_start_deadline", "helper_start_in_progress"}
+                and (
+                    first_fault.get("request_flushed") is True
+                    or first_fault.get("mutation_uncertain") is True
+                )
+            )
+        ):
+            raise RuntimeError(f"{node} returned malformed first authority fault")
+        for field_name, positive in (("helper_pid", True), ("helper_exit_code", False)):
+            item = first_fault.get(field_name)
+            minimum = 1 if positive else -(1 << 31)
+            if item is not None and (type(item) is not int or not minimum <= item <= (1 << 31) - 1):
+                raise RuntimeError(f"{node} returned invalid first fault {field_name}")
+    return {field_name: value[field_name] for field_name in sorted(_AUTHORITY_STATUS_FIELDS)}
 
 
 def _allowed_transient_audit_error(value: str) -> bool:
@@ -685,6 +1233,30 @@ class PlannedNodeUnavailableError(RuntimeError):
         )
 
 
+class HealthObservationError(RuntimeError):
+    """Retain bounded authority diagnostics without replacing the primary failure."""
+
+    def __init__(
+        self,
+        node: str,
+        cause: BaseException,
+        *,
+        authority_anchor: dict[str, Any] | None,
+        diagnostic: dict[str, Any],
+        retry_errors: dict[str, str | None],
+    ) -> None:
+        self.node = node
+        self.cause_type = f"{type(cause).__module__}.{type(cause).__qualname__}"
+        encoded_cause = str(cause).encode("utf-8", errors="replace")[:512]
+        self.cause_message = encoded_cause.decode("utf-8", errors="ignore")
+        self.authority_anchor = authority_anchor
+        self.diagnostic = diagnostic
+        self.retry_errors = retry_errors
+        super().__init__(
+            f"{node} health observation failed ({type(cause).__name__}): {self.cause_message}"
+        )
+
+
 def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
@@ -696,6 +1268,8 @@ def _restart_acknowledgement(
     *,
     acknowledged_monotonic: float | None = None,
     recovered_monotonic: float | None = None,
+    recovered_authority_anchor: dict[str, Any] | None = None,
+    prior_authority_anchor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     acknowledgement: dict[str, Any] = {
         "armed_monotonic_seconds": marker["armed_monotonic_seconds"],
@@ -712,11 +1286,28 @@ def _restart_acknowledgement(
             if not all(current.get(key) == acknowledgement[key] for key in acknowledgement):
                 raise RuntimeError(f"planned restart acknowledgement identity changed: {current!r}")
             acknowledgement.update(current)
+    if prior_authority_anchor is not None:
+        existing_authority = acknowledgement.get("prior_authority_anchor")
+        if existing_authority is not None and existing_authority != prior_authority_anchor:
+            raise RuntimeError("planned restart acknowledgement authority identity changed")
+        acknowledgement["prior_authority_anchor"] = prior_authority_anchor
     if acknowledged_monotonic is not None:
         acknowledgement.setdefault("acknowledged_monotonic_seconds", acknowledged_monotonic)
     if recovered_monotonic is not None:
         acknowledgement["completed_monotonic_seconds"] = marker.get("completed_monotonic_seconds")
         acknowledgement.setdefault("recovered_monotonic_seconds", recovered_monotonic)
+    if recovered_authority_anchor is not None:
+        expected = marker.get("expected_recovered_authority_identity")
+        actual = {
+            "lifetime_id": recovered_authority_anchor.get("lifetime_id"),
+            "namespace_process_id": recovered_authority_anchor.get("namespace_process_id"),
+        }
+        if expected != actual:
+            raise RuntimeError("recovered authority does not match the host-bound replacement")
+        existing = acknowledgement.get("recovered_authority_anchor")
+        if existing is not None and existing != recovered_authority_anchor:
+            raise RuntimeError("planned restart recovered authority identity changed")
+        acknowledgement["recovered_authority_anchor"] = recovered_authority_anchor
     _write_json_atomic(WORKLOAD_RESTART_ACK, acknowledgement)
     return acknowledgement
 
@@ -725,6 +1316,7 @@ def _planned_restart_window(
     node: str,
     *,
     observation_started_monotonic: float,
+    prior_authority_anchor: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Return the durable exact restart marker only when it overlaps this observation."""
 
@@ -768,9 +1360,17 @@ def _planned_restart_window(
         return None
     now = time.monotonic()
     if state == "armed":
+        if prior_authority_anchor is None:
+            raise RuntimeError("planned restart lacks a completed pre-arm authority observation")
+        prior_authority_anchor = _bounded_authority_anchor_status(
+            prior_authority_anchor,
+            node=node,
+            require_healthy=True,
+        )
         acknowledgement = _restart_acknowledgement(
             marker,
             acknowledged_monotonic=now,
+            prior_authority_anchor=prior_authority_anchor,
         )
     else:
         if not WORKLOAD_RESTART_ACK.exists():
@@ -851,7 +1451,12 @@ def _planned_restart_window(
     return None
 
 
-def _acknowledge_completed_restart(node: str, *, observed_monotonic: float) -> None:
+def _acknowledge_completed_restart(
+    node: str,
+    *,
+    observed_monotonic: float,
+    authority_anchor: dict[str, Any],
+) -> None:
     if not WORKLOAD_RESTART.exists():
         return
     try:
@@ -867,7 +1472,11 @@ def _acknowledge_completed_restart(node: str, *, observed_monotonic: float) -> N
         and math.isfinite(float(completed))
         and float(completed) <= observed_monotonic
     ):
-        _restart_acknowledgement(marker, recovered_monotonic=observed_monotonic)
+        _restart_acknowledgement(
+            marker,
+            recovered_monotonic=observed_monotonic,
+            recovered_authority_anchor=authority_anchor,
+        )
 
 
 def _health_sample(
@@ -920,6 +1529,64 @@ def _health_sample(
         if window is not None:
             raise PlannedNodeUnavailableError(window)
 
+    def begin_retry_scope() -> None:
+        candidate = getattr(client, "begin_retry_scope", None)
+        if callable(candidate):
+            candidate()
+
+    def retry_scope() -> dict[str, str | None]:
+        candidate = getattr(client, "retry_scope", None)
+        if callable(candidate):
+            value = candidate()
+            if isinstance(value, dict):
+                return {
+                    "first_error": cast(str | None, value.get("first_error")),
+                    "last_error": cast(str | None, value.get("last_error")),
+                }
+        return {"first_error": None, "last_error": None}
+
+    def raise_health_failure(
+        node: str,
+        cause: BaseException,
+        *,
+        fallback_authority: dict[str, Any] | None,
+    ) -> None:
+        diagnostic_started = time.monotonic()
+        diagnostic_deadline = diagnostic_started + AUTHORITY_FAILURE_DIAGNOSTIC_SECONDS
+        diagnostic_error: str | None = None
+        authority_anchor = fallback_authority
+        try:
+            authority_anchor = _bounded_authority_anchor_status(
+                client.request(
+                    "GET",
+                    node,
+                    "/v1/maintenance/authority-status",
+                    retry_timeout_s=AUTHORITY_FAILURE_DIAGNOSTIC_SECONDS,
+                    deadline_monotonic=diagnostic_deadline,
+                ),
+                node=node,
+                require_healthy=False,
+                allow_fenced=True,
+            )
+        except BaseException as diagnostic_exc:
+            diagnostic_error = (
+                f"{type(diagnostic_exc).__module__}.{type(diagnostic_exc).__qualname__}"
+            )
+        diagnostic_completed = time.monotonic()
+        raise HealthObservationError(
+            node,
+            cause,
+            authority_anchor=authority_anchor,
+            diagnostic={
+                "completed_monotonic_seconds": diagnostic_completed,
+                "deadline_monotonic_seconds": diagnostic_deadline,
+                "error_type": diagnostic_error,
+                "started_monotonic_seconds": diagnostic_started,
+                "status_captured": authority_anchor is not None,
+            },
+            retry_errors=retry_scope(),
+        ) from cause
+
     nodes: dict[str, Any] = {}
     audit_catchup_nodes: list[str] = []
     audit_error_recoveries: list[dict[str, Any]] = []
@@ -927,6 +1594,8 @@ def _health_sample(
     for node in NODES:
         observation_started = time.monotonic()
         retry_count_before = int(getattr(client, "retry_count", 0))
+        begin_retry_scope()
+        authority_anchor: dict[str, Any] | None = None
         try:
             invariant = request(
                 node,
@@ -943,6 +1612,27 @@ def _health_sample(
                 "/v1/metrics",
                 observation_started=observation_started,
             )
+            metrics_authority = _bounded_authority_anchor_status(
+                metrics.get("authority_anchor"),
+                node=node,
+                require_healthy=True,
+            )
+            authority_anchor = _bounded_authority_anchor_status(
+                request(
+                    node,
+                    "/v1/maintenance/authority-status",
+                    observation_started=observation_started,
+                ),
+                node=node,
+                require_healthy=True,
+            )
+            if metrics_authority["lifetime_id"] != authority_anchor["lifetime_id"]:
+                raise RuntimeError(f"{node} authority lifetime changed inside one observation")
+            if any(
+                cast(int, authority_anchor[field_name]) < cast(int, metrics_authority[field_name])
+                for field_name in _AUTHORITY_COUNTER_FIELDS
+            ):
+                raise RuntimeError(f"{node} authority counters moved backwards inside observation")
         except PlannedNodeUnavailableError as exc:
             observation_completed = time.monotonic()
             nodes[node] = {
@@ -953,79 +1643,118 @@ def _health_sample(
                     ),
                     "metrics_observed_elapsed_seconds": None,
                     "request_retries": int(getattr(client, "retry_count", 0)) - retry_count_before,
+                    "retry_errors": retry_scope(),
                     "started_elapsed_seconds": round(observation_started - origin, 6),
                 },
                 "planned_unavailable": exc.window,
             }
             planned_unavailable_nodes.append(node)
             continue
-        metrics_observed_monotonic = time.monotonic()
-        audit_exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
-        capacity = metrics.get("storage_capacity")
-        if invariant.get("healthy") is not True or audit.get("valid") is not True:
-            raise RuntimeError(f"{node} reported unhealthy invariants or audit chain")
-        if not isinstance(capacity, dict) or capacity.get("healthy") is not True:
-            raise RuntimeError(f"{node} storage capacity is unhealthy: {capacity!r}")
-        if metrics.get("service_ready") is not True:
-            raise RuntimeError(f"{node} core service is not ready: {metrics!r}")
-        expected_ready = audit_exporter["healthy"] is True
-        if metrics.get("ready") is not expected_ready:
-            raise RuntimeError(f"{node} returned inconsistent aggregate readiness: {metrics!r}")
-        if audit_exporter["catching_up"] is True:
-            audit_catchup_nodes.append(node)
-        nodes[node] = {
-            "audit_exporter": audit_exporter,
-            "audit_outbox": metrics.get("audit_outbox"),
-            "invariant": {
-                key: invariant.get(key)
-                for key in (
-                    "consumed",
-                    "free_pool",
-                    "healthy",
-                    "lease_residual",
-                    "transferred_in",
-                    "transferred_out",
-                )
-            },
-            "peer_dispatcher": metrics.get("peer_dispatcher"),
-            "ready": metrics.get("ready"),
-            "service_ready": metrics.get("service_ready"),
-            "receipts": metrics.get("receipts"),
-            "storage_capacity": capacity,
-            "transfers": metrics.get("transfers"),
-        }
-        if audit_exporter.get("last_error") is not None:
-            if audit_error_budget is None:
-                raise RuntimeError(
-                    f"{node} sampled an audit exporter error outside the shared "
-                    "workload error budget"
-                )
-            audit_error_budget.observe_error(node)
-            audit_interrupt: Callable[[], None] | None = None
-            if planned_restart_reader is not None:
-
-                def audit_interrupt(
-                    observed_node: str = node,
-                    observed_started: float = observation_started,
-                ) -> None:
-                    interrupt_planned_restart(observed_node, observed_started)
-
-            recovery = _poll_audit_error_recovery(
-                client,
-                node=node,
-                initial_exporter=audit_exporter,
-                initial_elapsed_s=elapsed_s,
-                initial_observed_monotonic=metrics_observed_monotonic,
-                shared_deadline=deadline,
-                interrupt=audit_interrupt,
+        except BaseException as exc:
+            raise_health_failure(
+                node,
+                exc,
+                fallback_authority=authority_anchor,
             )
-            audit_error_budget.mark_recovered(node)
-            audit_error_recoveries.append(recovery)
-        observation_completed = time.monotonic()
-        _acknowledge_completed_restart(
-            node,
-            observed_monotonic=observation_completed,
-        )
+        metrics_observed_monotonic = time.monotonic()
+        try:
+            audit_exporter = _bounded_audit_exporter(metrics.get("audit_exporter"), node=node)
+            capacity = metrics.get("storage_capacity")
+            if invariant.get("healthy") is not True or audit.get("valid") is not True:
+                raise RuntimeError(f"{node} reported unhealthy invariants or audit chain")
+            if not isinstance(capacity, dict) or capacity.get("healthy") is not True:
+                raise RuntimeError(f"{node} storage capacity is unhealthy")
+            if metrics.get("service_ready") is not True:
+                raise RuntimeError(f"{node} core service is not ready")
+            expected_ready = audit_exporter["healthy"] is True
+            if metrics.get("ready") is not expected_ready:
+                raise RuntimeError(f"{node} returned inconsistent aggregate readiness")
+            if audit_exporter["catching_up"] is True:
+                audit_catchup_nodes.append(node)
+            nodes[node] = {
+                "audit_exporter": audit_exporter,
+                "audit_outbox": metrics.get("audit_outbox"),
+                "authority_anchor": authority_anchor,
+                "invariant": {
+                    key: invariant.get(key)
+                    for key in (
+                        "consumed",
+                        "free_pool",
+                        "healthy",
+                        "lease_residual",
+                        "transferred_in",
+                        "transferred_out",
+                    )
+                },
+                "peer_dispatcher": metrics.get("peer_dispatcher"),
+                "ready": metrics.get("ready"),
+                "service_ready": metrics.get("service_ready"),
+                "receipts": metrics.get("receipts"),
+                "storage_capacity": capacity,
+                "transfers": metrics.get("transfers"),
+            }
+        except BaseException as exc:
+            raise_health_failure(
+                node,
+                exc,
+                fallback_authority=authority_anchor,
+            )
+        try:
+            if audit_exporter.get("last_error") is not None:
+                if audit_error_budget is None:
+                    raise RuntimeError(
+                        f"{node} sampled an audit exporter error outside the shared "
+                        "workload error budget"
+                    )
+                audit_error_budget.observe_error(node)
+                audit_interrupt: Callable[[], None] | None = None
+                if planned_restart_reader is not None:
+
+                    def audit_interrupt(
+                        observed_node: str = node,
+                        observed_started: float = observation_started,
+                    ) -> None:
+                        interrupt_planned_restart(observed_node, observed_started)
+
+                recovery = _poll_audit_error_recovery(
+                    client,
+                    node=node,
+                    initial_exporter=audit_exporter,
+                    initial_elapsed_s=elapsed_s,
+                    initial_observed_monotonic=metrics_observed_monotonic,
+                    shared_deadline=deadline,
+                    interrupt=audit_interrupt,
+                )
+                audit_error_budget.mark_recovered(node)
+                audit_error_recoveries.append(recovery)
+            observation_completed = time.monotonic()
+            _acknowledge_completed_restart(
+                node,
+                observed_monotonic=observation_completed,
+                authority_anchor=cast(dict[str, Any], authority_anchor),
+            )
+        except PlannedNodeUnavailableError as exc:
+            observation_completed = time.monotonic()
+            nodes[node] = {
+                "observation": {
+                    "completed_elapsed_seconds": round(observation_completed - origin, 6),
+                    "metrics_observed_elapsed_seconds": None,
+                    "request_retries": (
+                        int(getattr(client, "retry_count", 0)) - retry_count_before
+                    ),
+                    "retry_errors": retry_scope(),
+                    "started_elapsed_seconds": round(observation_started - origin, 6),
+                },
+                "planned_unavailable": exc.window,
+            }
+            planned_unavailable_nodes.append(node)
+            continue
+        except BaseException as exc:
+            raise_health_failure(
+                node,
+                exc,
+                fallback_authority=authority_anchor,
+            )
         nodes[node]["observation"] = {
             "completed_elapsed_seconds": round(observation_completed - origin, 6),
             "metrics_observed_elapsed_seconds": round(
@@ -1033,6 +1762,7 @@ def _health_sample(
                 6,
             ),
             "request_retries": int(getattr(client, "retry_count", 0)) - retry_count_before,
+            "retry_errors": retry_scope(),
             "started_elapsed_seconds": round(observation_started - origin, 6),
         }
     sample = {
@@ -1081,6 +1811,7 @@ class HealthSampler:
         self._attempted_sample_count = 0
         self._samples: list[dict[str, Any]] = []
         self._last_observed_monotonic: dict[str, float] = {}
+        self._last_authority_status: dict[str, dict[str, Any]] = {}
         self._thread = threading.Thread(
             target=self._run,
             name="lets-production-soak-health-monitor",
@@ -1198,6 +1929,21 @@ class HealthSampler:
             deadline = min(deadline, node_deadline)
         return deadline
 
+    def _planned_restart_reader(
+        self,
+        node: str,
+        *,
+        observation_started_monotonic: float,
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            prior = self._last_authority_status.get(node)
+            prior_copy = None if prior is None else dict(prior)
+        return _planned_restart_window(
+            node,
+            observation_started_monotonic=observation_started_monotonic,
+            prior_authority_anchor=prior_copy,
+        )
+
     def _sample(self, *, index: int, scheduled: float) -> None:
         deadline = self._deadline_for(scheduled)
         sample_started = time.monotonic()
@@ -1219,7 +1965,7 @@ class HealthSampler:
             audit_error_budget=self._audit_error_budget,
             deadline=deadline,
             observation_origin_monotonic=self._started,
-            planned_restart_reader=_planned_restart_window,
+            planned_restart_reader=self._planned_restart_reader,
         )
         completed = time.monotonic()
         if completed > deadline:
@@ -1253,6 +1999,9 @@ class HealthSampler:
                     bool,
                 ):
                     self._last_observed_monotonic[node] = self._started + float(observed_elapsed)
+                authority_anchor = document.get("authority_anchor")
+                if isinstance(authority_anchor, dict):
+                    self._last_authority_status[node] = dict(authority_anchor)
 
     def _run(self) -> None:
         regular_index = 0
@@ -1379,6 +2128,23 @@ class HealthSampler:
             attempted = self._attempted_sample_count
         window = max(0.0, workload_ended_monotonic - self._started)
         expected = math.ceil(window / self._interval) + 1
+        error_document: dict[str, Any] | None = None
+        if error is not None:
+            error_document = {
+                "message": str(error),
+                "type": f"{type(error).__module__}.{type(error).__qualname__}",
+            }
+            if isinstance(error, HealthObservationError):
+                error_document.update(
+                    {
+                        "authority_anchor": error.authority_anchor,
+                        "cause_type": error.cause_type,
+                        "cause_message": error.cause_message,
+                        "diagnostic": error.diagnostic,
+                        "node": error.node,
+                        "retry_errors": error.retry_errors,
+                    }
+                )
         return {
             "health_monitor": {
                 "actual_sample_count": len(samples),
@@ -1387,14 +2153,7 @@ class HealthSampler:
                 "deadline_miss_count": (
                     1 if error is not None and "deadline" in str(error).lower() else 0
                 ),
-                "error": (
-                    None
-                    if error is None
-                    else {
-                        "message": str(error),
-                        "type": f"{type(error).__module__}.{type(error).__qualname__}",
-                    }
-                ),
+                "error": error_document,
                 "expected_sample_count": expected,
                 "failure_schedule": failure_schedule,
                 "finished_elapsed_seconds": (
@@ -1717,10 +2476,13 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
         retry_timeout_s=arguments.retry_timeout_seconds,
         abort_event=failure_event,
     )
-    executor = ExecutorBoundary(manifest)
+    executor: ExecutorBoundary | None = None
     counters = {
         "authorizations": 0,
         "closed": 0,
+        "executor_failed_closed": 0,
+        "executor_faulting_calls": 0,
+        "issued_receipts": 0,
         "issued_roots": 0,
         "quiesced": 0,
         "renewed": 0,
@@ -1759,13 +2521,69 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
     )
     cycle = 0
 
+    def current_executor() -> ExecutorBoundary:
+        if executor is None:
+            raise RuntimeError("executor boundary admission did not complete")
+        return executor
+
+    def executor_failure_snapshot(error: BaseException) -> dict[str, Any]:
+        if executor is not None:
+            return executor.failure_snapshot()
+        admission_error: dict[str, Any] | None = None
+        if isinstance(error, AuthorityAnchorTransportError):
+            admission_error = {
+                "helper_exit_code": error.helper_exit_code,
+                "helper_pid": error.helper_pid,
+                "mutation_uncertain": error.mutation_uncertain,
+                "operation": error.operation,
+                "reason": error.reason,
+                "request_flushed": error.request_flushed,
+            }
+        lifecycle_failures = (
+            []
+            if admission_error is None
+            else [
+                {
+                    "anchor_preserved": EXECUTOR_ANCHOR.exists(),
+                    "database_preserved": EXECUTOR_DATABASE.exists(),
+                    "error": admission_error,
+                    "phase": "startup",
+                }
+            ]
+        )
+        return {
+            "admission_error": admission_error,
+            "authority_anchor": None,
+            "claims": 0,
+            "lifecycle_admission_failures": lifecycle_failures,
+            "pending_transport_fault": None,
+            "reopen_count": 0,
+            "replay_rejections": 0,
+            "terminal_statuses": [],
+            "transport_recovery_events": [],
+        }
+
     def request(*request_arguments: Any, **request_options: Any) -> dict[str, Any]:
         health_sampler.raise_if_failed()
         response = client.request(*request_arguments, **request_options)
         health_sampler.raise_if_failed()
         return response
 
+    def recover_executor_transport() -> bool:
+        boundary = current_executor()
+        boundary.recover_pending_authority()
+        health_sampler.raise_if_failed()
+        try:
+            return boundary.retry_pending_claim()
+        except ReplayError:
+            event = boundary.transport_recovery_events[-1]
+            return event.get("protected_effect_executed_after_recovery") is True
+
+    def execute_executor_claim_once(receipt: Receipt) -> bool:
+        return current_executor().claim_once(receipt)
+
     try:
+        executor = ExecutorBoundary(manifest)
         health_sampler.start()
         while time.monotonic() < deadline:
             health_sampler.raise_if_failed()
@@ -1812,9 +2630,18 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                     "transition": "act",
                 },
             )
-            executor.claim(Receipt.from_dict(first))
+            counters["issued_receipts"] += 1
+            first_receipt = Receipt.from_dict(first)
+            try:
+                first_effect_executed = execute_executor_claim_once(first_receipt)
+            except AuthorityAnchorTransportError:
+                counters["executor_faulting_calls"] += 1
+                first_effect_executed = recover_executor_transport()
+            if first_effect_executed:
+                counters["authorizations"] += 1
+            else:
+                counters["executor_failed_closed"] += 1
             health_sampler.raise_if_failed()
-            counters["authorizations"] += 1
 
             request(
                 "POST",
@@ -1849,9 +2676,18 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                     "transition": "act",
                 },
             )
-            executor.claim(Receipt.from_dict(second))
+            counters["issued_receipts"] += 1
+            second_receipt = Receipt.from_dict(second)
+            try:
+                second_effect_executed = execute_executor_claim_once(second_receipt)
+            except AuthorityAnchorTransportError:
+                counters["executor_faulting_calls"] += 1
+                second_effect_executed = recover_executor_transport()
+            if second_effect_executed:
+                counters["authorizations"] += 1
+            else:
+                counters["executor_failed_closed"] += 1
             health_sampler.raise_if_failed()
-            counters["authorizations"] += 1
             request(
                 "POST",
                 node,
@@ -1882,7 +2718,13 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
 
             cycle += 1
             if cycle % arguments.executor_reopen_every_cycles == 0:
-                executor.reopen()
+                try:
+                    current_executor().reopen()
+                except AuthorityAnchorTransportError:
+                    counters["executor_faulting_calls"] += 1
+                    if not current_executor().transport_recovery_pending:
+                        raise
+                    recover_executor_transport()
                 health_sampler.raise_if_failed()
             latency.observe(time.monotonic() - cycle_started)
             remaining = deadline - time.monotonic()
@@ -1907,6 +2749,10 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             started_monotonic=started,
             measurement_window_seconds=arguments.duration_seconds,
         )
+        boundary = current_executor()
+        final_executor_status = boundary.capture_terminal_status()
+        if len(boundary.terminal_statuses) != boundary.reopen_count + 1:
+            raise RuntimeError("executor terminal lifetime evidence is incomplete")
         return {
             "audit_progress": _audit_progress_summary(
                 recorded_health_samples,
@@ -1926,10 +2772,12 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             "cycles": cycle,
             "duration_seconds": round(workload_ended - started, 6),
             "executor": {
-                "claims": executor.claims,
-                "reopen_count": executor.reopen_count,
-                "replay_rejections": executor.replay_rejections,
-                "status": executor.status(),
+                "claims": boundary.claims,
+                "reopen_count": boundary.reopen_count,
+                "replay_rejections": boundary.replay_rejections,
+                "status": final_executor_status,
+                "terminal_statuses": list(boundary.terminal_statuses),
+                "transport_recovery_events": list(boundary.transport_recovery_events),
             },
             "health_monitor": monitor_result["health_monitor"],
             "health_sample_count": len(recorded_health_samples),
@@ -1986,6 +2834,7 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                     },
                     "pause_interval_count": len(pause_intervals),
                     "pause_intervals": pause_intervals,
+                    "executor": executor_failure_snapshot(error),
                     "schema": "lets.production-profile-soak-workload/v2",
                     "run_id": run_id,
                     "started_monotonic_seconds": started,
@@ -1996,9 +2845,39 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
                 }
                 raise WorkloadMonitorError(str(monitor_error), result=partial) from error
             error.add_note(f"secondary health-monitor failure: {monitor_error}")
-        raise
+        ended = time.monotonic()
+        partial = {
+            "configuration": {
+                "cycle_interval_seconds": arguments.cycle_interval_seconds,
+                "duration_seconds": arguments.duration_seconds,
+                "executor_reopen_every_cycles": arguments.executor_reopen_every_cycles,
+                "health_interval_seconds": arguments.health_interval_seconds,
+                "retry_timeout_seconds": arguments.retry_timeout_seconds,
+                "seed": arguments.seed,
+                "transfer_every_cycles": arguments.transfer_every_cycles,
+            },
+            "counters": counters,
+            "cycles": cycle,
+            "duration_seconds": round(ended - started, 6),
+            "error": {
+                "message": str(error)
+                .encode("utf-8", errors="replace")[:512]
+                .decode("utf-8", errors="ignore"),
+                "type": f"{type(error).__module__}.{type(error).__qualname__}",
+            },
+            "executor": executor_failure_snapshot(error),
+            "pause_interval_count": len(pause_intervals),
+            "pause_intervals": pause_intervals,
+            "run_id": run_id,
+            "schema": "lets.production-profile-soak-workload/v2",
+            "started_monotonic_seconds": started,
+            "status": "failed",
+            **health_sampler.failure_snapshot(workload_ended_monotonic=ended),
+        }
+        raise WorkloadMonitorError(str(error), result=partial) from error
     finally:
-        executor.close()
+        if executor is not None:
+            executor.close(capture_terminal=False)
 
 
 def run_partition_probe(arguments: argparse.Namespace) -> dict[str, Any]:
@@ -2110,55 +2989,297 @@ def wait_converged(arguments: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def fence_authority_for_restart(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Fence one exact core lifetime for a host-coordinated planned SIGKILL."""
+
+    _verified_manifest()
+    if arguments.node not in NODES:
+        raise RuntimeError("authority fence node is invalid")
+    client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
+    terminal = client.request(
+        "POST",
+        arguments.node,
+        "/v1/maintenance/authority-fence",
+        body={
+            "expected_lifetime_id": arguments.expected_lifetime_id,
+            "restart_id": arguments.restart_id,
+        },
+    )
+    authority = _bounded_authority_anchor_status(
+        terminal.get("authority_anchor"),
+        node=arguments.node,
+        require_healthy=True,
+        allow_fenced=True,
+    )
+    if (
+        set(terminal)
+        != {
+            "authority_anchor",
+            "fenced_at_monotonic_ns",
+            "lifetime_id",
+            "namespace_process_id",
+            "restart_id",
+            "schema",
+            "warden_id",
+        }
+        or terminal.get("schema") != "lets.authority-admission-fence/v1"
+        or type(terminal.get("namespace_process_id")) is not int
+        or terminal["namespace_process_id"] <= 0
+        or type(terminal.get("fenced_at_monotonic_ns")) is not int
+        or terminal["fenced_at_monotonic_ns"] < 0
+        or terminal.get("restart_id") != arguments.restart_id
+        or terminal.get("warden_id") != arguments.node
+        or terminal.get("lifetime_id") != arguments.expected_lifetime_id
+        or authority.get("lifetime_id") != arguments.expected_lifetime_id
+        or authority.get("admission_fenced") is not True
+        or authority.get("fence_id") != arguments.restart_id
+        or terminal.get("namespace_process_id") != authority.get("namespace_process_id")
+        or terminal.get("fenced_at_monotonic_ns") != authority.get("fenced_at_monotonic_ns")
+    ):
+        raise RuntimeError("authority fence response is not bound to the requested lifetime")
+    return {
+        "node": arguments.node,
+        "request_retry_count": client.retry_count,
+        "schema": "lets.production-profile-authority-fence/v1",
+        "status": "passed",
+        "terminal": terminal,
+    }
+
+
+def read_authority_status(arguments: argparse.Namespace) -> dict[str, Any]:
+    """Read one exact no-transaction authority status for host restart binding."""
+
+    _verified_manifest()
+    if arguments.node not in NODES:
+        raise RuntimeError("authority status node is invalid")
+    client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
+    authority = _bounded_authority_anchor_status(
+        client.request("GET", arguments.node, "/v1/maintenance/authority-status"),
+        node=arguments.node,
+        require_healthy=True,
+    )
+    return {
+        "authority_anchor": authority,
+        "node": arguments.node,
+        "request_retry_count": client.retry_count,
+        "schema": "lets.production-profile-authority-status/v1",
+        "status": "passed",
+    }
+
+
 def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
     _verified_manifest()
+    workload_result = _object(WORKLOAD_RESULT)
+    workload_executor = workload_result.get("executor")
+    if not isinstance(workload_executor, dict):
+        raise RuntimeError("workload result omitted executor lifetime evidence")
+    workload_terminals = workload_executor.get("terminal_statuses")
+    if not isinstance(workload_terminals, list) or not workload_terminals:
+        raise RuntimeError("workload result omitted executor terminal lifetimes")
+    workload_final = workload_executor.get("status")
+    if not isinstance(workload_final, dict):
+        raise RuntimeError("workload result omitted its final executor status")
     client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
     started = time.monotonic()
-    deadline = started + arguments.convergence_timeout_seconds
+    convergence_deadline = started + arguments.convergence_timeout_seconds
     final_sample: dict[str, Any] | None = None
     converged = False
-    while time.monotonic() < deadline:
+    while time.monotonic() < convergence_deadline:
         final_sample = _health_sample(
             client,
             elapsed_s=time.monotonic() - started,
-            deadline=deadline,
+            deadline=convergence_deadline,
         )
-        if _is_converged(final_sample) and time.monotonic() <= deadline:
+        if _is_converged(final_sample) and time.monotonic() <= convergence_deadline:
             converged = True
             break
-        time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
+        time.sleep(min(0.5, max(0.0, convergence_deadline - time.monotonic())))
     if final_sample is None or not converged:
         raise RuntimeError(f"cluster did not converge before the soak deadline: {final_sample!r}")
     conservation = _validate_conservation(final_sample)
-    anchor = ProcessFileExecutorAuthorityAnchor(EXECUTOR_ANCHOR, timeout_s=5)
+    capture_started = time.monotonic()
+    capture_deadline = capture_started + 90.0
+    core_terminal_fences: dict[str, dict[str, Any]] = {}
+    executor_evidence: dict[str, Any] | None = None
+
+    def remaining_capture_seconds() -> float:
+        remaining = capture_deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("terminal authority capture exceeded its shared 90s deadline")
+        return remaining
+
     try:
-        store = SQLiteReceiptReplayStore(EXECUTOR_DATABASE, authority_anchor=anchor)
-        status = store.status()
-        integrity = store.integrity_check()
-        checkpoint = anchor.read_current()
-    finally:
-        anchor.close()
-    if (
-        not status.rollback_protected
-        or not status.authority_healthy
-        or integrity != ("ok",)
-        or checkpoint.claim_sequence != status.claim_sequence
-    ):
-        raise RuntimeError("final executor replay authority verification failed")
-    return {
-        "conservation": conservation,
-        "converged": True,
-        "convergence_seconds": round(time.monotonic() - started, 3),
-        "executor": {
+        anchor = ProcessFileExecutorAuthorityAnchor(
+            EXECUTOR_ANCHOR,
+            timeout_s=min(5.0, remaining_capture_seconds()),
+        )
+        try:
+            try:
+                store = SQLiteReceiptReplayStore(EXECUTOR_DATABASE, authority_anchor=anchor)
+            except AuthorityAnchorTransportError as exc:
+                executor_evidence = {
+                    "admission_error": {
+                        "helper_exit_code": exc.helper_exit_code,
+                        "helper_pid": exc.helper_pid,
+                        "mutation_uncertain": exc.mutation_uncertain,
+                        "operation": exc.operation,
+                        "reason": exc.reason,
+                        "request_flushed": exc.request_flushed,
+                    },
+                    "anchor_preserved": EXECUTOR_ANCHOR.is_file(),
+                    "database_preserved": EXECUTOR_DATABASE.is_file(),
+                    "pending_transport_fault": None,
+                    "phase": "final_verification_startup",
+                }
+                raise
+            remaining_capture_seconds()
+            status = store.status()
+            integrity = store.integrity_check()
+            remaining_capture_seconds()
+            checkpoint = status.authority_checkpoint
+            executor_authority = store.authority_status()
+        finally:
+            anchor.close()
+        if (
+            not status.rollback_protected
+            or not status.authority_healthy
+            or integrity != ("ok",)
+            or checkpoint is None
+            or checkpoint.claim_sequence != status.claim_sequence
+            or workload_final.get("claim_sequence") != status.claim_sequence
+            or executor_authority.get("lifetime_id")
+            in {
+                terminal.get("lifetime_id")
+                for terminal in workload_terminals
+                if isinstance(terminal, dict)
+            }
+        ):
+            raise RuntimeError("final executor replay authority verification failed")
+        executor_terminal_status = {
+            "anchor": checkpoint.to_dict(),
+            "authority_anchor": executor_authority,
+            "authority_healthy": status.authority_healthy,
+            "claim_sequence": status.claim_sequence,
+            "database_bytes": status.database_bytes,
+            "integrity": list(integrity),
+            "live_claims": status.live_claims,
+            "live_watermarks": status.live_watermarks,
+            "rollback_protected": status.rollback_protected,
+            "shared_memory_bytes": status.shared_memory_bytes,
+            "wal_bytes": status.wal_bytes,
+        }
+        executor_evidence = {
             "anchor_claim_sequence": checkpoint.claim_sequence,
+            "authority_anchor": executor_authority,
             "authority_healthy": status.authority_healthy,
             "claim_sequence": status.claim_sequence,
             "database_bytes": status.database_bytes,
             "integrity": list(integrity),
             "rollback_protected": status.rollback_protected,
+            "terminal_status": {
+                "lifetime_id": executor_authority["lifetime_id"],
+                "ordinal": len(workload_terminals),
+                "source": "final_verification",
+                "status": executor_terminal_status,
+            },
             "wal_bytes": status.wal_bytes,
-        },
+        }
+        for node in NODES:
+            final_node = final_sample["nodes"][node]
+            prior_authority = _bounded_authority_anchor_status(
+                final_node.get("authority_anchor"),
+                node=node,
+                require_healthy=True,
+            )
+            fence_id = f"final-verification-{arguments.seed}-{node}"
+            remaining = remaining_capture_seconds()
+            terminal = client.request(
+                "POST",
+                node,
+                "/v1/maintenance/authority-fence",
+                body={
+                    "expected_lifetime_id": prior_authority["lifetime_id"],
+                    "restart_id": fence_id,
+                },
+                retry_timeout_s=remaining,
+                deadline_monotonic=capture_deadline,
+            )
+            remaining_capture_seconds()
+            terminal_authority = _bounded_authority_anchor_status(
+                terminal.get("authority_anchor"),
+                node=node,
+                require_healthy=True,
+                allow_fenced=True,
+            )
+            if (
+                terminal.get("schema") != "lets.authority-admission-fence/v1"
+                or type(terminal.get("namespace_process_id")) is not int
+                or terminal["namespace_process_id"] <= 0
+                or type(terminal.get("fenced_at_monotonic_ns")) is not int
+                or terminal["fenced_at_monotonic_ns"] < 0
+                or terminal.get("restart_id") != fence_id
+                or terminal.get("warden_id") != node
+                or terminal.get("lifetime_id") != prior_authority["lifetime_id"]
+                or terminal_authority.get("lifetime_id") != prior_authority["lifetime_id"]
+                or terminal_authority.get("namespace_process_id")
+                != prior_authority.get("namespace_process_id")
+                or terminal_authority.get("admission_fenced") is not True
+                or terminal_authority.get("fence_id") != fence_id
+                or terminal.get("namespace_process_id")
+                != terminal_authority.get("namespace_process_id")
+                or terminal.get("fenced_at_monotonic_ns")
+                != terminal_authority.get("fenced_at_monotonic_ns")
+                or any(
+                    cast(int, terminal_authority[field_name])
+                    < cast(int, prior_authority[field_name])
+                    for field_name in _AUTHORITY_COUNTER_FIELDS
+                )
+                or (
+                    prior_authority.get("first_fault") is not None
+                    and terminal_authority.get("first_fault") != prior_authority.get("first_fault")
+                )
+            ):
+                raise RuntimeError(f"{node} returned an invalid final authority fence")
+            core_terminal_fences[node] = terminal
+        capture_completed = time.monotonic()
+        remaining_capture_seconds()
+    except BaseException as exc:
+        capture_completed = time.monotonic()
+        partial = {
+            "conservation": conservation,
+            "converged": True,
+            "executor": executor_evidence,
+            "final_health": final_sample,
+            "package_version": metadata.version("lets-agent"),
+            "request_retry_count": client.retry_count,
+            "schema": "lets.production-profile-soak-verification/v1",
+            "status": "failed",
+            "terminal_authority_fences": core_terminal_fences,
+            "terminal_capture": {
+                "completed_monotonic_seconds": capture_completed,
+                "deadline_monotonic_seconds": capture_deadline,
+                "error": {
+                    "message": str(exc)
+                    .encode("utf-8", errors="replace")[:512]
+                    .decode("utf-8", errors="ignore"),
+                    "type": f"{type(exc).__module__}.{type(exc).__qualname__}",
+                },
+                "started_monotonic_seconds": capture_started,
+            },
+        }
+        raise WorkloadMonitorError("terminal authority capture failed", result=partial) from exc
+    return {
+        "conservation": conservation,
+        "converged": True,
+        "convergence_seconds": round(capture_started - started, 3),
+        "executor": executor_evidence,
         "final_health": final_sample,
+        "terminal_authority_fences": core_terminal_fences,
+        "terminal_capture": {
+            "completed_monotonic_seconds": capture_completed,
+            "deadline_monotonic_seconds": capture_deadline,
+            "started_monotonic_seconds": capture_started,
+        },
         "package_version": metadata.version("lets-agent"),
         "request_retry_count": client.retry_count,
         "schema": "lets.production-profile-soak-verification/v1",
@@ -2212,6 +3333,18 @@ def _arguments() -> argparse.Namespace:
     settle.add_argument("--retry-timeout-seconds", type=_positive, default=30.0)
     settle.add_argument("--seed", type=int, default=20260809)
     settle.add_argument("--output", type=Path, required=True)
+    fence = subcommands.add_parser("fence-authority")
+    fence.add_argument("--node", choices=NODES, required=True)
+    fence.add_argument("--restart-id", required=True)
+    fence.add_argument("--expected-lifetime-id", required=True)
+    fence.add_argument("--retry-timeout-seconds", type=_positive, default=7.0)
+    fence.add_argument("--seed", type=int, default=20260809)
+    fence.add_argument("--output", type=Path, required=True)
+    authority_status = subcommands.add_parser("authority-status")
+    authority_status.add_argument("--node", choices=NODES, required=True)
+    authority_status.add_argument("--retry-timeout-seconds", type=_positive, default=7.0)
+    authority_status.add_argument("--seed", type=int, default=20260809)
+    authority_status.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -2225,6 +3358,10 @@ def main() -> int:
             result = run_partition_probe(arguments)
         elif arguments.command == "settle":
             result = wait_converged(arguments)
+        elif arguments.command == "fence-authority":
+            result = fence_authority_for_restart(arguments)
+        elif arguments.command == "authority-status":
+            result = read_authority_status(arguments)
         else:
             result = verify_final(arguments)
     except WorkloadMonitorError as exc:

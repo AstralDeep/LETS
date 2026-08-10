@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import math
@@ -43,6 +44,96 @@ DEFAULT_EVIDENCE = ROOT / "results" / "generated" / "production-profile-soak.jso
 IMAGE_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 CONTAINER_ID = re.compile(r"\A[0-9a-f]{12,64}\Z")
 CONTAINER_NAME = re.compile(r"\A[a-z0-9][a-z0-9_.-]{0,127}\Z")
+AUTHORITY_LIFETIME_ID = re.compile(r"\A[0-9a-f]{32}\Z")
+AUTHORITY_COUNTER_MAX = (1 << 63) - 1
+AUTHORITY_STATUS_FIELDS = frozenset(
+    {
+        "admission_fenced",
+        "enabled",
+        "fault_reason",
+        "fault_stage",
+        "fence_id",
+        "fenced_at_monotonic_ns",
+        "first_fault",
+        "healthy",
+        "lifetime_id",
+        "namespace_process_id",
+        "permanent_faults",
+        "retry_not_before_monotonic_ns",
+        "state",
+        "transport_fault_episodes",
+        "transport_faults",
+        "transport_recoveries",
+        "transport_recovery_attempts",
+        "unresolved_transport_faults",
+    }
+)
+EXECUTOR_AUTHORITY_STATUS_FIELDS = frozenset(
+    {
+        "enabled",
+        "fault_reason",
+        "fault_stage",
+        "first_fault",
+        "healthy",
+        "lifetime_id",
+        "permanent_faults",
+        "retry_not_before_monotonic_ns",
+        "state",
+        "transport_fault_episodes",
+        "transport_faults",
+        "transport_recoveries",
+        "transport_recovery_attempts",
+        "unresolved_transport_faults",
+    }
+)
+AUTHORITY_COUNTER_FIELDS = (
+    "transport_faults",
+    "transport_fault_episodes",
+    "transport_recovery_attempts",
+    "transport_recoveries",
+    "permanent_faults",
+)
+AUTHORITY_FIRST_FAULT_FIELDS = frozenset(
+    {
+        "helper_exit_code",
+        "helper_pid",
+        "mutation_uncertain",
+        "operation",
+        "reason",
+        "request_flushed",
+        "stage",
+    }
+)
+AUTHORITY_TRANSPORT_REASONS = frozenset(
+    {
+        "deadline",
+        "helper_eof",
+        "helper_pipe",
+        "helper_start",
+        "helper_start_deadline",
+        "helper_start_in_progress",
+        "process_lock_deadline",
+    }
+)
+AUTHORITY_OPERATIONS = frozenset({"compare-and-set", "confirm", "initialize", "read"})
+EXECUTOR_AUTHORITY_CHECKPOINT_FIELDS = frozenset(
+    {
+        "audience",
+        "claim_digest",
+        "claim_sequence",
+        "clock_floor_ns",
+        "config_epoch",
+        "database_instance_id",
+        "envelope_id",
+        "executor_policy_sha256",
+        "format",
+        "schema_version",
+        "tenant_id",
+        "trust_registry_sha256",
+    }
+)
+EXECUTOR_AUTHORITY_CHECKPOINT_FORMAT = "LETS-EXECUTOR-AUTHORITY-ANCHOR/1"
+EXECUTOR_AUTHORITY_SCHEMA_VERSION = 5
 DEFAULT_RESTART_INTERVAL_SECONDS = 900.0
 MIN_RESTART_EPISODES = len(WARDENS)
 TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE = 15.0
@@ -375,6 +466,15 @@ class WorkloadExitedError(RuntimeError):
         )
 
 
+class FinalVerificationError(RuntimeError):
+    """Carry a failed terminal capture after its partial result was persisted."""
+
+    def __init__(self, result: dict[str, Any], *, returncode: int) -> None:
+        self.result = result
+        self.returncode = returncode
+        super().__init__(f"final verification failed with persisted evidence ({returncode})")
+
+
 def _bounded_text(value: str, *, maximum_bytes: int = FAILED_EVIDENCE_MAX_TEXT_BYTES) -> str:
     if maximum_bytes <= 0:
         return ""
@@ -491,6 +591,221 @@ def _finite_number(value: object) -> TypeGuard[int | float]:
     )
 
 
+def _valid_authority_status(
+    value: object,
+    *,
+    fenced: bool | None = None,
+    terminal: bool = False,
+    executor: bool = False,
+) -> TypeGuard[dict[str, Any]]:
+    """Validate the exact bounded authenticated authority evidence contract."""
+
+    expected_fields = EXECUTOR_AUTHORITY_STATUS_FIELDS if executor else AUTHORITY_STATUS_FIELDS
+    if not isinstance(value, dict) or set(value) != expected_fields:
+        return False
+    state = value.get("state")
+    lifetime = value.get("lifetime_id")
+    namespace_pid = value.get("namespace_process_id") if not executor else 1
+    admission_fenced = value.get("admission_fenced") if not executor else False
+    if (
+        value.get("enabled") is not True
+        or state not in {"healthy", "recoverable_transport_fault", "permanent_fault"}
+        or type(value.get("healthy")) is not bool
+        or value.get("healthy") is not (state == "healthy")
+        or not isinstance(lifetime, str)
+        or AUTHORITY_LIFETIME_ID.fullmatch(lifetime) is None
+        or type(namespace_pid) is not int
+        or namespace_pid <= 0
+        or type(admission_fenced) is not bool
+        or (fenced is not None and admission_fenced is not fenced)
+        or (executor and fenced is not None)
+    ):
+        return False
+    fence_id = value.get("fence_id") if not executor else None
+    fenced_at = value.get("fenced_at_monotonic_ns") if not executor else None
+    if admission_fenced:
+        if (
+            not isinstance(fence_id, str)
+            or not 1 <= len(fence_id) <= 128
+            or type(fenced_at) is not int
+            or fenced_at < 0
+        ):
+            return False
+    elif fence_id is not None or fenced_at is not None:
+        return False
+    counters: dict[str, int] = {}
+    for field_name in AUTHORITY_COUNTER_FIELDS:
+        counter = value.get(field_name)
+        if type(counter) is not int or not 0 <= counter <= AUTHORITY_COUNTER_MAX:
+            return False
+        counters[field_name] = counter
+    unresolved = value.get("unresolved_transport_faults")
+    if (
+        type(unresolved) is not int
+        or unresolved not in {0, 1}
+        or counters["transport_faults"] < counters["transport_fault_episodes"]
+        or counters["transport_fault_episodes"] < counters["transport_recoveries"]
+        or counters["transport_recovery_attempts"] < counters["transport_recoveries"]
+        or unresolved != int(state == "recoverable_transport_fault")
+        or (state == "permanent_fault" and counters["permanent_faults"] == 0)
+    ):
+        return False
+    fault_stage = value.get("fault_stage")
+    fault_reason = value.get("fault_reason")
+    retry_not_before = value.get("retry_not_before_monotonic_ns")
+    if (fault_stage is not None and fault_stage not in {"pre_begin", "post_commit"}) or (
+        fault_reason is not None
+        and (
+            not isinstance(fault_reason, str)
+            or re.fullmatch(r"[a-z0-9_]{1,64}", fault_reason) is None
+        )
+    ):
+        return False
+    if state == "healthy":
+        if fault_stage is not None or fault_reason is not None or retry_not_before is not None:
+            return False
+    elif state == "recoverable_transport_fault":
+        if (
+            fault_stage is None
+            or fault_reason is None
+            or type(retry_not_before) is not int
+            or retry_not_before < 0
+        ):
+            return False
+    elif retry_not_before is not None:
+        return False
+    first_fault = value.get("first_fault")
+    if first_fault is None:
+        if counters["transport_faults"] != 0:
+            return False
+    elif (
+        not isinstance(first_fault, dict)
+        or set(first_fault) != AUTHORITY_FIRST_FAULT_FIELDS
+        or counters["transport_faults"] == 0
+        or first_fault.get("stage") not in {"pre_begin", "post_commit"}
+        or first_fault.get("operation") not in AUTHORITY_OPERATIONS
+        or type(first_fault.get("request_flushed")) is not bool
+        or type(first_fault.get("mutation_uncertain")) is not bool
+        or first_fault.get("reason") not in AUTHORITY_TRANSPORT_REASONS
+        or (
+            first_fault.get("operation") == "read" and first_fault.get("mutation_uncertain") is True
+        )
+        or (
+            first_fault.get("reason")
+            in {"helper_start", "helper_start_deadline", "helper_start_in_progress"}
+            and (
+                first_fault.get("request_flushed") is True
+                or first_fault.get("mutation_uncertain") is True
+            )
+        )
+    ):
+        return False
+    else:
+        for field_name, positive in (("helper_pid", True), ("helper_exit_code", False)):
+            item = first_fault.get(field_name)
+            minimum = 1 if positive else -(1 << 31)
+            if item is not None and (type(item) is not int or not minimum <= item <= (1 << 31) - 1):
+                return False
+    if not terminal:
+        return True
+    return bool(
+        state == "healthy"
+        and unresolved == 0
+        and counters["permanent_faults"] == 0
+        and counters["transport_faults"] == counters["transport_fault_episodes"]
+        and counters["transport_fault_episodes"] == counters["transport_recovery_attempts"]
+        and counters["transport_recovery_attempts"] == counters["transport_recoveries"]
+    )
+
+
+def _valid_executor_authority_status(
+    value: object,
+    *,
+    terminal: bool = False,
+) -> TypeGuard[dict[str, Any]]:
+    return _valid_authority_status(value, terminal=terminal, executor=True)
+
+
+def _valid_evidence_identifier(value: object) -> TypeGuard[str]:
+    return bool(
+        isinstance(value, str)
+        and value
+        and len(value) <= 512
+        and value == value.strip()
+        and not any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    )
+
+
+def _valid_canonical_digest(value: object) -> TypeGuard[str]:
+    if (
+        not isinstance(value, str)
+        or len(value) != 43
+        or re.fullmatch(r"[A-Za-z0-9_-]{43}", value) is None
+    ):
+        return False
+    try:
+        decoded = base64.urlsafe_b64decode(value + "=")
+    except (ValueError, TypeError):
+        return False
+    return bool(
+        len(decoded) == 32
+        and base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=") == value
+    )
+
+
+def _valid_executor_authority_checkpoint(value: object) -> TypeGuard[dict[str, Any]]:
+    if not isinstance(value, dict) or set(value) != EXECUTOR_AUTHORITY_CHECKPOINT_FIELDS:
+        return False
+    clock_floor = value.get("clock_floor_ns")
+    if clock_floor is not None and (
+        type(clock_floor) is not int or not 0 <= clock_floor <= AUTHORITY_COUNTER_MAX
+    ):
+        return False
+    return not (
+        value.get("format") != EXECUTOR_AUTHORITY_CHECKPOINT_FORMAT
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != EXECUTOR_AUTHORITY_SCHEMA_VERSION
+        or value.get("audience") != "production-soak-executor"
+        or value.get("tenant_id") != "production-acceptance-tenant"
+        or value.get("envelope_id") != "production-acceptance-envelope"
+        or value.get("config_epoch") != 1
+        or not all(
+            _valid_evidence_identifier(value.get(field_name))
+            for field_name in ("audience", "tenant_id", "envelope_id")
+        )
+        or type(value.get("config_epoch")) is not int
+        or not 1 <= value["config_epoch"] <= AUTHORITY_COUNTER_MAX
+        or type(value.get("claim_sequence")) is not int
+        or not 0 <= value["claim_sequence"] <= AUTHORITY_COUNTER_MAX
+        or not all(
+            _valid_canonical_digest(value.get(field_name))
+            for field_name in (
+                "executor_policy_sha256",
+                "trust_registry_sha256",
+                "database_instance_id",
+                "claim_digest",
+            )
+        )
+        or (value.get("claim_sequence") == 0 and value.get("claim_digest") != "A" * 43)
+    )
+
+
+def _executor_checkpoint_stable_identity(value: dict[str, Any]) -> tuple[object, ...]:
+    return tuple(
+        value[field_name]
+        for field_name in (
+            "audience",
+            "tenant_id",
+            "envelope_id",
+            "config_epoch",
+            "executor_policy_sha256",
+            "trust_registry_sha256",
+            "schema_version",
+            "database_instance_id",
+        )
+    )
+
+
 def evaluate_restart_evidence(
     restarts: object,
     *,
@@ -562,6 +877,10 @@ def evaluate_restart_evidence(
             not isinstance(restart_id, str)
             or not restart_id
             or restart_id in bindings
+            or any(
+                type(document.get("episode")) is not int
+                for document in (typed_armed, typed_ack, typed_completed, typed_recovery)
+            )
             or typed_armed.get("episode") != expected_episode
             or typed_armed.get("service") != service
             or typed_armed.get("state") != "armed"
@@ -590,6 +909,49 @@ def evaluate_restart_evidence(
             or float(recovered) - float(completed_at) > HEALTH_CADENCE_LIMIT_SECONDS
         ):
             return {"passed": False, "reason": "restart acknowledgement timing is invalid"}
+        authority_fence = restart.get("authority_fence")
+        fence_result = authority_fence.get("result") if isinstance(authority_fence, dict) else None
+        fence_terminal = fence_result.get("terminal") if isinstance(fence_result, dict) else None
+        terminal_authority = (
+            fence_terminal.get("authority_anchor") if isinstance(fence_terminal, dict) else None
+        )
+        prior_authority = typed_ack.get("prior_authority_anchor")
+        new_authority = restart.get("new_authority_anchor")
+        recovered_authority = typed_recovery.get("recovered_authority_anchor")
+        expected_recovered = typed_completed.get("expected_recovered_authority_identity")
+        if (
+            not _valid_authority_status(prior_authority, fenced=False, terminal=True)
+            or not isinstance(authority_fence, dict)
+            or authority_fence.get("prior_authority_anchor") != prior_authority
+            or authority_fence.get("host_container_id") != restart.get("prior_container_id")
+            or authority_fence.get("host_pid") != restart.get("prior_pid")
+            or not isinstance(fence_terminal, dict)
+            or fence_terminal.get("restart_id") != restart_id
+            or fence_terminal.get("warden_id") != service
+            or not _valid_authority_status(terminal_authority, fenced=True, terminal=True)
+            or terminal_authority.get("lifetime_id") != prior_authority.get("lifetime_id")
+            or terminal_authority.get("namespace_process_id")
+            != prior_authority.get("namespace_process_id")
+            or any(
+                terminal_authority[field_name] < prior_authority[field_name]
+                for field_name in AUTHORITY_COUNTER_FIELDS
+            )
+            or (
+                prior_authority.get("first_fault") is not None
+                and terminal_authority.get("first_fault") != prior_authority.get("first_fault")
+            )
+            or not _valid_authority_status(new_authority, fenced=False, terminal=True)
+            or recovered_authority != new_authority
+            or expected_recovered
+            != {
+                "lifetime_id": new_authority.get("lifetime_id"),
+                "namespace_process_id": new_authority.get("namespace_process_id"),
+            }
+            or new_authority.get("lifetime_id") == prior_authority.get("lifetime_id")
+            or restart.get("new_container_id") == restart.get("prior_container_id")
+            or restart.get("new_pid") == restart.get("prior_pid")
+        ):
+            return {"passed": False, "reason": "restart authority lifetime binding is invalid"}
         window = {
             "end_elapsed_seconds": float(completed_at) - workload_started_monotonic,
             "episode": expected_episode,
@@ -1078,6 +1440,622 @@ def evaluate_pause_evidence(
     }
 
 
+def evaluate_authority_evidence(
+    workload: object,
+    restarts: object,
+    verification: object,
+) -> dict[str, Any]:
+    """Reconstruct every terminal authority lifetime and the global fault budget."""
+
+    def failed(reason: str) -> dict[str, Any]:
+        return {"passed": False, "reason": reason}
+
+    if (
+        not isinstance(workload, dict)
+        or not isinstance(restarts, list)
+        or not isinstance(verification, dict)
+    ):
+        return failed("authority evidence roots are missing")
+    terminal_capture = verification.get("terminal_capture")
+    if (
+        verification.get("schema") != "lets.production-profile-soak-verification/v1"
+        or verification.get("status") != "passed"
+        or not isinstance(terminal_capture, dict)
+        or set(terminal_capture)
+        != {
+            "completed_monotonic_seconds",
+            "deadline_monotonic_seconds",
+            "started_monotonic_seconds",
+        }
+        or not all(_finite_number(value) for value in terminal_capture.values())
+    ):
+        return failed("terminal authority capture envelope is malformed")
+    capture_started = float(terminal_capture["started_monotonic_seconds"])
+    capture_completed = float(terminal_capture["completed_monotonic_seconds"])
+    capture_deadline = float(terminal_capture["deadline_monotonic_seconds"])
+    if (
+        not capture_started <= capture_completed <= capture_deadline
+        or abs((capture_deadline - capture_started) - 90.0) > 0.002
+    ):
+        return failed("terminal authority capture deadline is invalid")
+    counters = workload.get("counters")
+    executor = workload.get("executor")
+    cycles = workload.get("cycles")
+    if (
+        not isinstance(counters, dict)
+        or not isinstance(executor, dict)
+        or type(cycles) is not int
+        or cycles < 0
+    ):
+        return failed("executor authority workload evidence is malformed")
+    if (
+        set(counters)
+        != {
+            "authorizations",
+            "closed",
+            "executor_failed_closed",
+            "executor_faulting_calls",
+            "issued_receipts",
+            "issued_roots",
+            "quiesced",
+            "renewed",
+            "resumed",
+            "transfers_prepared",
+        }
+        or any(type(value) is not int or value < 0 for value in counters.values())
+        or set(executor)
+        != {
+            "claims",
+            "reopen_count",
+            "replay_rejections",
+            "status",
+            "terminal_statuses",
+            "transport_recovery_events",
+        }
+        or any(
+            type(executor.get(field_name)) is not int or executor[field_name] < 0
+            for field_name in ("claims", "reopen_count", "replay_rejections")
+        )
+    ):
+        return failed("executor authority workload numeric schema is malformed")
+    issued = 2 * cycles
+    recovery_events = executor.get("transport_recovery_events")
+    workload_terminals = executor.get("terminal_statuses")
+    verification_executor = verification.get("executor")
+    if (
+        not isinstance(recovery_events, list)
+        or len(recovery_events) != 1
+        or not isinstance(workload_terminals, list)
+        or not isinstance(verification_executor, dict)
+    ):
+        return failed("executor recovery or terminal evidence is incomplete")
+    expected_reopens = executor.get("reopen_count")
+    workload_configuration = workload.get("configuration")
+    reopen_every = (
+        workload_configuration.get("executor_reopen_every_cycles")
+        if isinstance(workload_configuration, dict)
+        else None
+    )
+    if (
+        type(expected_reopens) is not int
+        or expected_reopens < 0
+        or type(reopen_every) is not int
+        or reopen_every <= 0
+        or expected_reopens != cycles // reopen_every
+        or len(workload_terminals) != expected_reopens + 1
+    ):
+        return failed("executor workload lifetime count is inconsistent")
+    event = recovery_events[0]
+    original_error = event.get("original_transport_error") if isinstance(event, dict) else None
+    faulted = event.get("faulted_authority_anchor") if isinstance(event, dict) else None
+    recovered = event.get("recovered_authority_anchor") if isinstance(event, dict) else None
+    if (
+        not isinstance(event, dict)
+        or set(event)
+        != {
+            "durable_claim_outcome",
+            "faulted_authority_anchor",
+            "faulting_call_effect_executed",
+            "ordinal",
+            "original_call_raised",
+            "original_transport_error",
+            "phase",
+            "primary_returned",
+            "protected_effect_executed_after_recovery",
+            "receipt_id",
+            "recovered_authority_anchor",
+            "retry_outcome",
+        }
+        or type(event.get("ordinal")) is not int
+        or event.get("ordinal") != 0
+        or event.get("original_call_raised") is not True
+        or event.get("phase") != "primary_claim"
+        or event.get("primary_returned") is not False
+        or event.get("durable_claim_outcome") != "burned_before_response"
+        or event.get("retry_outcome") != "replay_rejected"
+        or event.get("faulting_call_effect_executed") is not False
+        or event.get("protected_effect_executed_after_recovery") is not False
+        or not _valid_evidence_identifier(event.get("receipt_id"))
+        or not isinstance(original_error, dict)
+        or set(original_error)
+        != {
+            "helper_exit_code",
+            "helper_pid",
+            "mutation_uncertain",
+            "operation",
+            "reason",
+            "request_flushed",
+        }
+        or original_error.get("reason") != "helper_eof"
+        or original_error.get("operation") != "compare-and-set"
+        or original_error.get("request_flushed") is not True
+        or original_error.get("mutation_uncertain") is not True
+        or not _valid_executor_authority_status(faulted)
+        or faulted.get("state") != "recoverable_transport_fault"
+        or faulted.get("fault_stage") != "post_commit"
+        or faulted.get("fault_reason") != original_error.get("reason")
+        or faulted.get("first_fault") != {**original_error, "stage": "post_commit"}
+        or tuple(
+            faulted.get(field_name)
+            for field_name in (
+                "transport_faults",
+                "transport_fault_episodes",
+                "transport_recovery_attempts",
+                "transport_recoveries",
+                "unresolved_transport_faults",
+                "permanent_faults",
+            )
+        )
+        != (1, 1, 0, 0, 1, 0)
+        or not _valid_executor_authority_status(recovered, terminal=True)
+        or recovered.get("lifetime_id") != faulted.get("lifetime_id")
+        or recovered.get("first_fault") != faulted.get("first_fault")
+        or any(
+            recovered.get(field_name) != 1
+            for field_name in (
+                "transport_faults",
+                "transport_fault_episodes",
+                "transport_recovery_attempts",
+                "transport_recoveries",
+            )
+        )
+    ):
+        return failed("executor post-COMMIT recovery event is not exact")
+    if (
+        counters.get("issued_receipts") != issued
+        or counters.get("executor_faulting_calls") != 1
+        or counters.get("executor_failed_closed") != 1
+        or counters.get("authorizations") != issued - 1
+        or executor.get("claims") != issued
+        or executor.get("replay_rejections") != issued + expected_reopens
+        or not isinstance(executor.get("status"), dict)
+        or executor["status"].get("claim_sequence") != issued
+    ):
+        return failed("executor durable-claim and protected-effect accounting is inconsistent")
+
+    final_executor_terminal = verification_executor.get("terminal_status")
+    verification_executor_fields = {
+        "anchor_claim_sequence",
+        "authority_anchor",
+        "authority_healthy",
+        "claim_sequence",
+        "database_bytes",
+        "integrity",
+        "rollback_protected",
+        "terminal_status",
+        "wal_bytes",
+    }
+    if (
+        set(verification_executor) != verification_executor_fields
+        or not isinstance(final_executor_terminal, dict)
+        or verification_executor.get("authority_healthy") is not True
+        or verification_executor.get("rollback_protected") is not True
+        or verification_executor.get("integrity") != ["ok"]
+        or type(verification_executor.get("anchor_claim_sequence")) is not int
+        or verification_executor["anchor_claim_sequence"] < 0
+        or type(verification_executor.get("claim_sequence")) is not int
+        or verification_executor["claim_sequence"] < 0
+        or type(verification_executor.get("database_bytes")) is not int
+        or verification_executor["database_bytes"] < 0
+        or type(verification_executor.get("wal_bytes")) is not int
+        or verification_executor["wal_bytes"] < 0
+    ):
+        return failed("final executor authority lifetime is missing")
+    all_executor_terminals = [*workload_terminals, final_executor_terminal]
+    executor_status_fields = {
+        "anchor",
+        "authority_anchor",
+        "authority_healthy",
+        "claim_sequence",
+        "database_bytes",
+        "integrity",
+        "live_claims",
+        "live_watermarks",
+        "rollback_protected",
+        "shared_memory_bytes",
+        "wal_bytes",
+    }
+    executor_lifetimes: set[str] = set()
+    prior_claim_sequence = -1
+    prior_checkpoint: dict[str, Any] | None = None
+    checkpoint_stable_identity: tuple[object, ...] | None = None
+    terminal_statuses: list[dict[str, Any]] = []
+    for ordinal, terminal in enumerate(all_executor_terminals):
+        status = terminal.get("status") if isinstance(terminal, dict) else None
+        authority = status.get("authority_anchor") if isinstance(status, dict) else None
+        claim_sequence = status.get("claim_sequence") if isinstance(status, dict) else None
+        checkpoint = status.get("anchor") if isinstance(status, dict) else None
+        lifetime = terminal.get("lifetime_id") if isinstance(terminal, dict) else None
+        expected_source = "workload" if ordinal < len(workload_terminals) else "final_verification"
+        expected_claim_sequence = (
+            2 * reopen_every * (ordinal + 1) if ordinal < expected_reopens else issued
+        )
+        if (
+            not isinstance(terminal, dict)
+            or set(terminal) != {"lifetime_id", "ordinal", "source", "status"}
+            or type(terminal.get("ordinal")) is not int
+            or terminal.get("ordinal") != ordinal
+            or terminal.get("source") != expected_source
+            or not isinstance(status, dict)
+            or set(status) != executor_status_fields
+            or not _valid_executor_authority_status(authority, terminal=True)
+            or terminal.get("lifetime_id") != authority.get("lifetime_id")
+            or not isinstance(lifetime, str)
+            or lifetime in executor_lifetimes
+            or type(claim_sequence) is not int
+            or claim_sequence != expected_claim_sequence
+            or claim_sequence < prior_claim_sequence
+            or status.get("rollback_protected") is not True
+            or status.get("authority_healthy") is not True
+            or status.get("integrity") != ["ok"]
+            or any(
+                type(status.get(field_name)) is not int or status[field_name] < 0
+                for field_name in (
+                    "database_bytes",
+                    "live_claims",
+                    "live_watermarks",
+                    "shared_memory_bytes",
+                    "wal_bytes",
+                )
+            )
+            or status["live_claims"] > claim_sequence
+            or status["live_watermarks"] > claim_sequence
+            or not _valid_executor_authority_checkpoint(checkpoint)
+            or checkpoint.get("claim_sequence") != claim_sequence
+            or (
+                checkpoint_stable_identity is not None
+                and _executor_checkpoint_stable_identity(checkpoint) != checkpoint_stable_identity
+            )
+            or (
+                prior_checkpoint is not None
+                and checkpoint["claim_sequence"] == prior_checkpoint["claim_sequence"]
+                and checkpoint["claim_digest"] != prior_checkpoint["claim_digest"]
+            )
+            or (
+                prior_checkpoint is not None
+                and prior_checkpoint["clock_floor_ns"] is not None
+                and (
+                    checkpoint["clock_floor_ns"] is None
+                    or checkpoint["clock_floor_ns"] < prior_checkpoint["clock_floor_ns"]
+                )
+            )
+        ):
+            return failed("executor terminal lifetime chain is invalid")
+        if checkpoint_stable_identity is None:
+            checkpoint_stable_identity = _executor_checkpoint_stable_identity(checkpoint)
+        executor_lifetimes.add(lifetime)
+        prior_claim_sequence = claim_sequence
+        prior_checkpoint = checkpoint
+        terminal_statuses.append(authority)
+    if not any(
+        terminal.get("lifetime_id") == recovered.get("lifetime_id")
+        and terminal.get("status", {}).get("authority_anchor") == recovered
+        for terminal in workload_terminals
+        if isinstance(terminal, dict)
+    ):
+        return failed("recovered executor lifetime lacks an exact terminal status")
+    if (
+        workload_terminals[-1].get("status") != executor.get("status")
+        or not isinstance(final_executor_terminal.get("status"), dict)
+        or final_executor_terminal["status"].get("authority_anchor")
+        != verification_executor.get("authority_anchor")
+        or final_executor_terminal["status"].get("claim_sequence")
+        != verification_executor.get("claim_sequence")
+        or final_executor_terminal["status"].get("integrity")
+        != verification_executor.get("integrity")
+        or final_executor_terminal["status"].get("authority_healthy")
+        != verification_executor.get("authority_healthy")
+        or final_executor_terminal["status"].get("rollback_protected")
+        != verification_executor.get("rollback_protected")
+        or final_executor_terminal["status"].get("database_bytes")
+        != verification_executor.get("database_bytes")
+        or final_executor_terminal["status"].get("wal_bytes")
+        != verification_executor.get("wal_bytes")
+        or final_executor_terminal["status"].get("anchor")
+        != workload_terminals[-1].get("status", {}).get("anchor")
+        or verification_executor.get("anchor_claim_sequence") != issued
+        or prior_claim_sequence != issued
+    ):
+        return failed("executor final lifetime is not bound to the workload head")
+
+    core_terminal_fences = verification.get("terminal_authority_fences")
+    if not isinstance(core_terminal_fences, dict) or set(core_terminal_fences) != set(WARDENS):
+        return failed("final core terminal fences are incomplete")
+    core_lifetimes: set[str] = set()
+    core_terminal_by_lifetime: dict[str, dict[str, Any]] = {}
+    core_recovery_baselines: dict[str, dict[str, Any]] = {}
+    planned_pairs: dict[str, list[tuple[str, str]]] = {node: [] for node in WARDENS}
+    authority_fence_fields = {
+        "host_container_id",
+        "host_exec_attempts",
+        "host_pid",
+        "prior_authority_anchor",
+        "result",
+    }
+    authority_fence_result_fields = {
+        "node",
+        "request_retry_count",
+        "schema",
+        "status",
+        "terminal",
+    }
+    authority_fence_terminal_fields = {
+        "authority_anchor",
+        "fenced_at_monotonic_ns",
+        "lifetime_id",
+        "namespace_process_id",
+        "restart_id",
+        "schema",
+        "warden_id",
+    }
+    for restart in restarts:
+        if not isinstance(restart, dict):
+            return failed("planned restart authority evidence is malformed")
+        service = restart.get("service")
+        fence = restart.get("authority_fence")
+        prior_authority = fence.get("prior_authority_anchor") if isinstance(fence, dict) else None
+        result = fence.get("result") if isinstance(fence, dict) else None
+        terminal = result.get("terminal") if isinstance(result, dict) else None
+        authority = terminal.get("authority_anchor") if isinstance(terminal, dict) else None
+        new_authority = restart.get("new_authority_anchor")
+        coordination = restart.get("workload_coordination")
+        armed = coordination.get("armed") if isinstance(coordination, dict) else None
+        marker = armed.get("marker") if isinstance(armed, dict) else None
+        armed_ack = armed.get("acknowledgement") if isinstance(armed, dict) else None
+        completed = coordination.get("completed") if isinstance(coordination, dict) else None
+        recovery_ack = (
+            completed.get("recovery_acknowledgement") if isinstance(completed, dict) else None
+        )
+        if (
+            service not in WARDENS
+            or restart.get("signal") != "SIGKILL"
+            or restart.get("planned_exit_code") != 137
+            or not isinstance(fence, dict)
+            or set(fence) != authority_fence_fields
+            or type(fence.get("host_exec_attempts")) is not int
+            or fence["host_exec_attempts"] < 1
+            or not isinstance(marker, dict)
+            or not isinstance(armed_ack, dict)
+            or not isinstance(result, dict)
+            or set(result) != authority_fence_result_fields
+            or type(result.get("request_retry_count")) is not int
+            or result["request_retry_count"] < 0
+            or result.get("schema") != "lets.production-profile-authority-fence/v1"
+            or result.get("status") != "passed"
+            or result.get("node") != service
+            or not isinstance(terminal, dict)
+            or set(terminal) != authority_fence_terminal_fields
+            or type(terminal.get("namespace_process_id")) is not int
+            or terminal["namespace_process_id"] <= 0
+            or type(terminal.get("fenced_at_monotonic_ns")) is not int
+            or terminal["fenced_at_monotonic_ns"] < 0
+            or terminal.get("schema") != "lets.authority-admission-fence/v1"
+            or terminal.get("restart_id") != marker.get("restart_id")
+            or terminal.get("warden_id") != service
+            or not _valid_authority_status(authority, fenced=True, terminal=True)
+            or terminal.get("lifetime_id") != authority.get("lifetime_id")
+            or terminal.get("namespace_process_id") != authority.get("namespace_process_id")
+            or terminal.get("fenced_at_monotonic_ns") != authority.get("fenced_at_monotonic_ns")
+            or authority.get("fence_id") != marker.get("restart_id")
+            or not _valid_authority_status(new_authority, fenced=False, terminal=True)
+            or authority.get("lifetime_id") == new_authority.get("lifetime_id")
+            or not isinstance(recovery_ack, dict)
+            or recovery_ack.get("recovered_authority_anchor") != new_authority
+            or fence.get("host_container_id") != restart.get("prior_container_id")
+            or fence.get("host_pid") != restart.get("prior_pid")
+            or not _valid_authority_status(prior_authority, fenced=False, terminal=True)
+            or prior_authority != armed_ack.get("prior_authority_anchor")
+            or authority.get("lifetime_id") != prior_authority.get("lifetime_id")
+            or authority.get("namespace_process_id") != prior_authority.get("namespace_process_id")
+            or any(
+                authority[field_name] < prior_authority[field_name]
+                for field_name in AUTHORITY_COUNTER_FIELDS
+            )
+            or (
+                prior_authority.get("first_fault") is not None
+                and authority.get("first_fault") != prior_authority.get("first_fault")
+            )
+        ):
+            return failed("planned restart is not bound to exact authority lifetimes")
+        old_lifetime = cast(str, authority["lifetime_id"])
+        new_lifetime = cast(str, new_authority["lifetime_id"])
+        if old_lifetime in core_lifetimes:
+            return failed("core terminal authority lifetime was repeated")
+        if old_lifetime in executor_lifetimes:
+            return failed("authority lifetime identity was reused across stores")
+        core_lifetimes.add(old_lifetime)
+        core_terminal_by_lifetime[old_lifetime] = authority
+        terminal_statuses.append(authority)
+        planned_pairs[cast(str, service)].append((old_lifetime, new_lifetime))
+        if new_lifetime in core_recovery_baselines:
+            return failed("replacement authority lifetime was reused")
+        core_recovery_baselines[new_lifetime] = new_authority
+    final_core_authorities: dict[str, dict[str, Any]] = {}
+    verification_final_health = verification.get("final_health")
+    verification_final_nodes = (
+        verification_final_health.get("nodes")
+        if isinstance(verification_final_health, dict)
+        else None
+    )
+    if not isinstance(workload_configuration, dict) or not isinstance(
+        verification_final_nodes, dict
+    ):
+        return failed("final core pre-fence authority snapshots are missing")
+    for node in WARDENS:
+        terminal = core_terminal_fences[node]
+        authority = terminal.get("authority_anchor") if isinstance(terminal, dict) else None
+        if (
+            not isinstance(terminal, dict)
+            or set(terminal) != authority_fence_terminal_fields
+            or type(terminal.get("namespace_process_id")) is not int
+            or terminal["namespace_process_id"] <= 0
+            or type(terminal.get("fenced_at_monotonic_ns")) is not int
+            or terminal["fenced_at_monotonic_ns"] < 0
+            or terminal.get("schema") != "lets.authority-admission-fence/v1"
+            or terminal.get("warden_id") != node
+            or not _valid_authority_status(authority, fenced=True, terminal=True)
+            or terminal.get("lifetime_id") != authority.get("lifetime_id")
+            or terminal.get("namespace_process_id") != authority.get("namespace_process_id")
+            or terminal.get("fenced_at_monotonic_ns") != authority.get("fenced_at_monotonic_ns")
+            or terminal.get("restart_id") != authority.get("fence_id")
+            or not isinstance(terminal.get("restart_id"), str)
+            or terminal.get("restart_id")
+            != f"final-verification-{workload_configuration.get('seed')}-{node}"
+            or authority.get("lifetime_id") in core_lifetimes
+            or authority.get("lifetime_id") in executor_lifetimes
+        ):
+            return failed("final core authority terminal is invalid or repeated")
+        core_lifetimes.add(cast(str, authority["lifetime_id"]))
+        core_terminal_by_lifetime[cast(str, authority["lifetime_id"])] = authority
+        terminal_statuses.append(authority)
+        final_core_authorities[node] = authority
+
+        final_document = verification_final_nodes.get(node)
+        final_snapshot = (
+            final_document.get("authority_anchor") if isinstance(final_document, dict) else None
+        )
+        if (
+            not _valid_authority_status(final_snapshot, fenced=False, terminal=True)
+            or authority["lifetime_id"] != final_snapshot["lifetime_id"]
+            or authority["namespace_process_id"] != final_snapshot["namespace_process_id"]
+            or any(
+                authority[field_name] < final_snapshot[field_name]
+                for field_name in AUTHORITY_COUNTER_FIELDS
+            )
+            or (
+                final_snapshot["first_fault"] is not None
+                and authority["first_fault"] != final_snapshot["first_fault"]
+            )
+        ):
+            return failed("final core pre-fence status is not covered by its terminal")
+
+    for lifetime, baseline in core_recovery_baselines.items():
+        terminal = core_terminal_by_lifetime.get(lifetime)
+        if (
+            terminal is None
+            or terminal["namespace_process_id"] != baseline["namespace_process_id"]
+            or any(
+                terminal[field_name] < baseline[field_name]
+                for field_name in AUTHORITY_COUNTER_FIELDS
+            )
+            or (
+                baseline["first_fault"] is not None
+                and terminal["first_fault"] != baseline["first_fault"]
+            )
+        ):
+            return failed("replacement authority status is not covered by its terminal")
+
+    health_samples = workload.get("health_samples")
+    if not isinstance(health_samples, list):
+        return failed("core authority health lifetime samples are missing")
+    observed_by_node: dict[str, list[dict[str, Any]]] = {node: [] for node in WARDENS}
+    for sample in health_samples:
+        nodes = sample.get("nodes") if isinstance(sample, dict) else None
+        if not isinstance(nodes, dict):
+            return failed("core authority health sample is malformed")
+        for node in WARDENS:
+            document = nodes.get(node)
+            if not isinstance(document, dict) or "planned_unavailable" in document:
+                continue
+            authority = document.get("authority_anchor")
+            if not _valid_authority_status(authority, fenced=False, terminal=True):
+                return failed("core authority health status is invalid")
+            terminal = core_terminal_by_lifetime.get(cast(str, authority["lifetime_id"]))
+            if (
+                terminal is None
+                or terminal["namespace_process_id"] != authority["namespace_process_id"]
+                or any(
+                    terminal[field_name] < authority[field_name]
+                    for field_name in AUTHORITY_COUNTER_FIELDS
+                )
+                or (
+                    authority["first_fault"] is not None
+                    and terminal["first_fault"] != authority["first_fault"]
+                )
+            ):
+                return failed("core health status is not covered by its exact terminal")
+            observed_by_node[node].append(authority)
+    for node, observations in observed_by_node.items():
+        if not observations:
+            return failed("core authority lifetime lacks a health observation")
+        transitions: list[tuple[str, str]] = []
+        previous = observations[0]
+        for current in observations[1:]:
+            if current["lifetime_id"] == previous["lifetime_id"]:
+                if (
+                    current["namespace_process_id"] != previous["namespace_process_id"]
+                    or any(
+                        current[field_name] < previous[field_name]
+                        for field_name in AUTHORITY_COUNTER_FIELDS
+                    )
+                    or (
+                        previous["first_fault"] is not None
+                        and current["first_fault"] != previous["first_fault"]
+                    )
+                ):
+                    return failed("core authority counters moved backwards within a lifetime")
+            else:
+                transitions.append((previous["lifetime_id"], current["lifetime_id"]))
+            previous = current
+        if transitions != planned_pairs[node]:
+            return failed("core authority lifetime changed outside a planned restart")
+        final_authority = final_core_authorities[node]
+        if (
+            final_authority["lifetime_id"] != previous["lifetime_id"]
+            or final_authority["namespace_process_id"] != previous["namespace_process_id"]
+            or any(
+                final_authority[field_name] < previous[field_name]
+                for field_name in AUTHORITY_COUNTER_FIELDS
+            )
+            or (
+                previous["first_fault"] is not None
+                and final_authority["first_fault"] != previous["first_fault"]
+            )
+        ):
+            return failed("final core terminal is not the last observed lifetime")
+
+    totals = {field_name: 0 for field_name in AUTHORITY_COUNTER_FIELDS}
+    for status in terminal_statuses:
+        for field_name in AUTHORITY_COUNTER_FIELDS:
+            totals[field_name] += cast(int, status[field_name])
+    if not (
+        totals["transport_faults"]
+        == totals["transport_fault_episodes"]
+        == totals["transport_recovery_attempts"]
+        == totals["transport_recoveries"]
+        == 1
+        and totals["permanent_faults"] == 0
+    ):
+        return failed("global authority transport episode budget is not exact")
+    return {
+        "core_lifetime_count": len(core_lifetimes),
+        "executor_lifetime_count": len(executor_lifetimes),
+        "global_counters": totals,
+        "passed": True,
+        "terminal_lifetime_count": len(terminal_statuses),
+    }
+
+
 def evaluate_workload_result(
     result: dict[str, Any],
     configuration: SoakConfiguration,
@@ -1115,8 +2093,11 @@ def evaluate_workload_result(
     ) // configuration.transfer_every_cycles
     expected_reopens = max(0, cycles) // configuration.executor_reopen_every_cycles
     expected_counters = {
-        "authorizations": 2 * max(0, cycles),
+        "authorizations": max(0, 2 * max(0, cycles) - 1),
         "closed": max(0, cycles),
+        "executor_failed_closed": int(cycles > 0),
+        "executor_faulting_calls": int(cycles > 0),
+        "issued_receipts": 2 * max(0, cycles),
         "issued_roots": max(0, cycles),
         "quiesced": max(0, cycles),
         "renewed": max(0, cycles),
@@ -1341,10 +2322,22 @@ def evaluate_workload_result(
     pair_path_coverage = bool(
         set(typed_pair_counts) == set(expected_pairs)
         and all(
-            isinstance(value, int) and not isinstance(value, bool) and value >= required_rotations
+            type(value) is int and value >= required_rotations
             for value in typed_pair_counts.values()
         )
     )
+    exact_counter_types = bool(
+        set(typed_counters) == set(expected_counters)
+        and all(type(value) is int and value >= 0 for value in typed_counters.values())
+    )
+    exact_pair_types = bool(
+        set(typed_pair_counts) == set(expected_pairs)
+        and all(type(value) is int and value >= 0 for value in typed_pair_counts.values())
+    )
+    executor_claims = typed_executor.get("claims")
+    executor_reopens = typed_executor.get("reopen_count")
+    executor_replays = typed_executor.get("replay_rejections")
+    executor_claim_sequence = executor_status.get("claim_sequence")
     checks = {
         "audit_error_recovery": audit_error_recovery,
         "audit_progress": (
@@ -1359,18 +2352,23 @@ def evaluate_workload_result(
                 for value in cast(dict[str, Any], maximum_pending).values()
             )
         ),
-        "counter_relationships": typed_counters == expected_counters,
+        "counter_relationships": exact_counter_types and typed_counters == expected_counters,
         "chaos_start_binding": chaos_timing,
         "cycle_latency_bounded": (
             int(typed_latency.get("count", -1)) == cycles
             and float(typed_latency.get("maximum_ms", math.inf)) <= maximum_cycle_latency_ms
             and int(cast(dict[str, Any], latency_buckets).get("overflow", -1)) == 0
         ),
-        "executor_claims": int(typed_executor.get("claims", -1)) == 2 * cycles,
-        "executor_claim_sequence": int(executor_status.get("claim_sequence", -1)) == 2 * cycles,
-        "executor_reopens": int(typed_executor.get("reopen_count", -1)) == expected_reopens,
-        "executor_replay_rejections": int(typed_executor.get("replay_rejections", -1))
-        == 2 * cycles + expected_reopens,
+        "executor_claims": type(executor_claims) is int and executor_claims == 2 * cycles,
+        "executor_claim_sequence": (
+            type(executor_claim_sequence) is int and executor_claim_sequence == 2 * cycles
+        ),
+        "executor_reopens": (
+            type(executor_reopens) is int and executor_reopens == expected_reopens
+        ),
+        "executor_replay_rejections": (
+            type(executor_replays) is int and executor_replays == 2 * cycles + expected_reopens
+        ),
         "health_monitor": (
             isinstance(health_monitor, dict)
             and health_monitor.get("status") == "passed"
@@ -1400,9 +2398,10 @@ def evaluate_workload_result(
         "semantic_path_coverage": (
             cycles >= semantic_floor
             and pair_path_coverage
-            and int(typed_executor.get("reopen_count", -1)) >= required_rotations
+            and type(executor_reopens) is int
+            and executor_reopens >= required_rotations
         ),
-        "transfer_pair_rotation": typed_pair_counts == expected_pairs,
+        "transfer_pair_rotation": exact_pair_types and typed_pair_counts == expected_pairs,
         "workload_identity": (
             result.get("schema") == "lets.production-profile-soak-workload/v2"
             and result.get("status") == "passed"
@@ -2710,6 +3709,20 @@ def _wait_restart_acknowledgement(
                     )
                     or float(acknowledgement["recovered_monotonic_seconds"])
                     < float(acknowledgement["acknowledged_monotonic_seconds"])
+                    or not _valid_authority_status(
+                        acknowledgement.get("recovered_authority_anchor"),
+                        fenced=False,
+                        terminal=True,
+                    )
+                    or {
+                        "lifetime_id": acknowledgement["recovered_authority_anchor"].get(
+                            "lifetime_id"
+                        ),
+                        "namespace_process_id": acknowledgement["recovered_authority_anchor"].get(
+                            "namespace_process_id"
+                        ),
+                    }
+                    != marker.get("expected_recovered_authority_identity")
                 ):
                     acknowledgement = None
                 if acknowledgement is not None:
@@ -2788,13 +3801,21 @@ def _complete_restart_window(
     *,
     armed: dict[str, Any],
     completion_deadline_monotonic: float,
+    replacement_authority: dict[str, Any],
     workload: subprocess.Popen[str],
 ) -> dict[str, Any]:
     marker = cast(dict[str, Any], armed["marker"])
+    replacement_identity = {
+        "lifetime_id": replacement_authority.get("lifetime_id"),
+        "namespace_process_id": replacement_authority.get("namespace_process_id"),
+    }
+    if not _valid_authority_status(replacement_authority, fenced=False, terminal=True):
+        raise RuntimeError("planned restart replacement authority is invalid")
     script = (
         "import json,sys,time; from pathlib import Path; "
         f"target=Path({WORKLOAD_RESTART_PATH!r}); document=json.loads(target.read_text()); "
         "assert document['restart_id']==sys.argv[1] and document['state']=='armed'; "
+        "document['expected_recovered_authority_identity']=json.loads(sys.argv[2]); "
         "document['completed_monotonic_seconds']=time.monotonic(); "
         "document['state']='completed'; temporary=target.with_suffix('.tmp'); "
         "temporary.write_text(json.dumps(document,sort_keys=True)+'\\n'); "
@@ -2813,6 +3834,7 @@ def _complete_restart_window(
             "-c",
             script,
             str(marker["restart_id"]),
+            json.dumps(replacement_identity, sort_keys=True, separators=(",", ":")),
         ],
         timeout=remaining,
     )
@@ -2837,6 +3859,8 @@ def _complete_restart_window(
         required_field="recovered_monotonic_seconds",
         workload=workload,
     )
+    if recovery.get("recovered_authority_anchor") != replacement_authority:
+        raise RuntimeError("sampler recovery did not bind the exact replacement authority")
     cleanup_script = (
         "import json,sys; from pathlib import Path; "
         f"marker=Path({WORKLOAD_RESTART_PATH!r}); ack=Path({WORKLOAD_RESTART_ACK_PATH!r}); "
@@ -2999,25 +4023,45 @@ def _wait_partition_recovery(
 
 
 def _final_verify(harness: Harness) -> dict[str, Any]:
-    harness.compose(
-        "run",
-        "--rm",
-        "--no-deps",
-        "scenario",
-        "python",
-        "/app/deploy/production/acceptance/soak.py",
-        "verify",
-        "--convergence-timeout-seconds",
-        str(harness.configuration.convergence_timeout_seconds),
-        "--retry-timeout-seconds",
-        str(harness.configuration.retry_timeout_seconds),
-        "--seed",
-        str(harness.configuration.seed),
-        "--output",
-        "/scenario/soak-verification.json",
-        timeout=harness.configuration.convergence_timeout_seconds + 120,
-    )
-    return _scenario_result(harness, "/scenario/soak-verification.json")
+    command_error: BaseException | None = None
+    returncode = -1
+    try:
+        process = harness.run(
+            [
+                *harness.compose_command,
+                "run",
+                "--rm",
+                "--no-deps",
+                "scenario",
+                "python",
+                "/app/deploy/production/acceptance/soak.py",
+                "verify",
+                "--convergence-timeout-seconds",
+                str(harness.configuration.convergence_timeout_seconds),
+                "--retry-timeout-seconds",
+                str(harness.configuration.retry_timeout_seconds),
+                "--seed",
+                str(harness.configuration.seed),
+                "--output",
+                "/scenario/soak-verification.json",
+            ],
+            check=False,
+            timeout=harness.configuration.convergence_timeout_seconds + 120,
+        )
+        returncode = process.returncode
+    except BaseException as exc:
+        command_error = exc
+    try:
+        result = _scenario_result(harness, "/scenario/soak-verification.json")
+    except BaseException:
+        if command_error is not None:
+            raise command_error from None
+        raise
+    if command_error is not None:
+        raise FinalVerificationError(result, returncode=returncode) from command_error
+    if returncode != 0 or result.get("status") != "passed":
+        raise FinalVerificationError(result, returncode=returncode)
+    return result
 
 
 def _canonical_digest(value: dict[str, Any]) -> str:
@@ -3259,12 +4303,386 @@ def _remove_failed_workload_container(
     return cleanup_result
 
 
+def _inspect_restart_target(
+    harness: Harness,
+    *,
+    service: str,
+    container: str,
+    timeout: float,
+) -> dict[str, Any]:
+    raw = harness.run(
+        ["docker", "container", "inspect", "--format", "{{json .}}", container],
+        timeout=timeout,
+    ).stdout
+    try:
+        document = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("planned restart target inspect returned malformed JSON") from exc
+    if not isinstance(document, dict):
+        raise RuntimeError("planned restart target inspect returned a non-object")
+    container_id = document.get("Id")
+    state = document.get("State")
+    config = document.get("Config")
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    restart_count = document.get("RestartCount")
+    expected_labels = {
+        "com.docker.compose.oneoff": "False",
+        "com.docker.compose.project": harness.project,
+        "com.docker.compose.service": service,
+    }
+    if (
+        not isinstance(container_id, str)
+        or CONTAINER_ID.fullmatch(container_id) is None
+        or len(container_id) != 64
+        or not container_id.startswith(container)
+        or not isinstance(state, dict)
+        or not isinstance(labels, dict)
+        or any(labels.get(key) != value for key, value in expected_labels.items())
+        or type(restart_count) is not int
+        or type(state.get("Pid")) is not int
+        or int(state["Pid"]) <= 0
+    ):
+        raise RuntimeError("planned restart target identity is invalid")
+    return {
+        "container_id": container_id,
+        "host_pid": int(state["Pid"]),
+        "oom_killed": state.get("OOMKilled"),
+        "restart_count": restart_count,
+        "state": {
+            "OOMKilled": state.get("OOMKilled"),
+            "Pid": int(state["Pid"]),
+            "Status": state.get("Status"),
+        },
+        "status": state.get("Status"),
+    }
+
+
+def _fence_restart_authority(
+    harness: Harness,
+    *,
+    service: str,
+    armed: dict[str, Any],
+    prior_identity: dict[str, Any],
+    deadline_monotonic: float,
+    attempt_evidence: dict[str, Any] | None = None,
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
+    def available() -> float:
+        return max(0.0, deadline_monotonic - time.monotonic())
+
+    _require_workload_running(workload, context=f"before fencing {service} authority")
+    marker = armed.get("marker")
+    acknowledgement = armed.get("acknowledgement")
+    if not isinstance(marker, dict) or not isinstance(acknowledgement, dict):
+        raise RuntimeError("planned restart lacks an exact workload acknowledgement")
+    prior_authority = acknowledgement.get("prior_authority_anchor")
+    expected_lifetime = (
+        prior_authority.get("lifetime_id") if isinstance(prior_authority, dict) else None
+    )
+    restart_id = marker.get("restart_id")
+    if (
+        not isinstance(prior_authority, dict)
+        or prior_authority.get("enabled") is not True
+        or prior_authority.get("state") != "healthy"
+        or prior_authority.get("healthy") is not True
+        or prior_authority.get("admission_fenced") is not False
+        or not isinstance(expected_lifetime, str)
+        or re.fullmatch(r"[0-9a-f]{32}", expected_lifetime) is None
+        or not isinstance(restart_id, str)
+    ):
+        raise RuntimeError("planned restart acknowledgement authority status is invalid")
+    evidence = {} if attempt_evidence is None else attempt_evidence
+    attempts: list[dict[str, Any]] = []
+    evidence.update(
+        {
+            "attempts": attempts,
+            "completed_monotonic_seconds": None,
+            "deadline_monotonic_seconds": deadline_monotonic,
+            "expected_lifetime_id": expected_lifetime,
+            "resolved": False,
+            "restart_id": restart_id,
+            "started_monotonic_seconds": time.monotonic(),
+            "status": "in_progress",
+        }
+    )
+
+    def exception_type(error: BaseException) -> str:
+        return f"{type(error).__module__}.{type(error).__qualname__}"[:128]
+
+    def valid_result(result: object) -> bool:
+        terminal = result.get("terminal") if isinstance(result, dict) else None
+        terminal_authority = (
+            terminal.get("authority_anchor") if isinstance(terminal, dict) else None
+        )
+        return bool(
+            isinstance(result, dict)
+            and set(result) == {"node", "request_retry_count", "schema", "status", "terminal"}
+            and result.get("schema") == "lets.production-profile-authority-fence/v1"
+            and result.get("status") == "passed"
+            and result.get("node") == service
+            and type(result.get("request_retry_count")) is int
+            and result["request_retry_count"] >= 0
+            and isinstance(terminal, dict)
+            and set(terminal)
+            == {
+                "authority_anchor",
+                "fenced_at_monotonic_ns",
+                "lifetime_id",
+                "namespace_process_id",
+                "restart_id",
+                "schema",
+                "warden_id",
+            }
+            and terminal.get("schema") == "lets.authority-admission-fence/v1"
+            and type(terminal.get("namespace_process_id")) is int
+            and terminal["namespace_process_id"] > 0
+            and type(terminal.get("fenced_at_monotonic_ns")) is int
+            and terminal["fenced_at_monotonic_ns"] >= 0
+            and terminal.get("restart_id") == restart_id
+            and terminal.get("warden_id") == service
+            and terminal.get("lifetime_id") == expected_lifetime
+            and _valid_authority_status(terminal_authority, fenced=True, terminal=True)
+            and terminal_authority.get("lifetime_id") == expected_lifetime
+            and terminal_authority.get("fence_id") == restart_id
+            and terminal.get("namespace_process_id")
+            == terminal_authority.get("namespace_process_id")
+            and terminal.get("fenced_at_monotonic_ns")
+            == terminal_authority.get("fenced_at_monotonic_ns")
+            and terminal_authority.get("namespace_process_id")
+            == prior_authority.get("namespace_process_id")
+            and all(
+                cast(int, terminal_authority.get(field_name))
+                >= cast(int, prior_authority.get(field_name))
+                for field_name in AUTHORITY_COUNTER_FIELDS
+            )
+            and (
+                prior_authority.get("first_fault") is None
+                or terminal_authority.get("first_fault") == prior_authority.get("first_fault")
+            )
+        )
+
+    def record_read(
+        attempt: dict[str, Any],
+        *,
+        error: BaseException | None,
+        outcome: str,
+        returncode: int | None,
+    ) -> None:
+        observation = {
+            "completed_monotonic_seconds": time.monotonic(),
+            "error_type": None if error is None else exception_type(error),
+            "outcome": outcome,
+            "returncode": returncode,
+        }
+        attempt["read_count"] = min(
+            AUTHORITY_COUNTER_MAX,
+            cast(int, attempt["read_count"]) + 1,
+        )
+        if attempt["first_read"] is None:
+            attempt["first_read"] = observation
+        attempt["last_read"] = observation
+
+    output_attempts: list[tuple[str, dict[str, Any]]] = []
+    maximum_post_attempts = 5
+    attempt_window = max(
+        0.0,
+        deadline_monotonic - cast(float, evidence["started_monotonic_seconds"]),
+    )
+    post_spacing = max(0.25, (attempt_window - 3.0) / (maximum_post_attempts - 1))
+    evidence["post_spacing_seconds"] = post_spacing
+    next_post_at = cast(float, evidence["started_monotonic_seconds"])
+    while time.monotonic() < deadline_monotonic:
+        if (
+            len(attempts) < maximum_post_attempts
+            and time.monotonic() >= next_post_at
+            and available() > 1.75
+        ):
+            attempt_number = len(attempts) + 1
+            output_path = (
+                "/scenario/authority-fence-"
+                f"{int(marker['episode']):06d}-attempt-{attempt_number}.json"
+            )
+            exec_timeout = min(7.0, max(0.05, available() - 1.5))
+            attempt = {
+                "exec_completed_monotonic_seconds": None,
+                "exec_error_type": None,
+                "exec_returncode": None,
+                "exec_started_monotonic_seconds": time.monotonic(),
+                "exec_timeout_seconds": exec_timeout,
+                "first_read": None,
+                "last_read": None,
+                "ordinal": attempt_number,
+                "output_path": output_path,
+                "read_count": 0,
+            }
+            attempts.append(attempt)
+            output_attempts.append((output_path, attempt))
+            next_post_at = cast(float, evidence["started_monotonic_seconds"]) + (
+                len(attempts) * post_spacing
+            )
+            command = [
+                "docker",
+                "exec",
+                harness.workload_container,
+                "python",
+                "/app/deploy/production/acceptance/soak.py",
+                "fence-authority",
+                "--node",
+                service,
+                "--restart-id",
+                restart_id,
+                "--expected-lifetime-id",
+                expected_lifetime,
+                "--retry-timeout-seconds",
+                str(min(7.0, exec_timeout)),
+                "--seed",
+                str(harness.configuration.seed + 3_000_000 + int(marker["episode"])),
+                "--output",
+                output_path,
+            ]
+            try:
+                executed = harness.run(command, check=False, timeout=exec_timeout)
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                attempt["exec_error_type"] = exception_type(exc)
+            else:
+                attempt["exec_returncode"] = executed.returncode
+            attempt["exec_completed_monotonic_seconds"] = time.monotonic()
+
+        for candidate_path, attempt in reversed(output_attempts):
+            if time.monotonic() >= deadline_monotonic:
+                break
+            read_script = (
+                "import json; from pathlib import Path; "
+                f"print(json.dumps(json.loads(Path({candidate_path!r}).read_text()),sort_keys=True))"
+            )
+            read_timeout = min(1.5, available())
+            if read_timeout <= 0:
+                break
+            try:
+                read = harness.run(
+                    ["docker", "exec", harness.workload_container, "python", "-c", read_script],
+                    check=False,
+                    timeout=read_timeout,
+                )
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                record_read(attempt, error=exc, outcome="command_error", returncode=None)
+                continue
+            if read.returncode != 0:
+                record_read(
+                    attempt,
+                    error=None,
+                    outcome="command_error",
+                    returncode=read.returncode,
+                )
+                continue
+            try:
+                result = json.loads(read.stdout)
+            except json.JSONDecodeError:
+                record_read(attempt, error=None, outcome="malformed_json", returncode=0)
+                continue
+            if not valid_result(result):
+                record_read(attempt, error=None, outcome="invalid_response", returncode=0)
+                continue
+            record_read(attempt, error=None, outcome="valid", returncode=0)
+            evidence.update(
+                {
+                    "completed_monotonic_seconds": time.monotonic(),
+                    "resolved": True,
+                    "resolved_attempt": attempt["ordinal"],
+                    "status": "resolved",
+                }
+            )
+            return {
+                "host_container_id": prior_identity["container_id"],
+                "host_exec_attempts": len(attempts),
+                "host_pid": prior_identity["host_pid"],
+                "prior_authority_anchor": prior_authority,
+                "result": result,
+            }
+        if time.monotonic() < deadline_monotonic:
+            time.sleep(min(0.1, deadline_monotonic - time.monotonic()))
+    evidence.update(
+        {
+            "completed_monotonic_seconds": time.monotonic(),
+            "resolved": False,
+            "status": "unresolved",
+        }
+    )
+    raise RuntimeError("authority fence response remained unresolved before the restart deadline")
+
+
+def _read_restarted_authority(
+    harness: Harness,
+    *,
+    service: str,
+    episode: int,
+    deadline_monotonic: float,
+    workload: subprocess.Popen[str],
+) -> dict[str, Any]:
+    """Fetch authenticated no-transaction status for the exact replacement lifetime."""
+
+    def remaining() -> float:
+        value = deadline_monotonic - time.monotonic()
+        if value <= 0:
+            raise RuntimeError("replacement authority check exceeded the restart deadline")
+        return value
+
+    _require_workload_running(workload, context=f"binding {service} replacement authority")
+    output_path = f"/scenario/authority-status-{episode:06d}.json"
+    process = harness.run(
+        [
+            "docker",
+            "exec",
+            harness.workload_container,
+            "python",
+            "/app/deploy/production/acceptance/soak.py",
+            "authority-status",
+            "--node",
+            service,
+            "--retry-timeout-seconds",
+            str(min(7.0, remaining())),
+            "--seed",
+            str(harness.configuration.seed + 4_000_000 + episode),
+            "--output",
+            output_path,
+        ],
+        timeout=remaining(),
+    )
+    if process.returncode != 0:
+        raise RuntimeError("replacement authority status command failed")
+    read_script = (
+        "import json; from pathlib import Path; "
+        f"print(json.dumps(json.loads(Path({output_path!r}).read_text()),sort_keys=True))"
+    )
+    raw = harness.run(
+        ["docker", "exec", harness.workload_container, "python", "-c", read_script],
+        timeout=remaining(),
+    ).stdout
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("replacement authority evidence was malformed") from exc
+    authority = result.get("authority_anchor") if isinstance(result, dict) else None
+    if (
+        not isinstance(result, dict)
+        or result.get("schema") != "lets.production-profile-authority-status/v1"
+        or result.get("status") != "passed"
+        or result.get("node") != service
+        or not _valid_authority_status(authority, fenced=False, terminal=True)
+    ):
+        raise RuntimeError("replacement authority evidence is invalid")
+    return authority
+
+
 def _restart(
     harness: Harness,
     service: str,
     *,
+    armed: dict[str, Any],
     completion_deadline_monotonic: float,
     elapsed_s: float,
+    evidence_record: dict[str, Any] | None = None,
+    workload: subprocess.Popen[str],
 ) -> dict[str, Any]:
     operation_started = time.monotonic()
     if completion_deadline_monotonic <= operation_started:
@@ -3277,19 +4695,77 @@ def _restart(
         return value
 
     prior_container = harness.container(service, timeout=remaining())
-    prior = harness.container_state(prior_container, timeout=remaining())
-    prior_pid = int(prior["Pid"])
-    prior_restart_count = harness.container_restart_count(
-        prior_container,
+    prior_identity = _inspect_restart_target(
+        harness,
+        service=service,
+        container=prior_container,
         timeout=remaining(),
     )
+    prior_container = cast(str, prior_identity["container_id"])
+    prior = cast(dict[str, Any], prior_identity["state"])
+    prior_pid = cast(int, prior_identity["host_pid"])
+    prior_restart_count = cast(int, prior_identity["restart_count"])
+    if evidence_record is not None:
+        evidence_record.update(
+            {
+                "elapsed_seconds": round(elapsed_s, 3),
+                "prior_container_id": prior_container,
+                "prior_pid": prior_pid,
+                "service": service,
+                "status": "restart_target_bound",
+            }
+        )
     if (
         prior.get("Status") != "running"
         or prior.get("OOMKilled") is not False
         or prior_restart_count != 0
     ):
         raise RuntimeError(f"{service} was unhealthy before planned SIGKILL: {prior!r}")
-    harness.compose("kill", "--signal", "SIGKILL", service, timeout=remaining())
+    marker = cast(dict[str, Any], armed.get("marker"))
+    authority_fence_attempt: dict[str, Any] = {
+        "episode": marker.get("episode"),
+        "service": service,
+    }
+    if evidence_record is not None:
+        evidence_record.update(
+            {
+                "authority_fence_attempt": authority_fence_attempt,
+                "status": "authority_fence_in_progress",
+            }
+        )
+    try:
+        authority_fence = _fence_restart_authority(
+            harness,
+            service=service,
+            armed=armed,
+            prior_identity=prior_identity,
+            deadline_monotonic=completion_deadline_monotonic,
+            attempt_evidence=authority_fence_attempt,
+            workload=workload,
+        )
+    except BaseException:
+        if evidence_record is not None:
+            evidence_record["status"] = "authority_fence_unresolved"
+        raise
+    if evidence_record is not None:
+        evidence_record.update(
+            {
+                "authority_fence": authority_fence,
+                "status": "authority_fenced",
+            }
+        )
+    reinspection = _inspect_restart_target(
+        harness,
+        service=service,
+        container=prior_container,
+        timeout=remaining(),
+    )
+    if reinspection != prior_identity:
+        raise RuntimeError("planned restart target changed after authority admission was fenced")
+    harness.run(
+        ["docker", "container", "kill", "--signal", "SIGKILL", prior_container],
+        timeout=remaining(),
+    )
     killed = harness.container_state(prior_container, timeout=remaining())
     killed_restart_count = harness.container_restart_count(
         prior_container,
@@ -3312,29 +4788,45 @@ def _restart(
     )
     harness.wait_healthy(service, timeout_s=remaining())
     restarted_container = harness.container(service, timeout=remaining())
-    restarted = harness.container_state(restarted_container, timeout=remaining())
-    restarted_pid = int(restarted["Pid"])
-    restarted_count = harness.container_restart_count(
-        restarted_container,
+    restarted_identity = _inspect_restart_target(
+        harness,
+        service=service,
+        container=restarted_container,
         timeout=remaining(),
     )
+    restarted_container = cast(str, restarted_identity["container_id"])
+    restarted = cast(dict[str, Any], restarted_identity["state"])
+    restarted_pid = cast(int, restarted_identity["host_pid"])
+    restarted_count = cast(int, restarted_identity["restart_count"])
+    episode = cast(int, cast(dict[str, Any], armed["marker"])["episode"])
+    restarted_authority = _read_restarted_authority(
+        harness,
+        service=service,
+        episode=episode,
+        deadline_monotonic=completion_deadline_monotonic,
+        workload=workload,
+    )
+    old_authority = cast(dict[str, Any], authority_fence["prior_authority_anchor"])
     if (
         restarted_container == prior_container
         or restarted_pid == prior_pid
         or restarted.get("Status") != "running"
         or restarted.get("OOMKilled") is not False
         or restarted_count != 0
+        or restarted_authority["lifetime_id"] == old_authority["lifetime_id"]
     ):
         raise RuntimeError(f"{service} restart did not replace process {prior_pid}")
     operation_seconds = time.monotonic() - operation_started
     operation_completed = operation_started + operation_seconds
-    return {
+    result = {
         "completed_at_seconds": round(elapsed_s + operation_seconds, 3),
         "elapsed_seconds": round(elapsed_s, 3),
         "host_operation_completed_monotonic_seconds": operation_completed,
         "host_operation_started_monotonic_seconds": operation_started,
+        "authority_fence": authority_fence,
         "new_container_id": restarted_container,
         "new_pid": restarted_pid,
+        "new_authority_anchor": restarted_authority,
         "planned_exit_code": int(killed["ExitCode"]),
         "prior_container_id": prior_container,
         "prior_pid": prior_pid,
@@ -3345,7 +4837,12 @@ def _restart(
         },
         "service": service,
         "signal": "SIGKILL",
+        "status": "replacement_authority_bound",
     }
+    if evidence_record is not None:
+        evidence_record.update(result)
+        return evidence_record
+    return result
 
 
 def _restart_integrity(
@@ -3478,6 +4975,7 @@ def run_soak(
     verification: dict[str, Any] | None = None
     package_identity: dict[str, Any] | None = None
     workload_result: dict[str, Any] = {}
+    authority_evaluation: dict[str, Any] | None = None
     workload_evaluation: dict[str, Any] | None = None
     workload_start: dict[str, Any] | None = None
     workload: subprocess.Popen[str] | None = None
@@ -3663,14 +5161,6 @@ def run_soak(
                 prior_restart_deadline = next_restart
                 service = WARDENS[restart_index % len(WARDENS)]
                 checkpoint_elapsed = time.monotonic() - chaos_started
-                resource_checkpoint = _pre_sigkill_resource_checkpoint(
-                    harness,
-                    service=service,
-                    elapsed_s=checkpoint_elapsed,
-                    samples=resource_samples,
-                    configuration=configuration,
-                    bounds=resource_bounds,
-                )
                 _require_workload_running(
                     workload,
                     context=f"before planned SIGKILL of {service}",
@@ -3681,20 +5171,39 @@ def run_soak(
                     service=service,
                     workload=workload,
                 )
+                resource_checkpoint = _pre_sigkill_resource_checkpoint(
+                    harness,
+                    service=service,
+                    elapsed_s=checkpoint_elapsed,
+                    samples=resource_samples,
+                    configuration=configuration,
+                    bounds=resource_bounds,
+                )
                 restart_completion_deadline = (
                     float(armed_restart["host_monitor_acknowledged_monotonic_seconds"])
                     + MAXIMUM_PLANNED_RESTART_SECONDS
                 )
+                restart_record: dict[str, Any] = {
+                    "resource_checkpoint": resource_checkpoint,
+                    "service": service,
+                    "status": "armed",
+                    "workload_coordination": {"armed": armed_restart},
+                }
+                restarts.append(restart_record)
                 restart = _restart(
                     harness,
                     service,
+                    armed=armed_restart,
                     completion_deadline_monotonic=restart_completion_deadline,
                     elapsed_s=checkpoint_elapsed,
+                    evidence_record=restart_record,
+                    workload=workload,
                 )
                 completed_restart = _complete_restart_window(
                     harness,
                     armed=armed_restart,
                     completion_deadline_monotonic=restart_completion_deadline,
+                    replacement_authority=cast(dict[str, Any], restart["new_authority_anchor"]),
                     workload=workload,
                 )
                 restart["resource_checkpoint"] = resource_checkpoint
@@ -3702,7 +5211,7 @@ def run_soak(
                     "armed": armed_restart,
                     "completed": completed_restart,
                 }
-                restarts.append(restart)
+                restart["status"] = "completed"
                 restart_index += 1
                 next_restart = _next_restart_deadline(
                     prior_deadline=prior_restart_deadline,
@@ -3780,7 +5289,11 @@ def run_soak(
             harness.wait_healthy(service)
         phase = "recovery_and_verification"
         partition_recovery = _wait_partition_recovery(harness, partitions)
-        verification = _final_verify(harness)
+        try:
+            verification = _final_verify(harness)
+        except FinalVerificationError as exc:
+            verification = exc.result
+            raise
         workload_result = _scenario_result(harness, "/scenario/soak-workload.json")
         workload_evaluation = evaluate_workload_result(
             workload_result,
@@ -3790,6 +5303,11 @@ def run_soak(
             partitions=partitions,
             restarts=restarts,
             workload_start=workload_start,
+        )
+        authority_evaluation = evaluate_authority_evidence(
+            workload_result,
+            restarts,
+            verification,
         )
         package_identity = validate_package_identity(
             host_version=package_version,
@@ -3825,6 +5343,10 @@ def run_soak(
         adequacy_failures: list[str] = []
         if not workload_evaluation["passed"]:
             adequacy_failures.append(f"workload={workload_evaluation['violations']!r}")
+        if authority_evaluation.get("passed") is not True:
+            adequacy_failures.append(
+                f"authority={authority_evaluation.get('reason', 'invalid evidence')!r}"
+            )
         if not resource_evaluation["passed"]:
             adequacy_failures.append(f"resources={resource_evaluation['violations']!r}")
         if not partition_adequacy:
@@ -3862,6 +5384,7 @@ def run_soak(
                 "restart_integrity": restart_integrity,
                 "restarts": restarts,
             },
+            "authority_evaluation": authority_evaluation,
             "cleanup": cleanup,
             "completed_at": completed_at.isoformat().replace("+00:00", "Z"),
             "configuration": asdict(configuration),
@@ -4027,6 +5550,7 @@ def run_soak(
                     maximum=FAILED_EVIDENCE_MAX_CHAOS_EVENTS,
                 ),
             },
+            "authority_evaluation": authority_evaluation,
             "cleanup": cleanup,
             "completed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
             "configuration": asdict(configuration),

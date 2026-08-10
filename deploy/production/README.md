@@ -221,6 +221,26 @@ logical cap on the actual storage class, then set `LETS_HEALTH_START_PERIOD_SECO
 measured bound (up to the validator's 24-hour ceiling). An orchestrator that kills or replaces the
 process before this period expires can turn safe admission into a restart loop.
 
+Process-file authority admission also performs an exact durable checkpoint confirmation. If helper
+transport fails during construction or reopen, the database and anchor remain preserved but that
+store instance is not admitted; close it and perform a fresh open after repair. After successful
+admission, only a typed, well-formed helper-transport fault may recover on a later explicit
+transaction after its monotonic cooldown. The original operation is not retried inside the store.
+The helper's start, correlation, lock/I/O, response, and reset share one absolute deadline, and an
+uncertain mutating reply must be reconciled and durably confirmed before the store becomes healthy.
+Anchor semantic or protocol rejection, malformed transport metadata, and other provider failures
+remain sticky until operator repair and a fresh process/store lifetime. These rules are identical
+for core and protected-executor anchors. The 1.0.5 bundled helper wire adds exact request
+correlation and `confirm`; never pair a pre-1.0.5 helper executable with a 1.0.5 parent.
+
+Authenticated metrics include the bounded `authority_anchor` state and counters. Operators with
+`lets.admin`, `lets.warden.admin`, or `lets.metrics.read` may read the same snapshot from
+`GET /v1/maintenance/authority-status`. `POST /v1/maintenance/authority-fence` is admin-only: it
+atomically snapshots the exact warden/PID/lifetime and permanently stops new authority transactions
+for that process lifetime. It is idempotent only for the same `restart_id` and
+`expected_lifetime_id`; a different identity conflicts. This endpoint is for host-orchestrated
+replacement after traffic is already removed, not a general un-fence mechanism.
+
 The supplied 1 GiB profile defaults to 64 concurrent requests. Raise that only after a
 representative TLS, signer, SQLite, audit-export, and partition-recovery load test demonstrates
 bounded memory and shutdown latency within the configured cgroup. A larger number is not a
@@ -300,6 +320,16 @@ process kills occur. A separately anchored executor claims each receipt, rejects
 periodically closes and reopens both `SQLiteReceiptReplayStore` and
 `ProcessFileExecutorAuthorityAnchor`. Warden restarts similarly reopen `SQLiteStorage`,
 `ProcessFileAuthorityAnchor`, `SQLiteAuditSink`, and `AuditExporter` through the production provider.
+
+The workload injects exactly one deterministic executor transport failure after SQLite `COMMIT` and
+after the external CAS durably succeeds, then reports the outcome as a classified lost reply.
+Recovery must durably confirm the committed claim in the same store lifetime. The original
+authorization remains failed closed, an exact retry raises `ReplayError`, and the protected-effect
+count for that receipt remains zero. Across all terminal core and executor lifetimes, raw transport
+faults, episodes, attempts, and recoveries must each total exactly one, while permanent faults total
+zero; any natural second episode fails the run. Mutating HTTP retries in the harness preserve the
+exact request/restart ID and are later, separate transactions against idempotent API operations; a
+response retry is never evidence that the failed storage call was internally replayed.
 
 An independent monitor owns a separate cluster client and follows an absolute schedule anchored to
 workload start rather than sleeping after each sample. It records the schedule, sample timing, and
@@ -384,10 +414,14 @@ zero; and PID peak must stay at or below 192 under the exact limit of 256.
 
 Any automatic restart or OOM fails the run. Immediately before every planned `SIGKILL`, the runner
 captures and evaluates a resource checkpoint for all wardens, binds its sample index to the kill,
-and refuses to continue if it fails. This retains the killed process lifetime's peak counters even
-though a replacement container receives a fresh cgroup. Every planned kill must replace the PID,
-and every warden must retain a long uninterrupted process lifetime. Fixed ceilings and per-cycle
-growth budgets fail the run on unbounded resource growth. The sorted JSON record binds
+and refuses to continue if it fails. The host then obtains an authenticated authority snapshot and
+an exact, idempotent terminal snapshot-and-fence response bound to the old container ID, host PID,
+namespace PID, warden, process-lifetime ID, and restart ID before it may send `SIGKILL`. Bounded
+attempt evidence is retained and an unproven fence prevents the kill. This retains the killed
+process lifetime's peak counters and terminal authority counters even though a replacement
+container receives a fresh cgroup. Every planned kill must replace the PID, and every warden must
+retain a long uninterrupted process lifetime. Fixed ceilings and per-cycle growth budgets fail the
+run on unbounded resource growth. The sorted JSON record binds
 start/end timestamps, the unique initially empty Compose project and zero-resource cleanup, exact
 requested OCI index digest, inspected image ID and repository digests, matching OCI/host/three-node
 runtime/workload/verifier package versions, Git commit/dirty state, deterministic source-tree
@@ -399,12 +433,26 @@ measured. They do not relax the required partition or `SIGKILL` episodes, resour
 single-observation audit-error budget, exact workload relationships, or final conservation and
 zero-backlog gates.
 
+Final verification runs in the trusted workload step while it still has the executor SQLite and
+anchor volumes. It performs a fresh no-create open, SQLite integrity check, and exact anchor
+reconciliation, captures the final executor lifetime, and snapshot-and-fences every surviving core
+lifetime within one bounded terminal window. The host and publication verifiers then validate the
+exact terminal schemas, lifetime relationships, identities, sequences, counters, and global budget
+from raw JSON. They do not receive the complete append-only executor `claim_history`, so this is
+not an offline replay of an omitted claim-event ledger; the live integrity/reconciliation step is
+part of the trusted release harness.
+
 Use `--smoke` only for harness diagnostics. It permits a run shorter than five minutes but still
 requires at least two proven partition episodes and planned restarts covering all three wardens;
 never present smoke output as sustained-soak evidence. Every run uses a unique Compose project,
 requires its container/volume/network namespace to be empty before startup, and proves that all
 three resource classes are absent after cleanup. Use `--keep` only for failure investigation because
-all generated PKI, signer seeds, and authority state are test material. On any failure the runner
+all generated PKI, signer seeds, and authority state are test material. A successful terminal
+capture has already fenced every surviving warden, so `--keep` leaves those containers unready and
+unable to admit authority transactions; a failed capture may have fenced only a subset. In either
+case the retained project is diagnostic evidence, not a usable cluster: route no traffic and
+recreate/restart every fenced warden before any transaction rather than attempting to resume it. On
+any failure the runner
 atomically replaces the requested output with a bounded `passed: false` evidence record containing
 the source/image/preflight state, retained resource and chaos samples, workload exit status and
 bounded output, original error, and one-shot cleanup result, then rethrows the original exception.
@@ -445,12 +493,14 @@ restore. Missing, divergent, forked, or stale replay state is a fail-closed reco
 permission to initialize a new store.
 
 `ReceiptVerifier.verify_and_claim` advances the durable receipt/nonces/lease-watermark history and
-the external claim anchor before the protected effect may begin. The application must still bind
-that claim to its own effect transaction or make the effect idempotent; LETS cannot atomically
-commit an arbitrary external side effect. Monitor executor anchor latency/errors, replay-store
-integrity and capacity, clock uncertainty, rejected duplicates, and the age of the oldest retained
-receipt. Fence effects immediately if the anchor becomes unavailable or the store reports an
-authority fault.
+the external claim anchor before the protected effect may begin. A post-`COMMIT` lost reply can burn
+the claim even though the caller received an error; recovery confirms the head, and retry raises
+`ReplayError` with no effect. The application must still bind that claim to its own effect
+transaction or make the effect idempotent; LETS cannot atomically commit an arbitrary external side
+effect. Monitor
+executor anchor latency/errors, replay-store integrity and capacity, clock uncertainty, rejected
+duplicates, and the age of the oldest retained receipt. Fence effects immediately if the anchor
+becomes unavailable or the store reports an authority fault.
 
 ## Capacity, retention, and disk-full response
 

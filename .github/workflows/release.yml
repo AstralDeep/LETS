@@ -187,6 +187,7 @@ jobs:
               docs/release.md \
               docs/runtime-providers.md \
               docs/upgrade-recovery.md \
+              examples/runtime_provider.py \
               | gzip -n > "$directory/lets-deployment-$version.tar.gz"
           done
           python - <<'PY'
@@ -216,6 +217,7 @@ jobs:
           tar -tzf "dist/lets-deployment-${{ needs.verify.outputs.version }}.tar.gz" \
             > "$archive_contents"
           grep -q '/deploy/production/compose.yaml$' "$archive_contents"
+          grep -q '/examples/runtime_provider.py$' "$archive_contents"
           rm -f "$archive_contents"
           uv export --frozen --no-dev --extra server --extra client \
             --no-emit-project --output-file requirements-release.txt
@@ -722,6 +724,7 @@ jobs:
             ${{ env.IMAGE_NAME }}@${{ needs.image-candidate.outputs.digest }}
         run: |
           python - <<'PY'
+          import base64
           import hashlib
           import json
           import math
@@ -1028,6 +1031,12 @@ jobs:
                       isinstance(restart_id, str)
                       and bool(restart_id)
                       and restart_id not in restart_bindings
+                      and all(
+                          type(document.get("episode")) is int
+                          for document in (
+                              armed_marker, acknowledgement, completed_marker, recovery
+                          )
+                      )
                       and armed_marker.get("episode") == episode
                       and armed_marker.get("service") == service
                       and armed_marker.get("state") == "armed"
@@ -1419,8 +1428,11 @@ jobs:
               for ordinal in range(expected_transfers):
                   expected_pairs[pair_names[ordinal % len(pair_names)]] += 1
               expected_counters = {
-                  "authorizations": 2 * cycles,
+                  "authorizations": 2 * cycles - 1,
                   "closed": cycles,
+                  "executor_failed_closed": 1,
+                  "executor_faulting_calls": 1,
+                  "issued_receipts": 2 * cycles,
                   "issued_roots": cycles,
                   "quiesced": cycles,
                   "renewed": cycles,
@@ -1428,21 +1440,51 @@ jobs:
                   "transfers_prepared": expected_transfers,
               }
               executor = workload.get("executor", {})
+              raw_counters = workload.get("counters")
+              raw_pairs = workload.get("transfer_pair_counts")
+              executor_claims = executor.get("claims") if isinstance(executor, dict) else None
+              executor_reopens = (
+                  executor.get("reopen_count") if isinstance(executor, dict) else None
+              )
+              executor_replays = (
+                  executor.get("replay_rejections") if isinstance(executor, dict) else None
+              )
+              executor_status = executor.get("status") if isinstance(executor, dict) else None
+              executor_head = (
+                  executor_status.get("claim_sequence")
+                  if isinstance(executor_status, dict) else None
+              )
               cycle_metrics_valid = (
                   cycles >= required_cycles
                   and semantic_cycle_floor == 54
-                  and workload.get("transfer_pair_counts") == expected_pairs
+                  and isinstance(raw_pairs, dict)
+                  and set(raw_pairs) == set(expected_pairs)
+                  and all(type(value) is int and value >= 0 for value in raw_pairs.values())
+                  and raw_pairs == expected_pairs
                   and all(value >= 3 for value in expected_pairs.values())
-                  and workload.get("counters") == expected_counters
+                  and isinstance(raw_counters, dict)
+                  and set(raw_counters) == set(expected_counters)
+                  and all(
+                      type(value) is int and value >= 0
+                      for value in raw_counters.values()
+                  )
+                  and raw_counters == expected_counters
                   and isinstance(executor, dict)
-                  and executor.get("claims") == 2 * cycles
-                  and executor.get("reopen_count") == expected_reopens
-                  and executor.get("replay_rejections") == 2 * cycles + expected_reopens
-                  and isinstance(executor.get("status"), dict)
-                  and executor["status"].get("claim_sequence") == 2 * cycles
+                  and type(executor_claims) is int
+                  and executor_claims == 2 * cycles
+                  and type(executor_reopens) is int
+                  and executor_reopens == expected_reopens
+                  and type(executor_replays) is int
+                  and executor_replays == 2 * cycles + expected_reopens
+                  and type(executor_head) is int
+                  and executor_head == 2 * cycles
+                  and type(workload_metrics.get("actual_cycles")) is int
                   and workload_metrics.get("actual_cycles") == cycles
+                  and type(workload_metrics.get("required_cycles")) is int
                   and workload_metrics.get("required_cycles") == required_cycles
+                  and type(workload_metrics.get("semantic_cycle_floor")) is int
                   and workload_metrics.get("semantic_cycle_floor") == semantic_cycle_floor
+                  and type(workload_metrics.get("active_time_cycle_floor")) is int
                   and workload_metrics.get("active_time_cycle_floor")
                   == active_time_cycle_floor
                   and close_number(
@@ -2150,6 +2192,731 @@ jobs:
           )
           if conservation.get("balanced") is not True:
               failures.append("soak conservation failed")
+          # BEGIN RAW AUTHORITY EVIDENCE VERIFIER
+          authority_summary = required_mapping(
+              evidence.get("authority_evaluation"), "soak authority evaluation"
+          )
+          terminal_capture = verification.get("terminal_capture")
+          raw_terminal_capture_valid = (
+              verification.get("schema")
+              == "lets.production-profile-soak-verification/v1"
+              and verification.get("status") == "passed"
+              and isinstance(terminal_capture, dict)
+              and set(terminal_capture) == {
+                  "completed_monotonic_seconds",
+                  "deadline_monotonic_seconds",
+                  "started_monotonic_seconds",
+              }
+              and all(finite_number(item) for item in terminal_capture.values())
+          )
+          if raw_terminal_capture_valid:
+              capture_started = float(terminal_capture["started_monotonic_seconds"])
+              capture_completed = float(terminal_capture["completed_monotonic_seconds"])
+              capture_deadline = float(terminal_capture["deadline_monotonic_seconds"])
+              raw_terminal_capture_valid = (
+                  capture_started <= capture_completed <= capture_deadline
+                  and close_number(capture_deadline - capture_started, 90.0)
+              )
+          core_authority_fields = {
+              "admission_fenced", "enabled", "fault_reason", "fault_stage",
+              "fence_id", "fenced_at_monotonic_ns", "first_fault", "healthy",
+              "lifetime_id", "namespace_process_id", "permanent_faults",
+              "retry_not_before_monotonic_ns", "state", "transport_fault_episodes",
+              "transport_faults", "transport_recoveries",
+              "transport_recovery_attempts", "unresolved_transport_faults",
+          }
+          executor_authority_fields = core_authority_fields - {
+              "admission_fenced", "fence_id", "fenced_at_monotonic_ns",
+              "namespace_process_id",
+          }
+          authority_counter_fields = (
+              "transport_faults", "transport_fault_episodes",
+              "transport_recovery_attempts", "transport_recoveries",
+              "permanent_faults",
+          )
+          first_fault_fields = {
+              "helper_exit_code", "helper_pid", "mutation_uncertain", "operation",
+              "reason", "request_flushed", "stage",
+          }
+          transport_reasons = {
+              "deadline", "helper_eof", "helper_pipe", "helper_start",
+              "helper_start_deadline", "helper_start_in_progress",
+              "process_lock_deadline",
+          }
+          transport_operations = {"compare-and-set", "confirm", "initialize", "read"}
+          executor_checkpoint_fields = {
+              "audience", "claim_digest", "claim_sequence", "clock_floor_ns",
+              "config_epoch", "database_instance_id", "envelope_id",
+              "executor_policy_sha256", "format", "schema_version", "tenant_id",
+              "trust_registry_sha256",
+          }
+
+          def valid_identifier(value):
+              return (
+                  isinstance(value, str)
+                  and value
+                  and len(value) <= 512
+                  and value == value.strip()
+                  and not any(
+                      ord(character) < 0x20 or ord(character) == 0x7F
+                      for character in value
+                  )
+              )
+
+          def valid_digest(value):
+              if (
+                  not isinstance(value, str)
+                  or len(value) != 43
+                  or re.fullmatch(r"[A-Za-z0-9_-]{43}", value) is None
+              ):
+                  return False
+              try:
+                  decoded = base64.urlsafe_b64decode(value + "=")
+              except (ValueError, TypeError):
+                  return False
+              return (
+                  len(decoded) == 32
+                  and base64.urlsafe_b64encode(decoded).decode("ascii").rstrip("=")
+                  == value
+              )
+
+          def valid_executor_checkpoint(value):
+              if not isinstance(value, dict) or set(value) != executor_checkpoint_fields:
+                  return False
+              floor = value.get("clock_floor_ns")
+              return (
+                  value.get("format") == "LETS-EXECUTOR-AUTHORITY-ANCHOR/1"
+                  and type(value.get("schema_version")) is int
+                  and value.get("schema_version") == 5
+                  and value.get("audience") == "production-soak-executor"
+                  and value.get("tenant_id") == "production-acceptance-tenant"
+                  and value.get("envelope_id") == "production-acceptance-envelope"
+                  and value.get("config_epoch") == 1
+                  and all(
+                      valid_identifier(value.get(name))
+                      for name in ("audience", "tenant_id", "envelope_id")
+                  )
+                  and type(value.get("config_epoch")) is int
+                  and 1 <= value["config_epoch"] <= (1 << 63) - 1
+                  and type(value.get("claim_sequence")) is int
+                  and 0 <= value["claim_sequence"] <= (1 << 63) - 1
+                  and (
+                      floor is None
+                      or type(floor) is int and 0 <= floor <= (1 << 63) - 1
+                  )
+                  and all(
+                      valid_digest(value.get(name))
+                      for name in (
+                          "executor_policy_sha256", "trust_registry_sha256",
+                          "database_instance_id", "claim_digest",
+                      )
+                  )
+                  and (
+                      value["claim_sequence"] != 0
+                      or value["claim_digest"] == "A" * 43
+                  )
+              )
+
+          def checkpoint_identity(value):
+              return tuple(
+                  value[name] for name in (
+                      "audience", "tenant_id", "envelope_id", "config_epoch",
+                      "executor_policy_sha256", "trust_registry_sha256",
+                      "schema_version", "database_instance_id",
+                  )
+              )
+
+          def valid_authority(value, *, executor=False, fenced=None, terminal=False):
+              expected_fields = (
+                  executor_authority_fields if executor else core_authority_fields
+              )
+              if not isinstance(value, dict) or set(value) != expected_fields:
+                  return False
+              state = value.get("state")
+              if (
+                  value.get("enabled") is not True
+                  or state not in {
+                      "healthy", "recoverable_transport_fault", "permanent_fault"
+                  }
+                  or type(value.get("healthy")) is not bool
+                  or value.get("healthy") is not (state == "healthy")
+                  or not isinstance(value.get("lifetime_id"), str)
+                  or re.fullmatch(r"[0-9a-f]{32}", value["lifetime_id"]) is None
+              ):
+                  return False
+              if executor:
+                  if fenced is not None:
+                      return False
+              elif (
+                  type(value.get("namespace_process_id")) is not int
+                  or value["namespace_process_id"] <= 0
+                  or type(value.get("admission_fenced")) is not bool
+                  or (
+                      fenced is not None
+                      and value.get("admission_fenced") is not fenced
+                  )
+              ):
+                  return False
+              if not executor:
+                  if value["admission_fenced"]:
+                      if (
+                          not isinstance(value.get("fence_id"), str)
+                          or not 1 <= len(value["fence_id"]) <= 128
+                          or type(value.get("fenced_at_monotonic_ns")) is not int
+                          or value["fenced_at_monotonic_ns"] < 0
+                      ):
+                          return False
+                  elif value.get("fence_id") is not None or value.get(
+                      "fenced_at_monotonic_ns"
+                  ) is not None:
+                      return False
+              counters = {}
+              for name in authority_counter_fields:
+                  item = value.get(name)
+                  if type(item) is not int or not 0 <= item <= (1 << 63) - 1:
+                      return False
+                  counters[name] = item
+              unresolved = value.get("unresolved_transport_faults")
+              if (
+                  type(unresolved) is not int
+                  or unresolved not in {0, 1}
+                  or counters["transport_faults"] < counters["transport_fault_episodes"]
+                  or counters["transport_fault_episodes"] < counters["transport_recoveries"]
+                  or counters["transport_recovery_attempts"]
+                  < counters["transport_recoveries"]
+                  or unresolved != int(state == "recoverable_transport_fault")
+                  or (state == "permanent_fault" and counters["permanent_faults"] == 0)
+              ):
+                  return False
+              stage = value.get("fault_stage")
+              reason = value.get("fault_reason")
+              retry = value.get("retry_not_before_monotonic_ns")
+              if stage is not None and stage not in {"pre_begin", "post_commit"}:
+                  return False
+              if reason is not None and (
+                  not isinstance(reason, str)
+                  or re.fullmatch(r"[a-z0-9_]{1,64}", reason) is None
+              ):
+                  return False
+              if state == "healthy":
+                  if stage is not None or reason is not None or retry is not None:
+                      return False
+              elif state == "recoverable_transport_fault":
+                  if (
+                      stage is None or reason is None or type(retry) is not int or retry < 0
+                  ):
+                      return False
+              elif retry is not None:
+                  return False
+              first = value.get("first_fault")
+              if first is None:
+                  if counters["transport_faults"] != 0:
+                      return False
+              elif (
+                  not isinstance(first, dict)
+                  or set(first) != first_fault_fields
+                  or counters["transport_faults"] == 0
+                  or first.get("stage") not in {"pre_begin", "post_commit"}
+                  or first.get("operation") not in transport_operations
+                  or first.get("reason") not in transport_reasons
+                  or type(first.get("request_flushed")) is not bool
+                  or type(first.get("mutation_uncertain")) is not bool
+                  or (
+                      first.get("operation") == "read"
+                      and first.get("mutation_uncertain") is True
+                  )
+                  or (
+                      first.get("reason")
+                      in {"helper_start", "helper_start_deadline", "helper_start_in_progress"}
+                      and (
+                          first.get("request_flushed") is True
+                          or first.get("mutation_uncertain") is True
+                      )
+                  )
+              ):
+                  return False
+              else:
+                  for name, positive in (("helper_pid", True), ("helper_exit_code", False)):
+                      item = first.get(name)
+                      minimum = 1 if positive else -(1 << 31)
+                      if item is not None and (
+                          type(item) is not int or not minimum <= item <= (1 << 31) - 1
+                      ):
+                          return False
+              return not terminal or (
+                  state == "healthy"
+                  and unresolved == 0
+                  and counters["permanent_faults"] == 0
+                  and counters["transport_faults"]
+                  == counters["transport_fault_episodes"]
+                  == counters["transport_recovery_attempts"]
+                  == counters["transport_recoveries"]
+              )
+
+          raw_authority_valid = cycle_metrics_valid and raw_terminal_capture_valid
+          terminal_authorities = []
+          all_lifetimes = set()
+          executor_raw = workload.get("executor")
+          recovery_events = (
+              executor_raw.get("transport_recovery_events")
+              if isinstance(executor_raw, dict) else None
+          )
+          executor_terminals = (
+              executor_raw.get("terminal_statuses")
+              if isinstance(executor_raw, dict) else None
+          )
+          executor_reopen_every = configuration.get("executor_reopen_every_cycles")
+          verification_executor = verification.get("executor")
+          final_executor_terminal = (
+              verification_executor.get("terminal_status")
+              if isinstance(verification_executor, dict) else None
+          )
+          try:
+              event = recovery_events[0]
+              original = event["original_transport_error"]
+              faulted = event["faulted_authority_anchor"]
+              recovered = event["recovered_authority_anchor"]
+              raw_authority_valid = raw_authority_valid and (
+                  isinstance(recovery_events, list)
+                  and len(recovery_events) == 1
+                  and isinstance(event, dict)
+                  and set(event) == {
+                      "durable_claim_outcome", "faulted_authority_anchor",
+                      "faulting_call_effect_executed", "ordinal",
+                      "original_call_raised", "original_transport_error", "phase",
+                      "primary_returned", "protected_effect_executed_after_recovery",
+                      "receipt_id", "recovered_authority_anchor", "retry_outcome",
+                  }
+                  and type(event.get("ordinal")) is int
+                  and event.get("ordinal") == 0
+                  and event.get("original_call_raised") is True
+                  and event.get("phase") == "primary_claim"
+                  and event.get("primary_returned") is False
+                  and event.get("durable_claim_outcome") == "burned_before_response"
+                  and event.get("retry_outcome") == "replay_rejected"
+                  and event.get("faulting_call_effect_executed") is False
+                  and event.get("protected_effect_executed_after_recovery") is False
+                  and valid_identifier(event.get("receipt_id"))
+                  and isinstance(original, dict)
+                  and set(original) == first_fault_fields - {"stage"}
+                  and original.get("reason") == "helper_eof"
+                  and original.get("operation") == "compare-and-set"
+                  and original.get("request_flushed") is True
+                  and original.get("mutation_uncertain") is True
+                  and valid_authority(faulted, executor=True)
+                  and faulted.get("state") == "recoverable_transport_fault"
+                  and faulted.get("fault_stage") == "post_commit"
+                  and faulted.get("fault_reason") == original.get("reason")
+                  and faulted.get("first_fault") == {**original, "stage": "post_commit"}
+                  and tuple(
+                      faulted.get(name) for name in (
+                          "transport_faults", "transport_fault_episodes",
+                          "transport_recovery_attempts", "transport_recoveries",
+                          "unresolved_transport_faults", "permanent_faults",
+                      )
+                  ) == (1, 1, 0, 0, 1, 0)
+                  and valid_authority(recovered, executor=True, terminal=True)
+                  and recovered.get("lifetime_id") == faulted.get("lifetime_id")
+                  and recovered.get("first_fault") == faulted.get("first_fault")
+                  and tuple(
+                      recovered.get(name) for name in (
+                          "transport_faults", "transport_fault_episodes",
+                          "transport_recovery_attempts", "transport_recoveries",
+                          "unresolved_transport_faults", "permanent_faults",
+                      )
+                  ) == (1, 1, 1, 1, 0, 0)
+                  and isinstance(executor_terminals, list)
+                  and type(executor_reopen_every) is int
+                  and executor_reopen_every > 0
+                  and executor_raw.get("reopen_count")
+                  == cycles // executor_reopen_every
+                  and len(executor_terminals) == executor_raw.get("reopen_count") + 1
+                  and isinstance(final_executor_terminal, dict)
+              )
+              executor_status_fields = {
+                  "anchor", "authority_anchor", "authority_healthy", "claim_sequence",
+                  "database_bytes", "integrity", "live_claims", "live_watermarks",
+                  "rollback_protected", "shared_memory_bytes", "wal_bytes",
+              }
+              verification_executor_fields = {
+                  "anchor_claim_sequence", "authority_anchor", "authority_healthy",
+                  "claim_sequence", "database_bytes", "integrity",
+                  "rollback_protected", "terminal_status", "wal_bytes",
+              }
+              raw_authority_valid = raw_authority_valid and (
+                  set(verification_executor) == verification_executor_fields
+                  and verification_executor.get("authority_healthy") is True
+                  and verification_executor.get("rollback_protected") is True
+                  and verification_executor.get("integrity") == ["ok"]
+                  and type(verification_executor.get("anchor_claim_sequence")) is int
+                  and verification_executor["anchor_claim_sequence"] >= 0
+                  and type(verification_executor.get("claim_sequence")) is int
+                  and verification_executor["claim_sequence"] >= 0
+                  and type(verification_executor.get("database_bytes")) is int
+                  and verification_executor["database_bytes"] >= 0
+                  and type(verification_executor.get("wal_bytes")) is int
+                  and verification_executor["wal_bytes"] >= 0
+              )
+              combined_executor = [*executor_terminals, final_executor_terminal]
+              prior_claim_sequence = -1
+              prior_checkpoint = None
+              stable_checkpoint_identity = None
+              recovered_terminal_seen = False
+              for ordinal, terminal in enumerate(combined_executor):
+                  status = terminal.get("status") if isinstance(terminal, dict) else None
+                  authority = (
+                      status.get("authority_anchor") if isinstance(status, dict) else None
+                  )
+                  claim_sequence = status.get("claim_sequence") if isinstance(status, dict) else None
+                  checkpoint = status.get("anchor") if isinstance(status, dict) else None
+                  expected_source = (
+                      "workload" if ordinal < len(executor_terminals)
+                      else "final_verification"
+                  )
+                  expected_claim_sequence = (
+                      2 * executor_reopen_every * (ordinal + 1)
+                      if ordinal < executor_raw["reopen_count"]
+                      else 2 * cycles
+                  )
+                  valid = (
+                      isinstance(terminal, dict)
+                      and set(terminal) == {"lifetime_id", "ordinal", "source", "status"}
+                      and type(terminal.get("ordinal")) is int
+                      and terminal.get("ordinal") == ordinal
+                      and terminal.get("source") == expected_source
+                      and isinstance(status, dict)
+                      and set(status) == executor_status_fields
+                      and valid_authority(authority, executor=True, terminal=True)
+                      and terminal.get("lifetime_id") == authority.get("lifetime_id")
+                      and authority["lifetime_id"] not in all_lifetimes
+                      and type(claim_sequence) is int
+                      and claim_sequence == expected_claim_sequence
+                      and claim_sequence >= prior_claim_sequence
+                      and status.get("rollback_protected") is True
+                      and status.get("authority_healthy") is True
+                      and status.get("integrity") == ["ok"]
+                      and all(
+                          type(status.get(name)) is int and status[name] >= 0
+                          for name in (
+                              "database_bytes", "live_claims", "live_watermarks",
+                              "shared_memory_bytes", "wal_bytes",
+                          )
+                      )
+                      and status["live_claims"] <= claim_sequence
+                      and status["live_watermarks"] <= claim_sequence
+                      and valid_executor_checkpoint(checkpoint)
+                      and checkpoint.get("claim_sequence") == claim_sequence
+                      and (
+                          stable_checkpoint_identity is None
+                          or checkpoint_identity(checkpoint) == stable_checkpoint_identity
+                      )
+                      and (
+                          prior_checkpoint is None
+                          or checkpoint["claim_sequence"]
+                          != prior_checkpoint["claim_sequence"]
+                          or checkpoint["claim_digest"]
+                          == prior_checkpoint["claim_digest"]
+                      )
+                      and (
+                          prior_checkpoint is None
+                          or prior_checkpoint["clock_floor_ns"] is None
+                          or (
+                              checkpoint["clock_floor_ns"] is not None
+                              and checkpoint["clock_floor_ns"]
+                              >= prior_checkpoint["clock_floor_ns"]
+                          )
+                      )
+                  )
+                  raw_authority_valid = raw_authority_valid and valid
+                  if not valid:
+                      continue
+                  all_lifetimes.add(authority["lifetime_id"])
+                  terminal_authorities.append(authority)
+                  prior_claim_sequence = claim_sequence
+                  prior_checkpoint = checkpoint
+                  if stable_checkpoint_identity is None:
+                      stable_checkpoint_identity = checkpoint_identity(checkpoint)
+                  if authority == recovered:
+                      recovered_terminal_seen = True
+              raw_authority_valid = raw_authority_valid and (
+                  recovered_terminal_seen
+                  and executor_terminals[-1].get("status") == executor_raw.get("status")
+                  and final_executor_terminal["status"].get("authority_anchor")
+                  == verification_executor.get("authority_anchor")
+                  and final_executor_terminal["status"].get("claim_sequence")
+                  == verification_executor.get("claim_sequence")
+                  and final_executor_terminal["status"].get("authority_healthy")
+                  == verification_executor.get("authority_healthy")
+                  and final_executor_terminal["status"].get("rollback_protected")
+                  == verification_executor.get("rollback_protected")
+                  and final_executor_terminal["status"].get("database_bytes")
+                  == verification_executor.get("database_bytes")
+                  and final_executor_terminal["status"].get("wal_bytes")
+                  == verification_executor.get("wal_bytes")
+                  and final_executor_terminal["status"].get("integrity")
+                  == verification_executor.get("integrity")
+                  and final_executor_terminal["status"].get("anchor")
+                  == executor_terminals[-1]["status"].get("anchor")
+                  and verification_executor.get("anchor_claim_sequence") == 2 * cycles
+                  and prior_claim_sequence == 2 * cycles
+              )
+          except (KeyError, TypeError, IndexError, AttributeError):
+              raw_authority_valid = False
+
+          final_core_fences = verification.get("terminal_authority_fences")
+          terminal_by_lifetime = {}
+          recovery_baselines = {}
+          planned_pairs = {node: [] for node in expected_nodes}
+          fence_wrapper_fields = {
+              "host_container_id", "host_exec_attempts", "host_pid",
+              "prior_authority_anchor", "result",
+          }
+          fence_result_fields = {
+              "node", "request_retry_count", "schema", "status", "terminal",
+          }
+          fence_terminal_fields = {
+              "authority_anchor", "fenced_at_monotonic_ns", "lifetime_id",
+              "namespace_process_id", "restart_id", "schema", "warden_id",
+          }
+          try:
+              raw_authority_valid = raw_authority_valid and (
+                  isinstance(final_core_fences, dict)
+                  and set(final_core_fences) == expected_nodes
+              )
+              for restart in restarts:
+                  service = restart["service"]
+                  fence = restart["authority_fence"]
+                  result = fence["result"]
+                  terminal = result["terminal"]
+                  authority = terminal["authority_anchor"]
+                  prior = fence["prior_authority_anchor"]
+                  new = restart["new_authority_anchor"]
+                  armed = restart["workload_coordination"]["armed"]
+                  marker = armed["marker"]
+                  recovery_ack = restart["workload_coordination"]["completed"][
+                      "recovery_acknowledgement"
+                  ]
+                  valid = (
+                      service in expected_nodes
+                      and set(fence) == fence_wrapper_fields
+                      and type(fence.get("host_exec_attempts")) is int
+                      and fence["host_exec_attempts"] >= 1
+                      and set(result) == fence_result_fields
+                      and type(result.get("request_retry_count")) is int
+                      and result["request_retry_count"] >= 0
+                      and result.get("schema")
+                      == "lets.production-profile-authority-fence/v1"
+                      and result.get("status") == "passed"
+                      and result.get("node") == service
+                      and terminal.get("schema") == "lets.authority-admission-fence/v1"
+                      and set(terminal) == fence_terminal_fields
+                      and type(terminal.get("namespace_process_id")) is int
+                      and terminal["namespace_process_id"] > 0
+                      and type(terminal.get("fenced_at_monotonic_ns")) is int
+                      and terminal["fenced_at_monotonic_ns"] >= 0
+                      and terminal.get("restart_id") == marker.get("restart_id")
+                      and terminal.get("warden_id") == service
+                      and valid_authority(authority, fenced=True, terminal=True)
+                      and valid_authority(prior, fenced=False, terminal=True)
+                      and valid_authority(new, fenced=False, terminal=True)
+                      and terminal.get("lifetime_id") == authority.get("lifetime_id")
+                      and terminal.get("namespace_process_id")
+                      == authority.get("namespace_process_id")
+                      and terminal.get("fenced_at_monotonic_ns")
+                      == authority.get("fenced_at_monotonic_ns")
+                      and authority.get("fence_id") == marker.get("restart_id")
+                      and prior == armed["acknowledgement"].get("prior_authority_anchor")
+                      and authority.get("lifetime_id") == prior.get("lifetime_id")
+                      and authority.get("namespace_process_id")
+                      == prior.get("namespace_process_id")
+                      and all(
+                          authority[name] >= prior[name]
+                          for name in authority_counter_fields
+                      )
+                      and (
+                          prior.get("first_fault") is None
+                          or authority.get("first_fault") == prior.get("first_fault")
+                      )
+                      and recovery_ack.get("recovered_authority_anchor") == new
+                      and new.get("lifetime_id") != prior.get("lifetime_id")
+                      and fence.get("host_container_id") == restart.get("prior_container_id")
+                      and fence.get("host_pid") == restart.get("prior_pid")
+                  )
+                  raw_authority_valid = raw_authority_valid and valid
+                  if not valid:
+                      continue
+                  old_lifetime = authority["lifetime_id"]
+                  new_lifetime = new["lifetime_id"]
+                  if old_lifetime in all_lifetimes or new_lifetime in recovery_baselines:
+                      raw_authority_valid = False
+                  all_lifetimes.add(old_lifetime)
+                  terminal_by_lifetime[old_lifetime] = authority
+                  terminal_authorities.append(authority)
+                  recovery_baselines[new_lifetime] = new
+                  planned_pairs[service].append((old_lifetime, new_lifetime))
+              for node in expected_nodes:
+                  terminal = final_core_fences[node]
+                  authority = terminal["authority_anchor"]
+                  fence_id = terminal.get("restart_id")
+                  final_snapshot = final_nodes[node]["authority_anchor"]
+                  valid = (
+                      terminal.get("schema") == "lets.authority-admission-fence/v1"
+                      and set(terminal) == fence_terminal_fields
+                      and type(terminal.get("namespace_process_id")) is int
+                      and terminal["namespace_process_id"] > 0
+                      and type(terminal.get("fenced_at_monotonic_ns")) is int
+                      and terminal["fenced_at_monotonic_ns"] >= 0
+                      and terminal.get("warden_id") == node
+                      and valid_authority(authority, fenced=True, terminal=True)
+                      and terminal.get("lifetime_id") == authority.get("lifetime_id")
+                      and terminal.get("namespace_process_id")
+                      == authority.get("namespace_process_id")
+                      and terminal.get("fenced_at_monotonic_ns")
+                      == authority.get("fenced_at_monotonic_ns")
+                      and fence_id == authority.get("fence_id")
+                      and fence_id
+                      == f"final-verification-{configuration.get('seed')}-{node}"
+                      and valid_authority(
+                          final_snapshot, fenced=False, terminal=True
+                      )
+                      and authority.get("lifetime_id")
+                      == final_snapshot.get("lifetime_id")
+                      and authority.get("namespace_process_id")
+                      == final_snapshot.get("namespace_process_id")
+                      and all(
+                          authority[name] >= final_snapshot[name]
+                          for name in authority_counter_fields
+                      )
+                      and (
+                          final_snapshot.get("first_fault") is None
+                          or authority.get("first_fault")
+                          == final_snapshot.get("first_fault")
+                      )
+                      and authority["lifetime_id"] not in all_lifetimes
+                  )
+                  raw_authority_valid = raw_authority_valid and valid
+                  if not valid:
+                      continue
+                  all_lifetimes.add(authority["lifetime_id"])
+                  terminal_by_lifetime[authority["lifetime_id"]] = authority
+                  terminal_authorities.append(authority)
+              for lifetime, baseline in recovery_baselines.items():
+                  terminal = terminal_by_lifetime.get(lifetime)
+                  raw_authority_valid = raw_authority_valid and (
+                      isinstance(terminal, dict)
+                      and terminal.get("namespace_process_id")
+                      == baseline.get("namespace_process_id")
+                      and all(
+                          terminal[name] >= baseline[name]
+                          for name in authority_counter_fields
+                      )
+                      and (
+                          baseline.get("first_fault") is None
+                          or terminal.get("first_fault") == baseline.get("first_fault")
+                      )
+                  )
+              observed = {node: [] for node in expected_nodes}
+              for sample in health_samples:
+                  nodes = sample.get("nodes") if isinstance(sample, dict) else None
+                  if not isinstance(nodes, dict):
+                      raw_authority_valid = False
+                      continue
+                  for node in expected_nodes:
+                      document = nodes.get(node)
+                      if not isinstance(document, dict) or "planned_unavailable" in document:
+                          continue
+                      authority = document.get("authority_anchor")
+                      terminal = (
+                          terminal_by_lifetime.get(authority.get("lifetime_id"))
+                          if isinstance(authority, dict) else None
+                      )
+                      valid = (
+                          valid_authority(authority, fenced=False, terminal=True)
+                          and isinstance(terminal, dict)
+                          and terminal.get("namespace_process_id")
+                          == authority.get("namespace_process_id")
+                          and all(
+                              terminal[name] >= authority[name]
+                              for name in authority_counter_fields
+                          )
+                          and (
+                              authority.get("first_fault") is None
+                              or terminal.get("first_fault") == authority.get("first_fault")
+                          )
+                      )
+                      raw_authority_valid = raw_authority_valid and valid
+                      if valid:
+                          observed[node].append(authority)
+              for node, snapshots in observed.items():
+                  if not snapshots:
+                      raw_authority_valid = False
+                      continue
+                  transitions = []
+                  previous = snapshots[0]
+                  for current in snapshots[1:]:
+                      if current["lifetime_id"] == previous["lifetime_id"]:
+                          raw_authority_valid = raw_authority_valid and (
+                              current["namespace_process_id"]
+                              == previous["namespace_process_id"]
+                              and all(
+                                  current[name] >= previous[name]
+                                  for name in authority_counter_fields
+                              )
+                              and (
+                                  previous["first_fault"] is None
+                                  or current["first_fault"] == previous["first_fault"]
+                              )
+                          )
+                      else:
+                          transitions.append(
+                              (previous["lifetime_id"], current["lifetime_id"])
+                          )
+                      previous = current
+                  raw_authority_valid = raw_authority_valid and (
+                      transitions == planned_pairs[node]
+                      and final_core_fences[node]["authority_anchor"]["lifetime_id"]
+                      == previous["lifetime_id"]
+                  )
+          except (KeyError, TypeError, IndexError, AttributeError):
+              raw_authority_valid = False
+
+          authority_totals = {name: 0 for name in authority_counter_fields}
+          for status in terminal_authorities:
+              for name in authority_counter_fields:
+                  authority_totals[name] += status[name]
+          raw_authority_valid = raw_authority_valid and (
+              authority_totals["transport_faults"]
+              == authority_totals["transport_fault_episodes"]
+              == authority_totals["transport_recovery_attempts"]
+              == authority_totals["transport_recoveries"]
+              == 1
+              and authority_totals["permanent_faults"] == 0
+              and authority_summary.get("passed") is True
+              and set(authority_summary) == {
+                  "core_lifetime_count", "executor_lifetime_count",
+                  "global_counters", "passed", "terminal_lifetime_count",
+              }
+              and isinstance(authority_summary.get("global_counters"), dict)
+              and set(authority_summary["global_counters"])
+              == set(authority_counter_fields)
+              and all(
+                  type(value) is int and value >= 0
+                  for value in authority_summary["global_counters"].values()
+              )
+              and authority_summary.get("global_counters") == authority_totals
+              and type(authority_summary.get("core_lifetime_count")) is int
+              and authority_summary.get("core_lifetime_count")
+              == len(terminal_by_lifetime)
+              and type(authority_summary.get("executor_lifetime_count")) is int
+              and authority_summary.get("executor_lifetime_count")
+              == len(all_lifetimes) - len(terminal_by_lifetime)
+              and type(authority_summary.get("terminal_lifetime_count")) is int
+              and authority_summary.get("terminal_lifetime_count")
+              == len(terminal_authorities)
+          )
+          if not raw_authority_valid:
+              failures.append("soak authority lifetime and recovery budget is not raw-bound")
+          # END RAW AUTHORITY EVIDENCE VERIFIER
           if failures:
               raise SystemExit("; ".join(failures))
           PY

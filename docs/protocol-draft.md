@@ -79,11 +79,15 @@ exact ASGI request target (`path` plus query string when present), `content_dige
 `nonce`, `warden_id`, and `key_id`. Receivers verify the body digest and manifest key, then durably
 claim `(warden_id, key_id, nonce)` before dispatch. In schema 2 that claim, replay clock floor,
 history digest, signed audit/outbox event, and core authority checkpoint advance are one serialized
-transaction followed by the external monotonic-anchor CAS. Commit-before-CAS faults the process;
-restart may admit only a proven contiguous audit extension. Duplicate headers, stale timestamps,
-repeated nonces, unknown keys, and target/body changes MUST fail closed. TLS is required for
-non-loopback production endpoints; deployments MAY additionally require mTLS. Message signatures
-do not replace transport confidentiality or endpoint authentication.
+transaction followed by the external monotonic-anchor CAS. A well-formed typed helper-transport
+interruption after commit faults the original transaction call; no business result or protected
+effect escapes. After its bounded cooldown, a later separate transaction MAY exact-reconcile and
+durably confirm only a proven contiguous audit extension without restarting the process. Admission
+failure, crash, or operator recovery still requires a fresh open with the same extension proof;
+semantic, malformed, or divergent anchor state remains permanently failed closed. Duplicate
+headers, stale timestamps, repeated nonces, unknown keys, and target/body changes MUST fail closed.
+TLS is required for non-loopback production endpoints; deployments MAY additionally require mTLS.
+Message signatures do not replace transport confidentiality or endpoint authentication.
 
 Manifest endpoint origins use lowercase `http` or `https`, an ASCII DNS name (including explicit
 IDNA A-labels) or IP literal, and an optional TCP port in `1..65535`. IPv6 literals use hexadecimal
@@ -237,7 +241,8 @@ A protected executor MUST verify the signature, key epoch, audience, freshness, 
 version, and nonce/sequence replay rules before performing the effect. In the production SQLite
 profile, the executor MUST bind its exact policy and verification-key material, database instance,
 clock floor, and append-only claim head to a linearizable external anchor outside the database
-rollback domain. It MUST NOT perform the effect until the claim commit and anchor CAS both succeed.
+rollback domain. It MUST NOT perform the effect unless `verify_and_claim` returns success after the
+claim commit and anchor CAS both succeed; an exception or lost reply never authorizes the effect.
 A stale or divergent restore, losing cloned branch, policy widening, or verification-key
 substitution fails admission. Receipt acceptance SHOULD be recorded atomically with the
 application-specific effect when the effect domain permits; otherwise this is at-most-once

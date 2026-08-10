@@ -3067,6 +3067,7 @@ def _metrics_provider(
             "by_status": {str(row[0]): int(row[1]) for row in lease_rows},
         },
         "receipts": {"total": receipt_count},
+        "authority_anchor": store.authority_anchor_status(),
         "storage_capacity": capacity.to_dict(),
         "transfers": {
             "outgoing_streams": int(outgoing[0]),
@@ -3356,6 +3357,24 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                 except (LETSError, sqlite3.Error):
                     return False
 
+            def metrics_snapshot() -> dict[str, object]:
+                return _metrics_provider(
+                    service,
+                    store,
+                    metrics_identity,
+                    peer_status=dispatcher.status,
+                    audit_status=(None if audit_exporter is None else audit_exporter.status),
+                )
+
+            def fence_authority(restart_id: str, expected_lifetime_id: str) -> dict[str, object]:
+                return store.fence_authority_admission(
+                    restart_id=restart_id,
+                    expected_lifetime_id=expected_lifetime_id,
+                )
+
+            def authority_status() -> dict[str, object]:
+                return store.authority_anchor_status()
+
             app = create_app(
                 service,
                 authenticator=runtime.authenticator,
@@ -3363,13 +3382,9 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                 peer_authenticator=peer_authenticator,
                 peer_tenant_id=_required_text(config, "tenant_id"),
                 readiness_check=ready,
-                metrics_provider=lambda: _metrics_provider(
-                    service,
-                    store,
-                    metrics_identity,
-                    peer_status=dispatcher.status,
-                    audit_status=(None if audit_exporter is None else audit_exporter.status),
-                ),
+                metrics_provider=metrics_snapshot,
+                authority_fence_provider=fence_authority,
+                authority_status_provider=authority_status,
                 node_metadata={
                     "tenant_id": _required_text(config, "tenant_id"),
                     "envelope_id": _required_text(config, "envelope_id"),
