@@ -38,8 +38,8 @@ environment and an exact immutable candidate reference:
 
 ```powershell
 uv sync --all-extras --frozen
-$imageName = "127.0.0.1:25001/astraldeep/lets"
-$imageDigest = "sha256:336feda3da169ecffea8ab3f0b68858c5de304cafe2208ee696d714c6dab64c4"
+$imageName = "127.0.0.1:25109/astraldeep/lets"
+$imageDigest = "sha256:a2bc64cb516f22c3cc71e7c0ed0b48f618ee125344b28b5ea3be9859a8fe622c"
 $env:LETS_PRODUCTION_ACCEPTANCE_IMAGE = "$imageName@$imageDigest"
 uv run --frozen python deploy/production/run_acceptance.py
 ```

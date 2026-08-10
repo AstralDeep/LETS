@@ -66,6 +66,9 @@ image together; the Git tag is the package version prefixed with `v`.
   Restart duration and clipped start/end are recomputed from the exact workload origin and
   measurement window. Reconstructed decimal durations use the declared two-millisecond evidence
   tolerance instead of brittle serialized-float equality.
+- Made the deployment archive content-addressed rather than commit-header-addressed. Release
+  packaging now archives the exact Git tree with the declared `SOURCE_DATE_EPOCH`, so a paper-only
+  commit cannot alter the operator bundle when every bundled byte is unchanged.
 - Made warden and protected-executor authority recovery symmetric and fail closed. Only a
   well-formed, typed helper-transport failure after successful admission can recover on a later
   explicit transaction after its bounded cooldown; the failed call is never retried internally.
