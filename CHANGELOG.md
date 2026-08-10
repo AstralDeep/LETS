@@ -60,6 +60,12 @@ image together; the Git tag is the package version prefixed with `v`.
   and throughput relationships from raw soak evidence. A forged or truncated workload record, a
   sampler failure, or a mismatch between the evaluator and release verifier remains
   non-promotable.
+- Corrected the independent release verifier's combined pause accounting. Exact planned-restart
+  quiescence now contributes to both workload-paused and authorized-paused totals, may not overlap
+  a partition pause, and binds the in-container resume timestamp under both retained field names.
+  Restart duration and clipped start/end are recomputed from the exact workload origin and
+  measurement window. Reconstructed decimal durations use the declared two-millisecond evidence
+  tolerance instead of brittle serialized-float equality.
 - Made warden and protected-executor authority recovery symmetric and fail closed. Only a
   well-formed, typed helper-transport failure after successful admission can recover on a later
   explicit transaction after its bounded cooldown; the failed call is never retried internally.

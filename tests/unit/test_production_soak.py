@@ -2040,6 +2040,7 @@ def _restart_record(*, service: str = "warden-a", episode: int = 0) -> dict[str,
         "host_resume_completed_monotonic_seconds": host_time(1_011.8),
         "host_resume_started_monotonic_seconds": host_time(1_011.6),
         "marker": pause_identity,
+        "resume_requested_monotonic_seconds": workload_time(128.0),
         "workload_resume_requested_monotonic_seconds": workload_time(128.0),
     }
     return {
@@ -2099,6 +2100,8 @@ def _restart_quiescence_interval(restart: dict[str, Any]) -> dict[str, Any]:
         **marker,
         "duration_seconds": round(resumed - observed, 6),
         "measurement_clipped_duration_seconds": round(resumed - observed, 6),
+        "measurement_clipped_end_elapsed_seconds": round(resumed - 100.0, 6),
+        "measurement_clipped_start_elapsed_seconds": round(observed - 100.0, 6),
         "observed_elapsed_seconds": round(observed - 100.0, 6),
         "observed_monotonic_seconds": observed,
         "resumed_elapsed_seconds": round(resumed - 100.0, 6),
@@ -2109,10 +2112,12 @@ def _restart_quiescence_interval(restart: dict[str, Any]) -> dict[str, Any]:
 def _evaluate_restart_records(
     restarts: list[dict[str, Any]],
     *,
+    measurement_window_seconds: float = 120.0,
     workload_started_monotonic: float = 100.0,
 ) -> dict[str, Any]:
     return evaluate_restart_evidence(
         restarts,
+        measurement_window_seconds=measurement_window_seconds,
         restart_quiescence_intervals=[
             _restart_quiescence_interval(restart) for restart in restarts
         ],
@@ -2280,6 +2285,8 @@ def _pause_binding(
         "duration_seconds": 15.0,
         "episode": 0,
         "measurement_clipped_duration_seconds": 15.0,
+        "measurement_clipped_end_elapsed_seconds": 20.0,
+        "measurement_clipped_start_elapsed_seconds": 5.0,
         "observed_elapsed_seconds": 5.0,
         "observed_monotonic_seconds": 105.0,
         "pause_id": "pause-0",
@@ -2337,6 +2344,7 @@ def _pause_binding(
                 "host_resume_completed_monotonic_seconds": 1_012.5,
                 "host_resume_started_monotonic_seconds": 1_012.0,
                 "marker": marker,
+                "resume_requested_monotonic_seconds": 119.5,
                 "workload_resume_requested_monotonic_seconds": 119.5,
             },
         }
@@ -2358,6 +2366,19 @@ def test_pause_evidence_uses_exact_token_bound_workload_clock_bridge() -> None:
     assert evidence["authorized_paused_seconds"] == 11.0
     assert evidence["active_workload_seconds"] == 109.0
 
+    partitions[0]["workload_coordination"]["resume_requested_monotonic_seconds"] = 119.6
+    assert (
+        evaluate_pause_evidence(
+            result,
+            configuration=configuration,
+            partitions=partitions,
+            restart_evidence=_evaluate_restart_records([]),
+            workload_start=_workload_start(result, configuration),
+        )["passed"]
+        is False
+    )
+
+    partitions = _pause_binding(result, configuration=configuration)
     partitions[0]["workload_coordination"]["pause_id"] = "swapped-token"
     assert (
         evaluate_pause_evidence(
@@ -2495,6 +2516,30 @@ def test_restart_evidence_requires_exact_ack_lifecycle_and_bounded_recovery() ->
     ):
         document["episode"] = 0.0
     assert _evaluate_restart_records([restart])["passed"] is False
+
+    for mutation in ("missing", "divergent", "extra"):
+        restart = _restart_record()
+        quiescence = restart["workload_coordination"]["quiescence"]
+        if mutation == "missing":
+            quiescence.pop("resume_requested_monotonic_seconds")
+        elif mutation == "divergent":
+            quiescence["resume_requested_monotonic_seconds"] += 0.001
+        else:
+            quiescence["unexpected"] = True
+        assert _evaluate_restart_records([restart])["passed"] is False
+
+    restart = _restart_record()
+    forged_interval = _restart_quiescence_interval(restart)
+    forged_interval["measurement_clipped_duration_seconds"] += 1.0
+    assert (
+        evaluate_restart_evidence(
+            [restart],
+            measurement_window_seconds=120.0,
+            restart_quiescence_intervals=[forged_interval],
+            workload_started_monotonic=100.0,
+        )["passed"]
+        is False
+    )
 
 
 def test_restart_evidence_rejects_pre_origin_and_overlapping_host_operations() -> None:

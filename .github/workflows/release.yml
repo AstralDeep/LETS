@@ -1559,6 +1559,7 @@ jobs:
                       "host_request_started_monotonic_seconds",
                       "host_resume_completed_monotonic_seconds",
                       "host_resume_started_monotonic_seconds", "marker",
+                      "resume_requested_monotonic_seconds",
                       "workload_resume_requested_monotonic_seconds",
                   }
                   interval_fields = pause_identity | {
@@ -1574,9 +1575,20 @@ jobs:
                   q_end = quiescence.get("authorized_end")
                   q_observed = workload_quiescence.get("observed_monotonic_seconds")
                   q_resumed = workload_quiescence.get("resumed_monotonic_seconds")
+                  q_duration = workload_quiescence.get("duration_seconds")
                   q_clipped = workload_quiescence.get(
                       "measurement_clipped_duration_seconds"
                   )
+                  q_clipped_end = workload_quiescence.get(
+                      "measurement_clipped_end_elapsed_seconds"
+                  )
+                  q_clipped_start = workload_quiescence.get(
+                      "measurement_clipped_start_elapsed_seconds"
+                  )
+                  q_observed_elapsed = workload_quiescence.get(
+                      "observed_elapsed_seconds"
+                  )
+                  q_resumed_elapsed = workload_quiescence.get("resumed_elapsed_seconds")
                   quiescence_valid = (
                       set(quiescence) == quiescence_fields
                       and set(workload_quiescence) == interval_fields
@@ -1615,11 +1627,44 @@ jobs:
                       and all(
                           finite_number(value)
                           for value in (
-                              q_observed, q_resumed, q_clipped,
+                              q_observed, q_resumed, q_duration, q_clipped,
+                              q_clipped_end, q_clipped_start,
+                              q_observed_elapsed, q_resumed_elapsed,
                               q_start.get("authorized_start_monotonic_seconds"),
                               q_end.get("authorized_end_monotonic_seconds"),
+                              quiescence.get("resume_requested_monotonic_seconds"),
                               quiescence.get("workload_resume_requested_monotonic_seconds"),
                           )
+                      )
+                      and quiescence.get("resume_requested_monotonic_seconds")
+                      == quiescence.get("workload_resume_requested_monotonic_seconds")
+                      and float(q_observed)
+                      >= float(workload_start["started_monotonic_seconds"])
+                      and close_number(
+                          q_duration,
+                          float(q_resumed) - float(q_observed),
+                      )
+                      and close_number(
+                          q_observed_elapsed,
+                          float(q_observed)
+                          - float(workload_start["started_monotonic_seconds"]),
+                      )
+                      and close_number(
+                          q_resumed_elapsed,
+                          float(q_resumed)
+                          - float(workload_start["started_monotonic_seconds"]),
+                      )
+                      and close_number(
+                          q_clipped_start,
+                          max(0.0, min(configured_duration, float(q_observed_elapsed))),
+                      )
+                      and close_number(
+                          q_clipped_end,
+                          max(0.0, min(configured_duration, float(q_resumed_elapsed))),
+                      )
+                      and close_number(
+                          q_clipped,
+                          max(0.0, float(q_clipped_end) - float(q_clipped_start)),
                       )
                       and float(q_marker["requested_monotonic_seconds"])
                       <= float(q_observed)
@@ -1633,20 +1678,6 @@ jobs:
                       <= float(quiescence["workload_resume_requested_monotonic_seconds"])
                       <= float(q_resumed)
                       and float(q_observed) >= prior_restart_quiescence_end
-                      and close_number(
-                          workload_quiescence.get("duration_seconds"),
-                          float(q_resumed) - float(q_observed),
-                      )
-                      and close_number(
-                          workload_quiescence.get("observed_elapsed_seconds"),
-                          float(q_observed)
-                          - float(workload_start["started_monotonic_seconds"]),
-                      )
-                      and close_number(
-                          workload_quiescence.get("resumed_elapsed_seconds"),
-                          float(q_resumed)
-                          - float(workload_start["started_monotonic_seconds"]),
-                      )
                       and 0 <= float(q_clipped)
                       <= float(q_resumed) - float(q_observed) + 0.002
                       and all(
@@ -1816,6 +1847,7 @@ jobs:
               and workload.get("pause_interval_count")
               == len(pause_intervals)
               == len(partitions)
+              and raw_restart_valid
               and close_number(
                   workload.get("measurement_window_seconds"),
                   configuration.get("duration_seconds"),
@@ -1894,12 +1926,18 @@ jobs:
                       coordination.get("host_acknowledged_monotonic_seconds"),
                       coordination.get("host_resume_started_monotonic_seconds"),
                       coordination.get("host_resume_completed_monotonic_seconds"),
+                      coordination.get("resume_requested_monotonic_seconds"),
                       coordination.get("workload_resume_requested_monotonic_seconds"),
                       coordination.get("host_pause_duration_seconds"),
                       partition.get("disabled_monotonic_seconds"),
                       partition.get("restored_monotonic_seconds"),
                   )
-                  if not identity_valid or not all(finite_number(value) for value in numeric):
+                  if (
+                      not identity_valid
+                      or not all(finite_number(value) for value in numeric)
+                      or coordination.get("resume_requested_monotonic_seconds")
+                      != coordination.get("workload_resume_requested_monotonic_seconds")
+                  ):
                       raw_pause_valid = False
                       continue
                   requested = float(pause["requested_monotonic_seconds"])
@@ -1993,10 +2031,65 @@ jobs:
                           "workload_clipped_pause_seconds": round(clipped_pause, 6),
                       }
                   )
+          combined_pause_intervals = sorted(
+              [*pause_intervals, *restart_quiescence_intervals],
+              key=lambda item: (
+                  float(item.get("observed_monotonic_seconds", math.inf))
+                  if isinstance(item, dict)
+                  and finite_number(item.get("observed_monotonic_seconds"))
+                  else math.inf
+              ),
+          )
+          combined_pause_valid = all(
+              isinstance(item, dict)
+              and finite_number(item.get("observed_monotonic_seconds"))
+              and finite_number(item.get("resumed_monotonic_seconds"))
+              for item in combined_pause_intervals
+          ) and all(
+              float(right["observed_monotonic_seconds"])
+              >= float(left["resumed_monotonic_seconds"])
+              for left, right in zip(
+                  combined_pause_intervals,
+                  combined_pause_intervals[1:],
+                  strict=False,
+              )
+          )
+          workload_pause_seconds += restart_quiesced_seconds
+          authorized_pause_seconds += restart_quiesced_seconds
           active_seconds = configured_duration - authorized_pause_seconds
           pause_metrics = workload_metrics.get("pause_evidence", {})
+          claimed_pause_bindings = (
+              pause_metrics.get("bindings") if isinstance(pause_metrics, dict) else None
+          )
+          pause_binding_fields = {
+              "authorized_pause_seconds", "episode", "host_pause_seconds", "pause_id",
+              "workload_authorized_clipped_pause_seconds",
+              "workload_clipped_pause_seconds",
+          }
+          pause_bindings_valid = (
+              isinstance(claimed_pause_bindings, list)
+              and len(claimed_pause_bindings) == len(raw_pause_bindings)
+              and all(
+                  isinstance(claimed, dict)
+                  and set(claimed) == pause_binding_fields
+                  and type(claimed.get("episode")) is int
+                  and claimed.get("episode") == raw.get("episode")
+                  and isinstance(claimed.get("pause_id"), str)
+                  and claimed.get("pause_id") == raw.get("pause_id")
+                  and all(
+                      close_number(claimed.get(field_name), raw.get(field_name))
+                      for field_name in pause_binding_fields - {"episode", "pause_id"}
+                  )
+                  for claimed, raw in zip(
+                      claimed_pause_bindings,
+                      raw_pause_bindings,
+                      strict=True,
+                  )
+              )
+          )
           raw_pause_valid = (
               raw_pause_valid
+              and combined_pause_valid
               and active_seconds >= 0
               and close_number(workload.get("paused_workload_seconds"), workload_pause_seconds)
               and close_number(
@@ -2005,7 +2098,7 @@ jobs:
               )
               and isinstance(pause_metrics, dict)
               and pause_metrics.get("passed") is True
-              and pause_metrics.get("bindings") == raw_pause_bindings
+              and pause_bindings_valid
               and close_number(
                   pause_metrics.get("authorized_paused_seconds"),
                   authorized_pause_seconds,

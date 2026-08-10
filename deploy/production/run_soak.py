@@ -1601,6 +1601,7 @@ def _executor_checkpoint_stable_identity(value: dict[str, Any]) -> tuple[object,
 def evaluate_restart_evidence(
     restarts: object,
     *,
+    measurement_window_seconds: float,
     restart_quiescence_intervals: object,
     workload_started_monotonic: float,
 ) -> dict[str, Any]:
@@ -1610,6 +1611,8 @@ def evaluate_restart_evidence(
         not isinstance(restarts, list)
         or not isinstance(restart_quiescence_intervals, list)
         or len(restart_quiescence_intervals) != len(restarts)
+        or not _finite_number(measurement_window_seconds)
+        or measurement_window_seconds <= 0
         or not _finite_number(workload_started_monotonic)
     ):
         return {"passed": False, "reason": "missing restart evidence"}
@@ -1860,14 +1863,61 @@ def evaluate_restart_evidence(
             "restart_id",
             "service",
         )
+        pause_identity_fields = set(pause_identity)
+        quiescence_fields = pause_identity_fields | {
+            "acknowledgement",
+            "authorized_end",
+            "authorized_start",
+            "host_acknowledged_monotonic_seconds",
+            "host_request_started_monotonic_seconds",
+            "host_resume_completed_monotonic_seconds",
+            "host_resume_started_monotonic_seconds",
+            "marker",
+            "resume_requested_monotonic_seconds",
+            "workload_resume_requested_monotonic_seconds",
+        }
+        interval_fields = pause_identity_fields | {
+            "duration_seconds",
+            "measurement_clipped_duration_seconds",
+            "measurement_clipped_end_elapsed_seconds",
+            "measurement_clipped_start_elapsed_seconds",
+            "observed_elapsed_seconds",
+            "observed_monotonic_seconds",
+            "resumed_elapsed_seconds",
+            "resumed_monotonic_seconds",
+        }
         q_observed = workload_quiescence.get("observed_monotonic_seconds")
         q_resumed = workload_quiescence.get("resumed_monotonic_seconds")
+        q_duration = workload_quiescence.get("duration_seconds")
         q_clipped = workload_quiescence.get("measurement_clipped_duration_seconds")
+        q_clipped_end = workload_quiescence.get("measurement_clipped_end_elapsed_seconds")
+        q_clipped_start = workload_quiescence.get("measurement_clipped_start_elapsed_seconds")
+        q_observed_elapsed = workload_quiescence.get("observed_elapsed_seconds")
+        q_resumed_elapsed = workload_quiescence.get("resumed_elapsed_seconds")
         q_authorized_start = q_start.get("authorized_start_monotonic_seconds")
         q_authorized_end = q_end.get("authorized_end_monotonic_seconds")
+        q_boundary_resume_requested = quiescence.get("resume_requested_monotonic_seconds")
         q_resume_requested = quiescence.get("workload_resume_requested_monotonic_seconds")
         if (
-            any(q_ack.get(key) != q_marker.get(key) for key in pause_identity)
+            set(quiescence) != quiescence_fields
+            or set(workload_quiescence) != interval_fields
+            or set(q_marker) != pause_identity_fields
+            or set(q_ack) != pause_identity_fields | {"observed_monotonic_seconds", "paused"}
+            or set(q_start)
+            != pause_identity_fields
+            | {
+                "authorized_start_monotonic_seconds",
+                "host_boundary_completed_monotonic_seconds",
+                "host_boundary_started_monotonic_seconds",
+            }
+            or set(q_end)
+            != pause_identity_fields
+            | {
+                "authorized_end_monotonic_seconds",
+                "host_boundary_completed_monotonic_seconds",
+                "host_boundary_started_monotonic_seconds",
+            }
+            or any(q_ack.get(key) != q_marker.get(key) for key in pause_identity)
             or any(q_start.get(key) != q_marker.get(key) for key in pause_identity)
             or any(q_end.get(key) != q_marker.get(key) for key in pause_identity)
             or any(workload_quiescence.get(key) != q_marker.get(key) for key in pause_identity)
@@ -1884,12 +1934,66 @@ def evaluate_restart_evidence(
                 for item in (
                     q_observed,
                     q_resumed,
+                    q_duration,
                     q_clipped,
+                    q_clipped_end,
+                    q_clipped_start,
+                    q_observed_elapsed,
+                    q_resumed_elapsed,
                     q_authorized_start,
                     q_authorized_end,
+                    q_boundary_resume_requested,
                     q_resume_requested,
                 )
             )
+            or q_boundary_resume_requested != q_resume_requested
+            or float(cast(int | float, q_observed)) < workload_started_monotonic
+            or abs(
+                float(cast(int | float, q_duration))
+                - (float(cast(int | float, q_resumed)) - float(cast(int | float, q_observed)))
+            )
+            > 0.002
+            or abs(
+                float(cast(int | float, q_observed_elapsed))
+                - (float(cast(int | float, q_observed)) - workload_started_monotonic)
+            )
+            > 0.002
+            or abs(
+                float(cast(int | float, q_resumed_elapsed))
+                - (float(cast(int | float, q_resumed)) - workload_started_monotonic)
+            )
+            > 0.002
+            or abs(
+                float(cast(int | float, q_clipped_start))
+                - max(
+                    0.0,
+                    min(
+                        measurement_window_seconds,
+                        float(cast(int | float, q_observed_elapsed)),
+                    ),
+                )
+            )
+            > 0.002
+            or abs(
+                float(cast(int | float, q_clipped_end))
+                - max(
+                    0.0,
+                    min(
+                        measurement_window_seconds,
+                        float(cast(int | float, q_resumed_elapsed)),
+                    ),
+                )
+            )
+            > 0.002
+            or abs(
+                float(cast(int | float, q_clipped))
+                - max(
+                    0.0,
+                    float(cast(int | float, q_clipped_end))
+                    - float(cast(int | float, q_clipped_start)),
+                )
+            )
+            > 0.002
             or not float(q_marker["requested_monotonic_seconds"])
             <= float(cast(int | float, q_observed))
             <= float(cast(int | float, q_authorized_start))
@@ -2447,12 +2551,18 @@ def evaluate_pause_evidence(
             coordination.get("host_resume_completed_monotonic_seconds"),
             typed_end.get("host_boundary_started_monotonic_seconds"),
             typed_end.get("host_boundary_completed_monotonic_seconds"),
+            coordination.get("resume_requested_monotonic_seconds"),
             coordination.get("workload_resume_requested_monotonic_seconds"),
             coordination.get("host_pause_duration_seconds"),
             partition.get("disabled_monotonic_seconds"),
             partition.get("restored_monotonic_seconds"),
         )
-        if not identity_matches or not all(_finite_number(value) for value in numeric_fields):
+        if (
+            not identity_matches
+            or not all(_finite_number(value) for value in numeric_fields)
+            or coordination.get("resume_requested_monotonic_seconds")
+            != coordination.get("workload_resume_requested_monotonic_seconds")
+        ):
             return {"passed": False, "reason": "pause token or timing is invalid"}
         observed = float(pause["observed_monotonic_seconds"])
         resumed = float(pause["resumed_monotonic_seconds"])
@@ -3281,6 +3391,7 @@ def evaluate_workload_result(
     workload_started = result.get("started_monotonic_seconds")
     restart_evidence = evaluate_restart_evidence(
         restarts,
+        measurement_window_seconds=configuration.duration_seconds,
         restart_quiescence_intervals=result.get("restart_quiescence_intervals"),
         workload_started_monotonic=(
             float(workload_started) if _finite_number(workload_started) else math.nan
