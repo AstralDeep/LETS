@@ -726,7 +726,15 @@ def create_app(
             raise PolicyError("authority status read scope is required")
         if authority_status_provider is None:
             raise ServiceMethodUnavailableError("authority status is not configured")
-        value = await run_in_threadpool(authority_status_provider)
+        value: object
+        if inspect.iscoroutinefunction(authority_status_provider):
+            async_provider = cast(
+                Callable[[], Awaitable[Mapping[str, object]]], authority_status_provider
+            )
+            value = await async_provider()
+        else:
+            sync_provider = cast(Callable[[], object], authority_status_provider)
+            value = await run_in_threadpool(sync_provider)
         if inspect.isawaitable(value):
             value = await value
         if not isinstance(value, Mapping):

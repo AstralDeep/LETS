@@ -75,6 +75,29 @@ image together; the Git tag is the package version prefixed with `v`.
   promoted or released, and no package or final OCI release tag was published. This is not passing
   soak evidence and does not authorize promotion. It motivated the typed transport recovery and
   terminal-lifetime proof above, which still require a fresh mandatory exact-candidate soak.
+- A second unpublished exact candidate, commit
+  `9c8536ff36e5308ec5a10f262cbe0876744cc73c`, passed production acceptance in 54.049 seconds;
+  `results/generated/production-profile-acceptance-v105-9c8536f-final.json` has raw SHA-256
+  `dba4f029e6bb0043f0beca532fe9af48ccbe9cc90eccfbfccf6a2007198c37f4`. Its soak failed
+  after 111.114 seconds, with 75.184322 workload seconds and 14 cycles completed before any
+  partition or restart. The retained raw failed record
+  `results/generated/production-profile-soak-v105-9c8536f-final-failure.json` has SHA-256
+  `85a596e136fde912f5671c7d3d24e679c50b7593bb63b5e6e4d0b8c2aae07722`; its canonical
+  payload is `sha256:203316f62bf23c707e1fea4f7203cb1e8fb5cdb75f0a34e8ae1ee484f916ffea`.
+  Health sample 7 was scheduled at 70 seconds, started at 70.000234, and had an exact
+  75.055772-second deadline. Metrics had already returned a healthy authority document, but the
+  then-redundant direct authority-status request could not complete within the remainder of that
+  approximately 5.055-second sample window. This was consistent with a status path structurally
+  coupled to the SQLite authority transaction lock; deterministic local reproduction confirmed
+  that coupling. The separate failure diagnostic immediately returned the same healthy lifetime
+  `12f8192cbf6b560e7df5182c260bdc73` in 108.854 milliseconds with zero transport faults,
+  episodes, attempts, recoveries, unresolved faults, or permanent faults. The recorded retry count
+  of one described that retryable first-request failure even though no extra HTTP attempt fit the
+  deadline; 1.0.5 now counts only actual additional attempts. This was observability contention,
+  not an authority-anchor fault or a chaos/resource failure. Cleanup proved zero remaining
+  containers, networks, and volumes. The record is failure diagnostics only: the candidate was
+  not promoted or released; no Git tag, package, or final OCI release tag was published, and a
+  fresh exact-candidate soak remains mandatory.
 - Carries forward every 1.0.1 through 1.0.4 candidate change, including the pre-authentication body
   deadline, exact-candidate sustained soak, cgroup-v2 resource proof, bounded audit-BUSY recovery,
   serialized SQLite recovery, the bounded production peer deadline, full convergence budget, and

@@ -98,6 +98,13 @@ inside that prior 15-second cadence; the first validated post-completion observa
 15 seconds, and the marker identity must bind all three records. Every old and replacement
 authority lifetime receives an exact terminal status, and every other node remains continuously
 observed. Missed monitor deadlines, monitor errors, or retained-sample truncation fail the soak.
+Each successful node observation makes only the invariant, audit-verification, and metrics
+requests, and validates the coherent last-completed authority snapshot already embedded in that
+metrics response. The dedicated authority-status endpoint remains available for bounded failure
+diagnostics, controlled restarts, and terminal verification, but is not redundantly called on the
+healthy cadence path. Recorded request retries count actual additional HTTP attempts beyond the
+first; a retryable first-request failure that exhausts the shared deadline retains its first/last
+error evidence but contributes zero retries.
 
 The executor harness deliberately injects one fault after its SQLite claim `COMMIT` and after the
 external CAS durably succeeds, then reports the outcome as a classified lost reply. The original

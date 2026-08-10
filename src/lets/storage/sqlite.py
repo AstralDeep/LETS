@@ -11,6 +11,7 @@ import time
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
 from contextvars import ContextVar
+from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -1808,6 +1809,9 @@ class SQLiteStorage:
         self._authority_fence_id: str | None = None
         self._authority_fence_snapshot: bytes | None = None
         self._authority_fenced_at_monotonic_ns: int | None = None
+        self._authority_status_lock = threading.Lock()
+        self._authority_status_snapshot: dict[str, object] = {}
+        self._publish_authority_anchor_status()
         self._min_free_disk_bytes = _nonnegative_integer(min_free_disk_bytes, "min_free_disk_bytes")
         self._max_database_bytes = (
             None
@@ -2606,6 +2610,7 @@ class SQLiteStorage:
             self._authority_anchor_transport_recovery_attempts = self._saturating_increment(
                 self._authority_anchor_transport_recovery_attempts
             )
+            self._publish_authority_anchor_status()
             try:
                 checkpoint = self._authority_checkpoint(connection, metadata)
                 durable_confirm = (
@@ -2647,6 +2652,7 @@ class SQLiteStorage:
             self._authority_anchor_mutation_uncertain = False
             self._authority_anchor_backoff_index = 0
             self._authority_anchor_startup_confirm_pending = False
+            self._publish_authority_anchor_status()
             return
 
         try:
@@ -2749,6 +2755,7 @@ class SQLiteStorage:
                 "helper_pid": self._bounded_helper_value(exc.helper_pid, positive=True),
                 "helper_exit_code": self._bounded_helper_value(exc.helper_exit_code),
             }
+        self._publish_authority_anchor_status()
 
     def _promote_authority_permanent_fault(self, *, stage: str, reason: str) -> None:
         if self._authority_anchor_state != "permanent_fault":
@@ -2759,6 +2766,7 @@ class SQLiteStorage:
         self._authority_anchor_fault_stage = stage
         self._authority_anchor_fault_reason = reason
         self._authority_anchor_retry_not_before_monotonic_ns = None
+        self._publish_authority_anchor_status()
 
     def _install_capacity_limits(self, connection: sqlite3.Connection) -> None:
         """Install the logical main-database ceiling on every connection.
@@ -3059,13 +3067,13 @@ class SQLiteStorage:
 
     @property
     def authority_anchor_enabled(self) -> bool:
-        return self._authority_anchor is not None
+        return cast(bool, self.authority_anchor_status()["enabled"])
 
     @property
     def authority_anchor_healthy(self) -> bool:
-        return self._authority_anchor is not None and self._authority_anchor_state == "healthy"
+        return cast(bool, self.authority_anchor_status()["healthy"])
 
-    def _authority_anchor_status_unlocked(self) -> dict[str, object]:
+    def _build_authority_anchor_status(self) -> dict[str, object]:
         return {
             "enabled": self._authority_anchor is not None,
             "state": self._authority_anchor_state,
@@ -3093,11 +3101,17 @@ class SQLiteStorage:
             ),
         }
 
-    def authority_anchor_status(self) -> dict[str, object]:
-        """Return bounded monotonic core-anchor state for authenticated metrics."""
+    def _publish_authority_anchor_status(self) -> None:
+        snapshot = deepcopy(self._build_authority_anchor_status())
+        with self._authority_status_lock:
+            self._authority_status_snapshot = snapshot
 
-        with self._authority_transaction_lock:
-            return self._authority_anchor_status_unlocked()
+    def authority_anchor_status(self) -> dict[str, object]:
+        """Return the last completed bounded core-anchor state without storage admission."""
+
+        with self._authority_status_lock:
+            snapshot = self._authority_status_snapshot
+        return deepcopy(snapshot)
 
     def fence_authority_admission(
         self,
@@ -3140,7 +3154,8 @@ class SQLiteStorage:
             self._authority_fence_id = checked_restart
             self._authority_fenced_at_monotonic_ns = fenced_at
             self._authority_admission_fenced = True
-            terminal_status = self._authority_anchor_status_unlocked()
+            self._publish_authority_anchor_status()
+            terminal_status = self.authority_anchor_status()
             response: dict[str, object] = {
                 "schema": "lets.authority-admission-fence/v1",
                 "restart_id": checked_restart,

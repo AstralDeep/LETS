@@ -3372,7 +3372,7 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                     expected_lifetime_id=expected_lifetime_id,
                 )
 
-            def authority_status() -> dict[str, object]:
+            async def authority_status() -> dict[str, object]:
                 return store.authority_anchor_status()
 
             app = create_app(

@@ -235,11 +235,14 @@ correlation and `confirm`; never pair a pre-1.0.5 helper executable with a 1.0.5
 
 Authenticated metrics include the bounded `authority_anchor` state and counters. Operators with
 `lets.admin`, `lets.warden.admin`, or `lets.metrics.read` may read the same snapshot from
-`GET /v1/maintenance/authority-status`. `POST /v1/maintenance/authority-fence` is admin-only: it
-atomically snapshots the exact warden/PID/lifetime and permanently stops new authority transactions
-for that process lifetime. It is idempotent only for the same `restart_id` and
-`expected_lifetime_id`; a different identity conflicts. This endpoint is for host-orchestrated
-replacement after traffic is already removed, not a general un-fence mechanism.
+`GET /v1/maintenance/authority-status`. That endpoint performs no SQLite or authority-admission
+work: it deep-copies the most recently completed status published through a separate snapshot
+lock. While a reconcile is in progress it may show the prior complete state. The admin-only
+`POST /v1/maintenance/authority-fence` remains the exact terminal barrier: it atomically publishes
+the fenced warden/PID/lifetime status and permanently stops new authority transactions for that
+process lifetime. It is idempotent only for the same `restart_id` and `expected_lifetime_id`; a
+different identity conflicts. This endpoint is for host-orchestrated replacement after traffic is
+already removed, not a general un-fence mechanism.
 
 The supplied 1 GiB profile defaults to 64 concurrent requests. Raise that only after a
 representative TLS, signer, SQLite, audit-export, and partition-recovery load test demonstrates
