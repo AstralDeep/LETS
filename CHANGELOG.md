@@ -14,6 +14,23 @@ image together; the Git tag is the package version prefixed with `v`.
   observation timing, shares one fail-closed audit-error budget for the whole run, and makes a
   missed exporter-stall deadline a release failure instead of allowing a later healthy response
   to hide the evidence gap.
+- Replaced lock-coupled production health reads with one authority-safe observation publisher per
+  node. Each immutable snapshot is built from a single bounded, priority-reserved transaction,
+  binds the authority checkpoint, database identity, trusted clock, invariant, audit verifier,
+  peer dispatcher, and exporter state, and is published only after reconciliation succeeds.
+  Authenticated metrics and readiness serve that cache directly on the async path with no SQLite,
+  helper, audit scan, or shared worker-pool admission; staleness or a capture error fails readiness
+  closed. The soak now retains and independently verifies exactly one raw snapshot request per node
+  and sample.
+- Split each planned process replacement into a bounded two-stage protocol. The workload first
+  quiesces at a request boundary, the host validates an exact terminal audit-and-authority fence
+  plus an unchanged container identity, and only then writes the durable in-container
+  acknowledgement that starts the 30-second replacement window. Lost responses are reconciled by
+  digest and no `SIGKILL` occurs before the exact fence and acknowledgement are durable.
+- Made failure evidence survive every pause, monitor, final-verification, and workload-exit path.
+  The workload publishes a bounded monotone journal; the host harvests and hashes workload,
+  coordination, diagnostics, and resource records before Compose cleanup; and the primary error
+  cannot be replaced by serialization, stdout, or secondary diagnostic failures.
 - Replaced the infeasible fixed 300-cycle and coupled 301-health-sample release floors with
   independently verifiable evidence contracts. Workload adequacy is derived from host-bound
   authorized active time at a bounded 15-second-per-cycle rate and requires three complete
@@ -98,6 +115,39 @@ image together; the Git tag is the package version prefixed with `v`.
   containers, networks, and volumes. The record is failure diagnostics only: the candidate was
   not promoted or released; no Git tag, package, or final OCI release tag was published, and a
   fresh exact-candidate soak remains mandatory.
+- A third unpublished exact candidate, commit
+  `1ad8a856d8ecdd179b20502f83fbae10e1b2cbdd`, passed production acceptance in 69.401 seconds
+  against local index
+  `sha256:ed66f5b855f3d5d793d103c75ced681f85d63e68ac576782207ea70a2d4a8b7d`;
+  its retained acceptance record has raw SHA-256
+  `e1fa1654cbcebd1e6705801f6d46d4c7c98184cb8b4f6229d07f4cf7f1de5740`.
+  The sole soak failed after 134.258 recorded seconds and 15 cycles, before any partition or
+  restart, when `warden-a`'s lock-coupled `/v1/metrics` request timed out while concurrent
+  workload traffic on that node continued. The retained raw failed record has SHA-256
+  `b29dd213b24277322e448b912f349dad6208e0f5a63b923639b471be9c202ec8`; its canonical payload is
+  `sha256:da2c19e8fc47ca208efe696b9e7e0266f2a9c3ab0a618a471f9873c7890bc6d0`.
+  Cleanup proved zero remaining containers, networks, and volumes. The observation publisher and
+  pre-cleanup failure harvest above close the proven structural liveness and evidence gaps; this
+  record remains failure diagnostics only and does not authorize promotion.
+- A fourth unpublished exact candidate, commit
+  `49ec769562aac47f2a5c84861028ac535fe5bd26`, passed production acceptance in 41.918 seconds
+  against local amd64 manifest
+  `sha256:54fbd32c4db29174ef0f1dcc03c9e19aeeb98b85a75dd1b2769bb6b3e401ec24`.
+  Its retained acceptance record has raw SHA-256
+  `496f94a72fd29103daf6e317a9f58a9c57855b0b101eb020661e6f40cd945c34`.
+  The sole soak then failed after 242.295 seconds, 37 cycles, 22 completed health samples, and two
+  partition episodes with no restart. Sample 22 was scheduled at 220 seconds and returned a
+  schema-valid `service_ready=true`, `peer_healthy=false`, `ready=false` observation; a redundant
+  sampler check incorrectly recomputed aggregate readiness from exporter health alone and rejected
+  the document. The raw failed record has SHA-256
+  `80d066f61dcf641a01290473914f00044061590dddbd0447765c9f6c2cdf2b09`; its canonical payload is
+  `sha256:8d60b9631589f6b68ba13c06b9799ac129abd1477549b2e78819d5fe481b8446`.
+  A secondary diagnostic also proved that the workload's strict journal reader rejected the valid
+  finite interval `0.5`. Version 1.0.5 now uses the same exporter-and-peer readiness equation as
+  the producer, retains the failed raw request document, and reads generated workload evidence
+  through a byte-bounded duplicate-safe finite-number parser. Cleanup again proved zero remaining
+  containers, networks, and volumes. This is not passing soak evidence; a fresh source candidate
+  remains mandatory before release.
 - Carries forward every 1.0.1 through 1.0.4 candidate change, including the pre-authentication body
   deadline, exact-candidate sustained soak, cgroup-v2 resource proof, bounded audit-BUSY recovery,
   serialized SQLite recovery, the bounded production peer deadline, full convergence budget, and
