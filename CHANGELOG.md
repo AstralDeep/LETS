@@ -148,6 +148,27 @@ image together; the Git tag is the package version prefixed with `v`.
   through a byte-bounded duplicate-safe finite-number parser. Cleanup again proved zero remaining
   containers, networks, and volumes. This is not passing soak evidence; a fresh source candidate
   remains mandatory before release.
+- A fifth unpublished exact candidate, commit
+  `cd59aa55ea2524e1cedeabd4e7524581b06d9294`, passed production acceptance in 36.106 seconds
+  against local amd64 manifest
+  `sha256:d1de187368323fae8876939a752887eecfa70cfd0056150ea4bc191c2c23bf9d`.
+  Its retained acceptance record has raw SHA-256
+  `9744aa94404b900f3426654d3efe0d6284337def3cd387c5aee529cac2e22b85`.
+  The sole soak failed after 1,434.076 seconds, 221 cycles, 141 completed health samples, 12
+  partition episodes, and one successful planned replacement. Sample 141 was scheduled at 1,410
+  seconds and rejected `warden-a` with "authority checkpoint did not extend its predecessor." The
+  raw failed record has SHA-256
+  `892bb1b7d5ddbef67ad2afe4badf1cf47fa611b24bfe149d5ddb2f485c78a800`; its canonical payload is
+  `sha256:a5298049710e2c40009b5100c5a265389423a272ad5bc4228e3484aaf831cbb1`.
+  The post-validation sample was discarded before journal publication, so the failed record does
+  not prove which checkpoint subfield triggered the generic message. Code audit nevertheless
+  found a concrete parity defect: sampler, host, and workflow required an unchanged state digest
+  whenever the warden-state revision matched, while the runtime authority CAS correctly permits a
+  digest change when a new audit head binds a runtime-control or replay-state change. Version 1.0.5
+  now mirrors the CAS rule—an unchanged audit head requires exact state revision and digest—and
+  retains any fully validated sample rejected by later cross-sample lineage checks. Cleanup proved
+  zero remaining containers, networks, and volumes. This is failure diagnostics only; a fresh
+  source candidate remains mandatory.
 - Carries forward every 1.0.1 through 1.0.4 candidate change, including the pre-authentication body
   deadline, exact-candidate sustained soak, cgroup-v2 resource proof, bounded audit-BUSY recovery,
   serialized SQLite recovery, the bounded production peer deadline, full convergence budget, and
