@@ -1311,17 +1311,22 @@ def test_security_workflow_has_fatal_scans_sboms_and_package_smoke() -> None:
         "exit-code: 1",
         "--read-only",
         "--cap-drop ALL",
-        "actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c",
-        "github.com/rhysd/actionlint/cmd/actionlint@v1.7.12",
-        "h1:vQ4GeJN86C0QH+gTUQcs8McmK62OLT3kmakPMtEWYnY=",
+        ".github/tools/actionlint_1.7.12_linux_amd64.tar.gz",
+        "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
         "moby/buildkit:buildx-stable-1@sha256:2f5adac4ecd194d9f8c10b7b5d7bceb5186853db1b26e5abd3a657af0b7e26ec",
         "_require_production_sqlite",
     ):
         assert required in workflow
     assert "rhysd/actionlint@sha256:" not in workflow
     assert "docker run --rm --volume" not in workflow
-    assert "timeout --signal=KILL 120s" in workflow
     assert workflow.count("--constraint requirements-audit.txt") == 2
+
+    actionlint_archive = REPOSITORY / ".github/tools/actionlint_1.7.12_linux_amd64.tar.gz"
+    assert actionlint_archive.is_file()
+    assert (
+        hashlib.sha256(actionlint_archive.read_bytes()).hexdigest()
+        == "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+    )
 
 
 def test_release_soak_verifier_full_heredoc_smokes_with_empty_globals(
