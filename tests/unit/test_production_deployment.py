@@ -1319,6 +1319,7 @@ def test_security_workflow_has_fatal_scans_sboms_and_package_smoke() -> None:
         assert required in workflow
     assert "rhysd/actionlint@sha256:" not in workflow
     assert "docker run --rm --volume" not in workflow
+    assert 'timeout --signal=KILL 30s "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes=' in workflow
     assert workflow.count("--constraint requirements-audit.txt") == 2
 
     actionlint_archive = REPOSITORY / ".github/tools/actionlint_1.7.12_linux_amd64.tar.gz"
