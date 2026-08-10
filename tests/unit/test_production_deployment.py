@@ -1768,6 +1768,51 @@ def test_release_soak_verifier_requires_exact_producer_audit_exporter_projection
     assert namespace["valid_observation_document"](document, node="warden-a") is False
 
 
+def test_release_soak_verifier_accepts_only_consistent_bounded_audit_catchup() -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    catchup = {
+        "archive_reconciled": False,
+        "healthy": False,
+        "last_error": None,
+        "last_success_ns": 50,
+        "oldest_pending_age_s": 2.0,
+        "pending": 5,
+        "stalled_for_s": 0.1,
+    }
+    snapshot["audit_exporter"].update(catchup)
+    snapshot["audit_outbox"] = {
+        "oldest_unpublished_age_ns": 2_000_000_000,
+        "unpublished_count": 5,
+    }
+    snapshot["ready"] = False
+    _reseal_release_observation(namespace, snapshot)
+
+    assert namespace["valid_audit_exporter_status"](snapshot["audit_exporter"]) is True
+    assert namespace["valid_observation_snapshot"](snapshot, node="warden-a") is True
+    assert (
+        namespace["valid_observation_document"](
+            _release_observation_document(snapshot),
+            node="warden-a",
+        )
+        is True
+    )
+
+    inconsistent_clean = copy.deepcopy(snapshot["audit_exporter"])
+    inconsistent_clean.update({"archive_reconciled": True, "healthy": False})
+    assert namespace["valid_audit_exporter_status"](inconsistent_clean) is False
+
+    inconsistent_fault = copy.deepcopy(snapshot["audit_exporter"])
+    inconsistent_fault.update(
+        {
+            "archive_reconciled": True,
+            "healthy": False,
+            "last_error": "StorageError:sqlite_busy",
+        }
+    )
+    assert namespace["valid_audit_exporter_status"](inconsistent_fault) is False
+
+
 def test_release_soak_verifier_enforces_observation_lineage() -> None:
     namespace = _release_soak_verifier_namespace()
     first = _release_observation(namespace, revision=1)

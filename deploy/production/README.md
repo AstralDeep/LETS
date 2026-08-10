@@ -355,6 +355,12 @@ for one bounded observation-publisher heartbeat before issuing its single metric
 node. This prevents a millisecond-separated duplicate request from falsely claiming a reused
 snapshot while still making a stalled or stale publisher fail closed inside the same deadline.
 
+Audit-exporter evidence uses one exact state rule in the producer, host evaluator, and release
+workflow: `healthy` is true only when `last_error` is absent and `archive_reconciled` is true. A
+clean exporter may report `archive_reconciled: false` while it drains a bounded pending archive;
+that is valid catch-up evidence but keeps the node unready. If `last_error` is retained, the archive
+must remain unreconciled. Inconsistent combinations fail raw-evidence validation.
+
 The machine record exposes this proof under `health_monitor`. It must report `status: passed`,
 `schedule: absolute_monotonic`, `joined: true`, `deadline_miss_count: 0`, equal
 `expected_sample_count`, `actual_sample_count`, and `retained_sample_count`,
