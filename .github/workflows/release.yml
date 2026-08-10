@@ -173,7 +173,8 @@ jobs:
           uvx --from twine==7.0.0 twine check dist/lets_agent-*
           version="${{ needs.verify.outputs.version }}"
           for directory in dist-first dist; do
-            git archive --format=tar --prefix="lets-deployment-$version/" HEAD -- \
+            git archive --format=tar --mtime="@$SOURCE_DATE_EPOCH" \
+              --prefix="lets-deployment-$version/" "HEAD^{tree}" -- \
               CHANGELOG.md LICENSE NOTICE \
               deploy/production/.env.example \
               deploy/production/README.md \
