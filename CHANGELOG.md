@@ -14,6 +14,19 @@ image together; the Git tag is the package version prefixed with `v`.
   observation timing, shares one fail-closed audit-error budget for the whole run, and makes a
   missed exporter-stall deadline a release failure instead of allowing a later healthy response
   to hide the evidence gap.
+- Prevented duration-boundary finalization from issuing its terminal health request milliseconds
+  after an already scheduled sample and then rejecting the necessarily reused observation
+  snapshot. The terminal sample keeps the exact workload-end schedule and 15-second deadline but
+  now waits for one bounded observation-publisher heartbeat before making its single metrics
+  request per node; a stalled publisher still fails closed inside the original deadline.
+- Aligned the host and release-workflow raw-observation validators with the producer's exact audit
+  exporter state machine. A clean exporter that is still reconciling its archive is valid bounded
+  catch-up evidence but remains unhealthy and unready; healthy requires both no retained error and
+  a reconciled archive, while any retained error requires the archive to remain unreconciled.
+- Corrected restart-cadence verification to recognize an exact `armed` health attempt anywhere
+  inside its bound restart window. The prior live observation, exact marker, overlap, exclusion,
+  replacement, and recovery bindings remain mandatory; the millisecond-scale metrics attempt no
+  longer has to straddle the acknowledgement's precise start instant.
 - Replaced lock-coupled production health reads with one authority-safe observation publisher per
   node. Each immutable snapshot is built from a single bounded, priority-reserved transaction,
   binds the authority checkpoint, database identity, trusted clock, invariant, audit verifier,
@@ -169,6 +182,23 @@ image together; the Git tag is the package version prefixed with `v`.
   retains any fully validated sample rejected by later cross-sample lineage checks. Cleanup proved
   zero remaining containers, networks, and volumes. This is failure diagnostics only; a fresh
   source candidate remains mandatory.
+- A sixth unpublished exact candidate, commit
+  `b3abcaee48688ef4e10253f3d4fe8fddd2992ca6`, passed production acceptance in 38.758 seconds
+  against local amd64 manifest
+  `sha256:72acbf8f20f80b58bf6fa385d3cbd337ae2de9aa6ff618614c74b1cc24190ee8`;
+  its retained acceptance record has raw SHA-256
+  `e3e8e95de671677eae9f4861a104bca1969d6e30860d5e735f16deb2365e0804`.
+  An operator interrupted the first soak after 1,341.732296 workload seconds; that partial journal
+  is neither passing nor failing release evidence. A fresh run then completed the full
+  3,600-second measurement with 562 cycles, 361 scheduled health samples, 28 partition episodes,
+  and three planned replacements, but finalization scheduled an additional sample only 0.000367
+  seconds after the regular 3,600-second sample. It correctly rejected the identical warden A
+  snapshot as a non-advancing sequence. The atomic failed record has raw SHA-256
+  `5d1b684fe79825e7b59fb77a4291e4928acae83f5fabf2446efb55ea0be37624` and canonical payload
+  `sha256:08852f862f4f56f6098897294abdd255bf3e9b58b325d08a42afe16f3b52ba05`;
+  cleanup proved zero remaining containers, networks, and volumes. The bounded terminal-sample
+  advance above closes this harness race, but the record remains failure diagnostics and a fresh
+  exact-source mandatory soak is still required.
 - Carries forward every 1.0.1 through 1.0.4 candidate change, including the pre-authentication body
   deadline, exact-candidate sustained soak, cgroup-v2 resource proof, bounded audit-BUSY recovery,
   serialized SQLite recovery, the bounded production peer deadline, full convergence budget, and
