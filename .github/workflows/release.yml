@@ -274,7 +274,7 @@ jobs:
           (directory / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
       - name: Archive release package assets
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-package-${{ needs.verify.outputs.version }}
           path: dist/
@@ -696,7 +696,7 @@ jobs:
               )
           PY
       - name: Archive production-profile evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-production-acceptance-${{ needs.verify.outputs.version }}
           path: results/generated/production-profile-acceptance.json
@@ -4841,7 +4841,7 @@ jobs:
           PY
       - name: Archive failed production-profile soak diagnostics
         if: ${{ always() && (failure() || cancelled()) }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: >-
             diagnostic-production-soak-${{ needs.verify.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -4849,7 +4849,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Archive verified production-profile soak release evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-production-soak-${{ needs.verify.outputs.version }}
           path: results/generated/production-profile-soak.json
@@ -5225,7 +5225,7 @@ jobs:
             fi
           done <<< "$RELEASE_TAGS"
       - name: Archive release image assets
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-image-${{ needs.verify.outputs.version }}
           path: |
