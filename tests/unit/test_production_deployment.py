@@ -1311,11 +1311,14 @@ def test_security_workflow_has_fatal_scans_sboms_and_package_smoke() -> None:
         "exit-code: 1",
         "--read-only",
         "--cap-drop ALL",
-        "rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667",
+        "actionlint/releases/download/v${version}/${archive}",
+        "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
         "moby/buildkit:buildx-stable-1@sha256:2f5adac4ecd194d9f8c10b7b5d7bceb5186853db1b26e5abd3a657af0b7e26ec",
         "_require_production_sqlite",
     ):
         assert required in workflow
+    assert "rhysd/actionlint@" not in workflow
+    assert "--connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors" in workflow
     assert workflow.count("--constraint requirements-audit.txt") == 2
 
 
