@@ -1431,6 +1431,7 @@ def test_release_soak_verifier_reconstructs_exact_two_stage_restarts() -> None:
         intervals.append(interval)
     metrics = run_soak["evaluate_restart_evidence"](
         restarts,
+        measurement_window_seconds=120.0,
         restart_quiescence_intervals=copy.deepcopy(intervals),
         workload_started_monotonic=100.0,
     )
@@ -1455,6 +1456,7 @@ def test_release_soak_verifier_reconstructs_exact_two_stage_restarts() -> None:
             "expected_nodes": set(nodes),
             "failures": [],
             "finite_number": finite_number,
+            "configured_duration": 120.0,
             "math": math,
             "re": re,
             "restarts": raw_restarts,
@@ -1531,7 +1533,7 @@ def test_release_soak_verifier_reconstructs_exact_two_stage_restarts() -> None:
     forged_cases: list[
         tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], object]
     ] = []
-    for mutation in range(8):
+    for mutation in range(13):
         forged_restarts = copy.deepcopy(restarts)
         forged_intervals = copy.deepcopy(intervals)
         forged_metrics = copy.deepcopy(metrics)
@@ -1557,11 +1559,25 @@ def test_release_soak_verifier_reconstructs_exact_two_stage_restarts() -> None:
             forged_restarts[0]["new_container_id"] = "b" * 12
             forged_restarts[0]["authority_fence"]["host_container_id"] = "a" * 12
             reseal_target_binding(forged_restarts[0])
-        else:
+        elif mutation == 7:
             forged_restarts[0]["prior_pid"] = 2**80
             forged_restarts[0]["new_pid"] = 2**80 + 1
             forged_restarts[0]["authority_fence"]["host_pid"] = 2**80
             reseal_target_binding(forged_restarts[0])
+        elif mutation == 8:
+            forged_restarts[0]["workload_coordination"]["quiescence"].pop(
+                "resume_requested_monotonic_seconds"
+            )
+        elif mutation == 9:
+            forged_restarts[0]["workload_coordination"]["quiescence"][
+                "resume_requested_monotonic_seconds"
+            ] += 0.001
+        elif mutation == 10:
+            forged_restarts[0]["workload_coordination"]["quiescence"]["unexpected"] = True
+        elif mutation == 11:
+            forged_intervals[0]["measurement_clipped_duration_seconds"] += 1.0
+        else:
+            forged_intervals[0]["observed_elapsed_seconds"] = -1.0
         forged_cases.append((forged_restarts, forged_intervals, forged_metrics, interval_count))
 
     for forged_restarts, forged_intervals, forged_metrics, interval_count in forged_cases:
@@ -1573,6 +1589,118 @@ def test_release_soak_verifier_reconstructs_exact_two_stage_restarts() -> None:
         )
         assert rejected["raw_restart_valid"] is False
         assert rejected["failures"] == ["soak restart cadence exclusions are not raw-bound"]
+
+
+def test_release_soak_verifier_reconstructs_combined_pause_budget() -> None:
+    soak_tests = runpy.run_path(str(REPOSITORY / "tests" / "unit" / "test_production_soak.py"))
+    run_soak = runpy.run_path(str(PRODUCTION / "run_soak.py"))
+    script = _release_soak_verifier_script()
+    block = script.split("# END RAW RESTART EVIDENCE VERIFIER", maxsplit=1)[1].split(
+        'transfer_every = configuration.get("transfer_every_cycles")',
+        maxsplit=1,
+    )[0]
+    configuration = soak_tests["_configuration"]()
+    workload = soak_tests["_valid_workload_result"](configuration)
+    partitions = soak_tests["_pause_binding"](workload, configuration=configuration)
+    restart = soak_tests["_restart_record"](service="warden-b", episode=1)
+    restart_interval = soak_tests["_restart_quiescence_interval"](restart)
+    restart_seconds = restart_interval["measurement_clipped_duration_seconds"]
+    workload["restart_quiescence_interval_count"] = 1
+    workload["restart_quiescence_intervals"] = [restart_interval]
+    workload["paused_workload_seconds"] += restart_seconds
+    workload["active_workload_seconds"] -= restart_seconds
+    restart_evidence = {
+        "passed": True,
+        "workload_quiesced_seconds": restart_seconds,
+    }
+    pause_metrics = run_soak["evaluate_pause_evidence"](
+        workload,
+        configuration=configuration,
+        partitions=partitions,
+        restart_evidence=restart_evidence,
+        workload_start=soak_tests["_workload_start"](workload, configuration),
+    )
+    assert pause_metrics["passed"] is True
+
+    def verify(
+        raw_workload: dict[str, Any],
+        raw_partitions: list[dict[str, Any]],
+        raw_pause_metrics: dict[str, Any],
+        raw_restart_intervals: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        finite_number = run_soak["_finite_number"]
+        namespace: dict[str, Any] = {
+            "chaos_completed": 1_200.0,
+            "chaos_started": 900.0,
+            "close_number": lambda left, right: (
+                finite_number(left)
+                and finite_number(right)
+                and math.isclose(float(left), float(right), rel_tol=0.0, abs_tol=0.002)
+            ),
+            "configuration": {"duration_seconds": configuration.duration_seconds},
+            "configured_duration": configuration.duration_seconds,
+            "failures": [],
+            "finite_number": finite_number,
+            "math": math,
+            "partitions": raw_partitions,
+            "raw_restart_valid": True,
+            "restart_quiesced_seconds": restart_seconds,
+            "restart_quiescence_intervals": raw_restart_intervals,
+            "workload": raw_workload,
+            "workload_identity_valid": True,
+            "workload_metrics": {"pause_evidence": raw_pause_metrics},
+            "workload_start": soak_tests["_workload_start"](raw_workload, configuration),
+        }
+        exec(compile(block, "release-raw-pause-verifier", "exec"), namespace)
+        return namespace
+
+    baseline = verify(
+        copy.deepcopy(workload),
+        copy.deepcopy(partitions),
+        copy.deepcopy(pause_metrics),
+        [copy.deepcopy(restart_interval)],
+    )
+    assert baseline["raw_pause_valid"] is True
+    assert baseline["failures"] == []
+
+    tolerated = copy.deepcopy(pause_metrics)
+    tolerated["bindings"][0]["workload_clipped_pause_seconds"] += 0.001
+    assert (
+        verify(
+            copy.deepcopy(workload),
+            copy.deepcopy(partitions),
+            tolerated,
+            [copy.deepcopy(restart_interval)],
+        )["raw_pause_valid"]
+        is True
+    )
+
+    for mutation in ("missing_resume", "divergent_resume", "forged_binding", "overlap"):
+        forged_workload = copy.deepcopy(workload)
+        forged_partitions = copy.deepcopy(partitions)
+        forged_metrics = copy.deepcopy(pause_metrics)
+        forged_restart_intervals = [copy.deepcopy(restart_interval)]
+        if mutation == "missing_resume":
+            forged_partitions[0]["workload_coordination"].pop("resume_requested_monotonic_seconds")
+        elif mutation == "divergent_resume":
+            forged_partitions[0]["workload_coordination"]["resume_requested_monotonic_seconds"] += (
+                0.001
+            )
+        elif mutation == "forged_binding":
+            forged_metrics["bindings"][0]["workload_clipped_pause_seconds"] += 0.01
+        else:
+            forged_restart_intervals[0]["observed_monotonic_seconds"] = 110.0
+            forged_restart_intervals[0]["resumed_monotonic_seconds"] = 130.0
+        rejected = verify(
+            forged_workload,
+            forged_partitions,
+            forged_metrics,
+            forged_restart_intervals,
+        )
+        assert rejected["raw_pause_valid"] is False
+        assert rejected["failures"] == [
+            "soak pause intervals or active-time denominator are not raw-bound"
+        ]
 
 
 def test_release_soak_verifier_requires_exact_planned_fence_wrapper() -> None:
