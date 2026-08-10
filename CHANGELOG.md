@@ -5,6 +5,35 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-08-10
+
+### Fixed
+
+- Removed audit-export acknowledgement amplification under sustained production traffic. The
+  exporter still publishes each record to the idempotent external archive before acknowledging
+  it locally, but now commits one sink-published prefix in one reserved, authority-anchored SQLite
+  transaction instead of opening one authority transaction per record. A crash before that batch
+  commits leaves the full archive prefix pending, and the next run repairs it from the exact
+  archive head. Partial sink publication remains idempotent and no record is acknowledged before
+  its archive write succeeds.
+
+### Changed
+
+- The signed `v1.0.5` tag is retained as an unpromoted candidate and is not moved or reused.
+  Release workflow `31437733653` passed tag verification, reproducible package construction,
+  dual-platform OCI provenance, and hardened three-node acceptance, but its mandatory soak failed
+  closed after 420.067 seconds, 19 workload cycles, 36 completed health samples, and two partition
+  episodes. Warden B had eight pending audit records; the oldest reached 15.132881691 seconds
+  against the declared 15-second bound even though the exporter had made progress 0.02169331
+  seconds earlier. The exact candidate index was
+  `sha256:667419b459ae6b40821ea873d2753c9f29affc3599d44950bf2487991ce61b63`.
+  The retained failed evidence has raw SHA-256
+  `1a55abe6829d46fe2f0f2afd6fe9a113ccbb4c766352694a5c7d4eb49d8684a6` and canonical payload
+  `sha256:e0148a59b0c94050e29c1989a0e28deed39cbe8f1da8acaa2078c913ecfd838c`;
+  cleanup proved zero remaining containers, networks, and volumes. No 1.0.5 GitHub release or
+  final OCI version tag was published. Version 1.0.6 fixes the throughput defect forward and must
+  pass a fresh exact-candidate acceptance and sole unweakened release soak.
+
 ## [1.0.5] - 2026-08-10
 
 ### Fixed
@@ -478,8 +507,9 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.5...HEAD
-[1.0.5]: https://github.com/AstralDeep/LETS/releases/tag/v1.0.5
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.6...HEAD
+[1.0.6]: https://github.com/AstralDeep/LETS/compare/v1.0.5...v1.0.6
+[1.0.5]: https://github.com/AstralDeep/LETS/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/AstralDeep/LETS/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/AstralDeep/LETS/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/AstralDeep/LETS/compare/v1.0.1...v1.0.2

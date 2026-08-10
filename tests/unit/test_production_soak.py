@@ -4516,7 +4516,7 @@ def test_final_verification_retains_typed_executor_startup_admission_failure(
     monkeypatch.setattr(soak_scenario, "SQLiteReceiptReplayStore", fail_store)
     monkeypatch.setattr(soak_scenario, "EXECUTOR_DATABASE", database)
     monkeypatch.setattr(soak_scenario, "EXECUTOR_ANCHOR", anchor_path)
-    monkeypatch.setattr(soak_scenario.metadata, "version", lambda _name: "1.0.5")
+    monkeypatch.setattr(soak_scenario.metadata, "version", lambda _name: "1.0.6")
     arguments = soak_scenario.argparse.Namespace(
         convergence_timeout_seconds=1.0,
         retry_timeout_seconds=1.0,

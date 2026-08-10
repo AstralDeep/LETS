@@ -140,6 +140,11 @@ the complete documented server, exporter, dispatcher, and provider shutdown wind
 kill. The server owns the node process lock for its entire lifetime, so recovery and schema
 migration cannot run concurrently with it. Production readiness also requires a healthy, bounded
 audit exporter; a blocked sink, excessive backlog, or stalled export makes readiness false.
+The exporter writes each audit record to the idempotent archive before local acknowledgement, then
+acknowledges the sink-committed prefix in one reserved authority-serialized transaction per batch.
+This keeps crash recovery exact while preventing helper/admission overhead from growing once per
+record. The 15-second oldest-record and no-progress limits remain unchanged and fail readiness
+closed.
 
 `max_clock_uncertainty_ns` is an operator-attested upper bound, not a measured guarantee. Monitor
 the actual source and configure a conservative bound. Core warden authority and executor replay
@@ -161,8 +166,9 @@ attempt to commit once; a post-`COMMIT` executor failure may already have burned
 retry is `ReplayError` and must execute no effect. Semantic rejection, divergence, malformed
 transport metadata, and other provider errors are permanent for the instance.
 
-The bundled parent/helper protocol in 1.0.5 adds exact request correlation and `confirm`; never mix
-a pre-1.0.5 helper executable with a 1.0.5 parent. The required stop-the-world uniform-artifact
+The bundled parent/helper protocol introduced in 1.0.5 and retained in 1.0.6 adds exact request
+correlation and `confirm`; never mix a pre-1.0.5 helper executable with a 1.0.5-or-later parent,
+and deploy the parent/helper pair from one uniform release artifact. The required stop-the-world
 upgrade satisfies this boundary. Authenticated metrics expose bounded `authority_anchor` state;
 the same document is available at `GET /v1/maintenance/authority-status` to
 `lets.admin`, `lets.warden.admin`, or `lets.metrics.read`. The direct status read opens no database
