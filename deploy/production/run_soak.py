@@ -1400,16 +1400,25 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
         )
         and isinstance(peer, dict)
         and set(peer) == peer_fields
-        and peer.get("healthy") is True
+        and peer.get("configured_peers") == len(WARDENS) - 1
+        and type(peer.get("healthy")) is bool
         and peer.get("running") is True
-        and peer.get("last_error") is None
+        and (
+            peer.get("last_error") is None
+            or (
+                isinstance(peer.get("last_error"), str)
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", peer["last_error"]) is not None
+            )
+        )
+        and peer.get("healthy") is (peer.get("last_error") is None)
         and type(peer.get("last_cycle_ns")) is int
-        and 0 <= peer["last_cycle_ns"] <= AUTHORITY_COUNTER_MAX
+        and 1 <= peer["last_cycle_ns"] <= value["published_at_ns"]
         and all(
             type(peer[field_name]) is int and 0 <= peer[field_name] <= AUTHORITY_COUNTER_MAX
             for field_name in peer_fields
             - {"durable_retry", "healthy", "last_cycle_ns", "last_error", "running"}
         )
+        and peer["failed_records"] <= peer["pending_records"]
         and (
             peer.get("durable_retry") is None
             or (
@@ -1423,14 +1432,21 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
                     "target_warden",
                 }
                 and type(peer["durable_retry"].get("attempt_count")) is int
-                and 0 <= peer["durable_retry"]["attempt_count"] <= AUTHORITY_COUNTER_MAX
+                and 1 <= peer["durable_retry"]["attempt_count"] <= AUTHORITY_COUNTER_MAX
                 and isinstance(peer["durable_retry"].get("exception_class"), str)
+                and re.fullmatch(
+                    r"[A-Za-z_][A-Za-z0-9_]{0,63}",
+                    peer["durable_retry"]["exception_class"],
+                )
+                is not None
                 and _finite_number(peer["durable_retry"].get("next_retry_delay_seconds"))
-                and peer["durable_retry"]["next_retry_delay_seconds"] >= 0
-                and isinstance(peer["durable_retry"].get("record_kind"), str)
-                and isinstance(peer["durable_retry"].get("target_warden"), str)
+                and 0 <= peer["durable_retry"]["next_retry_delay_seconds"] <= 30.0
+                and peer["durable_retry"].get("record_kind")
+                in {"checkpoint", "revocation", "transfer"}
+                and peer["durable_retry"].get("target_warden") in set(WARDENS) - {node}
             )
         )
+        and (peer.get("last_error") is None or peer.get("durable_retry") is not None)
         and isinstance(exporter, dict)
         and set(exporter) == exporter_fields
         and all(
