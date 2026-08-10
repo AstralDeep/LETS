@@ -1792,9 +1792,22 @@ def test_release_soak_verifier_enforces_observation_lineage() -> None:
 
     changed_digest = _release_observation(namespace, revision=2)
     changed_digest["authority_checkpoint"]["state_revision"] = 1
-    changed_digest["authority_checkpoint"]["state_digest"] = "B" * 43
+    changed_digest["authority_checkpoint"]["state_digest"] = (
+        base64.urlsafe_b64encode(bytes([1]) * 32).decode("ascii").rstrip("=")
+    )
+    changed_digest["core_state_revision"] = 1
     _reseal_release_observation(namespace, changed_digest)
-    assert progression(first, changed_digest, allow_same_snapshot=False) is False
+    assert progression(first, changed_digest, allow_same_snapshot=False) is True
+
+    diverged_at_same_audit_head = copy.deepcopy(changed_digest)
+    diverged_at_same_audit_head["authority_checkpoint"]["audit_sequence"] = first[
+        "authority_checkpoint"
+    ]["audit_sequence"]
+    diverged_at_same_audit_head["authority_checkpoint"]["audit_hash"] = first[
+        "authority_checkpoint"
+    ]["audit_hash"]
+    _reseal_release_observation(namespace, diverged_at_same_audit_head)
+    assert progression(first, diverged_at_same_audit_head, allow_same_snapshot=False) is False
 
 
 def test_release_soak_verifier_enforces_three_single_requests_per_normal_sample() -> None:

@@ -1276,12 +1276,12 @@ def _validate_checkpoint_progression(
         or (type(prior_floor) is int and type(current_floor) is not int)
         or (type(prior_floor) is int and type(current_floor) is int and current_floor < prior_floor)
         or (
-            current["state_revision"] == prior["state_revision"]
-            and current["state_digest"] != prior["state_digest"]
-        )
-        or (
             current["audit_sequence"] == prior["audit_sequence"]
-            and current["audit_hash"] != prior["audit_hash"]
+            and (
+                current["audit_hash"] != prior["audit_hash"]
+                or current["state_revision"] != prior["state_revision"]
+                or current["state_digest"] != prior["state_digest"]
+            )
         )
     ):
         raise RuntimeError(f"{node} authority checkpoint did not extend its predecessor")
@@ -3021,6 +3021,7 @@ class HealthSampler:
         self._error: BaseException | None = None
         self._failure_schedule: dict[str, Any] | None = None
         self._current_schedule: dict[str, Any] | None = None
+        self._failed_sample: dict[str, Any] | None = None
         self._attempted_sample_count = 0
         self._samples: list[dict[str, Any]] = []
         self._last_observed_monotonic: dict[str, float] = {}
@@ -3223,22 +3224,28 @@ class HealthSampler:
             planned_restart_reader=self._planned_restart_reader,
         )
         completed = time.monotonic()
-        if completed > deadline:
-            raise RuntimeError(
-                f"health sample {index} completed after its deadline: "
-                f"completed={completed:.6f} deadline={deadline:.6f}"
-            )
         sample.update(
             {
                 "completed_elapsed_seconds": round(completed - self._started, 6),
                 "deadline_elapsed_seconds": round(deadline - self._started, 6),
-                "deadline_missed": False,
+                "deadline_missed": completed > deadline,
                 "schedule_index": index,
                 "scheduled_elapsed_seconds": round(scheduled - self._started, 6),
                 "started_elapsed_seconds": round(sample_started - self._started, 6),
             }
         )
+        if completed > deadline:
+            with self._lock:
+                self._failed_sample = copy.deepcopy(sample)
+            raise RuntimeError(
+                f"health sample {index} completed after its deadline: "
+                f"completed={completed:.6f} deadline={deadline:.6f}"
+            )
         with self._lock:
+            # Keep the fully validated raw sample available until every
+            # cross-sample lineage check commits. Any later failure can then be
+            # diagnosed from evidence rather than from a discarded response.
+            self._failed_sample = copy.deepcopy(sample)
             for node in NODES:
                 document = sample["nodes"][node]
                 if isinstance(document.get("planned_unavailable"), dict):
@@ -3335,6 +3342,7 @@ class HealthSampler:
                         raise RuntimeError(f"{node} reused an observation snapshot identity")
                 self._last_observation_identity[node] = current
             self._samples.append(sample)
+            self._failed_sample = None
             self._current_schedule = None
             for node in NODES:
                 document = sample["nodes"][node]
@@ -3486,6 +3494,7 @@ class HealthSampler:
             )
             finished_at = self._finished_at
             attempted = self._attempted_sample_count
+            failed_sample = copy.deepcopy(self._failed_sample)
         window = max(0.0, workload_ended_monotonic - self._started)
         expected = math.ceil(window / self._interval) + 1
         error_document: dict[str, Any] | None = None
@@ -3506,6 +3515,8 @@ class HealthSampler:
                         "retry_errors": error.retry_errors,
                     }
                 )
+            if failed_sample is not None:
+                error_document["failed_sample"] = failed_sample
         return {
             "health_monitor": {
                 "actual_sample_count": len(samples),
