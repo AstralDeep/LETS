@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -101,6 +102,43 @@ def _object(path: Path) -> dict[str, Any]:
     value = strict_json_loads(path.read_bytes())
     if not isinstance(value, dict):
         raise RuntimeError(f"{path} is not a JSON object")
+    return cast(dict[str, Any], value)
+
+
+def _evidence_object(path: Path, *, maximum_bytes: int) -> dict[str, Any]:
+    """Read one bounded generated artifact while retaining finite timing values."""
+
+    def finite_float(encoded: str) -> float:
+        value = float(encoded)
+        if not math.isfinite(value):
+            raise ValueError(f"non-finite evidence number is forbidden: {encoded}")
+        return value
+
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-finite evidence number is forbidden: {value}")
+
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate evidence key is forbidden: {key}")
+            result[key] = value
+        return result
+
+    if type(maximum_bytes) is not int or maximum_bytes <= 0:
+        raise ValueError("evidence byte limit must be a positive integer")
+    with path.open("rb") as source:
+        encoded = source.read(maximum_bytes + 1)
+    if len(encoded) > maximum_bytes:
+        raise ValueError(f"{path} exceeds its {maximum_bytes}-byte evidence limit")
+    value = json.loads(
+        encoded,
+        object_pairs_hook=reject_duplicates,
+        parse_constant=reject_constant,
+        parse_float=finite_float,
+    )
+    if not isinstance(value, dict):
+        raise RuntimeError(f"{path} is not an evidence JSON object")
     return cast(dict[str, Any], value)
 
 
@@ -210,6 +248,7 @@ class ClusterClient:
     def begin_retry_scope(self) -> None:
         self._retry_scope_first_error = None
         self._retry_scope_last_error = None
+        self.last_request_attempt_count = 0
 
     def retry_scope(self) -> dict[str, str | None]:
         return {
@@ -2107,6 +2146,7 @@ class HealthObservationError(RuntimeError):
         *,
         authority_anchor: dict[str, Any] | None,
         diagnostic: dict[str, Any],
+        failed_observation: dict[str, Any],
         retry_errors: dict[str, str | None],
     ) -> None:
         self.node = node
@@ -2115,6 +2155,7 @@ class HealthObservationError(RuntimeError):
         self.cause_message = encoded_cause.decode("utf-8", errors="ignore")
         self.authority_anchor = authority_anchor
         self.diagnostic = diagnostic
+        self.failed_observation = failed_observation
         self.retry_errors = retry_errors
         super().__init__(
             f"{node} health observation failed ({type(cause).__name__}): {self.cause_message}"
@@ -2683,9 +2724,14 @@ def _health_sample(
                 }
         return {"first_error": None, "last_error": None}
 
-    def observation_request_count(*, planned_unavailable: bool) -> int:
+    def observation_request_count(
+        *,
+        planned_unavailable: bool,
+        allow_unattempted_failure: bool = False,
+    ) -> int:
         value = getattr(client, "last_request_attempt_count", 1)
-        if type(value) is not int or value not in ({0, 1} if planned_unavailable else {1}):
+        allowed = {0, 1} if planned_unavailable or allow_unattempted_failure else {1}
+        if type(value) is not int or value not in allowed:
             raise RuntimeError(
                 "health observation did not use its exact single-attempt request budget"
             )
@@ -2696,7 +2742,34 @@ def _health_sample(
         cause: BaseException,
         *,
         fallback_authority: dict[str, Any] | None,
+        observation_snapshot: dict[str, Any] | None,
+        observation_started: float,
+        metrics_observed_monotonic: float | None,
+        retry_count_before: int,
     ) -> None:
+        observation_completed = time.monotonic()
+        primary_retry_errors = retry_scope()
+        failed_observation: dict[str, Any] = {
+            "observation": {
+                "completed_elapsed_seconds": round(observation_completed - origin, 6),
+                "metrics_observed_elapsed_seconds": (
+                    None
+                    if metrics_observed_monotonic is None
+                    else round(metrics_observed_monotonic - origin, 6)
+                ),
+                "request_count": observation_request_count(
+                    planned_unavailable=False,
+                    allow_unattempted_failure=True,
+                ),
+                "request_path": "/v1/metrics",
+                "request_retries": int(getattr(client, "retry_count", 0)) - retry_count_before,
+                "retry_errors": primary_retry_errors,
+                "started_elapsed_seconds": round(observation_started - origin, 6),
+            },
+            "observation_snapshot": (
+                None if observation_snapshot is None else copy.deepcopy(observation_snapshot)
+            ),
+        }
         diagnostic_started = time.monotonic()
         diagnostic_deadline = diagnostic_started + AUTHORITY_FAILURE_DIAGNOSTIC_SECONDS
         diagnostic_error: str | None = None
@@ -2730,7 +2803,8 @@ def _health_sample(
                 "started_monotonic_seconds": diagnostic_started,
                 "status_captured": authority_anchor is not None,
             },
-            retry_errors=retry_scope(),
+            failed_observation=failed_observation,
+            retry_errors=primary_retry_errors,
         ) from cause
 
     nodes: dict[str, Any] = {}
@@ -2742,17 +2816,16 @@ def _health_sample(
         retry_count_before = int(getattr(client, "retry_count", 0))
         begin_retry_scope()
         authority_anchor: dict[str, Any] | None = None
+        raw_metrics: dict[str, Any] | None = None
         metrics_observed_monotonic: float | None = None
         try:
-            metrics = _validated_observation(
-                request(
-                    node,
-                    "/v1/metrics",
-                    observation_started=observation_started,
-                ),
-                node=node,
+            raw_metrics = request(
+                node,
+                "/v1/metrics",
+                observation_started=observation_started,
             )
             metrics_observed_monotonic = time.monotonic()
+            metrics = _validated_observation(raw_metrics, node=node)
             authority_anchor = cast(dict[str, Any], metrics["authority_anchor"])
         except PlannedNodeUnavailableError as exc:
             observation_completed = time.monotonic()
@@ -2778,6 +2851,10 @@ def _health_sample(
                 node,
                 exc,
                 fallback_authority=authority_anchor,
+                observation_snapshot=raw_metrics,
+                observation_started=observation_started,
+                metrics_observed_monotonic=metrics_observed_monotonic,
+                retry_count_before=retry_count_before,
             )
         if metrics_observed_monotonic is None:
             raise RuntimeError(f"{node} metrics observation time was not retained")
@@ -2789,7 +2866,12 @@ def _health_sample(
                 raise RuntimeError(f"{node} storage capacity is unhealthy")
             if metrics.get("service_ready") is not True:
                 raise RuntimeError(f"{node} core service is not ready")
-            expected_ready = audit_exporter["healthy"] is True
+            peer_dispatcher = metrics.get("peer_dispatcher")
+            expected_ready = (
+                audit_exporter["healthy"] is True
+                and isinstance(peer_dispatcher, dict)
+                and peer_dispatcher.get("healthy") is True
+            )
             if metrics.get("ready") is not expected_ready:
                 raise RuntimeError(f"{node} returned inconsistent aggregate readiness")
             if audit_exporter["catching_up"] is True:
@@ -2825,6 +2907,10 @@ def _health_sample(
                 node,
                 exc,
                 fallback_authority=authority_anchor,
+                observation_snapshot=raw_metrics,
+                observation_started=observation_started,
+                metrics_observed_monotonic=metrics_observed_monotonic,
+                retry_count_before=retry_count_before,
             )
         try:
             if audit_exporter.get("last_error") is not None:
@@ -2874,6 +2960,10 @@ def _health_sample(
                 node,
                 exc,
                 fallback_authority=authority_anchor,
+                observation_snapshot=raw_metrics,
+                observation_started=observation_started,
+                metrics_observed_monotonic=metrics_observed_monotonic,
+                retry_count_before=retry_count_before,
             )
         nodes[node]["observation"] = {
             "completed_elapsed_seconds": round(observation_completed - origin, 6),
@@ -3411,6 +3501,7 @@ class HealthSampler:
                         "cause_type": error.cause_type,
                         "cause_message": error.cause_message,
                         "diagnostic": error.diagnostic,
+                        "failed_observation": error.failed_observation,
                         "node": error.node,
                         "retry_errors": error.retry_errors,
                     }
@@ -4517,7 +4608,10 @@ def read_authority_status(arguments: argparse.Namespace) -> dict[str, Any]:
 
 def verify_final(arguments: argparse.Namespace) -> dict[str, Any]:
     _verified_manifest()
-    workload_result = _object(WORKLOAD_RESULT)
+    workload_result = _evidence_object(
+        WORKLOAD_RESULT,
+        maximum_bytes=WORKLOAD_ARTIFACT_MAX_BYTES,
+    )
     workload_executor = workload_result.get("executor")
     if not isinstance(workload_executor, dict):
         raise RuntimeError("workload result omitted executor lifetime evidence")
@@ -4814,7 +4908,10 @@ def main() -> int:
         journal_revision = 1
         if WORKLOAD_JOURNAL.exists():
             try:
-                existing = _object(WORKLOAD_JOURNAL)
+                existing = _evidence_object(
+                    WORKLOAD_JOURNAL,
+                    maximum_bytes=WORKLOAD_JOURNAL_MAX_BYTES,
+                )
                 existing_revision = existing.get("journal_revision")
                 if type(existing_revision) is int and existing_revision > 0:
                     journal_revision = existing_revision + 1
