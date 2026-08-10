@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import sqlite3
 import threading
 import time
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
 from contextvars import ContextVar
 from copy import deepcopy
@@ -63,6 +64,8 @@ _MAX_SQLITE_INTEGER = (1 << 63) - 1
 _ZERO_AUDIT_HASH = bytes(32)
 _DEFAULT_RECEIPT_TTL_NS = 1_000_000_000
 _DEFAULT_TRANSFER_GAP_WINDOW = 64
+_AUTHORITY_FENCE_TIMEOUT_SECONDS = 85.0
+_AUTHORITY_FULL_FENCE_TIMEOUT_SECONDS = 60.0
 _AUTHORITY_RECOVERY_DELAYS_NS = (
     250_000_000,
     500_000_000,
@@ -249,6 +252,51 @@ def _register_functions(connection: sqlite3.Connection) -> None:
         "lets_vector_subtract", 2, _sqlite_vector_subtract, deterministic=True
     )
     connection.create_function("lets_audit_hash", 7, _sqlite_audit_hash, deterministic=True)
+
+
+_EXPECTED_SCHEMA_DEFINITION_DIGEST: bytes | None = None
+_EXPECTED_SCHEMA_DEFINITION_LOCK = threading.Lock()
+
+
+def _schema_definition_payload(connection: sqlite3.Connection) -> bytes:
+    rows = connection.execute(
+        """
+        SELECT type, name, tbl_name, sql
+        FROM sqlite_schema
+        WHERE type IN ('table', 'index', 'trigger')
+          AND name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ).fetchall()
+    return canonical_json(
+        [
+            {
+                "name": str(row[1]),
+                "sql": None if row[3] is None else str(row[3]),
+                "table": str(row[2]),
+                "type": str(row[0]),
+            }
+            for row in rows
+        ]
+    )
+
+
+def _expected_schema_definition_digest() -> bytes:
+    global _EXPECTED_SCHEMA_DEFINITION_DIGEST
+    with _EXPECTED_SCHEMA_DEFINITION_LOCK:
+        if _EXPECTED_SCHEMA_DEFINITION_DIGEST is None:
+            connection = sqlite3.connect(":memory:", isolation_level=None)
+            try:
+                _register_functions(connection)
+                for target_version in range(1, SCHEMA_VERSION + 1):
+                    for statement in MIGRATIONS[target_version]:
+                        connection.execute(statement)
+                _EXPECTED_SCHEMA_DEFINITION_DIGEST = sha256(
+                    _schema_definition_payload(connection)
+                ).digest()
+            finally:
+                connection.close()
+        return _EXPECTED_SCHEMA_DEFINITION_DIGEST
 
 
 def _normalize_dimensions(value: object | None, count: int) -> tuple[Record, ...]:
@@ -1789,6 +1837,17 @@ class SQLiteStorage:
         )
         self._authority_anchor = authority_anchor
         self._authority_transaction_lock = threading.RLock()
+        # The condition is the admission queue for every operation serialized by
+        # ``_authority_transaction_lock``.  A due observation capture reserves the
+        # next admission before waiting for the current authority operation to
+        # finish; later normal operations therefore cannot form an RLock convoy in
+        # front of health observation.  The RLock remains the final serialization
+        # primitive (and preserves the historical re-entrant behavior).
+        self._authority_admission_condition = threading.Condition()
+        self._authority_admission_owner: int | None = None
+        self._authority_admission_depth = 0
+        self._authority_admission_next_ticket = 0
+        self._authority_admission_waiters: dict[int, int] = {}
         self._authority_anchor_state = "healthy" if authority_anchor is not None else "disabled"
         self._authority_anchor_lifetime_id = os.urandom(16).hex()
         self._authority_anchor_transport_faults = 0
@@ -1807,6 +1866,7 @@ class SQLiteStorage:
         )
         self._authority_admission_fenced = False
         self._authority_fence_id: str | None = None
+        self._authority_fence_full_audit_verification: bool | None = None
         self._authority_fence_snapshot: bytes | None = None
         self._authority_fenced_at_monotonic_ns: int | None = None
         self._authority_status_lock = threading.Lock()
@@ -2180,6 +2240,9 @@ class SQLiteStorage:
             if missing_triggers:
                 details.append(f"triggers={sorted(missing_triggers)}")
             raise StorageError("incomplete SQLite schema: " + ", ".join(details))
+        actual_definition_digest = sha256(_schema_definition_payload(connection)).digest()
+        if actual_definition_digest != _expected_schema_definition_digest():
+            raise StorageError("SQLite schema definitions do not match the supported schema")
         metadata_columns = {
             str(row[1]) for row in connection.execute("PRAGMA table_info(database_metadata)")
         }
@@ -2933,8 +2996,118 @@ class SQLiteStorage:
         return snapshot
 
     @contextmanager
+    def _authority_serialized(
+        self,
+        *,
+        admission_class: int = 0,
+        timeout_s: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> Iterator[None]:
+        """Enter the common authority lane, optionally reserving the next turn.
+
+        Priority admission is intentionally bounded.  Its reservation is removed
+        on timeout or cancellation before the exception escapes, so a stopped
+        observation publisher can never strand normal authority traffic.
+        """
+
+        if admission_class not in (0, 1, 2):
+            raise ValueError("authority admission class is invalid")
+        if timeout_s is not None and (
+            isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (int, float))
+            or not math.isfinite(float(timeout_s))
+            or timeout_s <= 0
+        ):
+            raise ValueError("authority admission timeout must be positive")
+        deadline = None if timeout_s is None else time.monotonic() + float(timeout_s)
+        owner = threading.get_ident()
+        gate_acquired = False
+        lock_acquired = False
+        ticket: int | None = None
+
+        def remaining() -> float | None:
+            if deadline is None:
+                return None
+            return max(0.0, deadline - time.monotonic())
+
+        try:
+            with self._authority_admission_condition:
+                if self._authority_admission_owner == owner:
+                    self._authority_admission_depth += 1
+                    gate_acquired = True
+                else:
+                    ticket = self._authority_admission_next_ticket
+                    self._authority_admission_next_ticket += 1
+                    self._authority_admission_waiters[ticket] = admission_class
+                    try:
+                        while True:
+                            if cancel_event is not None and cancel_event.is_set():
+                                raise StorageError("priority authority observation was stopped")
+                            highest_class = max(
+                                self._authority_admission_waiters.values(),
+                                default=-1,
+                            )
+                            winning_ticket = min(
+                                (
+                                    queued_ticket
+                                    for queued_ticket, queued_class in (
+                                        self._authority_admission_waiters.items()
+                                    )
+                                    if queued_class == highest_class
+                                ),
+                                default=-1,
+                            )
+                            if self._authority_admission_owner is None and ticket == winning_ticket:
+                                break
+                            wait_for = remaining()
+                            if wait_for is not None and wait_for <= 0:
+                                raise StorageError(
+                                    "priority authority observation admission timed out"
+                                )
+                            self._authority_admission_condition.wait(
+                                0.1 if wait_for is None else min(0.1, wait_for)
+                            )
+                        del self._authority_admission_waiters[ticket]
+                        ticket = None
+                        self._authority_admission_owner = owner
+                        self._authority_admission_depth = 1
+                        gate_acquired = True
+                    finally:
+                        if ticket is not None:
+                            self._authority_admission_waiters.pop(ticket, None)
+                            ticket = None
+                            self._authority_admission_condition.notify_all()
+
+            wait_for = remaining()
+            if wait_for is None:
+                self._authority_transaction_lock.acquire()
+                lock_acquired = True
+            elif wait_for > 0:
+                lock_acquired = self._authority_transaction_lock.acquire(timeout=wait_for)
+            if not lock_acquired:
+                raise StorageError("priority authority observation admission timed out")
+            yield
+        finally:
+            if lock_acquired:
+                self._authority_transaction_lock.release()
+            if gate_acquired:
+                with self._authority_admission_condition:
+                    if self._authority_admission_owner != owner:
+                        raise RuntimeError("authority admission ownership was corrupted")
+                    self._authority_admission_depth -= 1
+                    if self._authority_admission_depth == 0:
+                        self._authority_admission_owner = None
+                        self._authority_admission_condition.notify_all()
+
+    @contextmanager
     def transaction(
-        self, *, write: bool = True, capacity_recovery: bool = False
+        self,
+        *,
+        write: bool = True,
+        capacity_recovery: bool = False,
+        _observation_priority: bool = False,
+        _admission_timeout_s: float | None = None,
+        _admission_cancel_event: threading.Event | None = None,
     ) -> Iterator[SQLiteTransaction]:
         if self._closed:
             raise StorageError("storage is closed")
@@ -2949,7 +3122,11 @@ class SQLiteStorage:
             # Keep in-process readers, the peer dispatcher, and HTTP handlers behind
             # the post-COMMIT anchor CAS.  Consequently no signed result or outbox row
             # from a losing fork can be observed through this storage instance.
-            with self._authority_transaction_lock:
+            with self._authority_serialized(
+                admission_class=1 if _observation_priority else 0,
+                timeout_s=_admission_timeout_s,
+                cancel_event=_admission_cancel_event,
+            ):
                 try:
                     if self._closed:
                         raise StorageError("storage is closed")
@@ -3061,6 +3238,21 @@ class SQLiteStorage:
     def read(self) -> AbstractContextManager[SQLiteTransaction]:
         return self.transaction(write=False)
 
+    def observation_read(
+        self,
+        *,
+        timeout_s: float,
+        cancel_event: threading.Event | None = None,
+    ) -> AbstractContextManager[SQLiteTransaction]:
+        """Reserve one bounded, reconciled read for the observation publisher."""
+
+        return self.transaction(
+            write=False,
+            _observation_priority=True,
+            _admission_timeout_s=timeout_s,
+            _admission_cancel_event=cancel_event,
+        )
+
     def audit_sequence(self) -> int:
         with self.read() as transaction:
             return transaction.audit_sequence()
@@ -3118,8 +3310,16 @@ class SQLiteStorage:
         *,
         restart_id: str,
         expected_lifetime_id: str,
+        full_audit_verification: bool = False,
+        terminal_audit_verifier: Callable[
+            [sqlite3.Connection, AuthorityCheckpoint, bool, float], Mapping[str, object]
+        ]
+        | None = None,
     ) -> dict[str, object]:
         """Atomically snapshot and permanently fence this process lifetime."""
+
+        if type(full_audit_verification) is not bool:
+            raise ValidationError("authority fence audit verification mode must be a boolean")
 
         checked_restart = require_identifier(
             restart_id, field="authority fence restart_id", maximum=128
@@ -3133,13 +3333,22 @@ class SQLiteStorage:
             character not in "0123456789abcdef" for character in checked_lifetime
         ):
             raise ValidationError("authority fence expected_lifetime_id must be 32 lowercase hex")
-        with self._authority_transaction_lock:
+        fence_deadline = time.monotonic() + (
+            _AUTHORITY_FULL_FENCE_TIMEOUT_SECONDS
+            if full_audit_verification
+            else _AUTHORITY_FENCE_TIMEOUT_SECONDS
+        )
+        with self._authority_serialized(
+            admission_class=2,
+            timeout_s=max(0.001, fence_deadline - time.monotonic()),
+        ):
             if self._active.get():
                 raise StorageError("cannot fence authority admission during a transaction")
             if self._authority_fence_snapshot is not None:
                 if (
                     checked_restart != self._authority_fence_id
                     or checked_lifetime != self._authority_anchor_lifetime_id
+                    or full_audit_verification is not self._authority_fence_full_audit_verification
                 ):
                     raise ConflictError("authority admission is already fenced for another restart")
                 decoded = strict_json_loads(self._authority_fence_snapshot)
@@ -3150,8 +3359,33 @@ class SQLiteStorage:
                 raise ConflictError("authority fence lifetime does not match this process")
             if self._authority_anchor is None or self._authority_anchor_state != "healthy":
                 raise StorageError("authority anchor must be healthy before admission is fenced")
+            connection = self._connect()
+            try:
+                # Bind the terminal fence to the exact durable head after every
+                # earlier admitted transaction has completed its anchor CAS.
+                self._reconcile_authority_anchor(connection, stage="pre_begin")
+                if time.monotonic() >= fence_deadline:
+                    raise StorageError("authority fence exceeded its server deadline")
+                authority_checkpoint = self._authority_checkpoint(connection)
+                terminal_audit_proof = (
+                    None
+                    if terminal_audit_verifier is None
+                    else dict(
+                        terminal_audit_verifier(
+                            connection,
+                            authority_checkpoint,
+                            full_audit_verification,
+                            fence_deadline,
+                        )
+                    )
+                )
+                if time.monotonic() >= fence_deadline:
+                    raise StorageError("authority fence exceeded its server deadline")
+            finally:
+                connection.close()
             fenced_at = time.monotonic_ns()
             self._authority_fence_id = checked_restart
+            self._authority_fence_full_audit_verification = full_audit_verification
             self._authority_fenced_at_monotonic_ns = fenced_at
             self._authority_admission_fenced = True
             self._publish_authority_anchor_status()
@@ -3164,6 +3398,8 @@ class SQLiteStorage:
                 "lifetime_id": self._authority_anchor_lifetime_id,
                 "fenced_at_monotonic_ns": fenced_at,
                 "authority_anchor": terminal_status,
+                "authority_checkpoint": authority_checkpoint.to_dict(),
+                "terminal_audit_proof": terminal_audit_proof,
             }
             encoded = canonical_json(response)
             self._authority_fence_snapshot = encoded
@@ -3183,7 +3419,7 @@ class SQLiteStorage:
         return True
 
     def capacity_snapshot(self) -> CapacitySnapshot:
-        with self._authority_transaction_lock:
+        with self._authority_serialized():
             if self._closed:
                 raise StorageError("storage is closed")
             if self._authority_admission_fenced:
@@ -3194,10 +3430,32 @@ class SQLiteStorage:
             finally:
                 connection.close()
 
+    def observation_capacity(self, connection: sqlite3.Connection) -> CapacitySnapshot:
+        """Read capacity facts from an already-admitted observation transaction."""
+
+        return self._capacity_snapshot(connection)
+
+    def observation_checkpoint(self, connection: sqlite3.Connection) -> AuthorityCheckpoint:
+        """Read the externally reconciled core checkpoint from a captured snapshot."""
+
+        return self._authority_checkpoint(connection)
+
+    @staticmethod
+    def expected_schema_definition_digest() -> str:
+        """Return the exact supported sqlite_schema definition digest."""
+
+        return f"sha256:{_expected_schema_definition_digest().hex()}"
+
+    def observation_schema_definition_digest(self, connection: sqlite3.Connection) -> str:
+        """Verify and bind exact schema definitions inside an observation snapshot."""
+
+        self._verify_schema(connection)
+        return f"sha256:{sha256(_schema_definition_payload(connection)).hexdigest()}"
+
     def clear_capacity_fault(self) -> CapacitySnapshot:
         """Clear a sticky SQLITE_FULL fault only after headroom is restored."""
 
-        with self._authority_transaction_lock:
+        with self._authority_serialized():
             if self._closed:
                 raise StorageError("storage is closed")
             if self._authority_admission_fenced:
@@ -3241,7 +3499,7 @@ class SQLiteStorage:
         return True
 
     def checkpoint(self, *, truncate: bool = False) -> tuple[int, int, int]:
-        with self._authority_transaction_lock:
+        with self._authority_serialized():
             if self._closed:
                 raise StorageError("storage is closed")
             if self._active.get():
@@ -3265,7 +3523,7 @@ class SQLiteStorage:
                 connection.close()
 
     def close(self) -> None:
-        with self._authority_transaction_lock:
+        with self._authority_serialized(admission_class=2):
             if self._active.get():
                 raise StorageError("cannot close storage during a transaction")
             self._closed = True

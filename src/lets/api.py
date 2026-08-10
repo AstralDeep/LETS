@@ -259,7 +259,7 @@ def create_app(
     metrics_provider: Callable[[], Mapping[str, object] | Awaitable[Mapping[str, object]]]
     | None = None,
     authority_fence_provider: Callable[
-        [str, str], Mapping[str, object] | Awaitable[Mapping[str, object]]
+        [str, str, bool], Mapping[str, object] | Awaitable[Mapping[str, object]]
     ]
     | None = None,
     authority_status_provider: Callable[[], Mapping[str, object] | Awaitable[Mapping[str, object]]]
@@ -426,7 +426,12 @@ def create_app(
     async def readiness(request: Request) -> JSONResponse:
         ready = True
         if readiness_check is not None:
-            result = await run_in_threadpool(readiness_check)
+            if inspect.iscoroutinefunction(readiness_check):
+                async_check = cast(Callable[[], Awaitable[bool]], readiness_check)
+                result: object = await async_check()
+            else:
+                sync_check = cast(Callable[[], object], readiness_check)
+                result = await run_in_threadpool(sync_check)
             ready = bool(await result) if inspect.isawaitable(result) else bool(result)
         if not ready:
             return _problem_response(
@@ -699,17 +704,22 @@ def create_app(
         body = _fields(
             await _json_object(request, maximum_bytes=maximum_body_bytes),
             required=frozenset({"restart_id", "expected_lifetime_id"}),
+            optional=frozenset({"full_audit_verification"}),
         )
         if authority_fence_provider is None:
             raise ServiceMethodUnavailableError("authority admission fencing is not configured")
         restart_id = body["restart_id"]
         expected_lifetime_id = body["expected_lifetime_id"]
+        full_audit_verification = body.get("full_audit_verification", False)
         if type(restart_id) is not str or type(expected_lifetime_id) is not str:
             raise ValidationError("authority fence identifiers must be strings")
+        if type(full_audit_verification) is not bool:
+            raise ValidationError("authority fence full_audit_verification must be a boolean")
         value = await run_in_threadpool(
             authority_fence_provider,
             restart_id,
             expected_lifetime_id,
+            full_audit_verification,
         )
         if inspect.isawaitable(value):
             value = await value
@@ -756,7 +766,12 @@ def create_app(
             raise PolicyError("metrics read scope is required")
         if metrics_provider is None:
             raise ServiceMethodUnavailableError("node metrics are not configured")
-        value = await run_in_threadpool(metrics_provider)
+        if inspect.iscoroutinefunction(metrics_provider):
+            async_metrics = cast(Callable[[], Awaitable[Mapping[str, object]]], metrics_provider)
+            value: object = await async_metrics()
+        else:
+            sync_metrics = cast(Callable[[], object], metrics_provider)
+            value = await run_in_threadpool(sync_metrics)
         if inspect.isawaitable(value):
             value = await value
         if not isinstance(value, Mapping):
@@ -1572,9 +1587,455 @@ def create_app(
             },
         },
         "MetricsSnapshot": {
+            "oneOf": [
+                {"$ref": "#/components/schemas/ProductionMetricsSnapshot"},
+                {"$ref": "#/components/schemas/LegacyMetricsSnapshot"},
+            ]
+        },
+        "LegacyMetricsSnapshot": {
             "type": "object",
-            "description": "Implementation-defined node metrics snapshot.",
+            "description": "Implementation-defined non-production diagnostic metrics.",
+            "not": {"required": ["schema"]},
             "additionalProperties": True,
+        },
+        "ProductionMetricsSnapshot": {
+            "type": "object",
+            "description": "Immutable production observation plus cache-only dynamic health.",
+            "additionalProperties": False,
+            "required": [
+                "audit_exporter",
+                "audit_outbox",
+                "audit_verification",
+                "authority_anchor",
+                "authority_checkpoint",
+                "capture_duration_ns",
+                "schema",
+                "generation",
+                "snapshot_id",
+                "lifetime_id",
+                "revision",
+                "capture_started_monotonic_ns",
+                "captured_at_ns",
+                "captured_at_monotonic_ns",
+                "captured_authority_anchor",
+                "checked_at_ns",
+                "clock_healthy",
+                "core_state_revision",
+                "database_instance_id",
+                "invariant",
+                "invariant_healthy",
+                "leases",
+                "max_age_ns",
+                "observation_eligible",
+                "peer_dispatcher",
+                "published_at_ns",
+                "published_at_monotonic_ns",
+                "receipts",
+                "resources",
+                "runtime",
+                "signing_key_healthy",
+                "sqlite_schema_sha256",
+                "storage_capacity",
+                "transfers",
+                "age_ns",
+                "capture_status",
+                "fresh",
+                "ready",
+                "served_at_monotonic_ns",
+                "service_ready",
+            ],
+            "properties": {
+                "schema": {"const": "lets.observation-snapshot/v1"},
+                "generation": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "snapshot_id": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+                "lifetime_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "revision": {"type": "integer", "minimum": 1},
+                "capture_started_monotonic_ns": {"type": "integer", "minimum": 0},
+                "captured_at_ns": {"type": "integer", "minimum": 0},
+                "captured_at_monotonic_ns": {"type": "integer", "minimum": 0},
+                "published_at_ns": {"type": "integer", "minimum": 0},
+                "published_at_monotonic_ns": {"type": "integer", "minimum": 0},
+                "capture_duration_ns": {"type": "integer", "minimum": 0},
+                "checked_at_ns": {"type": "integer", "minimum": 0},
+                "clock_healthy": {"type": "boolean"},
+                "core_state_revision": {"type": "integer", "minimum": 0},
+                "database_instance_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                },
+                "invariant_healthy": {"type": "boolean"},
+                "observation_eligible": {"type": "boolean"},
+                "signing_key_healthy": {"type": "boolean"},
+                "sqlite_schema_sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "age_ns": {"type": "integer", "minimum": 0},
+                "max_age_ns": {"type": "integer", "const": 15000000000},
+                "served_at_monotonic_ns": {"type": "integer", "minimum": 0},
+                "fresh": {"type": "boolean"},
+                "ready": {"type": "boolean"},
+                "service_ready": {"type": "boolean"},
+                "authority_checkpoint": {"$ref": "#/components/schemas/AuthorityCheckpoint"},
+                "captured_authority_anchor": {"$ref": "#/components/schemas/AuthorityAnchorStatus"},
+                "authority_anchor": {"$ref": "#/components/schemas/AuthorityAnchorStatus"},
+                "audit_verification": {"$ref": "#/components/schemas/ObservationAuditVerification"},
+                "capture_status": {"$ref": "#/components/schemas/ObservationCaptureStatus"},
+                "invariant": {"$ref": "#/components/schemas/ObservationInvariant"},
+                "resources": {"$ref": "#/components/schemas/ObservationResources"},
+                "runtime": {"$ref": "#/components/schemas/RuntimeStatus"},
+                "storage_capacity": {"$ref": "#/components/schemas/ObservationStorageCapacity"},
+                "leases": {"$ref": "#/components/schemas/ObservationLeases"},
+                "receipts": {"$ref": "#/components/schemas/ObservationReceipts"},
+                "transfers": {"$ref": "#/components/schemas/ObservationTransfers"},
+                "audit_outbox": {"$ref": "#/components/schemas/ObservationAuditOutbox"},
+                "peer_dispatcher": {"$ref": "#/components/schemas/ObservationPeerDispatcher"},
+                "audit_exporter": {"$ref": "#/components/schemas/ObservationAuditExporter"},
+            },
+        },
+        "ObservationCaptureStatus": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "attempt_sequence",
+                "capture_in_progress",
+                "last_attempt_monotonic_ns",
+                "last_error_type",
+                "last_successful_attempt_sequence",
+            ],
+            "properties": {
+                "attempt_sequence": {"type": "integer", "minimum": 1},
+                "capture_in_progress": {"type": "boolean"},
+                "last_attempt_monotonic_ns": {"type": "integer", "minimum": 0},
+                "last_error_type": {"type": ["string", "null"], "maxLength": 256},
+                "last_successful_attempt_sequence": {"type": "integer", "minimum": 1},
+            },
+        },
+        "ObservationResourceVector": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+        },
+        "ObservationResources": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "consumed",
+                "free_pool",
+                "initial_share",
+                "lease_residual",
+                "transferred_in",
+                "transferred_out",
+            ],
+            "properties": {
+                name: {"$ref": "#/components/schemas/ObservationResourceVector"}
+                for name in (
+                    "consumed",
+                    "free_pool",
+                    "initial_share",
+                    "lease_residual",
+                    "transferred_in",
+                    "transferred_out",
+                )
+            },
+        },
+        "ObservationInvariant": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "checked_at_ns",
+                "config_epoch",
+                "consumed",
+                "envelope_id",
+                "free_pool",
+                "healthy",
+                "initial_share",
+                "lease_residual",
+                "tenant_id",
+                "transferred_in",
+                "transferred_out",
+            ],
+            "properties": {
+                "checked_at_ns": {"type": "integer", "minimum": 0},
+                "config_epoch": {"type": "integer", "minimum": 1},
+                "envelope_id": {"type": "string"},
+                "healthy": {"type": "boolean"},
+                "tenant_id": {"type": "string"},
+                **{
+                    name: {"$ref": "#/components/schemas/ObservationResourceVector"}
+                    for name in (
+                        "consumed",
+                        "free_pool",
+                        "initial_share",
+                        "lease_residual",
+                        "transferred_in",
+                        "transferred_out",
+                    )
+                },
+            },
+        },
+        "ObservationStorageCapacity": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "additional_shared_memory_bytes",
+                "database_bytes",
+                "effective_database_bytes",
+                "filesystem_free_bytes",
+                "free_pages",
+                "healthy",
+                "logical_live_bytes",
+                "main_database_bytes",
+                "max_database_bytes",
+                "max_page_count",
+                "min_free_disk_bytes",
+                "page_count",
+                "page_size",
+                "prior_full_error",
+                "remaining_main_growth_bytes",
+                "required_filesystem_free_bytes",
+                "reserve_pages",
+                "reusable_bytes",
+                "shared_memory_bytes",
+                "wal_bytes",
+                "worst_case_shared_memory_bytes",
+                "worst_case_transaction_wal_bytes",
+            ],
+            "properties": {
+                **{
+                    name: {"type": "integer", "minimum": 0}
+                    for name in (
+                        "additional_shared_memory_bytes",
+                        "database_bytes",
+                        "effective_database_bytes",
+                        "free_pages",
+                        "logical_live_bytes",
+                        "main_database_bytes",
+                        "max_page_count",
+                        "min_free_disk_bytes",
+                        "page_count",
+                        "page_size",
+                        "remaining_main_growth_bytes",
+                        "required_filesystem_free_bytes",
+                        "reserve_pages",
+                        "reusable_bytes",
+                        "shared_memory_bytes",
+                        "wal_bytes",
+                        "worst_case_shared_memory_bytes",
+                        "worst_case_transaction_wal_bytes",
+                    )
+                },
+                "filesystem_free_bytes": {"type": ["integer", "null"], "minimum": 0},
+                "max_database_bytes": {"type": ["integer", "null"], "minimum": 0},
+                "healthy": {"type": "boolean"},
+                "prior_full_error": {"type": "boolean"},
+            },
+        },
+        "ObservationLeases": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["by_status", "total"],
+            "properties": {
+                "by_status": {
+                    "type": "object",
+                    "additionalProperties": {"type": "integer", "minimum": 0},
+                },
+                "total": {"type": "integer", "minimum": 0},
+            },
+        },
+        "ObservationReceipts": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["total"],
+            "properties": {"total": {"type": "integer", "minimum": 0}},
+        },
+        "ObservationTransfers": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "in_flight_count",
+                "inbound_gap_count",
+                "incoming_compacted_high_water",
+                "incoming_contiguous_high_water",
+                "incoming_streams",
+                "outgoing_acked_high_water",
+                "outgoing_compacted_high_water",
+                "outgoing_streams",
+            ],
+            "properties": {
+                name: {"type": "integer", "minimum": 0}
+                for name in (
+                    "in_flight_count",
+                    "inbound_gap_count",
+                    "incoming_compacted_high_water",
+                    "incoming_contiguous_high_water",
+                    "incoming_streams",
+                    "outgoing_acked_high_water",
+                    "outgoing_compacted_high_water",
+                    "outgoing_streams",
+                )
+            },
+        },
+        "ObservationAuditOutbox": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["oldest_unpublished_age_ns", "unpublished_count"],
+            "properties": {
+                "oldest_unpublished_age_ns": {"type": "integer", "minimum": 0},
+                "unpublished_count": {"type": "integer", "minimum": 0},
+            },
+        },
+        "ObservationPeerRetry": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "attempt_count",
+                "exception_class",
+                "next_retry_delay_seconds",
+                "record_kind",
+                "target_warden",
+            ],
+            "properties": {
+                "attempt_count": {"type": "integer", "minimum": 0},
+                "exception_class": {"type": "string", "maxLength": 128},
+                "next_retry_delay_seconds": {"type": "number", "minimum": 0},
+                "record_kind": {"type": "string"},
+                "target_warden": {"type": "string"},
+            },
+        },
+        "ObservationPeerDispatcher": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "configured_peers",
+                "delivered_records",
+                "durable_retry",
+                "failed_records",
+                "healthy",
+                "last_cycle_ns",
+                "last_error",
+                "pending_records",
+                "prepared_transfers",
+                "running",
+                "superseded_records",
+            ],
+            "properties": {
+                **{
+                    name: {"type": "integer", "minimum": 0}
+                    for name in (
+                        "configured_peers",
+                        "delivered_records",
+                        "failed_records",
+                        "pending_records",
+                        "prepared_transfers",
+                        "superseded_records",
+                    )
+                },
+                "durable_retry": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/ObservationPeerRetry"},
+                        {"type": "null"},
+                    ]
+                },
+                "healthy": {"type": "boolean"},
+                "last_cycle_ns": {"type": ["integer", "null"], "minimum": 0},
+                "last_error": {"type": ["string", "null"], "maxLength": 128},
+                "running": {"type": "boolean"},
+            },
+        },
+        "ObservationAuditExporter": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "archive_reconciled",
+                "configured",
+                "healthy",
+                "last_error",
+                "last_success_ns",
+                "max_pending",
+                "max_stall_s",
+                "oldest_pending_age_s",
+                "pending",
+                "publish_blocked",
+                "publish_timeout_s",
+                "running",
+                "sink_call_blocked",
+                "stalled_for_s",
+            ],
+            "properties": {
+                "archive_reconciled": {"type": "boolean"},
+                "configured": {"type": "boolean"},
+                "healthy": {"type": "boolean"},
+                "last_error": {"type": ["string", "null"], "maxLength": 64},
+                "last_success_ns": {"type": ["integer", "null"], "minimum": 0},
+                "max_pending": {"type": "integer", "minimum": 0},
+                "max_stall_s": {"type": "number", "minimum": 0},
+                "oldest_pending_age_s": {"type": ["number", "null"], "minimum": 0},
+                "pending": {"type": "integer", "minimum": 0},
+                "publish_blocked": {"type": "boolean"},
+                "publish_timeout_s": {"type": "number", "minimum": 0},
+                "running": {"type": "boolean"},
+                "sink_call_blocked": {"type": "boolean"},
+                "stalled_for_s": {"type": "number", "minimum": 0},
+            },
+        },
+        "ObservationAuditVerification": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "captured_head_hash",
+                "captured_head_sequence",
+                "catching_up",
+                "error_type",
+                "lag",
+                "last_full_verification_at_ns",
+                "page_size",
+                "schema_definition_sha256",
+                "sticky_failure",
+                "sweep_cursor_sequence",
+                "sweep_last_completed_at_ns",
+                "sweep_last_completed_head_hash",
+                "sweep_last_completed_head_sequence",
+                "sweep_target_sequence",
+                "valid",
+                "verified_through_hash",
+                "verified_through_sequence",
+            ],
+            "properties": {
+                "captured_head_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "captured_head_sequence": {"type": "integer", "minimum": -1},
+                "catching_up": {"type": "boolean"},
+                "error_type": {"type": ["string", "null"]},
+                "lag": {"type": "integer", "minimum": 0},
+                "last_full_verification_at_ns": {"type": "integer", "minimum": 0},
+                "page_size": {"type": "integer", "minimum": 1, "maximum": 1000},
+                "schema_definition_sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "sticky_failure": {"type": "boolean"},
+                "sweep_cursor_sequence": {"type": "integer", "minimum": -1},
+                "sweep_last_completed_at_ns": {"type": "integer", "minimum": 0},
+                "sweep_last_completed_head_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "sweep_last_completed_head_sequence": {
+                    "type": "integer",
+                    "minimum": -1,
+                },
+                "sweep_target_sequence": {"type": "integer", "minimum": -1},
+                "valid": {"type": "boolean"},
+                "verified_through_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "verified_through_sequence": {"type": "integer", "minimum": -1},
+            },
         },
         "ReclaimRequest": {
             "type": "object",
@@ -1616,6 +2077,7 @@ def create_app(
                     "type": "string",
                     "pattern": "^[0-9a-f]{32}$",
                 },
+                "full_audit_verification": {"type": "boolean", "default": False},
             },
         },
         "AuthorityAnchorFirstFault": {
@@ -1643,7 +2105,10 @@ def create_app(
                         "process_lock_deadline",
                     ],
                 },
-                "stage": {"type": "string", "enum": ["pre_begin", "post_commit"]},
+                "stage": {
+                    "type": "string",
+                    "enum": ["pre_begin", "post_commit", "fence"],
+                },
                 "operation": {
                     "type": "string",
                     "enum": ["read", "initialize", "compare-and-set", "confirm"],
@@ -1702,7 +2167,7 @@ def create_app(
                 "permanent_faults": {"type": "integer", "minimum": 0},
                 "fault_stage": {
                     "type": ["string", "null"],
-                    "enum": [None, "pre_begin", "post_commit"],
+                    "enum": [None, "pre_begin", "post_commit", "fence"],
                 },
                 "fault_reason": {"type": ["string", "null"]},
                 "retry_not_before_monotonic_ns": {
@@ -1728,6 +2193,8 @@ def create_app(
                 "lifetime_id",
                 "fenced_at_monotonic_ns",
                 "authority_anchor",
+                "authority_checkpoint",
+                "terminal_audit_proof",
             ],
             "properties": {
                 "schema": {"const": "lets.authority-admission-fence/v1"},
@@ -1737,6 +2204,114 @@ def create_app(
                 "lifetime_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
                 "fenced_at_monotonic_ns": {"type": "integer", "minimum": 0},
                 "authority_anchor": {"$ref": "#/components/schemas/AuthorityAnchorStatus"},
+                "authority_checkpoint": {"$ref": "#/components/schemas/AuthorityCheckpoint"},
+                "terminal_audit_proof": {"$ref": "#/components/schemas/TerminalAuditProof"},
+            },
+        },
+        "TerminalAuditProof": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "authority_checkpoint_sha256",
+                "authority_state_revision",
+                "database_instance_id",
+                "generation",
+                "lifetime_id",
+                "schema",
+                "schema_definition_sha256",
+                "startup_full_verification_at_ns",
+                "valid",
+                "verification_mode",
+                "verified_at_ns",
+                "verified_head_hash",
+                "verified_head_sequence",
+            ],
+            "properties": {
+                "authority_checkpoint_sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "authority_state_revision": {"type": "integer", "minimum": 0},
+                "database_instance_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                },
+                "generation": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "lifetime_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "schema": {"const": "lets.terminal-audit-proof/v1"},
+                "schema_definition_sha256": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "startup_full_verification_at_ns": {
+                    "type": "integer",
+                    "minimum": 1,
+                },
+                "valid": {"type": "boolean"},
+                "verification_mode": {
+                    "type": "string",
+                    "enum": ["full", "trusted-startup-plus-tail"],
+                },
+                "verified_at_ns": {"type": "integer", "minimum": 1},
+                "verified_head_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$",
+                },
+                "verified_head_sequence": {"type": "integer", "minimum": -1},
+            },
+        },
+        "AuthorityCheckpoint": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "format",
+                "warden_id",
+                "tenant_id",
+                "envelope_id",
+                "config_epoch",
+                "schema_version",
+                "signing_key_id",
+                "signing_public_key_sha256",
+                "database_instance_id",
+                "audit_sequence",
+                "audit_hash",
+                "state_revision",
+                "state_digest",
+                "clock_floor_ns",
+            ],
+            "properties": {
+                "format": {"const": "LETS-AUTHORITY-ANCHOR/1"},
+                "warden_id": {"$ref": "#/components/schemas/WardenId"},
+                "tenant_id": {"type": "string"},
+                "envelope_id": {"type": "string"},
+                "config_epoch": {"type": "integer", "minimum": 1},
+                "schema_version": {"type": "integer", "minimum": 1},
+                "signing_key_id": {"$ref": "#/components/schemas/KeyId"},
+                "signing_public_key_sha256": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                },
+                "database_instance_id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                },
+                "audit_sequence": {
+                    "type": "integer",
+                    "minimum": -1,
+                    "maximum": 9223372036854775807,
+                },
+                "audit_hash": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"},
+                "state_revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9223372036854775807,
+                },
+                "state_digest": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"},
+                "clock_floor_ns": {
+                    "type": ["integer", "null"],
+                    "minimum": 0,
+                    "maximum": 9223372036854775807,
+                },
             },
         },
     }

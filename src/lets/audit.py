@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 from lets.canonical import b64url_encode, strict_json_loads
 from lets.errors import ConflictError, StorageError, ValidationError
@@ -20,6 +20,35 @@ from lets.vector import MAX_RESOURCE
 
 _ARCHIVE_APPLICATION_ID = 0x4C455441  # ASCII "LETA"
 _ARCHIVE_SCHEMA_VERSION = 2
+_SAFE_ERROR_CLASS = frozenset(
+    {
+        "ConflictError",
+        "OSError",
+        "RuntimeError",
+        "StorageError",
+        "TimeoutError",
+        "ValidationError",
+    }
+)
+
+
+def _observation_error_token(error: BaseException) -> str:
+    """Return a bounded, non-secret error classification for cached observations."""
+
+    current: BaseException | None = error
+    seen: set[int] = set()
+    for _ in range(4):
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        error_code = getattr(current, "sqlite_errorcode", None)
+        if type(error_code) is int and error_code & 0xFF == sqlite3.SQLITE_BUSY:
+            return "StorageError:sqlite_busy"
+        current = current.__cause__ or current.__context__
+    candidate = type(error).__name__
+    if candidate not in _SAFE_ERROR_CLASS:
+        candidate = "UnknownError"
+    return f"{candidate}:error"
 
 
 def _sqlite_storage_error(message: str, exc: sqlite3.Error) -> StorageError:
@@ -534,6 +563,7 @@ class AuditExporter:
         self._blocked_sink_call: threading.Thread | None = None
         self._status_lock = threading.Lock()
         self._last_error: str | None = None
+        self._last_observation_error: str | None = None
         self._last_success_ns: int | None = None
         self._last_progress_monotonic = time.monotonic()
         self._archive_reconciled = False
@@ -833,6 +863,7 @@ class AuditExporter:
                 self._acknowledge(record)
                 with self._status_lock:
                     self._last_error = None
+                    self._last_observation_error = None
                     self._last_success_ns = time.time_ns()
                     self._last_progress_monotonic = time.monotonic()
                 exported += 1
@@ -845,6 +876,7 @@ class AuditExporter:
                 with self._status_lock:
                     self._archive_reconciled = True
                     self._last_error = None
+                    self._last_observation_error = None
                     if not records:
                         self._last_progress_monotonic = time.monotonic()
         except Exception as exc:
@@ -854,7 +886,10 @@ class AuditExporter:
                 if not (
                     blocked is not None and blocked.is_alive() and self._last_error is not None
                 ):
-                    self._last_error = f"{type(exc).__name__}: {exc}"
+                    message = f"{type(exc).__name__}: {exc}"
+                    encoded = message.encode("utf-8", errors="replace")[:4_096]
+                    self._last_error = encoded.decode("utf-8", errors="ignore")
+                    self._last_observation_error = _observation_error_token(exc)
         return exported
 
     def _run(self) -> None:
@@ -881,61 +916,125 @@ class AuditExporter:
             raise StorageError("audit exporter did not stop within its deadline")
         self._thread = None
 
-    def status(self) -> dict[str, object]:
-        thread = self._thread
-        try:
-            with self._store.read() as transaction:
-                backlog = transaction.connection.execute(
-                    """
-                    SELECT COUNT(*), MIN(created_at_ns) FROM audit_outbox
-                    WHERE tenant_id=? AND envelope_id=? AND published_at_ns IS NULL
-                    """,
-                    (self._store.metadata.tenant_id, self._store.metadata.envelope_id),
-                ).fetchone()
-            pending = int(backlog[0]) if backlog is not None else self._max_pending + 1
-            oldest_pending_ns = None if backlog is None else backlog[1]
-            oldest_pending_age_s = (
+    def durable_status(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        now_ns: int,
+    ) -> dict[str, object]:
+        backlog = connection.execute(
+            """
+            SELECT COUNT(*), MIN(created_at_ns) FROM audit_outbox
+            WHERE tenant_id=? AND envelope_id=? AND published_at_ns IS NULL
+            """,
+            (self._store.metadata.tenant_id, self._store.metadata.envelope_id),
+        ).fetchone()
+        pending = int(backlog[0]) if backlog is not None else self._max_pending + 1
+        oldest_pending_ns = None if backlog is None else backlog[1]
+        return {
+            "oldest_pending_age_s": (
                 None
                 if oldest_pending_ns is None
-                else max(0.0, (time.time_ns() - int(oldest_pending_ns)) / 1_000_000_000)
-            )
-            status_error: str | None = None
-        except Exception as exc:
-            pending = self._max_pending + 1
-            oldest_pending_age_s = None
-            status_error = f"{type(exc).__name__}: {exc}"
+                else max(0.0, (now_ns - int(oldest_pending_ns)) / 1_000_000_000)
+            ),
+            "pending": pending,
+        }
+
+    def volatile_status(self) -> dict[str, object]:
         with self._status_lock:
             last_error = self._last_error
             last_success_ns = self._last_success_ns
             stalled_for_s = max(0.0, time.monotonic() - self._last_progress_monotonic)
             archive_reconciled = self._archive_reconciled
-        running = thread is not None and thread.is_alive()
-        blocked = self._blocked_sink_call
-        sink_call_blocked = blocked is not None and blocked.is_alive()
+            thread = self._thread
+            blocked = self._blocked_sink_call
+        return {
+            "archive_reconciled": archive_reconciled,
+            "last_error": last_error,
+            "last_success_ns": last_success_ns,
+            "max_pending": self._max_pending,
+            "max_stall_s": self._max_stall_s,
+            "publish_timeout_s": self._publish_timeout_s,
+            "running": thread is not None and thread.is_alive(),
+            "stalled_for_s": stalled_for_s,
+            "sink_call_blocked": blocked is not None and blocked.is_alive(),
+        }
+
+    def observation_volatile_status(self) -> dict[str, object]:
+        """Return volatile status without exposing sink-controlled exception text."""
+
+        with self._status_lock:
+            last_success_ns = self._last_success_ns
+            stalled_for_s = max(0.0, time.monotonic() - self._last_progress_monotonic)
+            thread = self._thread
+            blocked = self._blocked_sink_call
+            return {
+                "archive_reconciled": self._archive_reconciled,
+                "last_error": self._last_observation_error,
+                "last_success_ns": last_success_ns,
+                "max_pending": self._max_pending,
+                "max_stall_s": self._max_stall_s,
+                "publish_timeout_s": self._publish_timeout_s,
+                "running": thread is not None and thread.is_alive(),
+                "stalled_for_s": stalled_for_s,
+                "sink_call_blocked": blocked is not None and blocked.is_alive(),
+            }
+
+    @staticmethod
+    def combine_status(
+        durable: Mapping[str, object],
+        volatile: Mapping[str, object],
+        *,
+        status_error: str | None = None,
+    ) -> dict[str, object]:
+        pending = int(cast(int, durable["pending"]))
+        running = volatile.get("running") is True
+        last_error = volatile.get("last_error")
+        stalled_for_s = float(volatile["stalled_for_s"])  # type: ignore[arg-type]
+        max_stall_s = float(volatile["max_stall_s"])  # type: ignore[arg-type]
+        max_pending = int(cast(int, volatile["max_pending"]))
+        archive_reconciled = volatile.get("archive_reconciled") is True
+        sink_call_blocked = volatile.get("sink_call_blocked") is True
         healthy = (
             running
             and last_error is None
             and status_error is None
             and not sink_call_blocked
             and archive_reconciled
-            and pending <= self._max_pending
-            and (pending == 0 or stalled_for_s <= self._max_stall_s)
+            and pending <= max_pending
+            and (pending == 0 or stalled_for_s <= max_stall_s)
         )
         return {
+            **dict(durable),
+            **dict(volatile),
             "running": running,
             "healthy": healthy,
             "pending": pending,
-            "max_pending": self._max_pending,
-            "oldest_pending_age_s": oldest_pending_age_s,
+            "max_pending": max_pending,
             "stalled_for_s": stalled_for_s,
-            "max_stall_s": self._max_stall_s,
+            "max_stall_s": max_stall_s,
             "archive_reconciled": archive_reconciled,
             "publish_blocked": sink_call_blocked,
             "sink_call_blocked": sink_call_blocked,
-            "publish_timeout_s": self._publish_timeout_s,
-            "last_success_ns": last_success_ns,
             "last_error": last_error or status_error,
         }
+
+    def status(self) -> dict[str, object]:
+        try:
+            with self._store.read() as transaction:
+                durable = self.durable_status(
+                    transaction.connection,
+                    now_ns=time.time_ns(),
+                )
+            status_error: str | None = None
+        except Exception as exc:
+            durable = {"oldest_pending_age_s": None, "pending": self._max_pending + 1}
+            status_error = f"{type(exc).__name__}: {exc}"
+        return self.combine_status(
+            durable,
+            self.volatile_status(),
+            status_error=status_error,
+        )
 
 
 __all__ = [

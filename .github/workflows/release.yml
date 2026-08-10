@@ -743,10 +743,32 @@ jobs:
                   document[key] = value
               return document
 
+          evidence_path = Path("results/generated/production-profile-soak.json")
+          evidence_max_bytes = 80 * 1024 * 1024
+          try:
+              evidence_size = evidence_path.stat().st_size
+          except OSError as exc:
+              raise SystemExit(f"cannot stat production soak evidence: {exc}") from exc
+          if evidence_size > evidence_max_bytes:
+              raise SystemExit(
+                  "production soak evidence exceeds the 80 MiB host retention bound"
+              )
+          try:
+              with evidence_path.open("rb") as evidence_stream:
+                  evidence_bytes = evidence_stream.read(evidence_max_bytes + 1)
+          except OSError as exc:
+              raise SystemExit(f"cannot read production soak evidence: {exc}") from exc
+          if len(evidence_bytes) > evidence_max_bytes:
+              raise SystemExit(
+                  "production soak evidence exceeds the 80 MiB host retention bound"
+              )
+          try:
+              evidence_text = evidence_bytes.decode("utf-8")
+          except UnicodeDecodeError as exc:
+              raise SystemExit("production soak evidence is not UTF-8") from exc
+
           evidence = json.loads(
-              Path("results/generated/production-profile-soak.json").read_text(
-                  encoding="utf-8"
-              ),
+              evidence_text,
               object_pairs_hook=unique_object,
               parse_constant=reject_constant,
           )
@@ -901,10 +923,71 @@ jobs:
               "seed": configuration.get("seed"),
               "transfer_every_cycles": configuration.get("transfer_every_cycles"),
           }
+          success_workload_fields = {
+              "active_workload_seconds", "artifact_payload_sha256",
+              "artifact_revision", "audit_progress", "configuration",
+              "conservation", "counters", "cycles", "duration_seconds", "executor",
+              "health_monitor", "health_sample_count", "health_samples",
+              "journal_revision", "latency", "measurement_window_seconds",
+              "package_version", "pause_interval_count", "pause_intervals",
+              "paused_workload_seconds", "request_retry_count",
+              "restart_quiescence_interval_count", "restart_quiescence_intervals",
+              "run_id", "schema", "started_monotonic_seconds", "status",
+              "transfer_pair_counts",
+          }
+          def valid_success_workload_artifact(candidate):
+              if (
+                  not isinstance(candidate, dict)
+                  or set(candidate) != success_workload_fields
+              ):
+                  return False
+              payload = dict(candidate)
+              claimed_digest = payload.pop("artifact_payload_sha256", None)
+              try:
+                  encoded = json.dumps(
+                      candidate,
+                      allow_nan=False,
+                      ensure_ascii=True,
+                      separators=(",", ":"),
+                      sort_keys=True,
+                  ).encode("utf-8")
+                  computed_digest = "sha256:" + hashlib.sha256(
+                      json.dumps(
+                          payload,
+                          allow_nan=False,
+                          ensure_ascii=True,
+                          separators=(",", ":"),
+                          sort_keys=True,
+                      ).encode("utf-8")
+                  ).hexdigest()
+              except (TypeError, ValueError):
+                  return False
+              return (
+                  candidate.get("schema")
+                  == "lets.production-profile-soak-workload/v2"
+                  and candidate.get("status") == "passed"
+                  and len(encoded) + 1 <= 64 * 1024 * 1024
+                  and type(candidate.get("artifact_revision")) is int
+                  and candidate.get("artifact_revision") == 1
+                  and type(candidate.get("journal_revision")) is int
+                  and candidate.get("journal_revision") > 0
+                  and "journal_compact" not in candidate
+                  and isinstance(claimed_digest, str)
+                  and re.fullmatch(r"sha256:[0-9a-f]{64}", claimed_digest)
+                  is not None
+                  and claimed_digest == computed_digest
+              )
+
+          workload_artifact_valid = valid_success_workload_artifact(workload)
+          if not workload_artifact_valid:
+              failures.append(
+                  "soak successful workload artifact revision, size, or digest is invalid"
+              )
           workload_identity_valid = (
               evidence.get("schema") == "lets.production-profile-soak/v2"
               and workload.get("schema") == "lets.production-profile-soak-workload/v2"
               and workload.get("status") == "passed"
+              and workload_artifact_valid
               and workload.get("configuration") == expected_workload_configuration
               and isinstance(workload_start, dict)
               and isinstance(workload.get("run_id"), str)
@@ -945,33 +1028,80 @@ jobs:
           ):
               failures.append("soak evaluator did not bind workload and chaos startup")
 
-          raw_restart_valid = workload_identity_valid and len(restarts) >= 3
+          def canonical_digest(document):
+              try:
+                  encoded = json.dumps(
+                      document,
+                      allow_nan=False,
+                      separators=(",", ":"),
+                      sort_keys=True,
+                  ).encode("utf-8")
+              except (TypeError, ValueError):
+                  return None
+              return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+          # BEGIN RAW RESTART EVIDENCE VERIFIER
+          restart_quiescence_value = workload.get("restart_quiescence_intervals")
+          restart_quiescence_intervals = (
+              restart_quiescence_value
+              if isinstance(restart_quiescence_value, list)
+              else []
+          )
+          raw_restart_valid = (
+              workload_identity_valid
+              and len(restarts) >= 3
+              and isinstance(restart_quiescence_value, list)
+              and type(workload.get("restart_quiescence_interval_count")) is int
+              and workload.get("restart_quiescence_interval_count")
+              == len(restart_quiescence_intervals)
+              == len(restarts)
+          )
           restart_bindings = {}
           restart_windows = {node: [] for node in expected_nodes}
           raw_restart_services = []
+          restart_quiesced_seconds = 0.0
+          prior_restart_quiescence_end = -math.inf
           if raw_restart_valid:
               for episode, restart in enumerate(restarts):
                   if not isinstance(restart, dict):
                       raw_restart_valid = False
                       continue
+                  restart_fields = {
+                      "authority_fence", "authority_fence_attempt",
+                      "completed_at_seconds", "elapsed_seconds",
+                      "host_operation_completed_monotonic_seconds",
+                      "host_operation_started_monotonic_seconds",
+                      "new_authority_anchor", "new_container_id", "new_pid",
+                      "planned_exit_code", "prior_container_id", "prior_pid",
+                      "resource_checkpoint", "restart_counts", "service", "signal",
+                      "status", "workload_coordination",
+                  }
                   service = restart.get("service")
                   host_started = restart.get("host_operation_started_monotonic_seconds")
                   host_completed = restart.get("host_operation_completed_monotonic_seconds")
                   coordination = restart.get("workload_coordination")
+                  fence_attempt = restart.get("authority_fence_attempt")
+                  workload_quiescence = restart_quiescence_intervals[episode]
                   if (
-                      service not in expected_nodes
+                      set(restart) != restart_fields
+                      or service not in expected_nodes
                       or service != ("warden-a", "warden-b", "warden-c")[episode % 3]
+                      or restart.get("status") != "completed"
                       or restart.get("signal") != "SIGKILL"
+                      or type(restart.get("planned_exit_code")) is not int
                       or restart.get("planned_exit_code") != 137
+                      or not isinstance(restart.get("resource_checkpoint"), dict)
+                      or not isinstance(fence_attempt, dict)
+                      or not isinstance(workload_quiescence, dict)
                       or not isinstance(restart.get("prior_container_id"), str)
                       or not isinstance(restart.get("new_container_id"), str)
                       or re.fullmatch(
-                          r"[0-9a-f]{12,64}",
+                          r"[0-9a-f]{64}",
                           restart.get("prior_container_id", ""),
                       )
                       is None
                       or re.fullmatch(
-                          r"[0-9a-f]{12,64}",
+                          r"[0-9a-f]{64}",
                           restart.get("new_container_id", ""),
                       )
                       is None
@@ -982,11 +1112,22 @@ jobs:
                       or isinstance(restart.get("new_pid"), bool)
                       or restart.get("prior_pid") <= 1
                       or restart.get("new_pid") <= 1
+                      or restart.get("prior_pid") > 9_223_372_036_854_775_807
+                      or restart.get("new_pid") > 9_223_372_036_854_775_807
                       or restart.get("prior_pid") == restart.get("new_pid")
-                      or restart.get("restart_counts")
-                      != {"after": 0, "killed": 0, "prior": 0}
+                      or not isinstance(restart.get("restart_counts"), dict)
+                      or set(restart["restart_counts"])
+                      != {"after", "killed", "prior"}
+                      or any(
+                          type(restart["restart_counts"].get(name)) is not int
+                          or restart["restart_counts"][name] != 0
+                          for name in ("after", "killed", "prior")
+                      )
                       or not finite_number(restart.get("elapsed_seconds"))
                       or float(restart.get("elapsed_seconds")) < 0
+                      or not finite_number(restart.get("completed_at_seconds"))
+                      or float(restart.get("completed_at_seconds"))
+                      < float(restart.get("elapsed_seconds"))
                       or not finite_number(host_started)
                       or not finite_number(host_completed)
                       or not float(host_started) < float(host_completed)
@@ -996,13 +1137,31 @@ jobs:
                       < float(host_completed)
                       <= float(chaos_completed)
                       or not isinstance(coordination, dict)
+                      or set(coordination) != {"armed", "completed", "quiescence"}
                   ):
                       raw_restart_valid = False
                       continue
                   raw_restart_services.append(service)
                   armed = coordination.get("armed")
                   completed = coordination.get("completed")
-                  if not isinstance(armed, dict) or not isinstance(completed, dict):
+                  quiescence = coordination.get("quiescence")
+                  if (
+                      not isinstance(armed, dict)
+                      or set(armed) != {
+                          "acknowledgement", "host_ack_command_completed_monotonic_seconds",
+                          "host_ack_command_started_monotonic_seconds",
+                          "host_armed_started_monotonic_seconds",
+                          "host_monitor_acknowledged_monotonic_seconds", "marker",
+                      }
+                      or not isinstance(completed, dict)
+                      or set(completed) != {
+                          "host_completion_command_completed_monotonic_seconds",
+                          "host_completion_command_started_monotonic_seconds",
+                          "host_monitor_recovered_monotonic_seconds", "marker",
+                          "recovery_acknowledgement",
+                      }
+                      or not isinstance(quiescence, dict)
+                  ):
                       raw_restart_valid = False
                       continue
                   armed_marker = armed.get("marker")
@@ -1023,6 +1182,7 @@ jobs:
                   identity = (
                       "armed_monotonic_seconds",
                       "episode",
+                      "quiesce_pause_id",
                       "restart_id",
                       "service",
                   )
@@ -1040,8 +1200,21 @@ jobs:
                       and armed_marker.get("episode") == episode
                       and armed_marker.get("service") == service
                       and armed_marker.get("state") == "armed"
+                      and set(armed_marker)
+                      == {
+                          "armed_monotonic_seconds", "episode", "quiesce_pause_id",
+                          "restart_id", "service", "state",
+                      }
                       and armed_marker.get("completed_monotonic_seconds") is None
                       and completed_marker.get("state") == "completed"
+                      and set(completed_marker)
+                      == {
+                          "armed_monotonic_seconds", "completed_monotonic_seconds",
+                          "episode", "expected_recovered_authority_identity",
+                          "quiesce_pause_id", "restart_id", "service", "state",
+                      }
+                      and armed_marker.get("quiesce_pause_id")
+                      == f"{restart_id}-quiesce"
                       and all(
                           completed_marker.get(key) == armed_marker.get(key)
                           for key in identity
@@ -1056,26 +1229,78 @@ jobs:
                       )
                   )
                   acknowledged = acknowledgement.get("acknowledged_monotonic_seconds")
+                  prepared = acknowledgement.get("observed_monotonic_seconds")
+                  quiesced = acknowledgement.get("quiesced_monotonic_seconds")
                   completed_at = completed_marker.get("completed_monotonic_seconds")
                   recovered = recovery.get("recovered_monotonic_seconds")
+                  acknowledgement_fields = {
+                      "acknowledged_monotonic_seconds", "armed_monotonic_seconds",
+                      "coordination_payload_sha256", "coordination_revision", "episode",
+                      "fence_terminal_sha256", "host_ack_command_started_monotonic_seconds",
+                      "host_fence_validated_monotonic_seconds",
+                      "host_reinspected_monotonic_seconds", "observed_monotonic_seconds",
+                      "prior_authority_anchor", "prior_authority_checkpoint",
+                      "prior_observation", "quiesce_pause_id",
+                      "quiesced_monotonic_seconds", "restart_id", "service",
+                      "target_identity_sha256",
+                  }
+                  recovery_fields = acknowledgement_fields | {
+                      "completed_monotonic_seconds", "recovered_authority_anchor",
+                      "recovered_monotonic_seconds",
+                  }
+                  acknowledgement_payload = dict(acknowledgement)
+                  acknowledgement_payload.pop("coordination_payload_sha256", None)
+                  recovery_payload = dict(recovery)
+                  recovery_payload.pop("coordination_payload_sha256", None)
                   container_timing_valid = (
                       finite_number(armed_marker.get("armed_monotonic_seconds"))
+                      and finite_number(prepared)
+                      and finite_number(quiesced)
                       and finite_number(acknowledged)
                       and finite_number(completed_at)
                       and finite_number(recovered)
+                      and set(acknowledgement) == acknowledgement_fields
+                      and set(recovery) == recovery_fields
+                      and type(acknowledgement.get("coordination_revision")) is int
+                      and acknowledgement["coordination_revision"] >= 2
+                      and type(recovery.get("coordination_revision")) is int
+                      and recovery["coordination_revision"]
+                      == acknowledgement["coordination_revision"] + 1
+                      and acknowledgement.get("coordination_payload_sha256")
+                      == canonical_digest(acknowledgement_payload)
+                      and recovery.get("coordination_payload_sha256")
+                      == canonical_digest(recovery_payload)
+                      and all(
+                          recovery.get(key) == value
+                          for key, value in acknowledgement.items()
+                          if key not in {
+                              "coordination_payload_sha256", "coordination_revision"
+                          }
+                      )
                       and recovery.get("acknowledged_monotonic_seconds") == acknowledged
                       and recovery.get("completed_monotonic_seconds") == completed_at
-                      and float(armed_marker["armed_monotonic_seconds"])
+                      and float(quiesced)
+                      <= float(armed_marker["armed_monotonic_seconds"])
+                      <= float(prepared)
                       <= float(acknowledged)
                       <= float(completed_at)
                       <= float(recovered)
+                      and float(prepared)
+                      - float(armed_marker["armed_monotonic_seconds"])
+                      <= 15.0
+                      and float(acknowledged) - float(prepared) <= 120.0
                       and float(completed_at) - float(acknowledged) <= 30.0
                       and float(recovered) - float(completed_at) <= 15.0
                   )
                   host_values = (
                       armed.get("host_armed_started_monotonic_seconds"),
                       armed.get("host_monitor_acknowledged_monotonic_seconds"),
-                      completed.get("host_completed_marker_monotonic_seconds"),
+                      acknowledgement.get("host_fence_validated_monotonic_seconds"),
+                      acknowledgement.get("host_reinspected_monotonic_seconds"),
+                      acknowledgement.get("host_ack_command_started_monotonic_seconds"),
+                      armed.get("host_ack_command_completed_monotonic_seconds"),
+                      completed.get("host_completion_command_started_monotonic_seconds"),
+                      completed.get("host_completion_command_completed_monotonic_seconds"),
                       completed.get("host_monitor_recovered_monotonic_seconds"),
                   )
                   host_timing_valid = (
@@ -1084,16 +1309,387 @@ jobs:
                       >= float(chaos_started)
                       and float(host_values[0])
                       <= float(host_values[1])
-                      <= float(host_started)
-                      < float(host_completed)
                       <= float(host_values[2])
                       <= float(host_values[3])
+                      <= float(host_values[4])
+                      <= float(host_values[5])
+                      <= float(host_started)
+                      < float(host_completed)
+                      <= float(host_values[6])
+                      <= float(host_values[7])
+                      <= float(host_values[8])
+                      <= float(chaos_completed)
+                      and float(host_values[2]) - float(host_values[0]) <= 110.0
+                      and float(host_values[4]) - float(host_values[0]) <= 120.0
+                      and float(host_values[8]) - float(host_values[4]) <= 30.0
+                  )
+                  authority_fence = restart.get("authority_fence")
+                  fence_result = (
+                      authority_fence.get("result")
+                      if isinstance(authority_fence, dict)
+                      else None
+                  )
+                  fence_terminal = (
+                      fence_result.get("terminal")
+                      if isinstance(fence_result, dict)
+                      else None
+                  )
+                  prior_authority = acknowledgement.get("prior_authority_anchor")
+                  new_authority = restart.get("new_authority_anchor")
+                  expected_recovered = completed_marker.get(
+                      "expected_recovered_authority_identity"
+                  )
+                  target_identity = {
+                      "container_id": restart.get("prior_container_id"),
+                      "host_pid": restart.get("prior_pid"),
+                      "oom_killed": False,
+                      "restart_count": restart.get("restart_counts", {}).get("prior"),
+                      "state": {
+                          "OOMKilled": False,
+                          "Pid": restart.get("prior_pid"),
+                          "Status": "running",
+                      },
+                      "status": "running",
+                  }
+                  fence_binding_valid = (
+                      isinstance(authority_fence, dict)
+                      and set(authority_fence)
+                      == {
+                          "host_container_id", "host_exec_attempts", "host_pid",
+                          "host_validated_monotonic_seconds",
+                          "prior_authority_anchor", "result",
+                      }
+                      and authority_fence.get("host_container_id")
+                      == restart.get("prior_container_id")
+                      and authority_fence.get("host_pid") == restart.get("prior_pid")
+                      and authority_fence.get("host_validated_monotonic_seconds")
+                      == acknowledgement.get("host_fence_validated_monotonic_seconds")
+                      and type(authority_fence.get("host_exec_attempts")) is int
+                      and authority_fence["host_exec_attempts"] >= 1
+                      and isinstance(fence_result, dict)
+                      and set(fence_result)
+                      == {"node", "request_retry_count", "schema", "status", "terminal"}
+                      and fence_result.get("node") == service
+                      and fence_result.get("schema")
+                      == "lets.production-profile-authority-fence/v1"
+                      and fence_result.get("status") == "passed"
+                      and type(fence_result.get("request_retry_count")) is int
+                      and fence_result["request_retry_count"] >= 0
+                      and isinstance(fence_terminal, dict)
+                      and fence_terminal.get("restart_id") == restart_id
+                      and fence_terminal.get("warden_id") == service
+                      and acknowledgement.get("fence_terminal_sha256")
+                      == canonical_digest(fence_terminal)
+                      and acknowledgement.get("target_identity_sha256")
+                      == canonical_digest(target_identity)
+                      and authority_fence.get("prior_authority_anchor")
+                      == prior_authority
+                      and isinstance(prior_authority, dict)
+                      and isinstance(new_authority, dict)
+                      and recovery.get("recovered_authority_anchor") == new_authority
+                      and isinstance(expected_recovered, dict)
+                      and set(expected_recovered)
+                      == {"lifetime_id", "namespace_process_id"}
+                      and expected_recovered
+                      == {
+                          "lifetime_id": new_authority.get("lifetime_id"),
+                          "namespace_process_id": new_authority.get(
+                              "namespace_process_id"
+                          ),
+                      }
+                      and new_authority.get("lifetime_id")
+                      != prior_authority.get("lifetime_id")
+                      and acknowledgement.get("prior_authority_checkpoint")
+                      == acknowledgement.get("prior_observation", {}).get(
+                          "authority_checkpoint"
+                      )
+                  )
+                  attempt_fields = {
+                      "attempts", "completed_monotonic_seconds",
+                      "deadline_monotonic_seconds", "episode",
+                      "expected_lifetime_id", "post_spacing_seconds", "resolved",
+                      "resolved_attempt", "restart_id", "service",
+                      "started_monotonic_seconds", "status",
+                  }
+                  attempt_entries = (
+                      fence_attempt.get("attempts")
+                      if isinstance(fence_attempt, dict)
+                      else None
+                  )
+                  resolved_attempt = (
+                      fence_attempt.get("resolved_attempt")
+                      if isinstance(fence_attempt, dict)
+                      else None
+                  )
+                  fence_attempt_valid = (
+                      isinstance(fence_attempt, dict)
+                      and set(fence_attempt) == attempt_fields
+                      and type(fence_attempt.get("episode")) is int
+                      and fence_attempt.get("episode") == episode
+                      and fence_attempt.get("service") == service
+                      and fence_attempt.get("restart_id") == restart_id
+                      and fence_attempt.get("expected_lifetime_id")
+                      == (
+                          prior_authority.get("lifetime_id")
+                          if isinstance(prior_authority, dict)
+                          else None
+                      )
+                      and fence_attempt.get("resolved") is True
+                      and fence_attempt.get("status") == "resolved"
+                      and isinstance(attempt_entries, list)
+                      and len(attempt_entries)
+                      == (
+                          authority_fence.get("host_exec_attempts")
+                          if isinstance(authority_fence, dict)
+                          else None
+                      )
+                      and type(resolved_attempt) is int
+                      and 1 <= resolved_attempt <= len(attempt_entries)
+                      and all(
+                          isinstance(item, dict)
+                          and set(item)
+                          == {
+                              "exec_completed_monotonic_seconds", "exec_error_type",
+                              "exec_returncode", "exec_started_monotonic_seconds",
+                              "exec_timeout_seconds", "first_read", "last_read",
+                              "ordinal", "output_path", "read_count",
+                          }
+                          and type(item.get("ordinal")) is int
+                          and item.get("ordinal") == ordinal
+                          and item.get("output_path")
+                          == (
+                              f"/scenario/authority-fence-{episode:06d}"
+                              f"-attempt-{ordinal}.json"
+                          )
+                          and type(item.get("read_count")) is int
+                          and 0 <= item["read_count"] <= 9_223_372_036_854_775_807
+                          and (
+                              item.get("exec_error_type") is None
+                              and type(item.get("exec_returncode")) is int
+                              or isinstance(item.get("exec_error_type"), str)
+                              and 1 <= len(item["exec_error_type"]) <= 128
+                              and item.get("exec_returncode") is None
+                          )
+                          and finite_number(item.get("exec_started_monotonic_seconds"))
+                          and finite_number(item.get("exec_completed_monotonic_seconds"))
+                          and finite_number(item.get("exec_timeout_seconds"))
+                          and 0 < float(item["exec_timeout_seconds"]) <= 95.0
+                          and float(item["exec_started_monotonic_seconds"])
+                          <= float(item["exec_completed_monotonic_seconds"])
+                          and (
+                              item["read_count"] == 0
+                              and item.get("first_read") is None
+                              and item.get("last_read") is None
+                              or item["read_count"] > 0
+                              and all(
+                                  isinstance(item.get(read_name), dict)
+                                  and set(item[read_name])
+                                  == {
+                                      "completed_monotonic_seconds", "error_type",
+                                      "outcome", "returncode",
+                                  }
+                                  and finite_number(
+                                      item[read_name].get("completed_monotonic_seconds")
+                                  )
+                                  and item[read_name].get("outcome")
+                                  in {
+                                      "command_error", "invalid_response",
+                                      "malformed_json", "valid",
+                                  }
+                                  and (
+                                      item[read_name].get("error_type") is None
+                                      or isinstance(
+                                          item[read_name].get("error_type"), str
+                                      )
+                                      and 1
+                                      <= len(item[read_name]["error_type"])
+                                      <= 128
+                                  )
+                                  and (
+                                      item[read_name].get("returncode") is None
+                                      or type(item[read_name].get("returncode")) is int
+                                  )
+                                  and (
+                                      item[read_name]["outcome"] == "command_error"
+                                      and (
+                                          item[read_name]["error_type"] is not None
+                                          or item[read_name]["returncode"]
+                                          not in (None, 0)
+                                      )
+                                      or item[read_name]["outcome"]
+                                      in {"invalid_response", "malformed_json", "valid"}
+                                      and item[read_name]["error_type"] is None
+                                      and item[read_name]["returncode"] == 0
+                                  )
+                                  for read_name in ("first_read", "last_read")
+                              )
+                          )
+                          for ordinal, item in enumerate(attempt_entries, start=1)
+                      )
+                      and attempt_entries[resolved_attempt - 1].get("last_read", {}).get(
+                          "outcome"
+                      )
+                      == "valid"
+                      and all(
+                          finite_number(fence_attempt.get(name))
+                          for name in (
+                              "completed_monotonic_seconds",
+                              "deadline_monotonic_seconds", "post_spacing_seconds",
+                              "started_monotonic_seconds",
+                          )
+                      )
+                      and float(fence_attempt["post_spacing_seconds"]) > 0
+                      and close_number(
+                          fence_attempt.get("deadline_monotonic_seconds"),
+                          float(host_values[0]) + 110.0,
+                      )
+                      and float(host_values[0])
+                      <= float(fence_attempt["started_monotonic_seconds"])
+                      <= float(fence_attempt["completed_monotonic_seconds"])
+                      == float(host_values[2])
+                      <= float(fence_attempt["deadline_monotonic_seconds"])
+                  )
+                  pause_identity = {
+                      "episode", "pause_id", "reason",
+                      "requested_monotonic_seconds", "restart_id", "service",
+                  }
+                  quiescence_fields = pause_identity | {
+                      "acknowledgement", "authorized_end", "authorized_start",
+                      "host_acknowledged_monotonic_seconds",
+                      "host_request_started_monotonic_seconds",
+                      "host_resume_completed_monotonic_seconds",
+                      "host_resume_started_monotonic_seconds", "marker",
+                      "workload_resume_requested_monotonic_seconds",
+                  }
+                  interval_fields = pause_identity | {
+                      "duration_seconds", "measurement_clipped_duration_seconds",
+                      "measurement_clipped_end_elapsed_seconds",
+                      "measurement_clipped_start_elapsed_seconds",
+                      "observed_elapsed_seconds", "observed_monotonic_seconds",
+                      "resumed_elapsed_seconds", "resumed_monotonic_seconds",
+                  }
+                  q_marker = quiescence.get("marker")
+                  q_ack = quiescence.get("acknowledgement")
+                  q_start = quiescence.get("authorized_start")
+                  q_end = quiescence.get("authorized_end")
+                  q_observed = workload_quiescence.get("observed_monotonic_seconds")
+                  q_resumed = workload_quiescence.get("resumed_monotonic_seconds")
+                  q_clipped = workload_quiescence.get(
+                      "measurement_clipped_duration_seconds"
+                  )
+                  quiescence_valid = (
+                      set(quiescence) == quiescence_fields
+                      and set(workload_quiescence) == interval_fields
+                      and all(
+                          isinstance(item, dict) for item in (q_marker, q_ack, q_start, q_end)
+                      )
+                      and set(q_marker) == pause_identity
+                      and set(q_ack)
+                      == pause_identity | {"observed_monotonic_seconds", "paused"}
+                      and set(q_start)
+                      == pause_identity
+                      | {
+                          "authorized_start_monotonic_seconds",
+                          "host_boundary_completed_monotonic_seconds",
+                          "host_boundary_started_monotonic_seconds",
+                      }
+                      and set(q_end)
+                      == pause_identity
+                      | {
+                          "authorized_end_monotonic_seconds",
+                          "host_boundary_completed_monotonic_seconds",
+                          "host_boundary_started_monotonic_seconds",
+                      }
+                      and all(
+                          document.get(key) == q_marker.get(key)
+                          for document in (q_ack, q_start, q_end, workload_quiescence)
+                          for key in pause_identity
+                      )
+                      and q_marker.get("episode") == episode
+                      and q_marker.get("pause_id") == armed_marker.get("quiesce_pause_id")
+                      and q_marker.get("reason") == "planned_restart"
+                      and q_marker.get("restart_id") == restart_id
+                      and q_marker.get("service") == service
+                      and q_ack.get("paused") is True
+                      and q_ack.get("observed_monotonic_seconds") == q_observed == quiesced
+                      and all(
+                          finite_number(value)
+                          for value in (
+                              q_observed, q_resumed, q_clipped,
+                              q_start.get("authorized_start_monotonic_seconds"),
+                              q_end.get("authorized_end_monotonic_seconds"),
+                              quiescence.get("workload_resume_requested_monotonic_seconds"),
+                          )
+                      )
+                      and float(q_marker["requested_monotonic_seconds"])
+                      <= float(q_observed)
+                      <= float(q_start["authorized_start_monotonic_seconds"])
+                      <= float(armed_marker["armed_monotonic_seconds"])
+                      <= float(prepared)
+                      <= float(acknowledged)
+                      <= float(completed_at)
+                      <= float(recovered)
+                      <= float(q_end["authorized_end_monotonic_seconds"])
+                      <= float(quiescence["workload_resume_requested_monotonic_seconds"])
+                      <= float(q_resumed)
+                      and float(q_observed) >= prior_restart_quiescence_end
+                      and close_number(
+                          workload_quiescence.get("duration_seconds"),
+                          float(q_resumed) - float(q_observed),
+                      )
+                      and close_number(
+                          workload_quiescence.get("observed_elapsed_seconds"),
+                          float(q_observed)
+                          - float(workload_start["started_monotonic_seconds"]),
+                      )
+                      and close_number(
+                          workload_quiescence.get("resumed_elapsed_seconds"),
+                          float(q_resumed)
+                          - float(workload_start["started_monotonic_seconds"]),
+                      )
+                      and 0 <= float(q_clipped)
+                      <= float(q_resumed) - float(q_observed) + 0.002
+                      and all(
+                          finite_number(value)
+                          for value in (
+                              quiescence.get("host_request_started_monotonic_seconds"),
+                              quiescence.get("host_acknowledged_monotonic_seconds"),
+                              q_start.get("host_boundary_started_monotonic_seconds"),
+                              q_start.get("host_boundary_completed_monotonic_seconds"),
+                              q_end.get("host_boundary_started_monotonic_seconds"),
+                              q_end.get("host_boundary_completed_monotonic_seconds"),
+                              quiescence.get("host_resume_started_monotonic_seconds"),
+                              quiescence.get("host_resume_completed_monotonic_seconds"),
+                          )
+                      )
+                      and float(chaos_started)
+                      <= float(quiescence["host_request_started_monotonic_seconds"])
+                      <= float(quiescence["host_acknowledged_monotonic_seconds"])
+                      <= float(q_start["host_boundary_started_monotonic_seconds"])
+                      <= float(q_start["host_boundary_completed_monotonic_seconds"])
+                      <= float(host_values[0])
+                      and float(host_values[8])
+                      <= float(q_end["host_boundary_started_monotonic_seconds"])
+                      <= float(q_end["host_boundary_completed_monotonic_seconds"])
+                      <= float(quiescence["host_resume_started_monotonic_seconds"])
+                      <= float(quiescence["host_resume_completed_monotonic_seconds"])
                       <= float(chaos_completed)
                   )
-                  if not identity_valid or not container_timing_valid or not host_timing_valid:
+                  if not all(
+                      (
+                          identity_valid,
+                          container_timing_valid,
+                          host_timing_valid,
+                          fence_binding_valid,
+                          fence_attempt_valid,
+                          quiescence_valid,
+                      )
+                  ):
                       raw_restart_valid = False
                       continue
-                  start_elapsed = float(acknowledged) - float(
+                  prior_restart_quiescence_end = float(q_resumed)
+                  restart_quiesced_seconds += float(q_clipped)
+                  start_elapsed = float(armed_marker["armed_monotonic_seconds"]) - float(
                       workload_start["started_monotonic_seconds"]
                   )
                   end_elapsed = float(completed_at) - float(
@@ -1112,6 +1708,10 @@ jobs:
                       "completed_marker": completed_marker,
                       "end_elapsed_seconds": end_elapsed,
                       "episode": episode,
+                      "prior_authority_anchor": prior_authority,
+                      "prior_lifetime_id": prior_authority["lifetime_id"],
+                      "recovered_authority_anchor": new_authority,
+                      "recovered_lifetime_id": new_authority["lifetime_id"],
                       "restart_id": restart_id,
                       "service": service,
                       "start_elapsed_seconds": start_elapsed,
@@ -1177,13 +1777,35 @@ jobs:
           raw_restart_valid = (
               raw_restart_valid
               and isinstance(restart_metrics, dict)
+              and set(restart_metrics)
+              == {
+                  "binding_count", "bindings", "host_maximum_restart_seconds",
+                  "passed", "windows_by_node", "workload_quiesced_seconds",
+              }
               and restart_metrics.get("passed") is True
+              and type(restart_metrics.get("binding_count")) is int
               and restart_metrics.get("binding_count") == len(restart_bindings)
               and restart_metrics.get("bindings") == restart_bindings
               and restart_metrics.get("windows_by_node") == restart_windows
+              and close_number(
+                  restart_metrics.get("host_maximum_restart_seconds"),
+                  max(
+                      (
+                          float(item["host_operation_completed_monotonic_seconds"])
+                          - float(item["host_operation_started_monotonic_seconds"])
+                          for item in restarts
+                      ),
+                      default=0.0,
+                  ),
+              )
+              and close_number(
+                  restart_metrics.get("workload_quiesced_seconds"),
+                  restart_quiesced_seconds,
+              )
           )
           if not raw_restart_valid:
               failures.append("soak restart cadence exclusions are not raw-bound")
+          # END RAW RESTART EVIDENCE VERIFIER
 
           pause_intervals_value = workload.get("pause_intervals")
           pause_intervals = (
@@ -2193,6 +2815,20 @@ jobs:
           if conservation.get("balanced") is not True:
               failures.append("soak conservation failed")
           # BEGIN RAW AUTHORITY EVIDENCE VERIFIER
+          import hashlib
+          import json
+          import math
+
+          health_samples_value = workload.get("health_samples")
+          health_samples = (
+              health_samples_value if isinstance(health_samples_value, list) else []
+          )
+          final_health_value = verification.get("final_health")
+          final_nodes = (
+              final_health_value.get("nodes")
+              if isinstance(final_health_value, dict)
+              else None
+          )
           authority_summary = required_mapping(
               evidence.get("authority_evaluation"), "soak authority evaluation"
           )
@@ -2350,6 +2986,7 @@ jobs:
               elif (
                   type(value.get("namespace_process_id")) is not int
                   or value["namespace_process_id"] <= 0
+                  or value["namespace_process_id"] > (1 << 31) - 1
                   or type(value.get("admission_fenced")) is not bool
                   or (
                       fenced is not None
@@ -2363,7 +3000,9 @@ jobs:
                           not isinstance(value.get("fence_id"), str)
                           or not 1 <= len(value["fence_id"]) <= 128
                           or type(value.get("fenced_at_monotonic_ns")) is not int
-                          or value["fenced_at_monotonic_ns"] < 0
+                          or not 0
+                          <= value["fenced_at_monotonic_ns"]
+                          <= (1 << 63) - 1
                       ):
                           return False
                   elif value.get("fence_id") is not None or value.get(
@@ -2403,7 +3042,10 @@ jobs:
                       return False
               elif state == "recoverable_transport_fault":
                   if (
-                      stage is None or reason is None or type(retry) is not int or retry < 0
+                      stage is None
+                      or reason is None
+                      or type(retry) is not int
+                      or not 0 <= retry <= (1 << 63) - 1
                   ):
                       return False
               elif retry is not None:
@@ -2453,7 +3095,1179 @@ jobs:
                   == counters["transport_recoveries"]
               )
 
-          raw_authority_valid = cycle_metrics_valid and raw_terminal_capture_valid
+          observation_dynamic_fields = {
+              "age_ns", "authority_anchor", "capture_status", "fresh", "ready",
+              "served_at_monotonic_ns", "service_ready",
+          }
+          observation_immutable_fields = {
+              "audit_exporter", "audit_outbox", "audit_verification",
+              "authority_checkpoint", "capture_duration_ns",
+              "capture_started_monotonic_ns", "captured_at_monotonic_ns",
+              "captured_at_ns", "captured_authority_anchor", "checked_at_ns",
+              "clock_healthy", "core_state_revision", "database_instance_id",
+              "generation", "invariant", "invariant_healthy", "leases",
+              "lifetime_id", "max_age_ns", "observation_eligible",
+              "peer_dispatcher", "published_at_monotonic_ns", "published_at_ns",
+              "receipts", "resources", "revision", "runtime", "schema",
+              "signing_key_healthy", "snapshot_id", "sqlite_schema_sha256",
+              "storage_capacity", "transfers",
+          }
+          core_checkpoint_fields = {
+              "audit_hash", "audit_sequence", "clock_floor_ns", "config_epoch",
+              "database_instance_id", "envelope_id", "format", "schema_version",
+              "signing_key_id", "signing_public_key_sha256", "state_digest",
+              "state_revision", "tenant_id", "warden_id",
+          }
+          core_checkpoint_stable_fields = {
+              "config_epoch", "database_instance_id", "envelope_id", "format",
+              "schema_version", "signing_key_id", "signing_public_key_sha256",
+              "tenant_id", "warden_id",
+          }
+          terminal_audit_proof_fields = {
+              "authority_checkpoint_sha256", "authority_state_revision",
+              "database_instance_id", "generation", "lifetime_id", "schema",
+              "schema_definition_sha256", "startup_full_verification_at_ns",
+              "valid", "verification_mode", "verified_at_ns",
+              "verified_head_hash", "verified_head_sequence",
+          }
+          observation_document_fields = {
+              "audit_exporter", "audit_outbox", "authority_anchor", "invariant",
+              "observation", "observation_generation", "observation_revision",
+              "observation_snapshot", "observation_snapshot_id", "peer_dispatcher",
+              "ready", "receipts", "service_ready", "storage_capacity", "transfers",
+          }
+          observation_timing_fields = {
+              "completed_elapsed_seconds", "metrics_observed_elapsed_seconds",
+              "request_count", "request_path", "request_retries", "retry_errors",
+              "started_elapsed_seconds",
+          }
+
+          def sha256_json(value):
+              return "sha256:" + hashlib.sha256(
+                  json.dumps(
+                      value,
+                      allow_nan=False,
+                      ensure_ascii=False,
+                      separators=(",", ":"),
+                      sort_keys=True,
+                  ).encode("utf-8")
+              ).hexdigest()
+
+          def valid_sha256(value):
+              return (
+                  isinstance(value, str)
+                  and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+              )
+
+          def valid_core_checkpoint(value, *, node):
+              if not isinstance(value, dict) or set(value) != core_checkpoint_fields:
+                  return False
+              floor = value.get("clock_floor_ns")
+              return (
+                  value.get("format") == "LETS-AUTHORITY-ANCHOR/1"
+                  and value.get("warden_id") == node
+                  and value.get("tenant_id") == "production-acceptance-tenant"
+                  and value.get("envelope_id") == "production-acceptance-envelope"
+                  and type(value.get("config_epoch")) is int
+                  and value.get("config_epoch") == 1
+                  and type(value.get("schema_version")) is int
+                  and value.get("schema_version") == 2
+                  and valid_identifier(value.get("signing_key_id"))
+                  and all(
+                      valid_digest(value.get(name))
+                      for name in (
+                          "audit_hash", "database_instance_id",
+                          "signing_public_key_sha256", "state_digest",
+                      )
+                  )
+                  and type(value.get("audit_sequence")) is int
+                  and -1 <= value["audit_sequence"] <= (1 << 63) - 1
+                  and type(value.get("state_revision")) is int
+                  and 0 <= value["state_revision"] <= (1 << 63) - 1
+                  and (
+                      floor is None
+                      or type(floor) is int and 0 <= floor <= (1 << 63) - 1
+                  )
+              )
+
+          def core_checkpoint_extends(prior, current):
+              prior_floor = prior.get("clock_floor_ns")
+              current_floor = current.get("clock_floor_ns")
+              return (
+                  all(
+                      current.get(name) == prior.get(name)
+                      for name in core_checkpoint_stable_fields
+                  )
+                  and current["state_revision"] >= prior["state_revision"]
+                  and current["audit_sequence"] >= prior["audit_sequence"]
+                  and not (
+                      type(prior_floor) is int and type(current_floor) is not int
+                  )
+                  and not (
+                      type(prior_floor) is int
+                      and type(current_floor) is int
+                      and current_floor < prior_floor
+                  )
+                  and (
+                      current["state_revision"] != prior["state_revision"]
+                      or current["state_digest"] == prior["state_digest"]
+                  )
+                  and (
+                      current["audit_sequence"] != prior["audit_sequence"]
+                      or current["audit_hash"] == prior["audit_hash"]
+                  )
+              )
+
+          def valid_resource_vector(value, *, dimensions=None):
+              return (
+                  isinstance(value, list)
+                  and bool(value)
+                  and len(value) <= 256
+                  and (dimensions is None or len(value) == dimensions)
+                  and all(
+                      type(item) is int and 0 <= item <= (1 << 63) - 1
+                      for item in value
+                  )
+              )
+
+          def valid_bounded_integer(value, *, minimum=0):
+              return type(value) is int and minimum <= value <= (1 << 63) - 1
+
+          def valid_runtime_status(value):
+              return (
+                  isinstance(value, dict)
+                  and set(value)
+                  == {"changed_at_ns", "changed_by", "generation", "mode", "reason"}
+                  and value.get("mode") == "ACTIVE"
+                  and valid_bounded_integer(value.get("generation"))
+                  and valid_bounded_integer(value.get("changed_at_ns"))
+                  and valid_identifier(value.get("changed_by"))
+                  and isinstance(value.get("reason"), str)
+                  and 1 <= len(value["reason"]) <= 2_000
+              )
+
+          def valid_capacity_status(value):
+              fields = {
+                  "additional_shared_memory_bytes", "database_bytes",
+                  "effective_database_bytes", "filesystem_free_bytes", "free_pages",
+                  "healthy", "logical_live_bytes", "main_database_bytes",
+                  "max_database_bytes", "max_page_count", "min_free_disk_bytes",
+                  "page_count", "page_size", "prior_full_error",
+                  "remaining_main_growth_bytes", "required_filesystem_free_bytes",
+                  "reserve_pages", "reusable_bytes", "shared_memory_bytes", "wal_bytes",
+                  "worst_case_shared_memory_bytes", "worst_case_transaction_wal_bytes",
+              }
+              if not isinstance(value, dict) or set(value) != fields:
+                  return False
+              optional = {"filesystem_free_bytes", "max_database_bytes"}
+              if (
+                  value.get("healthy") is not True
+                  or value.get("prior_full_error") is not False
+                  or any(
+                      not valid_bounded_integer(value.get(name))
+                      for name in fields - optional - {"healthy", "prior_full_error"}
+                  )
+                  or any(
+                      value.get(name) is not None
+                      and not valid_bounded_integer(value.get(name))
+                      for name in optional
+                  )
+                  or value["page_size"]
+                  not in {512, 1_024, 2_048, 4_096, 8_192, 16_384, 32_768, 65_536}
+                  or not value["free_pages"] <= value["page_count"] <= value["max_page_count"]
+                  or value["database_bytes"]
+                  != value["main_database_bytes"]
+                  + value["wal_bytes"]
+                  + value["shared_memory_bytes"]
+                  or value["reusable_bytes"]
+                  != min(
+                      value["main_database_bytes"],
+                      value["free_pages"] * value["page_size"],
+                  )
+                  or value["logical_live_bytes"]
+                  != (value["page_count"] - value["free_pages"])
+                  * value["page_size"]
+                  or value["effective_database_bytes"] != value["logical_live_bytes"]
+              ):
+                  return False
+              maximum = value["max_database_bytes"]
+              configured_pages = (
+                  value["page_count"] if maximum is None else value["max_page_count"]
+              )
+              if maximum is None:
+                  if (
+                      value["remaining_main_growth_bytes"] != 0
+                      or value["worst_case_transaction_wal_bytes"] != 0
+                  ):
+                      return False
+              elif (
+                  maximum <= 0
+                  or not value["max_page_count"] * value["page_size"]
+                  <= maximum
+                  < (value["max_page_count"] + 1) * value["page_size"]
+                  or value["remaining_main_growth_bytes"]
+                  != max(
+                      0,
+                      value["max_page_count"] * value["page_size"]
+                      - value["main_database_bytes"],
+                  )
+                  or value["worst_case_transaction_wal_bytes"]
+                  != 32
+                  + value["max_page_count"] * (value["page_size"] + 24)
+              ):
+                  return False
+              existing_wal_frames = 0
+              if value["wal_bytes"] > 32:
+                  frame_bytes = value["page_size"] + 24
+                  existing_wal_frames = (
+                      value["wal_bytes"] - 32 + frame_bytes - 1
+                  ) // frame_bytes
+              future_wal_frames = existing_wal_frames + (
+                  configured_pages if maximum is not None else 0
+              )
+              worst_shared = 0
+              if future_wal_frames > 0:
+                  extra_frames = max(0, future_wal_frames - 4_062)
+                  worst_shared = (1 + (extra_frames + 4_095) // 4_096) * 32_768
+              reserve_bytes = value["reserve_pages"] * value["page_size"]
+              required_free = value["min_free_disk_bytes"] + reserve_bytes
+              if maximum is not None:
+                  required_free = (
+                      value["min_free_disk_bytes"]
+                      + value["remaining_main_growth_bytes"]
+                      + value["worst_case_transaction_wal_bytes"]
+                      + value["additional_shared_memory_bytes"]
+                  )
+              filesystem_free = value["filesystem_free_bytes"]
+              return (
+                  value["worst_case_shared_memory_bytes"] == worst_shared
+                  and value["additional_shared_memory_bytes"]
+                  == max(0, worst_shared - value["shared_memory_bytes"])
+                  and value["required_filesystem_free_bytes"] == required_free
+                  and value["max_page_count"] - value["page_count"]
+                  + value["free_pages"]
+                  >= value["reserve_pages"]
+                  and (
+                      (
+                          filesystem_free is not None
+                          and filesystem_free >= required_free
+                      )
+                      or (
+                          filesystem_free is None
+                          and value["min_free_disk_bytes"] == 0
+                      )
+                  )
+                  and (
+                      maximum is None
+                      or value["effective_database_bytes"] + reserve_bytes <= maximum
+                  )
+              )
+
+          def valid_leases_status(value):
+              allowed_statuses = {
+                  "ACTIVE", "CLOSED", "EXPIRED", "MIGRATING", "PROVISIONED",
+                  "QUIESCENT", "REVOKED", "TERMINATED",
+              }
+              by_status = value.get("by_status") if isinstance(value, dict) else None
+              return (
+                  isinstance(value, dict)
+                  and set(value) == {"by_status", "total"}
+                  and valid_bounded_integer(value.get("total"))
+                  and isinstance(by_status, dict)
+                  and set(by_status) <= allowed_statuses
+                  and all(valid_bounded_integer(item) for item in by_status.values())
+                  and sum(by_status.values()) == value["total"]
+              )
+
+          def valid_receipts_status(value):
+              return (
+                  isinstance(value, dict)
+                  and set(value) == {"total"}
+                  and valid_bounded_integer(value.get("total"))
+              )
+
+          def valid_transfers_status(value):
+              fields = {
+                  "in_flight_count", "inbound_gap_count",
+                  "incoming_compacted_high_water", "incoming_contiguous_high_water",
+                  "incoming_streams", "outgoing_acked_high_water",
+                  "outgoing_compacted_high_water", "outgoing_streams",
+              }
+              return (
+                  isinstance(value, dict)
+                  and set(value) == fields
+                  and all(valid_bounded_integer(value.get(name)) for name in fields)
+                  and value["incoming_compacted_high_water"]
+                  <= value["incoming_contiguous_high_water"]
+                  and value["outgoing_compacted_high_water"]
+                  <= value["outgoing_acked_high_water"]
+              )
+
+          def valid_outbox_status(value):
+              return (
+                  isinstance(value, dict)
+                  and set(value) == {"oldest_unpublished_age_ns", "unpublished_count"}
+                  and valid_bounded_integer(value.get("oldest_unpublished_age_ns"))
+                  and valid_bounded_integer(value.get("unpublished_count"))
+                  and (
+                      value["unpublished_count"] != 0
+                      or value["oldest_unpublished_age_ns"] == 0
+                  )
+              )
+
+          def valid_peer_status(value, *, node, published_at_ns):
+              fields = {
+                  "configured_peers", "delivered_records", "durable_retry",
+                  "failed_records", "healthy", "last_cycle_ns", "last_error",
+                  "pending_records", "prepared_transfers", "running",
+                  "superseded_records",
+              }
+              if not isinstance(value, dict) or set(value) != fields:
+                  return False
+              counted = fields - {
+                  "durable_retry", "healthy", "last_cycle_ns", "last_error", "running",
+              }
+              if (
+                  value.get("configured_peers") != 2
+                  or any(not valid_bounded_integer(value.get(name)) for name in counted)
+                  or value["failed_records"] > value["pending_records"]
+                  or value.get("healthy") is not True
+                  or value.get("running") is not True
+                  or value.get("last_error") is not None
+                  or not valid_bounded_integer(value.get("last_cycle_ns"), minimum=1)
+                  or value["last_cycle_ns"] > published_at_ns
+              ):
+                  return False
+              retry = value.get("durable_retry")
+              return retry is None or (
+                  isinstance(retry, dict)
+                  and set(retry)
+                  == {
+                      "attempt_count", "exception_class", "next_retry_delay_seconds",
+                      "record_kind", "target_warden",
+                  }
+                  and valid_bounded_integer(retry.get("attempt_count"), minimum=1)
+                  and isinstance(retry.get("exception_class"), str)
+                  and re.fullmatch(
+                      r"[A-Za-z_][A-Za-z0-9_]{0,63}", retry["exception_class"]
+                  ) is not None
+                  and finite_number(retry.get("next_retry_delay_seconds"))
+                  and 0 <= float(retry["next_retry_delay_seconds"]) <= 30.0
+                  and retry.get("record_kind")
+                  in {"checkpoint", "revocation", "transfer"}
+                  and retry.get("target_warden")
+                  in {"warden-a", "warden-b", "warden-c"} - {node}
+              )
+
+          def valid_audit_exporter_status(value):
+              fields = {
+                  "archive_reconciled", "configured", "healthy", "last_error",
+                  "last_success_ns", "max_pending", "max_stall_s",
+                  "oldest_pending_age_s", "pending", "publish_blocked",
+                  "publish_timeout_s", "running", "sink_call_blocked", "stalled_for_s",
+              }
+              if not isinstance(value, dict) or set(value) != fields:
+                  return False
+              if (
+                  any(
+                      type(value.get(name)) is not bool
+                      for name in {
+                          "archive_reconciled", "configured", "healthy",
+                          "publish_blocked", "running", "sink_call_blocked",
+                      }
+                  )
+                  or value.get("configured") is not True
+                  or value.get("running") is not True
+                  or value.get("publish_blocked") is not False
+                  or value.get("sink_call_blocked") is not False
+                  or not valid_bounded_integer(value.get("max_pending"), minimum=1)
+                  or not valid_bounded_integer(value.get("pending"))
+                  or value["pending"] > value["max_pending"]
+                  or not finite_number(value.get("max_stall_s"))
+                  or float(value["max_stall_s"]) <= 0
+                  or not finite_number(value.get("publish_timeout_s"))
+                  or float(value["publish_timeout_s"]) <= 0
+                  or not finite_number(value.get("stalled_for_s"))
+                  or not 0 <= float(value["stalled_for_s"]) <= float(value["max_stall_s"])
+              ):
+                  return False
+              oldest = value.get("oldest_pending_age_s")
+              if (
+                  oldest is not None
+                  and (
+                      not finite_number(oldest)
+                      or not 0 <= float(oldest) <= float(value["max_stall_s"])
+                  )
+              ) or (value["pending"] == 0) is not (oldest is None):
+                  return False
+              last_error = value.get("last_error")
+              last_success = value.get("last_success_ns")
+              return (
+                  last_error in {None, "StorageError:sqlite_busy"}
+                  and (
+                      last_success is None
+                      or valid_bounded_integer(last_success, minimum=1)
+                  )
+                  and (
+                      last_error is None
+                      or last_success is not None
+                  )
+                  and (last_error is None)
+                  is (
+                      value.get("archive_reconciled") is True
+                      and value.get("healthy") is True
+                  )
+              )
+
+          def valid_audit_exporter_projection(summary, raw):
+              fields = {
+                  "archive_reconciled", "catching_up", "healthy", "last_error",
+                  "last_success_ns", "max_pending", "max_stall_s",
+                  "oldest_pending_age_s", "pending", "publish_blocked", "running",
+                  "sink_call_blocked", "stalled_for_s",
+              }
+              projected = {
+                  name: raw.get(name)
+                  for name in fields - {"catching_up"}
+              } | {"catching_up": raw.get("healthy") is False}
+              return isinstance(summary, dict) and set(summary) == fields and summary == projected
+
+          def valid_observation_snapshot(value, *, node):
+              if (
+                  not isinstance(value, dict)
+                  or set(value)
+                  != observation_immutable_fields | observation_dynamic_fields
+              ):
+                  return False
+              try:
+                  encoded = json.dumps(
+                      value,
+                      allow_nan=False,
+                      ensure_ascii=False,
+                      separators=(",", ":"),
+                      sort_keys=True,
+                  ).encode("utf-8")
+              except (TypeError, ValueError):
+                  return False
+              if len(encoded) > 20 * 1024:
+                  return False
+              generation = value.get("generation")
+              lifetime = value.get("lifetime_id")
+              snapshot_id = value.get("snapshot_id")
+              immutable = {
+                  key: item
+                  for key, item in value.items()
+                  if key not in observation_dynamic_fields and key != "snapshot_id"
+              }
+              immutable_with_id = {
+                  key: item
+                  for key, item in value.items()
+                  if key not in observation_dynamic_fields
+              }
+              try:
+                  immutable_encoded = json.dumps(
+                      immutable_with_id,
+                      allow_nan=False,
+                      ensure_ascii=False,
+                      separators=(",", ":"),
+                      sort_keys=True,
+                  ).encode("utf-8")
+              except (TypeError, ValueError):
+                  return False
+              if (
+                  value.get("schema") != "lets.observation-snapshot/v1"
+                  or len(immutable_encoded) > 16 * 1024
+                  or not isinstance(generation, str)
+                  or re.fullmatch(r"[0-9a-f]{32}", generation) is None
+                  or not isinstance(lifetime, str)
+                  or re.fullmatch(r"[0-9a-f]{32}", lifetime) is None
+                  or not valid_sha256(snapshot_id)
+                  or snapshot_id != sha256_json(immutable)
+              ):
+                  return False
+
+              integer_fields = (
+                  "age_ns", "capture_duration_ns", "capture_started_monotonic_ns",
+                  "captured_at_monotonic_ns", "captured_at_ns", "checked_at_ns",
+                  "core_state_revision", "max_age_ns", "published_at_monotonic_ns",
+                  "published_at_ns", "revision", "served_at_monotonic_ns",
+              )
+              if any(
+                  not valid_bounded_integer(value.get(name))
+                  for name in integer_fields
+              ) or value["revision"] < 1:
+                  return False
+              if (
+                  not value["capture_started_monotonic_ns"]
+                  <= value["captured_at_monotonic_ns"]
+                  <= value["published_at_monotonic_ns"]
+                  or value["capture_duration_ns"]
+                  != value["published_at_monotonic_ns"]
+                  - value["capture_started_monotonic_ns"]
+                  or value["published_at_ns"] < value["captured_at_ns"]
+                  or value["max_age_ns"] != 15_000_000_000
+                  or value["served_at_monotonic_ns"]
+                  < value["published_at_monotonic_ns"]
+                  or value["age_ns"]
+                  != value["served_at_monotonic_ns"]
+                  - value["captured_at_monotonic_ns"]
+                  or value["age_ns"] >= value["max_age_ns"]
+                  or value.get("fresh") is not True
+              ):
+                  return False
+              capture_status = value.get("capture_status")
+              if (
+                  not isinstance(capture_status, dict)
+                  or set(capture_status) != {
+                      "attempt_sequence", "capture_in_progress",
+                      "last_attempt_monotonic_ns", "last_error_type",
+                      "last_successful_attempt_sequence",
+                  }
+                  or type(capture_status.get("attempt_sequence")) is not int
+                  or not 1
+                  <= capture_status["attempt_sequence"]
+                  <= (1 << 63) - 1
+                  or type(capture_status.get("capture_in_progress")) is not bool
+                  or not valid_bounded_integer(
+                      capture_status.get("last_attempt_monotonic_ns")
+                  )
+                  or capture_status["last_attempt_monotonic_ns"]
+                  > value["served_at_monotonic_ns"]
+                  or capture_status.get("last_error_type") is not None
+                  or type(capture_status.get("last_successful_attempt_sequence"))
+                  is not int
+                  or not 1
+                  <= capture_status["last_successful_attempt_sequence"]
+                  <= (1 << 63) - 1
+                  or capture_status["last_successful_attempt_sequence"]
+                  > capture_status["attempt_sequence"]
+                  or (
+                      capture_status["capture_in_progress"] is False
+                      and capture_status["last_successful_attempt_sequence"]
+                      != capture_status["attempt_sequence"]
+                  )
+              ):
+                  return False
+              captured_authority = value.get("captured_authority_anchor")
+              current_authority = value.get("authority_anchor")
+              if (
+                  not valid_authority(captured_authority, fenced=False)
+                  or not valid_authority(current_authority, fenced=False)
+                  or captured_authority.get("state") != "healthy"
+                  or current_authority.get("state") != "healthy"
+                  or captured_authority.get("lifetime_id") != lifetime
+                  or current_authority.get("lifetime_id") != lifetime
+                  or captured_authority.get("namespace_process_id")
+                  != current_authority.get("namespace_process_id")
+                  or any(
+                      current_authority[name] < captured_authority[name]
+                      for name in authority_counter_fields
+                  )
+                  or (
+                      captured_authority.get("first_fault") is not None
+                      and current_authority.get("first_fault")
+                      != captured_authority.get("first_fault")
+                  )
+              ):
+                  return False
+              checkpoint = value.get("authority_checkpoint")
+              if (
+                  not valid_core_checkpoint(checkpoint, node=node)
+                  or value.get("core_state_revision")
+                  != checkpoint.get("state_revision")
+                  or value.get("database_instance_id")
+                  != checkpoint.get("database_instance_id")
+              ):
+                  return False
+              audit = value.get("audit_verification")
+              audit_fields = {
+                  "captured_head_hash", "captured_head_sequence", "catching_up",
+                  "error_type", "lag", "last_full_verification_at_ns", "page_size",
+                  "schema_definition_sha256", "sticky_failure",
+                  "sweep_cursor_sequence", "sweep_last_completed_at_ns",
+                  "sweep_last_completed_head_hash",
+                  "sweep_last_completed_head_sequence", "sweep_target_sequence",
+                  "valid", "verified_through_hash", "verified_through_sequence",
+              }
+              try:
+                  checkpoint_audit = base64.urlsafe_b64decode(
+                      checkpoint["audit_hash"] + "="
+                  )
+              except (KeyError, TypeError, ValueError):
+                  return False
+              checkpoint_hash = "sha256:" + checkpoint_audit.hex()
+              if (
+                  not isinstance(audit, dict)
+                  or set(audit) != audit_fields
+                  or audit.get("valid") is not True
+                  or audit.get("sticky_failure") is not False
+                  or audit.get("catching_up") is not False
+                  or audit.get("error_type") is not None
+                  or type(audit.get("lag")) is not int
+                  or audit.get("lag") != 0
+                  or audit.get("captured_head_sequence")
+                  != checkpoint.get("audit_sequence")
+                  or audit.get("verified_through_sequence")
+                  != checkpoint.get("audit_sequence")
+                  or audit.get("captured_head_hash") != checkpoint_hash
+                  or audit.get("verified_through_hash") != checkpoint_hash
+                  or type(audit.get("last_full_verification_at_ns")) is not int
+                  or not 0
+                  < audit["last_full_verification_at_ns"]
+                  <= (1 << 63) - 1
+                  or type(audit.get("page_size")) is not int
+                  or not 1 <= audit["page_size"] <= 1_000
+                  or not valid_sha256(audit.get("schema_definition_sha256"))
+                  or audit.get("schema_definition_sha256")
+                  != value.get("sqlite_schema_sha256")
+                  or type(audit.get("sweep_cursor_sequence")) is not int
+                  or type(audit.get("sweep_target_sequence")) is not int
+                  or not -1
+                  <= audit["sweep_cursor_sequence"]
+                  <= (1 << 63) - 1
+                  or not -1
+                  <= audit["sweep_target_sequence"]
+                  <= (1 << 63) - 1
+                  or audit["sweep_cursor_sequence"] > audit["sweep_target_sequence"]
+                  or type(audit.get("sweep_last_completed_at_ns")) is not int
+                  or not 0 < audit["sweep_last_completed_at_ns"]
+                  <= (1 << 63) - 1
+                  or type(audit.get("sweep_last_completed_head_sequence")) is not int
+                  or not -1
+                  <= audit["sweep_last_completed_head_sequence"]
+                  <= (1 << 63) - 1
+                  or not valid_sha256(audit.get("sweep_last_completed_head_hash"))
+              ):
+                  return False
+              if (
+                  audit["last_full_verification_at_ns"]
+                  > audit["sweep_last_completed_at_ns"]
+                  or audit["sweep_last_completed_at_ns"] > value["captured_at_ns"]
+                  or audit["sweep_target_sequence"] > audit["captured_head_sequence"]
+                  or audit["sweep_last_completed_head_sequence"]
+                  > audit["sweep_target_sequence"]
+                  or (
+                      audit["sweep_last_completed_head_sequence"]
+                      == audit["captured_head_sequence"]
+                      and audit["sweep_last_completed_head_hash"] != checkpoint_hash
+                  )
+                  or (
+                      audit["sweep_last_completed_head_sequence"] == -1
+                      and audit["sweep_last_completed_head_hash"]
+                      != "sha256:" + "0" * 64
+                  )
+              ):
+                  return False
+              invariant = value.get("invariant")
+              resources = value.get("resources")
+              resource_fields = {
+                  "consumed", "free_pool", "initial_share", "lease_residual",
+                  "transferred_in", "transferred_out",
+              }
+              invariant_fields = resource_fields | {
+                  "checked_at_ns", "config_epoch", "envelope_id", "healthy",
+                  "tenant_id",
+              }
+              if not isinstance(invariant, dict) or set(invariant) != invariant_fields:
+                  return False
+              dimensions = (
+                  len(invariant["initial_share"])
+                  if valid_resource_vector(invariant.get("initial_share")) else None
+              )
+              if (
+                  dimensions != 1
+                  or not isinstance(resources, dict)
+                  or set(resources) != resource_fields
+                  or any(
+                      not valid_resource_vector(invariant.get(name), dimensions=dimensions)
+                      or resources.get(name) != invariant.get(name)
+                      for name in resource_fields
+                  )
+                  or any(
+                      invariant["initial_share"][index]
+                      + invariant["transferred_in"][index]
+                      != invariant["free_pool"][index]
+                      + invariant["lease_residual"][index]
+                      + invariant["consumed"][index]
+                      + invariant["transferred_out"][index]
+                      for index in range(dimensions)
+                  )
+                  or any(
+                      invariant["initial_share"][index]
+                      + invariant["transferred_in"][index]
+                      > (1 << 63) - 1
+                      for index in range(dimensions)
+                  )
+                  or invariant.get("tenant_id")
+                  != "production-acceptance-tenant"
+                  or invariant.get("envelope_id")
+                  != "production-acceptance-envelope"
+                  or type(invariant.get("config_epoch")) is not int
+                  or invariant.get("config_epoch") != 1
+                  or invariant.get("checked_at_ns") != value.get("checked_at_ns")
+                  or invariant.get("healthy") is not True
+                  or value.get("invariant_healthy") is not True
+                  or value.get("clock_healthy") is not True
+                  or value.get("signing_key_healthy") is not True
+                  or value.get("observation_eligible") is not True
+              ):
+                  return False
+              exporter = value.get("audit_exporter")
+              peer = value.get("peer_dispatcher")
+              if (
+                  not valid_audit_exporter_status(exporter)
+                  or not valid_peer_status(
+                      peer,
+                      node=node,
+                      published_at_ns=value["published_at_ns"],
+                  )
+                  or value.get("service_ready") is not True
+                  or value.get("ready")
+                  is not (
+                      exporter.get("healthy") is True
+                      and peer.get("healthy") is True
+                  )
+              ):
+                  return False
+              return (
+                  valid_outbox_status(value.get("audit_outbox"))
+                  and valid_leases_status(value.get("leases"))
+                  and valid_receipts_status(value.get("receipts"))
+                  and valid_runtime_status(value.get("runtime"))
+                  and valid_capacity_status(value.get("storage_capacity"))
+                  and valid_transfers_status(value.get("transfers"))
+              )
+
+          def valid_retry_scope(value):
+              return (
+                  isinstance(value, dict)
+                  and set(value) == {"first_error", "last_error"}
+                  and all(
+                      item is None or isinstance(item, str)
+                      for item in value.values()
+                  )
+              )
+
+          def valid_observation_timing(value, *, planned):
+              return (
+                  isinstance(value, dict)
+                  and set(value) == observation_timing_fields
+                  and finite_number(value.get("started_elapsed_seconds"))
+                  and finite_number(value.get("completed_elapsed_seconds"))
+                  and float(value["completed_elapsed_seconds"])
+                  >= float(value["started_elapsed_seconds"])
+                  and (
+                      value.get("metrics_observed_elapsed_seconds") is None
+                      if planned
+                      else finite_number(value.get("metrics_observed_elapsed_seconds"))
+                      and float(value["started_elapsed_seconds"])
+                      <= float(value["metrics_observed_elapsed_seconds"])
+                      <= float(value["completed_elapsed_seconds"])
+                  )
+                  and type(value.get("request_retries")) is int
+                  and value.get("request_retries") == 0
+                  and type(value.get("request_count")) is int
+                  and value.get("request_count") in ({0, 1} if planned else {1})
+                  and value.get("request_path") == "/v1/metrics"
+                  and valid_retry_scope(value.get("retry_errors"))
+              )
+
+          def valid_sample_request_budget(request_total, planned_count):
+              return (
+                  type(request_total) is int
+                  and type(planned_count) is int
+                  and planned_count in {0, 1}
+                  and (
+                      request_total == 3
+                      if planned_count == 0
+                      else request_total in {2, 3}
+                  )
+              )
+
+          def valid_observation_document(document, *, node):
+              if (
+                  not isinstance(document, dict)
+                  or set(document) != observation_document_fields
+                  or not valid_observation_timing(
+                      document.get("observation"), planned=False
+                  )
+              ):
+                  return False
+              snapshot = document.get("observation_snapshot")
+              if not valid_observation_snapshot(snapshot, node=node):
+                  return False
+              invariant = snapshot["invariant"]
+              summary_invariant = document.get("invariant")
+              invariant_summary_fields = {
+                  "consumed", "free_pool", "healthy", "lease_residual",
+                  "transferred_in", "transferred_out",
+              }
+              return (
+                  valid_audit_exporter_projection(
+                      document.get("audit_exporter"), snapshot.get("audit_exporter")
+                  )
+                  and document.get("audit_outbox") == snapshot.get("audit_outbox")
+                  and document.get("authority_anchor") == snapshot.get("authority_anchor")
+                  and isinstance(summary_invariant, dict)
+                  and set(summary_invariant) == invariant_summary_fields
+                  and summary_invariant
+                  == {name: invariant[name] for name in invariant_summary_fields}
+                  and document.get("peer_dispatcher") == snapshot.get("peer_dispatcher")
+                  and document.get("ready") == snapshot.get("ready")
+                  and document.get("receipts") == snapshot.get("receipts")
+                  and document.get("service_ready") == snapshot.get("service_ready")
+                  and document.get("storage_capacity")
+                  == snapshot.get("storage_capacity")
+                  and document.get("transfers") == snapshot.get("transfers")
+                  and document.get("observation_generation")
+                  == snapshot.get("generation")
+                  and document.get("observation_revision")
+                  == snapshot.get("revision")
+                  and document.get("observation_snapshot_id")
+                  == snapshot.get("snapshot_id")
+              )
+
+          def valid_terminal_fence(
+              terminal,
+              *,
+              node,
+              restart_id,
+              expected_lifetime,
+              prior_authority,
+              prior_observation,
+              full_audit_verification,
+          ):
+              compact_prior_valid = (
+                  isinstance(prior_observation, dict)
+                  and set(prior_observation) == {
+                      "audit_verification", "authority_checkpoint", "generation",
+                      "lifetime_id", "sqlite_schema_sha256",
+                  }
+                  and isinstance(prior_observation.get("generation"), str)
+                  and re.fullmatch(
+                      r"[0-9a-f]{32}", prior_observation["generation"]
+                  ) is not None
+                  and isinstance(prior_observation.get("lifetime_id"), str)
+                  and re.fullmatch(
+                      r"[0-9a-f]{32}", prior_observation["lifetime_id"]
+                  ) is not None
+                  and prior_observation.get("lifetime_id") == expected_lifetime
+                  and valid_sha256(prior_observation.get("sqlite_schema_sha256"))
+                  and isinstance(prior_observation.get("audit_verification"), dict)
+                  and set(prior_observation["audit_verification"])
+                  == {"last_full_verification_at_ns"}
+                  and type(
+                      prior_observation["audit_verification"].get(
+                          "last_full_verification_at_ns"
+                      )
+                  ) is int
+                  and prior_observation["audit_verification"][
+                      "last_full_verification_at_ns"
+                  ] > 0
+                  and valid_core_checkpoint(
+                      prior_observation.get("authority_checkpoint"), node=node
+                  )
+              )
+              if (
+                  not isinstance(terminal, dict)
+                  or set(terminal) != {
+                      "authority_anchor", "authority_checkpoint",
+                      "fenced_at_monotonic_ns", "lifetime_id",
+                      "namespace_process_id", "restart_id", "schema",
+                      "terminal_audit_proof", "warden_id",
+                  }
+                  or (
+                      not valid_observation_snapshot(prior_observation, node=node)
+                      if full_audit_verification
+                      else not (
+                          compact_prior_valid
+                          or valid_observation_snapshot(prior_observation, node=node)
+                      )
+                  )
+              ):
+                  return False
+              authority = terminal.get("authority_anchor")
+              checkpoint = terminal.get("authority_checkpoint")
+              proof = terminal.get("terminal_audit_proof")
+              prior_checkpoint = prior_observation.get("authority_checkpoint")
+              prior_audit = prior_observation.get("audit_verification")
+              if (
+                  terminal.get("schema") != "lets.authority-admission-fence/v1"
+                  or terminal.get("restart_id") != restart_id
+                  or terminal.get("warden_id") != node
+                  or terminal.get("lifetime_id") != expected_lifetime
+                  or type(terminal.get("namespace_process_id")) is not int
+                  or terminal["namespace_process_id"] <= 0
+                  or type(terminal.get("fenced_at_monotonic_ns")) is not int
+                  or terminal["fenced_at_monotonic_ns"] < 0
+                  or not valid_authority(authority, fenced=True, terminal=True)
+                  or authority.get("lifetime_id") != expected_lifetime
+                  or authority.get("fence_id") != restart_id
+                  or terminal.get("namespace_process_id")
+                  != authority.get("namespace_process_id")
+                  or terminal.get("fenced_at_monotonic_ns")
+                  != authority.get("fenced_at_monotonic_ns")
+                  or not valid_authority(prior_authority, fenced=False)
+                  or prior_authority.get("state") != "healthy"
+                  or (
+                      full_audit_verification
+                      and prior_observation.get("authority_anchor") != prior_authority
+                  )
+                  or prior_authority.get("lifetime_id") != expected_lifetime
+                  or authority.get("namespace_process_id")
+                  != prior_authority.get("namespace_process_id")
+                  or any(
+                      authority[name] < prior_authority[name]
+                      for name in authority_counter_fields
+                  )
+                  or (
+                      prior_authority.get("first_fault") is not None
+                      and authority.get("first_fault")
+                      != prior_authority.get("first_fault")
+                  )
+                  or not valid_core_checkpoint(checkpoint, node=node)
+                  or not valid_core_checkpoint(prior_checkpoint, node=node)
+                  or not core_checkpoint_extends(prior_checkpoint, checkpoint)
+                  or not isinstance(proof, dict)
+                  or set(proof) != terminal_audit_proof_fields
+                  or proof.get("schema") != "lets.terminal-audit-proof/v1"
+                  or proof.get("valid") is not True
+                  or proof.get("verification_mode")
+                  != (
+                      "full"
+                      if full_audit_verification
+                      else "trusted-startup-plus-tail"
+                  )
+                  or proof.get("lifetime_id") != expected_lifetime
+                  or proof.get("generation") != prior_observation.get("generation")
+                  or type(proof.get("verified_at_ns")) is not int
+                  or proof["verified_at_ns"] <= 0
+                  or type(proof.get("startup_full_verification_at_ns")) is not int
+                  or not 0 < proof["startup_full_verification_at_ns"]
+                  <= proof["verified_at_ns"]
+                  or not isinstance(prior_audit, dict)
+                  or proof.get("startup_full_verification_at_ns")
+                  != prior_audit.get("last_full_verification_at_ns")
+                  or proof.get("verified_head_sequence")
+                  != checkpoint.get("audit_sequence")
+                  or proof.get("authority_state_revision")
+                  != checkpoint.get("state_revision")
+                  or proof.get("database_instance_id")
+                  != checkpoint.get("database_instance_id")
+                  or proof.get("authority_checkpoint_sha256")
+                  != sha256_json(checkpoint)
+                  or proof.get("schema_definition_sha256")
+                  != prior_observation.get("sqlite_schema_sha256")
+                  or not valid_sha256(proof.get("schema_definition_sha256"))
+              ):
+                  return False
+              try:
+                  audit_hash = base64.urlsafe_b64decode(
+                      checkpoint["audit_hash"] + "="
+                  )
+              except (KeyError, TypeError, ValueError):
+                  return False
+              return proof.get("verified_head_hash") == (
+                  "sha256:" + audit_hash.hex()
+              )
+
+          def valid_observation_progression(prior, current, *, allow_same_snapshot):
+              if not isinstance(prior, dict) or not isinstance(current, dict):
+                  return False
+              prior_checkpoint = prior.get("authority_checkpoint")
+              current_checkpoint = current.get("authority_checkpoint")
+              if not isinstance(prior_checkpoint, dict) or not isinstance(
+                  current_checkpoint, dict
+              ):
+                  return False
+              same_lifetime = current.get("lifetime_id") == prior.get("lifetime_id")
+              same_snapshot = current.get("snapshot_id") == prior.get("snapshot_id")
+              if (
+                  current.get("database_instance_id")
+                  != prior.get("database_instance_id")
+                  or current.get("sqlite_schema_sha256")
+                  != prior.get("sqlite_schema_sha256")
+                  or not valid_core_checkpoint(
+                      prior_checkpoint,
+                      node=prior_checkpoint.get("warden_id"),
+                  )
+                  or not valid_core_checkpoint(
+                      current_checkpoint,
+                      node=current_checkpoint.get("warden_id"),
+                  )
+                  or not core_checkpoint_extends(
+                      prior_checkpoint, current_checkpoint
+                  )
+              ):
+                  return False
+              if not same_lifetime:
+                  return (
+                      current.get("generation") != prior.get("generation")
+                      and not same_snapshot
+                  )
+              if (
+                  current.get("generation") != prior.get("generation")
+                  or type(current.get("revision")) is not int
+                  or type(prior.get("revision")) is not int
+                  or current.get("core_state_revision", -1)
+                  < prior.get("core_state_revision", -1)
+              ):
+                  return False
+              if allow_same_snapshot:
+                  return (
+                      current["revision"] >= prior["revision"]
+                      and (
+                          (current["revision"] == prior["revision"]) == same_snapshot
+                      )
+                  )
+              return current["revision"] > prior["revision"] and not same_snapshot
+
+          raw_observation_valid = isinstance(health_samples_value, list)
+          observation_histories = {node: [] for node in expected_nodes}
+          observation_transitions = {node: [] for node in expected_nodes}
+          final_observations = {}
+          observation_schema_digests = set()
+          if raw_observation_valid:
+              for sample in health_samples:
+                  nodes = sample.get("nodes") if isinstance(sample, dict) else None
+                  planned_nodes = (
+                      sample.get("planned_unavailable_nodes")
+                      if isinstance(sample, dict) else None
+                  )
+                  if (
+                      not isinstance(nodes, dict)
+                      or set(nodes) != expected_nodes
+                      or not isinstance(planned_nodes, list)
+                      or len(planned_nodes) > 1
+                      or any(
+                          not isinstance(node, str) or node not in expected_nodes
+                          for node in planned_nodes
+                      )
+                      or len(set(planned_nodes)) != len(planned_nodes)
+                  ):
+                      raw_observation_valid = False
+                      continue
+                  request_total = 0
+                  for node in expected_nodes:
+                      document = nodes[node]
+                      if node in planned_nodes:
+                          valid = (
+                              isinstance(document, dict)
+                              and set(document) == {"observation", "planned_unavailable"}
+                              and isinstance(document.get("planned_unavailable"), dict)
+                              and valid_observation_timing(
+                                  document.get("observation"), planned=True
+                              )
+                          )
+                          raw_observation_valid = raw_observation_valid and valid
+                          if valid:
+                              request_total += document["observation"]["request_count"]
+                          continue
+                      valid = valid_observation_document(document, node=node)
+                      raw_observation_valid = raw_observation_valid and valid
+                      if not valid:
+                          continue
+                      request_total += document["observation"]["request_count"]
+                      snapshot = document["observation_snapshot"]
+                      observation_histories[node].append(snapshot)
+                      observation_schema_digests.add(snapshot["sqlite_schema_sha256"])
+                  if not valid_sample_request_budget(
+                      request_total, len(planned_nodes)
+                  ):
+                      raw_observation_valid = False
+          if (
+              not isinstance(final_nodes, dict)
+              or set(final_nodes) != expected_nodes
+          ):
+              raw_observation_valid = False
+          else:
+              final_request_total = 0
+              for node in expected_nodes:
+                  document = final_nodes[node]
+                  valid = valid_observation_document(document, node=node)
+                  raw_observation_valid = raw_observation_valid and valid
+                  if not valid:
+                      continue
+                  final_request_total += document["observation"]["request_count"]
+                  snapshot = document["observation_snapshot"]
+                  final_observations[node] = snapshot
+                  observation_schema_digests.add(snapshot["sqlite_schema_sha256"])
+              raw_observation_valid = raw_observation_valid and final_request_total == 3
+          for node, snapshots in observation_histories.items():
+              if not snapshots:
+                  raw_observation_valid = False
+                  continue
+              seen_snapshot_ids = set()
+              previous = None
+              for snapshot in snapshots:
+                  if snapshot["snapshot_id"] in seen_snapshot_ids:
+                      raw_observation_valid = False
+                  seen_snapshot_ids.add(snapshot["snapshot_id"])
+                  if previous is not None:
+                      same_lifetime = (
+                          snapshot["lifetime_id"] == previous["lifetime_id"]
+                      )
+                      if not valid_observation_progression(
+                          previous, snapshot, allow_same_snapshot=False
+                      ):
+                          raw_observation_valid = False
+                      if not same_lifetime:
+                          observation_transitions[node].append(
+                              (previous["lifetime_id"], snapshot["lifetime_id"])
+                          )
+                  previous = snapshot
+              final_snapshot = final_observations.get(node)
+              if not isinstance(final_snapshot, dict) or previous is None:
+                  raw_observation_valid = False
+                  continue
+              if (
+                  final_snapshot["lifetime_id"] != previous["lifetime_id"]
+                  or not valid_observation_progression(
+                      previous, final_snapshot, allow_same_snapshot=True
+                  )
+              ):
+                  raw_observation_valid = False
+          if len(observation_schema_digests) != 1:
+              raw_observation_valid = False
+          computed_conservation = None
+          if raw_observation_valid:
+              try:
+                  final_invariants = [
+                      final_nodes[node]["observation_snapshot"]["invariant"]
+                      for node in sorted(expected_nodes)
+                  ]
+                  dimensions = len(final_invariants[0]["transferred_in"])
+                  transferred_in = [
+                      sum(item["transferred_in"][index] for item in final_invariants)
+                      for index in range(dimensions)
+                  ]
+                  transferred_out = [
+                      sum(item["transferred_out"][index] for item in final_invariants)
+                      for index in range(dimensions)
+                  ]
+                  computed_conservation = {
+                      "balanced": transferred_in == transferred_out,
+                      "transferred_in": transferred_in,
+                      "transferred_out": transferred_out,
+                  }
+                  raw_observation_valid = (
+                      computed_conservation["balanced"] is True
+                      and isinstance(conservation, dict)
+                      and set(conservation) == set(computed_conservation)
+                      and conservation == computed_conservation
+                  )
+              except (KeyError, TypeError, IndexError):
+                  raw_observation_valid = False
+          if not raw_observation_valid:
+              failures.append(
+                  "soak raw observation snapshots or one-request sampler binding is invalid"
+              )
+
+          raw_authority_valid = (
+              cycle_metrics_valid
+              and raw_terminal_capture_valid
+              and raw_observation_valid
+          )
           terminal_authorities = []
           all_lifetimes = set()
           executor_raw = workload.get("executor")
@@ -2664,24 +4478,28 @@ jobs:
               raw_authority_valid = False
 
           final_core_fences = verification.get("terminal_authority_fences")
+          full_audit_verifications = verification.get("full_audit_verifications")
           terminal_by_lifetime = {}
           recovery_baselines = {}
           planned_pairs = {node: [] for node in expected_nodes}
           fence_wrapper_fields = {
               "host_container_id", "host_exec_attempts", "host_pid",
-              "prior_authority_anchor", "result",
+              "host_validated_monotonic_seconds", "prior_authority_anchor", "result",
           }
           fence_result_fields = {
               "node", "request_retry_count", "schema", "status", "terminal",
           }
           fence_terminal_fields = {
-              "authority_anchor", "fenced_at_monotonic_ns", "lifetime_id",
-              "namespace_process_id", "restart_id", "schema", "warden_id",
+              "authority_anchor", "authority_checkpoint", "fenced_at_monotonic_ns",
+              "lifetime_id", "namespace_process_id", "restart_id", "schema",
+              "terminal_audit_proof", "warden_id",
           }
           try:
               raw_authority_valid = raw_authority_valid and (
                   isinstance(final_core_fences, dict)
                   and set(final_core_fences) == expected_nodes
+                  and isinstance(full_audit_verifications, dict)
+                  and set(full_audit_verifications) == expected_nodes
               )
               for restart in restarts:
                   service = restart["service"]
@@ -2693,6 +4511,8 @@ jobs:
                   new = restart["new_authority_anchor"]
                   armed = restart["workload_coordination"]["armed"]
                   marker = armed["marker"]
+                  armed_ack = armed["acknowledgement"]
+                  prior_observation = armed_ack.get("prior_observation")
                   recovery_ack = restart["workload_coordination"]["completed"][
                       "recovery_acknowledgement"
                   ]
@@ -2708,39 +4528,28 @@ jobs:
                       == "lets.production-profile-authority-fence/v1"
                       and result.get("status") == "passed"
                       and result.get("node") == service
-                      and terminal.get("schema") == "lets.authority-admission-fence/v1"
                       and set(terminal) == fence_terminal_fields
-                      and type(terminal.get("namespace_process_id")) is int
-                      and terminal["namespace_process_id"] > 0
-                      and type(terminal.get("fenced_at_monotonic_ns")) is int
-                      and terminal["fenced_at_monotonic_ns"] >= 0
-                      and terminal.get("restart_id") == marker.get("restart_id")
-                      and terminal.get("warden_id") == service
-                      and valid_authority(authority, fenced=True, terminal=True)
                       and valid_authority(prior, fenced=False, terminal=True)
                       and valid_authority(new, fenced=False, terminal=True)
-                      and terminal.get("lifetime_id") == authority.get("lifetime_id")
-                      and terminal.get("namespace_process_id")
-                      == authority.get("namespace_process_id")
-                      and terminal.get("fenced_at_monotonic_ns")
-                      == authority.get("fenced_at_monotonic_ns")
-                      and authority.get("fence_id") == marker.get("restart_id")
-                      and prior == armed["acknowledgement"].get("prior_authority_anchor")
-                      and authority.get("lifetime_id") == prior.get("lifetime_id")
-                      and authority.get("namespace_process_id")
-                      == prior.get("namespace_process_id")
-                      and all(
-                          authority[name] >= prior[name]
-                          for name in authority_counter_fields
-                      )
-                      and (
-                          prior.get("first_fault") is None
-                          or authority.get("first_fault") == prior.get("first_fault")
+                      and prior == armed_ack.get("prior_authority_anchor")
+                      and isinstance(prior_observation, dict)
+                      and prior_observation.get("authority_checkpoint")
+                      == armed_ack.get("prior_authority_checkpoint")
+                      and valid_terminal_fence(
+                          terminal,
+                          node=service,
+                          restart_id=marker.get("restart_id"),
+                          expected_lifetime=prior.get("lifetime_id"),
+                          prior_authority=prior,
+                          prior_observation=prior_observation,
+                          full_audit_verification=False,
                       )
                       and recovery_ack.get("recovered_authority_anchor") == new
                       and new.get("lifetime_id") != prior.get("lifetime_id")
                       and fence.get("host_container_id") == restart.get("prior_container_id")
                       and fence.get("host_pid") == restart.get("prior_pid")
+                      and fence.get("host_validated_monotonic_seconds")
+                      == armed_ack.get("host_fence_validated_monotonic_seconds")
                   )
                   raw_authority_valid = raw_authority_valid and valid
                   if not valid:
@@ -2759,39 +4568,23 @@ jobs:
                   authority = terminal["authority_anchor"]
                   fence_id = terminal.get("restart_id")
                   final_snapshot = final_nodes[node]["authority_anchor"]
+                  final_observation = final_nodes[node]["observation_snapshot"]
                   valid = (
-                      terminal.get("schema") == "lets.authority-admission-fence/v1"
-                      and set(terminal) == fence_terminal_fields
-                      and type(terminal.get("namespace_process_id")) is int
-                      and terminal["namespace_process_id"] > 0
-                      and type(terminal.get("fenced_at_monotonic_ns")) is int
-                      and terminal["fenced_at_monotonic_ns"] >= 0
-                      and terminal.get("warden_id") == node
-                      and valid_authority(authority, fenced=True, terminal=True)
-                      and terminal.get("lifetime_id") == authority.get("lifetime_id")
-                      and terminal.get("namespace_process_id")
-                      == authority.get("namespace_process_id")
-                      and terminal.get("fenced_at_monotonic_ns")
-                      == authority.get("fenced_at_monotonic_ns")
-                      and fence_id == authority.get("fence_id")
-                      and fence_id
-                      == f"final-verification-{configuration.get('seed')}-{node}"
-                      and valid_authority(
-                          final_snapshot, fenced=False, terminal=True
+                      set(terminal) == fence_terminal_fields
+                      and valid_authority(final_snapshot, fenced=False, terminal=True)
+                      and valid_terminal_fence(
+                          terminal,
+                          node=node,
+                          restart_id=(
+                              f"final-verification-{configuration.get('seed')}-{node}"
+                          ),
+                          expected_lifetime=final_snapshot.get("lifetime_id"),
+                          prior_authority=final_snapshot,
+                          prior_observation=final_observation,
+                          full_audit_verification=True,
                       )
-                      and authority.get("lifetime_id")
-                      == final_snapshot.get("lifetime_id")
-                      and authority.get("namespace_process_id")
-                      == final_snapshot.get("namespace_process_id")
-                      and all(
-                          authority[name] >= final_snapshot[name]
-                          for name in authority_counter_fields
-                      )
-                      and (
-                          final_snapshot.get("first_fault") is None
-                          or authority.get("first_fault")
-                          == final_snapshot.get("first_fault")
-                      )
+                      and full_audit_verifications.get(node)
+                      == terminal.get("terminal_audit_proof")
                       and authority["lifetime_id"] not in all_lifetimes
                   )
                   raw_authority_valid = raw_authority_valid and valid
@@ -2874,6 +4667,7 @@ jobs:
                       previous = current
                   raw_authority_valid = raw_authority_valid and (
                       transitions == planned_pairs[node]
+                      and observation_transitions[node] == planned_pairs[node]
                       and final_core_fences[node]["authority_anchor"]["lifetime_id"]
                       == previous["lifetime_id"]
                   )
