@@ -10,6 +10,7 @@ import time
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -3405,6 +3406,53 @@ def test_wait_healthy_propagates_remaining_deadline_to_inspect(
     harness.wait_healthy("warden-a", timeout_s=2.0)
     assert len(timeouts) == 1
     assert 0 < timeouts[0] <= 2.0
+
+
+def _probe_serve_scan(tmp_path: Path, entries: list[tuple[int, int, bytes]]) -> list[Any]:
+    proc = tmp_path / "proc"
+    (proc / "1").mkdir(parents=True)
+    (proc / "1" / "cmdline").write_bytes(b"/sbin/tini\x00--\x00run\x00")
+    for pid, parent, cmdline in entries:
+        entry = proc / str(pid)
+        entry.mkdir()
+        (entry / "cmdline").write_bytes(cmdline)
+        (entry / "stat").write_text(f"{pid} (python) S {parent} 1 1 0", encoding="utf-8")
+    source = soak_runner.RESOURCE_PROBE
+    start = source.index("def serve_processes():")
+    end = source.index("runtime_pid, runtime_command =")
+    body = source[start:end].replace('Path("/proc")', "PROC_ROOT")
+    namespace: dict[str, Any] = {
+        "Path": Path,
+        "PROC_ROOT": proc,
+        "time": SimpleNamespace(sleep=lambda _s: None),
+    }
+    exec(compile(body, "resource-probe", "exec"), namespace)
+    return cast(list[Any], namespace["runtime_processes"])
+
+
+_SERVE_CMDLINE = b"/app/.venv/bin/python\x00/app/.venv/bin/lets\x00serve\x00"
+
+
+def test_resource_probe_filters_fork_window_helper_children(tmp_path: Path) -> None:
+    runtime_processes = _probe_serve_scan(
+        tmp_path,
+        [
+            (7, 1, _SERVE_CMDLINE),
+            (1148, 7, _SERVE_CMDLINE),
+        ],
+    )
+    assert [pid for pid, _command in runtime_processes] == [7]
+
+
+def test_resource_probe_still_rejects_a_persistent_duplicate_server(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="expected one LETS serve process"):
+        _probe_serve_scan(
+            tmp_path,
+            [
+                (7, 1, _SERVE_CMDLINE),
+                (900, 1, _SERVE_CMDLINE),
+            ],
+        )
 
 
 def test_resource_bounds_accept_bounded_growth_and_report_leaks() -> None:

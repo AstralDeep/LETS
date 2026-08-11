@@ -998,6 +998,15 @@ observed range while the separate semantic cycle floor continues to guarantee ab
 coverage; replaying the retained v1.0.8 evidence against the recalibrated floor passes every
 adequacy check. The failed v1.0.8 run remains diagnostic evidence only.
 
+The fifth signed-tag attempt, v1.0.9, failed in yet another orchestration-side check while the
+workload was healthy: a resource sample's in-container identity probe, which requires exactly
+one serving process, landed inside a helper subprocess's fork-to-exec window and observed two
+identical server command lines. Version 1.0.10 filters candidates whose parent is itself a
+candidate -- a genuine duplicate server descends from the init shim and is never filtered --
+and confirms any remaining anomaly across bounded rescans before failing closed, with
+deterministic synthetic-procfs tests covering both the transient and the genuine-duplicate
+directions. The failed v1.0.9 run remains diagnostic evidence only.
+
 \section{Interoperability Profiles}
 
 \LETS{} is an authorization/accounting substrate, not an agent discovery protocol, invocation
