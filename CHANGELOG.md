@@ -5,6 +5,64 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-08-10
+
+### Fixed
+
+- Aligned the host and release-workflow raw-observation validators with the peer dispatcher's
+  exact volatile-error lifecycle. Both validators previously required every volatile peer-cycle
+  error to be accompanied by a simultaneous durable retry row, but the runtime legitimately
+  reports a bounded class-only volatile error that outlives its durable failed row once that row
+  is delivered or superseded; the volatile error clears only on the next fully clean dispatch
+  cycle. Both validators now bind the sanitized `durable_retry` summary to `failed_records`
+  (present exactly when an undelivered, unsuperseded failed row remains) instead of to the
+  volatile error, and continue to reject unbounded error text, readiness-inconsistent health
+  flags, fabricated retry rows with no failed record, and missing retry rows alongside failed
+  records. The workload producer validator already permitted this state and is unchanged.
+- Admitted the peer dispatcher's exact pre-first-cycle startup state in all three validation
+  layers. Between process start (or a planned restart) and the first completed dispatch cycle,
+  the runtime legitimately reports `last_cycle_ns=null` with `healthy=false` and a running
+  dispatcher; the workload producer previously failed the run live and the host and workflow
+  validators rejected the snapshot. All three layers now accept a null cycle marker exactly
+  there, and the host and workflow verifiers bind peer `healthy` to the runtime's full
+  conjunction (running, completed cycle, no volatile error) instead of to the volatile error
+  alone, so a forged `healthy=true` without a completed cycle remains rejected.
+- Stopped requiring a prior audit-export success alongside a transient exporter error. The
+  exporter's `last_success_ns` is volatile and resets to null on process start, so a tolerated
+  `StorageError:sqlite_busy` before the first acknowledged non-empty batch legitimately reports
+  no prior success; all three layers now validate the success marker independently of the error
+  and keep every bounded-token, reconciliation-consistency, and health-equality rejection.
+- Made the audit-error recovery evidence chain internally consistent end to end. The producer now
+  records a recovery timestamp with the same three-decimal rounding as the retained sample it
+  must equal exactly (previously six decimals, so a real recovered transient error failed result
+  aggregation for almost every timestamp), and the release-workflow walk now validates the exact
+  evidence production emits: the bounded `StorageError:sqlite_busy` token instead of a long-form
+  connection message that never reaches health samples, and the minimal later-scheduled recovery
+  record in the first subsequent clean sample instead of a same-sample inline recovery shape with
+  no production call site. Every error must still recover before the workload ends, duplicate or
+  unbound recoveries remain rejected, and the one-sample error budget is unchanged.
+
+### Changed
+
+- The signed `v1.0.6` tag is retained as an unpromoted candidate and is not moved or reused.
+  Release workflow `31440060639` passed signed-tag verification, reproducible package
+  construction, dual-platform OCI provenance for exact index
+  `sha256:35bf1367edf56ef273cd8d8b6540506f9dd0e114d9ebf8086a540ae4288ab09e`, and hardened
+  three-node acceptance. Its sole mandatory soak completed the full unweakened workload —
+  3,601.67087 seconds, 264 cycles, 362 of 362 required health samples, zero cadence deadline
+  misses, zero request retries, 26 partition episodes, and three authenticated fenced
+  replacements — and then failed closed in host evidence admission on exactly one health
+  document: sample 312 on warden A, snapshot revision 962, captured during an injected partition
+  with `service_ready=true`, aggregate `ready=false`, peer `last_error=ConnectError`,
+  `durable_retry=null`, and `failed_records=0`. The retained failed evidence has raw SHA-256
+  `7c3caa05b652d161a308ad5bca79670e62b4daa6e89e9f100ebb59112d032f44` and canonical payload
+  `sha256:f2f225699e29dd30bd603ed0cdbb94a269e3d6c37d24f56e78a5e528f4c84d1d`; cleanup proved zero
+  remaining containers, networks, and volumes. No 1.0.6 GitHub release or final OCI version tag
+  was published. Version 1.0.7 fixes the admission defect forward; replaying the retained 1.0.6
+  soak evidence through both corrected validators admits all 362 samples and 1,080 raw
+  observation snapshots, and 1.0.7 must still pass a fresh exact-candidate acceptance and sole
+  unweakened release soak.
+
 ## [1.0.6] - 2026-08-10
 
 ### Fixed

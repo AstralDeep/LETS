@@ -2087,6 +2087,118 @@ def test_release_soak_verifier_accepts_exact_transient_peer_partition() -> None:
         assert namespace["valid_observation_snapshot"](forged, node="warden-a") is False
 
 
+def test_release_soak_verifier_accepts_volatile_peer_error_with_cleared_durable_retry() -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    transient = {
+        "durable_retry": None,
+        "failed_records": 0,
+        "healthy": False,
+        "last_error": "ConnectError",
+        "pending_records": 1,
+        "prepared_transfers": 1,
+    }
+    snapshot["peer_dispatcher"].update(transient)
+    snapshot["ready"] = False
+    _reseal_release_observation(namespace, snapshot)
+
+    assert (
+        namespace["valid_peer_status"](
+            snapshot["peer_dispatcher"],
+            node="warden-a",
+            published_at_ns=snapshot["published_at_ns"],
+        )
+        is True
+    )
+    assert namespace["valid_observation_snapshot"](snapshot, node="warden-a") is True
+
+    retry = {
+        "attempt_count": 7,
+        "exception_class": "ConnectError",
+        "next_retry_delay_seconds": 15.486,
+        "record_kind": "transfer",
+        "target_warden": "warden-b",
+    }
+    for mutation in (
+        lambda value: value.__setitem__("failed_records", 1),
+        lambda value: value.__setitem__("durable_retry", copy.deepcopy(retry)),
+        lambda value: value.__setitem__("healthy", True),
+        lambda value: value.__setitem__("last_error", "ConnectError: secret"),
+    ):
+        forged = copy.deepcopy(snapshot)
+        mutation(forged["peer_dispatcher"])
+        _reseal_release_observation(namespace, forged)
+        assert namespace["valid_observation_snapshot"](forged, node="warden-a") is False
+
+
+def test_release_soak_verifier_accepts_pre_first_cycle_peer_startup() -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    startup = {
+        "durable_retry": None,
+        "failed_records": 0,
+        "healthy": False,
+        "last_cycle_ns": None,
+        "last_error": None,
+        "pending_records": 1,
+        "prepared_transfers": 1,
+    }
+    snapshot["peer_dispatcher"].update(startup)
+    snapshot["ready"] = False
+    _reseal_release_observation(namespace, snapshot)
+
+    assert (
+        namespace["valid_peer_status"](
+            snapshot["peer_dispatcher"],
+            node="warden-a",
+            published_at_ns=snapshot["published_at_ns"],
+        )
+        is True
+    )
+    assert namespace["valid_observation_snapshot"](snapshot, node="warden-a") is True
+
+    for mutation in (
+        lambda value: value.__setitem__("healthy", True),
+        lambda value: value.__setitem__("last_cycle_ns", 0),
+        lambda value: value.__setitem__("last_cycle_ns", 90),
+        lambda value: value.__setitem__("running", False),
+    ):
+        forged = copy.deepcopy(snapshot)
+        mutation(forged["peer_dispatcher"])
+        _reseal_release_observation(namespace, forged)
+        assert namespace["valid_observation_snapshot"](forged, node="warden-a") is False
+
+
+def test_release_soak_verifier_accepts_exporter_error_before_first_success() -> None:
+    namespace = _release_soak_verifier_namespace()
+    snapshot = _release_observation(namespace)
+    faulted = copy.deepcopy(snapshot["audit_exporter"])
+    faulted.update(
+        {
+            "archive_reconciled": False,
+            "healthy": False,
+            "last_error": "StorageError:sqlite_busy",
+            "last_success_ns": None,
+        }
+    )
+
+    assert namespace["valid_audit_exporter_status"](faulted) is True
+
+    for mutation in (
+        lambda value: value.__setitem__("healthy", True),
+        lambda value: value.__setitem__("archive_reconciled", True),
+        lambda value: value.__setitem__("last_success_ns", 0),
+        lambda value: value.__setitem__(
+            "last_error",
+            "StorageError: could not connect to the audit archive "
+            "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=5)",
+        ),
+    ):
+        forged = copy.deepcopy(faulted)
+        mutation(forged)
+        assert namespace["valid_audit_exporter_status"](forged) is False
+
+
 def test_release_soak_verifier_enforces_observation_lineage() -> None:
     namespace = _release_soak_verifier_namespace()
     first = _release_observation(namespace, revision=1)
