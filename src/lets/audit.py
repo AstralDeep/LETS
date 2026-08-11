@@ -521,8 +521,9 @@ class AuditExporter:
         retain_published: int = 256,
         poll_interval_s: float = 1.0,
         publish_timeout_s: float = 5.0,
+        publish_budget_s: float = 2.0,
         max_pending: int = 4096,
-        max_stall_s: float = 15.0,
+        max_stall_s: float = 40.0,
     ) -> None:
         self._store = store
         self._sink = sink
@@ -553,6 +554,14 @@ class AuditExporter:
                 "audit max_stall_s must be at least publish_timeout_s and at most 300"
             )
         self._publish_timeout_s = float(publish_timeout_s)
+        if (
+            isinstance(publish_budget_s, bool)
+            or not isinstance(publish_budget_s, (int, float))
+            or publish_budget_s <= 0
+            or publish_budget_s > max_stall_s
+        ):
+            raise ValidationError("audit publish_budget_s must be in (0, max_stall_s]")
+        self._publish_budget_s = float(publish_budget_s)
         self._max_pending = _integer(max_pending, "audit max_pending", positive=True)
         self._max_stall_s = float(max_stall_s)
         checkpoint = store.authority_checkpoint()
@@ -567,6 +576,8 @@ class AuditExporter:
         self._last_success_ns: int | None = None
         self._last_progress_monotonic = time.monotonic()
         self._archive_reconciled = False
+        self._backlog_remaining = False
+        self._continuation_head: AuditArchiveHead | None = None
 
     def _core_batch(
         self, archive_head: AuditArchiveHead | None
@@ -859,12 +870,34 @@ class AuditExporter:
     def run_once(self) -> int:
         exported = 0
         last_exported_sequence: int | None = None
+        # The budget window is measured from cycle start but can only take
+        # effect between publishes; the archive-head call, each in-flight
+        # publish, and the acknowledgement transactions keep their own
+        # deadlines. When the budget expires the sink-committed prefix is
+        # acknowledged and the remainder carries over to an immediate
+        # follow-up cycle.
+        publish_deadline = time.monotonic() + self._publish_budget_s
+        continuation_head = self._continuation_head
+        self._continuation_head = None
+        with self._status_lock:
+            self._backlog_remaining = False
         try:
-            archive_head = self._archive_head()
-            core_head, records = self._core_batch(archive_head)
-            archive_prefix_reconciled = True
-            if archive_head is not None:
-                archive_prefix_reconciled = self._acknowledge_archive_prefix(archive_head)
+            if continuation_head is not None:
+                # An immediate continuation follows this process's own
+                # successful batch acknowledgement, so the archive head is the
+                # acknowledged record just committed; skipping the head fetch
+                # and prefix acknowledgement keeps backlog drain
+                # publish-throughput-bound. Every fresh cycle still refetches
+                # the head, preserving archive rollback detection.
+                archive_head: AuditArchiveHead | None = continuation_head
+                archive_prefix_reconciled = True
+                core_head, records = self._core_batch(archive_head)
+            else:
+                archive_head = self._archive_head()
+                core_head, records = self._core_batch(archive_head)
+                archive_prefix_reconciled = True
+                if archive_head is not None:
+                    archive_prefix_reconciled = self._acknowledge_archive_prefix(archive_head)
             with self._status_lock:
                 self._archive_reconciled = archive_prefix_reconciled and not records
             if not archive_prefix_reconciled:
@@ -876,6 +909,15 @@ class AuditExporter:
                 self._publish(record)
                 published_records.append(record)
                 last_exported_sequence = record.sequence
+                if time.monotonic() >= publish_deadline:
+                    break
+            # Continue immediately when this cycle was truncated by the
+            # budget or its snapshot filled the batch, since either signals
+            # more pending work; a record committed mid-cycle into a
+            # non-full batch waits at most one poll interval.
+            backlog_pending = (
+                len(published_records) < len(records) or len(records) == self._batch_size
+            )
             if published_records:
                 self._acknowledge_batch(published_records)
                 with self._status_lock:
@@ -883,7 +925,16 @@ class AuditExporter:
                     self._last_observation_error = None
                     self._last_success_ns = time.time_ns()
                     self._last_progress_monotonic = time.monotonic()
+                    self._backlog_remaining = backlog_pending
+                if backlog_pending:
+                    acknowledged = published_records[-1]
+                    self._continuation_head = AuditArchiveHead(
+                        acknowledged.sequence, acknowledged.event_hash
+                    )
                 exported = len(published_records)
+            elif backlog_pending:
+                with self._status_lock:
+                    self._backlog_remaining = True
             if archive_prefix_reconciled and (
                 core_head is None
                 or last_exported_sequence == core_head.sequence
@@ -898,6 +949,7 @@ class AuditExporter:
         except Exception as exc:
             with self._status_lock:
                 self._archive_reconciled = False
+                self._backlog_remaining = False
                 blocked = self._blocked_sink_call
                 if not (
                     blocked is not None and blocked.is_alive() and self._last_error is not None
@@ -911,7 +963,10 @@ class AuditExporter:
     def _run(self) -> None:
         while not self._stop.is_set():
             self.run_once()
-            self._stop.wait(self._poll_interval_s)
+            with self._status_lock:
+                backlog_remaining = self._backlog_remaining
+            if not backlog_remaining:
+                self._stop.wait(self._poll_interval_s)
 
     def start(self) -> None:
         if self._thread is not None:
@@ -931,6 +986,9 @@ class AuditExporter:
         if thread.is_alive():
             raise StorageError("audit exporter did not stop within its deadline")
         self._thread = None
+        # A stopped interval is not a sub-second continuation window; the
+        # next cycle must refetch the archive head.
+        self._continuation_head = None
 
     def durable_status(
         self,

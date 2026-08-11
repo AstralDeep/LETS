@@ -1403,6 +1403,7 @@ def _admit_audit_exporter(store: SQLiteStorage, sink: object) -> dict[str, objec
         cast(AuditSink, sink),
         poll_interval_s=0.05,
         publish_timeout_s=1.0,
+        publish_budget_s=0.5,
         max_stall_s=1.0,
     )
     exporter.start()

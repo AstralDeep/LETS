@@ -366,8 +366,22 @@ must remain unreconciled. Inconsistent combinations fail raw-evidence validation
 Each record reaches the idempotent external archive before any local acknowledgement. The exporter
 then acknowledges one sink-committed prefix in a single reserved authority transaction per batch;
 a crash before that commit leaves the prefix pending for exact archive-head repair. This removes
-per-record authority-admission amplification without relaxing the 15-second oldest-record or
-no-progress bounds.
+per-record authority-admission amplification. Every export cycle also carries a two-second
+publish budget measured from cycle start: an expiring budget acknowledges the prefix published so
+far and hands the remainder to an immediate follow-up cycle, so a record queued behind a slow
+burst no longer waits out one arbitrarily long batch. Continuation cycles skip the archive-head
+call and prefix acknowledgement — the head is exactly the record the process just acknowledged —
+so backlog drain is bounded by publish throughput; every fresh cycle refetches the head and
+preserves rollback detection. The budget can only take effect between publishes; the
+archive-head call, each in-flight publish, and the busy-bounded acknowledgement transactions may
+each lawfully take up to five seconds, and a record that just misses a batch snapshot can
+fault-free wait one cycle tail plus one poll interval plus one whole cycle — 36 seconds in the
+worst lawful depth-one schedule. The runtime therefore declares a 40-second oldest-record and
+no-progress staleness bound dominating that case; the host and release-workflow verifiers pin
+that exact declared value, the in-container workload validator enforces whatever bound the
+runtime declares, and sustained per-operation latencies near the five-second deadlines are
+storage degradation that fails closed by design. The 15-second health-cadence limit is a
+separate guarantee and is unchanged.
 
 The machine record exposes this proof under `health_monitor`. It must report `status: passed`,
 `schedule: absolute_monotonic`, `joined: true`, `deadline_miss_count: 0`, equal
@@ -415,11 +429,12 @@ deadline, not a fixed wait or extra workload time.
 The sustained workload permits at most one sampled, bounded, subsequently recovered transient
 exporter error across the entire three-node run. The only admissible class is the sanitized
 archive-connect `SQLITE_BUSY` family; I/O, corruption, archive-write, schema, and undiagnosed errors
-fail immediately. The exporter must still be running, have a prior successful export, be unblocked,
-and remain within its backlog, oldest-record, and stall bounds. A second observation on the same or
+fail immediately. The exporter must still be running and unblocked and must remain within its
+backlog, oldest-record, and stall bounds; a success marker that is still null before the first
+acknowledged batch is valid. A second observation on the same or
 another node fails live. On the first observation the independent monitor immediately polls only
 that node for the unused portion of its configured stall window
-(`max_stall_s - stalled_for_s`); it does not restart or extend the 15-second window. The recovery
+(`max_stall_s - stalled_for_s`); it does not restart or extend the declared 40-second window. The recovery
 probe must show the node fully ready, reconciled, error-free, and empty, and both the original
 observation and bounded recovery are retained. An unrecovered final sample fails, final convergence
 independently requires `last_error` to be null on every node, and the authoritative live count must

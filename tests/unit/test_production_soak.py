@@ -690,7 +690,7 @@ def _observation_snapshot(
             "last_error": None,
             "last_success_ns": 50,
             "max_pending": 4_096,
-            "max_stall_s": 15.0,
+            "max_stall_s": 40.0,
             "oldest_pending_age_s": None,
             "pending": 0,
             "publish_blocked": False,
@@ -3800,7 +3800,7 @@ def _audit_status(**overrides: object) -> dict[str, object]:
         "last_error": None,
         "last_success_ns": 123,
         "max_pending": 4_096,
-        "max_stall_s": 15.0,
+        "max_stall_s": 40.0,
         "oldest_pending_age_s": 2.558,
         "pending": 5,
         "publish_blocked": False,
@@ -4157,9 +4157,9 @@ def test_audit_recovery_deadline_is_anchored_to_initial_metrics_observation(
         initial_elapsed_s=20.0,
         initial_observed_monotonic=100.0,
     )
-    assert client.retry_windows == [pytest.approx(3.9)]
+    assert client.retry_windows == [pytest.approx(28.9)]
     assert recovery["elapsed_seconds"] == pytest.approx(26.2)
-    assert recovery["remaining_stall_window_seconds"] == 10.0
+    assert recovery["remaining_stall_window_seconds"] == 35.0
 
 
 def test_audit_recovery_rejects_clean_status_observed_after_original_deadline(
@@ -4177,7 +4177,7 @@ def test_audit_recovery_rejects_clean_status_observed_after_original_deadline(
             assert retry_timeout_s is not None
             return _audit_document(_clean_audit_status())
 
-    current = 109.8
+    current = 134.8
 
     def monotonic() -> float:
         nonlocal current
@@ -4186,7 +4186,7 @@ def test_audit_recovery_rejects_clean_status_observed_after_original_deadline(
 
     monkeypatch.setattr(soak_scenario.time, "monotonic", monotonic)
     monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
-    with pytest.raises(RuntimeError, match=r"did not recover within its remaining 10\.000s"):
+    with pytest.raises(RuntimeError, match=r"did not recover within its remaining 35\.000s"):
         _poll_audit_error_recovery(
             LateRecoveryClient(),  # type: ignore[arg-type]
             node="warden-a",
@@ -4236,7 +4236,7 @@ def test_audit_recovery_rejects_persistent_busy_status_at_original_deadline(
 
     monkeypatch.setattr(soak_scenario.time, "monotonic", monotonic)
     monkeypatch.setattr(soak_scenario.time, "sleep", lambda _seconds: None)
-    with pytest.raises(RuntimeError, match=r"did not recover within its remaining 10\.000s"):
+    with pytest.raises(RuntimeError, match=r"did not recover within its remaining 35\.000s"):
         _poll_audit_error_recovery(
             PersistentErrorClient(),  # type: ignore[arg-type]
             node="warden-b",
@@ -4883,8 +4883,8 @@ def test_evidence_object_accepts_finite_floats_and_rejects_unsafe_json(
     (
         ({"publish_blocked": True, "sink_call_blocked": True}, "bounded progress"),
         ({"pending": 4_097}, "bounded progress"),
-        ({"stalled_for_s": 15.001}, "bounded progress"),
-        ({"oldest_pending_age_s": 15.001}, "bounded progress"),
+        ({"stalled_for_s": 40.001}, "bounded progress"),
+        ({"oldest_pending_age_s": 40.001}, "bounded progress"),
         ({"running": False}, "bounded progress"),
         ({"healthy": True}, "inconsistent"),
         (
@@ -4893,7 +4893,7 @@ def test_evidence_object_accepts_finite_floats_and_rejects_unsafe_json(
                 "healthy": True,
                 "oldest_pending_age_s": None,
                 "pending": 0,
-                "stalled_for_s": 15.001,
+                "stalled_for_s": 40.001,
             },
             "bounded progress",
         ),
