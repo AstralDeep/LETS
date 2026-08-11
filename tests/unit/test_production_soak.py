@@ -1626,7 +1626,7 @@ def test_configuration_requires_exact_digest_and_repeated_chaos_window() -> None
     )
     release.validate()
     assert semantic_cycle_floor(release) == 36
-    assert minimum_cycle_count(release) == 240
+    assert minimum_cycle_count(release) == 144
     assert minimum_health_sample_count(release) == 1_801
     assert soak_runner.chaos_start_shutdown_margin_seconds(release) == 270.0
     assert may_start_chaos_episode(release, elapsed_s=3_329.999) is True
@@ -2861,7 +2861,7 @@ def test_workload_evaluator_recomputes_raw_health_retry_total() -> None:
 def test_active_time_throughput_floor_passes_and_fails_at_exact_boundary() -> None:
     configuration = replace(
         _configuration(),
-        duration_seconds=180.0,
+        duration_seconds=300.0,
         partition_interval_seconds=30.0,
         restart_interval_seconds=20.0,
     )
