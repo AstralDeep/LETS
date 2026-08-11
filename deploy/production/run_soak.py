@@ -334,6 +334,7 @@ VOLUME_KEYS = {
 }
 RESOURCE_PROBE = """
 import json
+import time
 from pathlib import Path
 
 CGROUP = Path("/sys/fs/cgroup")
@@ -387,27 +388,45 @@ if not init_command or Path(init_command[0]).name not in {"tini", "docker-init"}
     raise RuntimeError(f"container PID 1 is not the configured init shim: {init_command!r}")
 if not (CGROUP / "cgroup.controllers").is_file():
     raise RuntimeError("the runtime does not expose a cgroup v2 unified hierarchy")
-runtime_processes = []
-for proc in Path("/proc").iterdir():
-    if not proc.name.isdigit():
-        continue
-    if proc.name == "1":
-        continue
-    try:
-        command = tuple(
-            item.decode("utf-8", errors="replace")
-            for item in (proc / "cmdline").read_bytes().split(b"\\0")
-            if item
-        )
-    except (FileNotFoundError, PermissionError, ProcessLookupError):
-        continue
-    if (
-        command
-        and Path(command[0]).name not in {"tini", "docker-init"}
-        and "serve" in command
-        and any(Path(item).name == "lets" for item in command)
-    ):
-        runtime_processes.append((int(proc.name), command))
+def serve_processes():
+    found = []
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        if proc.name == "1":
+            continue
+        try:
+            command = tuple(
+                item.decode("utf-8", errors="replace")
+                for item in (proc / "cmdline").read_bytes().split(b"\\0")
+                if item
+            )
+            stat_tail = (proc / "stat").read_text(encoding="utf-8").rpartition(")")[2].split()
+            parent_pid = int(stat_tail[1])
+        except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+            continue
+        except (IndexError, ValueError):
+            continue
+        if (
+            command
+            and Path(command[0]).name not in {"tini", "docker-init"}
+            and "serve" in command
+            and any(Path(item).name == "lets" for item in command)
+        ):
+            found.append((int(proc.name), parent_pid, command))
+    pids = {pid for pid, _parent, _command in found}
+    # A candidate whose parent is itself a candidate is a helper subprocess
+    # still inside its fork-to-exec window, transiently mirroring the server
+    # cmdline; a genuine duplicate server is a child of the init shim and is
+    # never filtered.
+    return [(pid, command) for pid, parent, command in found if parent not in pids]
+
+runtime_processes = serve_processes()
+attempts = 0
+while len(runtime_processes) != 1 and attempts < 4:
+    time.sleep(0.25)
+    runtime_processes = serve_processes()
+    attempts += 1
 if len(runtime_processes) != 1:
     raise RuntimeError(f"expected one LETS serve process, found {runtime_processes!r}")
 runtime_pid, runtime_command = runtime_processes[0]
