@@ -151,12 +151,13 @@ do not weaken any fault episode, resource ceiling, audit-error budget, or final-
 Across the full three-node workload it permits at most one sampled, bounded, subsequently recovered
 transient exporter error. Only a sanitized archive-connect `SQLITE_BUSY`-family diagnostic is
 tolerable; I/O, corruption, archive-write, schema, and undiagnosed errors fail immediately. That
-exporter must remain running and unblocked, must have a prior success, and must stay inside its
-backlog, record-age, and stall bounds. Any second sampled error fails live, including a repeat on the
+exporter must remain running and unblocked and must stay inside its
+backlog, record-age, and stall bounds; a success marker that is still null before the first
+acknowledged batch is valid. Any second sampled error fails live, including a repeat on the
 same node or a first error on another node. The affected node must later produce a fully clean
 recovery sample: the independent monitor immediately polls only that node for
 `max_stall_s - stalled_for_s`,
-without restarting or extending the 15-second runtime window. The authoritative live error count
+without restarting or extending the declared 40-second runtime window. The authoritative live error count
 must exactly match the retained observation and recovery evidence, while expected, actual, and
 retained sample counts must agree with zero truncation. Final convergence requires every exporter
 to be reconciled, empty, and free of
@@ -377,9 +378,9 @@ Do not roll back across an irreversible schema migration. A binary rollback is p
 the release notes name an approved, published digest and explicitly guarantee compatibility with
 the current schema; drain and stop the entire new cluster before starting that one old version,
 inspect every node while still drained, then activate only after the cluster is uniform. The signed
-v1.0.1 through v1.0.6 tags are unpromoted candidates, not approved rollback artifacts, and v1.0.0
-lacks later production defenses. The signed v1.0.5 and v1.0.6 candidates each failed their
-mandatory release soak and were never published. Consequently v1.0.7 has no approved earlier binary
+v1.0.1 through v1.0.7 tags are unpromoted candidates, not approved rollback artifacts, and v1.0.0
+lacks later production defenses. The signed v1.0.5 through v1.0.7 candidates each failed their
+mandatory release soak and were never published. Consequently v1.0.8 has no approved earlier binary
 rollback target: fence affected nodes and recover forward with a patch release. A database rollback additionally
 requires fencing the old and new node instances and proving that no authority transition committed
 after the backup. `recovery restore` reconciles against the live monotonic anchor and fails closed

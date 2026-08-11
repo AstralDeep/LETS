@@ -193,7 +193,7 @@ def _release_observation(
             "last_error": None,
             "last_success_ns": 50,
             "max_pending": 4_096,
-            "max_stall_s": 15.0,
+            "max_stall_s": 40.0,
             "oldest_pending_age_s": None,
             "pending": 0,
             "publish_blocked": False,
@@ -2458,7 +2458,7 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert 'float(armed_marker["armed_monotonic_seconds"]) < float(' in workflow
     assert "<= requested\n                      <= observed" in workflow
     assert 'float(exporter["max_stall_s"])' not in workflow
-    assert 'close_number(exporter.get("max_stall_s"), 15.0, 0.0)' in workflow
+    assert 'close_number(exporter.get("max_stall_s"), 40.0, 0.0)' in workflow
     assert "len(pair_counts) != 6" in workflow
     assert 'get("durably_pending_observed") is not True' in workflow
     assert 'get("all_wardens_sigkilled") is not True' in workflow
