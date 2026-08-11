@@ -941,6 +941,128 @@ def test_host_observation_validator_accepts_exact_transient_peer_partition() -> 
         assert soak_runner._valid_observation_snapshot(forged, node="warden-a") is False
 
 
+def test_host_observation_validator_accepts_volatile_peer_error_with_cleared_durable_retry() -> (
+    None
+):
+    transient = {
+        "durable_retry": None,
+        "failed_records": 0,
+        "healthy": False,
+        "last_error": "ConnectError",
+        "pending_records": 1,
+        "prepared_transfers": 1,
+    }
+    snapshot = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        peer_dispatcher_override=transient,
+    )
+
+    assert snapshot["ready"] is False
+    assert soak_runner._valid_observation_snapshot(snapshot, node="warden-a") is True
+
+    retry = {
+        "attempt_count": 7,
+        "exception_class": "ConnectError",
+        "next_retry_delay_seconds": 15.486,
+        "record_kind": "transfer",
+        "target_warden": "warden-b",
+    }
+    invalid_overrides = (
+        transient | {"failed_records": 1},
+        transient | {"durable_retry": retry},
+        transient | {"healthy": True},
+        transient | {"last_error": "ConnectError: secret"},
+    )
+    for override in invalid_overrides:
+        forged = _observation_snapshot(
+            "warden-a",
+            revision=1,
+            peer_dispatcher_override=override,
+        )
+        assert soak_runner._valid_observation_snapshot(forged, node="warden-a") is False
+
+
+def test_host_observation_validator_accepts_pre_first_cycle_peer_startup() -> None:
+    startup = {
+        "durable_retry": None,
+        "failed_records": 0,
+        "healthy": False,
+        "last_cycle_ns": None,
+        "last_error": None,
+        "pending_records": 1,
+        "prepared_transfers": 1,
+    }
+    snapshot = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        peer_dispatcher_override=startup,
+    )
+
+    assert snapshot["ready"] is False
+    assert soak_runner._valid_observation_snapshot(snapshot, node="warden-a") is True
+
+    faulted_first_cycle = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        peer_dispatcher_override=startup | {"last_error": "ConnectError"},
+    )
+    assert soak_runner._valid_observation_snapshot(faulted_first_cycle, node="warden-a") is True
+
+    invalid_overrides = (
+        startup | {"healthy": True},
+        startup | {"last_cycle_ns": 0},
+        startup | {"last_cycle_ns": 90},
+        startup | {"running": False},
+    )
+    for override in invalid_overrides:
+        forged = _observation_snapshot(
+            "warden-a",
+            revision=1,
+            peer_dispatcher_override=override,
+        )
+        assert soak_runner._valid_observation_snapshot(forged, node="warden-a") is False
+
+
+def test_host_observation_validator_accepts_exporter_error_before_first_success() -> None:
+    faulted = {
+        "archive_reconciled": False,
+        "healthy": False,
+        "last_error": "StorageError:sqlite_busy",
+        "last_success_ns": None,
+        "oldest_pending_age_s": 2.0,
+        "pending": 5,
+        "stalled_for_s": 0.1,
+    }
+    snapshot = _observation_snapshot(
+        "warden-a",
+        revision=1,
+        audit_exporter_override=faulted,
+    )
+
+    assert soak_runner._valid_observation_snapshot(snapshot, node="warden-a") is True
+
+    invalid_overrides = (
+        faulted | {"healthy": True},
+        faulted | {"archive_reconciled": True},
+        faulted | {"last_success_ns": 0},
+        faulted
+        | {
+            "last_error": (
+                "StorageError: could not connect to the audit archive "
+                "(sqlite_errorname=SQLITE_BUSY, sqlite_errorcode=5)"
+            )
+        },
+    )
+    for override in invalid_overrides:
+        forged = _observation_snapshot(
+            "warden-a",
+            revision=1,
+            audit_exporter_override=override,
+        )
+        assert soak_runner._valid_observation_snapshot(forged, node="warden-a") is False
+
+
 def _sampled_health_node(
     node: str,
     *,
@@ -1864,6 +1986,38 @@ def test_health_cadence_accepts_exact_peer_retry_during_partition() -> None:
                 "target_warden": "warden-a",
             },
             "failed_records": 1,
+            "healthy": False,
+            "last_error": "ConnectError",
+            "pending_records": 1,
+            "prepared_transfers": 1,
+        },
+    )
+
+    result = evaluate_health_cadence(
+        samples,
+        duration_seconds=30.0,
+        interval_seconds=10.0,
+        restart_evidence={
+            "bindings": {},
+            "passed": True,
+            "windows_by_node": {node: [] for node in NODES},
+        },
+    )
+
+    assert result["passed"] is True
+    assert result["metrics_request_count"] == 12
+    assert result["maximum_gap_seconds"] == 10.0
+
+
+def test_health_cadence_accepts_volatile_peer_error_with_cleared_durable_retry() -> None:
+    samples = _timed_health_samples(duration_seconds=30.0, interval_seconds=10.0)
+    samples[1]["nodes"]["warden-b"] = _sampled_health_node(
+        "warden-b",
+        revision=2,
+        scheduled=10.0,
+        peer_dispatcher_override={
+            "durable_retry": None,
+            "failed_records": 0,
             "healthy": False,
             "last_error": "ConnectError",
             "pending_records": 1,
@@ -3807,7 +3961,11 @@ def test_bounded_audit_exporter_accepts_exact_isolated_transient_status(
             },
             "malformed bounded",
         ),
-        ({"last_error": TRANSIENT_BUSY_ERROR, "last_success_ns": None}, "prior success"),
+        ({"last_success_ns": 0}, "malformed audit success marker"),
+        (
+            {"last_error": TRANSIENT_BUSY_ERROR, "last_success_ns": True},
+            "malformed audit success marker",
+        ),
         (
             {"archive_reconciled": True, "last_error": TRANSIENT_BUSY_ERROR},
             "reconciled audit exporter error",
@@ -3820,6 +3978,16 @@ def test_bounded_audit_exporter_rejects_malformed_or_inconsistent_errors(
 ) -> None:
     with pytest.raises(RuntimeError, match=match):
         _bounded_audit_exporter(_audit_status(**overrides), node="warden-a")
+
+
+def test_bounded_audit_exporter_accepts_transient_error_before_first_success() -> None:
+    bounded = _bounded_audit_exporter(
+        _audit_status(last_error=TRANSIENT_BUSY_ERROR, last_success_ns=None),
+        node="warden-a",
+    )
+    assert bounded["last_error"] == TRANSIENT_BUSY_ERROR
+    assert bounded["last_success_ns"] is None
+    assert bounded["catching_up"] is True
 
 
 @pytest.mark.parametrize(
@@ -3893,14 +4061,17 @@ def test_health_sample_recovers_one_error_inside_only_the_remaining_stall_window
 
     recovered_sample = _health_sample(
         client,  # type: ignore[arg-type]
-        elapsed_s=22.0,
+        # A non-millisecond-boundary monotonic offset proves the recovery
+        # record and the retained sample share one exact rounded timestamp.
+        elapsed_s=22.1239867,
         audit_error_budget=budget,
     )
     assert budget.recovered_error_sample_count == 1
     assert budget.unresolved_error_nodes == set()
+    assert recovered_sample["elapsed_seconds"] == 22.124
     assert recovered_sample["audit_error_recoveries"] == [
         {
-            "elapsed_seconds": 22.0,
+            "elapsed_seconds": 22.124,
             "node": "warden-a",
             "recovered_by_later_scheduled_sample": True,
         }

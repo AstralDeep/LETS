@@ -1410,9 +1410,19 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
                 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", peer["last_error"]) is not None
             )
         )
-        and peer.get("healthy") is (peer.get("last_error") is None)
-        and type(peer.get("last_cycle_ns")) is int
-        and 1 <= peer["last_cycle_ns"] <= value["published_at_ns"]
+        # Volatile peer health is the exact runtime conjunction: with running
+        # pinned True above, healthy requires a completed cycle and no volatile
+        # error. Before the first cycle finishes after startup or a planned
+        # restart, last_cycle_ns is legitimately None and healthy is False.
+        and peer.get("healthy")
+        is (peer.get("last_cycle_ns") is not None and peer.get("last_error") is None)
+        and (
+            peer.get("last_cycle_ns") is None
+            or (
+                type(peer.get("last_cycle_ns")) is int
+                and 1 <= peer["last_cycle_ns"] <= value["published_at_ns"]
+            )
+        )
         and all(
             type(peer[field_name]) is int and 0 <= peer[field_name] <= AUTHORITY_COUNTER_MAX
             for field_name in peer_fields
@@ -1446,7 +1456,10 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
                 and peer["durable_retry"].get("target_warden") in set(WARDENS) - {node}
             )
         )
-        and (peer.get("last_error") is None or peer.get("durable_retry") is not None)
+        # A volatile cycle error may outlive its durable failed row once
+        # delivery or supersession clears it, so durable_retry binds to
+        # failed_records rather than last_error.
+        and (peer.get("durable_retry") is None) is (peer["failed_records"] == 0)
         and isinstance(exporter, dict)
         and set(exporter) == exporter_fields
         and all(
@@ -1495,7 +1508,9 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
         and exporter.get("healthy")
         is (exporter.get("last_error") is None and exporter.get("archive_reconciled") is True)
         and (exporter.get("last_error") is None or exporter.get("archive_reconciled") is False)
-        and (exporter.get("last_error") is None or exporter.get("last_success_ns") is not None)
+        # last_success_ns is volatile and resets to None on process start, so a
+        # transient error before the first non-empty acknowledged batch
+        # legitimately reports no prior success.
         and value.get("ready") is (exporter.get("healthy") is True and peer.get("healthy") is True)
     )
 

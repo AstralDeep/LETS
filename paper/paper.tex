@@ -939,6 +939,27 @@ authority-provider admissions under sustained traffic. Version 1.0.6 batches onl
 acknowledgement transaction while preserving archive-first ordering and exact crash repair. The
 failed v1.0.5 run is diagnostic evidence and is not counted as a successful release soak.
 
+The second signed-tag attempt, v1.0.6, completed its full unweakened soak workload -- 264 cycles,
+362 of 362 required health samples, 26 partition episodes, and three authenticated fenced
+replacements with zero deadline misses -- and then failed closed in independent evidence
+admission on exactly one raw observation captured during an injected partition. The runtime
+legitimately reports a bounded class-only volatile dispatch error that outlives its durable
+failed row once that row is delivered or superseded, but the host and embedded release verifiers
+required a simultaneous durable retry row for every volatile error. Version 1.0.7 binds the
+sanitized durable retry summary to the count of undelivered failed records instead of to the
+volatile error, keeping every exact-schema, bounded-token, and readiness-equality rejection.
+Replaying the retained v1.0.6 evidence through the corrected verifiers admits all 1{,}080 raw
+observation snapshots; the failed run itself remains diagnostic evidence only.
+
+Because this was the third consecutive release stopped by a verifier predicate stricter than a
+state the runtime legitimately produces, version 1.0.7 also closes three adjacent
+admission-parity defects found by an adversarial audit of every observation predicate against
+the producing runtime code: the pre-first-cycle dispatcher startup state after a planned
+restart, a transient exporter error before the first acknowledged batch resets the volatile
+success marker, and an audit-error recovery record whose six-decimal timestamp could not equal
+the three-decimal sample it must match exactly. Each fix is bound by deterministic acceptance
+and mutation tests against both the host validator and the extracted release-workflow verifier.
+
 \section{Interoperability Profiles}
 
 \LETS{} is an authorization/accounting substrate, not an agent discovery protocol, invocation
