@@ -1704,7 +1704,14 @@ def _validated_observation(metrics: object, *, node: str) -> dict[str, Any]:
         or set(peer) != peer_fields
         or any(
             type(peer[field]) is not int or peer[field] < 0
-            for field in peer_fields - {"durable_retry", "healthy", "last_error", "running"}
+            for field in peer_fields
+            - {"durable_retry", "healthy", "last_cycle_ns", "last_error", "running"}
+        )
+        # last_cycle_ns is None until the dispatcher's first cycle completes
+        # after startup or a planned restart.
+        or (
+            peer.get("last_cycle_ns") is not None
+            and (type(peer.get("last_cycle_ns")) is not int or peer["last_cycle_ns"] < 0)
         )
         or type(peer.get("healthy")) is not bool
         or type(peer.get("running")) is not bool
@@ -1968,12 +1975,15 @@ def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
         raise RuntimeError(f"{node} returned a malformed bounded audit exporter error: {status!r}")
     if isinstance(last_error, str) and not _allowed_transient_audit_error(last_error):
         raise RuntimeError(f"{node} returned a non-tolerable audit exporter error: {status!r}")
-    if last_error is not None and (
+    # last_success_ns is volatile and resets to None on process start, so an
+    # error before the first acknowledged non-empty batch legitimately reports
+    # no prior success; when present the marker must stay a positive integer.
+    if last_success_ns is not None and (
         isinstance(last_success_ns, bool)
         or not isinstance(last_success_ns, int)
         or last_success_ns <= 0
     ):
-        raise RuntimeError(f"{node} audit exporter error lacks a prior success: {status!r}")
+        raise RuntimeError(f"{node} returned a malformed audit success marker: {status!r}")
     if (
         running is not True
         or publish_blocked is not False
@@ -2931,9 +2941,11 @@ def _health_sample(
                 audit_error_budget is not None and node in audit_error_budget.unresolved_error_nodes
             ):
                 audit_error_budget.mark_recovered(node)
+                # The record must equal the retained sample's elapsed_seconds
+                # exactly, which is rounded to three decimals below.
                 audit_error_recoveries.append(
                     {
-                        "elapsed_seconds": round(elapsed_s, 6),
+                        "elapsed_seconds": round(elapsed_s, 3),
                         "node": node,
                         "recovered_by_later_scheduled_sample": True,
                     }

@@ -377,10 +377,10 @@ Do not roll back across an irreversible schema migration. A binary rollback is p
 the release notes name an approved, published digest and explicitly guarantee compatibility with
 the current schema; drain and stop the entire new cluster before starting that one old version,
 inspect every node while still drained, then activate only after the cluster is uniform. The signed
-v1.0.1 through v1.0.5 tags are unpromoted candidates, not approved rollback artifacts, and v1.0.0
-lacks later production defenses. The signed v1.0.5 candidate failed its mandatory release soak and
-was never published. Consequently v1.0.6 has no approved earlier binary rollback target: fence
-affected nodes and recover forward with a patch release. A database rollback additionally
+v1.0.1 through v1.0.6 tags are unpromoted candidates, not approved rollback artifacts, and v1.0.0
+lacks later production defenses. The signed v1.0.5 and v1.0.6 candidates each failed their
+mandatory release soak and were never published. Consequently v1.0.7 has no approved earlier binary
+rollback target: fence affected nodes and recover forward with a patch release. A database rollback additionally
 requires fencing the old and new node instances and proving that no authority transition committed
 after the backup. `recovery restore` reconciles against the live monotonic anchor and fails closed
 when that proof is absent.

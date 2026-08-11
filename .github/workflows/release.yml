@@ -894,11 +894,6 @@ jobs:
               "recorded_unresolved_error_nodes"
           )
           expected_nodes = {"warden-a", "warden-b", "warden-c"}
-          audit_busy_pattern = re.compile(
-              r"\AStorageError: could not connect to the audit archive "
-              r"\(sqlite_errorname=(SQLITE_BUSY(?:_[A-Z0-9_]+)?), "
-              r"sqlite_errorcode=([0-9]+)\)\Z"
-          )
           def finite_number(value):
               return (
                   isinstance(value, (int, float))
@@ -2479,10 +2474,15 @@ jobs:
           if not raw_health_valid:
               failures.append("soak raw per-node health cadence or retention is invalid")
 
+          # The producer samples a tolerated transient exporter error as the
+          # bounded token in one health sample and records its recovery as the
+          # exact minimal later-scheduled record in the first subsequent clean
+          # sample for that node; there is no same-sample inline recovery shape.
           raw_error_evidence_valid = isinstance(health_samples_value, list)
           raw_error_sample_count = 0
           raw_error_samples_by_node = {node: 0 for node in expected_nodes}
           raw_recovered_error_sample_count = 0
+          raw_unresolved_error_nodes = set()
           if raw_error_evidence_valid:
               for sample in health_samples:
                   if not isinstance(sample, dict):
@@ -2497,7 +2497,7 @@ jobs:
                   if not isinstance(nodes, dict) or set(nodes) != expected_nodes:
                       raw_error_evidence_valid = False
                       continue
-                  error_remaining_by_node = {}
+                  error_nodes = set()
                   for node in expected_nodes:
                       document = nodes[node]
                       if (
@@ -2516,12 +2516,14 @@ jobs:
                       last_error = exporter.get("last_error")
                       if last_error is None:
                           continue
+                      error_nodes.add(node)
                       raw_error_sample_count += 1
                       raw_error_samples_by_node[node] += 1
                       stalled_for = exporter.get("stalled_for_s")
                       maximum_stall = exporter.get("max_stall_s")
                       if (
-                          not finite_number(stalled_for)
+                          last_error != "StorageError:sqlite_busy"
+                          or not finite_number(stalled_for)
                           or not finite_number(maximum_stall)
                           or float(maximum_stall) != 15.0
                           or not 0 <= float(stalled_for) <= float(maximum_stall)
@@ -2531,23 +2533,7 @@ jobs:
                       ):
                           raw_error_evidence_valid = False
                       else:
-                          remaining_window = float(maximum_stall) - float(stalled_for)
-                          if remaining_window <= 0:
-                              raw_error_evidence_valid = False
-                          else:
-                              error_remaining_by_node[node] = remaining_window
-                      if not isinstance(last_error, str):
-                          raw_error_evidence_valid = False
-                          continue
-                      match = audit_busy_pattern.fullmatch(last_error)
-                      if (
-                          match is None
-                          or len(last_error.encode("utf-8")) > 4096
-                          or len(match.group(1)) > 64
-                          or int(match.group(2)) > 0x7FFFFFFF
-                          or int(match.group(2)) & 0xFF != 5
-                      ):
-                          raw_error_evidence_valid = False
+                          raw_unresolved_error_nodes.add(node)
                   recovery_nodes = set()
                   for recovery in recoveries:
                       if not isinstance(recovery, dict):
@@ -2559,59 +2545,36 @@ jobs:
                           continue
                       recovery_nodes.add(node)
                       raw_recovered_error_sample_count += 1
-                      expected_remaining = error_remaining_by_node.get(node)
                       recovery_elapsed = recovery.get("elapsed_seconds")
-                      recorded_remaining = recovery.get("remaining_stall_window_seconds")
-                      recovery_exporter = recovery.get("audit_exporter")
-                      recovery_outbox = recovery.get("audit_outbox")
                       node_document = nodes.get(node)
-                      node_observation = (
-                          node_document.get("observation")
+                      node_exporter = (
+                          node_document.get("audit_exporter")
                           if isinstance(node_document, dict)
                           else None
                       )
-                      metrics_observed = (
-                          node_observation.get("metrics_observed_elapsed_seconds")
-                          if isinstance(node_observation, dict)
-                          else None
-                      )
-                      observation_completed = (
-                          node_observation.get("completed_elapsed_seconds")
-                          if isinstance(node_observation, dict)
-                          else None
-                      )
                       if (
-                          expected_remaining is None
+                          set(recovery)
+                          != {
+                              "elapsed_seconds",
+                              "node",
+                              "recovered_by_later_scheduled_sample",
+                          }
+                          or recovery.get("recovered_by_later_scheduled_sample")
+                          is not True
+                          or node not in raw_unresolved_error_nodes
+                          or node in error_nodes
                           or not finite_number(recovery_elapsed)
-                          or not finite_number(recorded_remaining)
-                          or float(recorded_remaining) != round(expected_remaining, 3)
-                          or not float(sample_elapsed) < float(recovery_elapsed)
-                          or not finite_number(metrics_observed)
-                          or not finite_number(observation_completed)
-                          or not float(metrics_observed)
-                          <= float(recovery_elapsed)
-                          <= float(observation_completed)
-                          or float(recovery_elapsed) - float(sample_elapsed)
-                          > expected_remaining + 0.001
-                          or not isinstance(recovery_exporter, dict)
-                          or recovery_exporter.get("running") is not True
-                          or recovery_exporter.get("healthy") is not True
-                          or recovery_exporter.get("archive_reconciled") is not True
-                          or recovery_exporter.get("catching_up") is not False
-                          or recovery_exporter.get("last_error") is not None
-                          or type(recovery_exporter.get("pending")) is not int
-                          or recovery_exporter.get("pending") != 0
-                          or recovery_exporter.get("publish_blocked") is not False
-                          or recovery_exporter.get("sink_call_blocked") is not False
-                          or not isinstance(recovery_outbox, dict)
-                          or type(recovery_outbox.get("unpublished_count")) is not int
-                          or recovery_outbox.get("unpublished_count") != 0
-                          or recovery.get("ready") is not True
-                          or recovery.get("service_ready") is not True
+                          or float(recovery_elapsed) != float(sample_elapsed)
+                          or not isinstance(node_document, dict)
+                          or node_document.get("planned_unavailable") is not None
+                          or not isinstance(node_exporter, dict)
+                          or node_exporter.get("last_error") is not None
                       ):
                           raw_error_evidence_valid = False
-                  if recovery_nodes != set(error_remaining_by_node):
-                      raw_error_evidence_valid = False
+                      else:
+                          raw_unresolved_error_nodes.discard(node)
+          if raw_unresolved_error_nodes:
+              raw_error_evidence_valid = False
           valid_error_samples_by_node = (
               isinstance(error_samples_by_node, dict)
               and set(error_samples_by_node) == expected_nodes
@@ -3550,9 +3513,21 @@ jobs:
                           ) is None
                       )
                   )
-                  or value.get("healthy") is (value.get("last_error") is not None)
-                  or not valid_bounded_integer(value.get("last_cycle_ns"), minimum=1)
-                  or value["last_cycle_ns"] > published_at_ns
+                  # With running pinned True, runtime healthy is exactly
+                  # (last_cycle_ns is not None and last_error is None);
+                  # last_cycle_ns is None before the first cycle completes.
+                  or value.get("healthy")
+                  is not (
+                      value.get("last_cycle_ns") is not None
+                      and value.get("last_error") is None
+                  )
+                  or (
+                      value.get("last_cycle_ns") is not None
+                      and (
+                          not valid_bounded_integer(value.get("last_cycle_ns"), minimum=1)
+                          or value["last_cycle_ns"] > published_at_ns
+                      )
+                  )
               ):
                   return False
               retry = value.get("durable_retry")
@@ -3575,9 +3550,12 @@ jobs:
                   and retry.get("target_warden")
                   in {"warden-a", "warden-b", "warden-c"} - {node}
               )
+              # A volatile cycle error may outlive its durable failed row once
+              # delivery or supersession clears it, so durable_retry binds to
+              # failed_records rather than last_error.
               return (
                   retry_valid
-                  and (value.get("last_error") is None or retry is not None)
+                  and (retry is None) is (value["failed_records"] == 0)
               )
 
           def valid_audit_exporter_status(value):
@@ -3623,15 +3601,14 @@ jobs:
                   return False
               last_error = value.get("last_error")
               last_success = value.get("last_success_ns")
+              # last_success_ns is volatile and resets to None on process
+              # start, so an error before the first acknowledged non-empty
+              # batch legitimately reports no prior success.
               return (
                   last_error in {None, "StorageError:sqlite_busy"}
                   and (
                       last_success is None
                       or valid_bounded_integer(last_success, minimum=1)
-                  )
-                  and (
-                      last_error is None
-                      or last_success is not None
                   )
                   and value.get("healthy")
                   is (
