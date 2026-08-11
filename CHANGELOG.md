@@ -5,6 +5,33 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.10] - 2026-08-11
+
+### Fixed
+
+- Made the host resource probe's process-identity check immune to the helper fork-to-exec
+  window. The probe requires exactly one `lets serve` process inside each warden container, but
+  the runtime lawfully spawns short-lived helper subprocesses whose `/proc` command line mirrors
+  the server's between `fork` and `exec`; one resource sample in the v1.0.9 soak landed inside
+  that window, observed two identical serve command lines, and failed the run while the workload
+  was healthy. The probe now excludes a candidate whose parent is itself a candidate — a genuine
+  duplicate server is a child of the init shim and is never filtered — and confirms any
+  remaining anomaly across four rescans a quarter-second apart before failing. A persistent
+  duplicate server still fails closed, now backed by deterministic synthetic-`/proc` tests for
+  both directions.
+
+### Changed
+
+- The signed `v1.0.9` tag is retained as an unpromoted candidate and is not moved or reused.
+  Release workflow `31470765659` passed signed-tag verification, reproducible packages,
+  dual-platform OCI provenance, and hardened three-node acceptance; its sole mandatory soak
+  failed after 334.354 seconds when a resource sample's `docker exec` identity check raced a
+  helper subprocess's fork-to-exec window — the workload was healthy at 14 cycles with no
+  admission, stall, or evidence defect. The retained failed evidence has raw SHA-256
+  `4e08fba595c5735ad79c1e4fd29eaa6a5fc60fb0dc2fbb12f69075aa5cf4b2b0` and canonical payload
+  `sha256:0bb37ac94f772302c54daa34b0b9e7f625432caed7bdb33a9eec9db3b011c786`. No 1.0.9 GitHub
+  release or promoted image was published.
+
 ## [1.0.9] - 2026-08-11
 
 ### Fixed
