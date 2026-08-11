@@ -257,6 +257,18 @@ DEFAULT_RESTART_INTERVAL_SECONDS = 900.0
 MIN_RESTART_EPISODES = len(WARDENS)
 TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE = 15.0
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
+# The audit-export staleness contract dominates the exporter's fault-free
+# depth-one worst case of 36 seconds: a record that just misses a cycle's
+# batch snapshot waits that cycle's tail (prefix acknowledgement, one
+# in-flight publish, and batch acknowledgement at up to five seconds each),
+# one poll interval, and the next cycle's archive head, prefix
+# acknowledgement, its own publish, and batch acknowledgement. Deeper
+# backlogs drain through continuation cycles that skip the head fetch and
+# prefix acknowledgement, so their staleness is bounded by publish
+# throughput; sustained per-operation latencies near the five-second
+# deadlines are storage degradation and fail closed here by design. This
+# bound is deliberately decoupled from the health cadence limit.
+AUDIT_EXPORT_STALL_LIMIT_SECONDS = 40.0
 MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
 PLANNED_FENCE_ATTEMPT_SECONDS = 95.0
 PLANNED_FENCE_PREPARATION_SECONDS = 120.0
@@ -2389,7 +2401,7 @@ def evaluate_health_cadence(
             if (
                 not isinstance(exporter, dict)
                 or not _finite_number(exporter.get("max_stall_s"))
-                or float(exporter["max_stall_s"]) != HEALTH_CADENCE_LIMIT_SECONDS
+                or float(exporter["max_stall_s"]) != AUDIT_EXPORT_STALL_LIMIT_SECONDS
                 or not float(observed_started)
                 <= float(observed_metrics)
                 <= float(observed_completed)

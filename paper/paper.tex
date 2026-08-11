@@ -439,7 +439,16 @@ For audit export, each record reaches the idempotent archive before local acknow
 sink-committed prefix is then acknowledged in one reserved authority-serialized transaction per
 batch, rather than one authority admission per record. A crash before the batch commit leaves the
 published prefix pending for exact repair from the archive head; no record is acknowledged before
-its archive write succeeds.
+its archive write succeeds. Each export cycle also carries a two-second publish budget measured
+from cycle start: an expiring budget acknowledges the prefix published so far, and follow-up
+cycles run immediately whenever a cycle was truncated or its snapshot filled the batch, skipping
+the archive-head call and prefix acknowledgement because the head is exactly the record just
+acknowledged; every fresh cycle refetches the head, preserving rollback detection. The budget
+can only take effect between publishes; the archive-head call, one in-flight publish, and the
+busy-bounded acknowledgement transactions each retain their own five-second allowances, so the
+fault-free depth-one worst case for a record that just misses a batch snapshot is 36 seconds,
+and the declared 40-second export staleness bound dominates it while deeper backlogs drain at
+publish throughput.
 
 \impl{} A running warden's bounded peer dispatcher discovers authoritative transfer, revocation,
 and checkpoint records through durable delivery metadata. It schedules one head per ordered
@@ -959,6 +968,24 @@ restart, a transient exporter error before the first acknowledged batch resets t
 success marker, and an audit-error recovery record whose six-decimal timestamp could not equal
 the three-decimal sample it must match exactly. Each fix is bound by deterministic acceptance
 and mutation tests against both the host validator and the extracted release-workflow verifier.
+
+The third signed-tag attempt, v1.0.7, confirmed those admission fixes held and failed on a known
+residual of the 1.0.6 batching change: under partition-driven bursts, batch acknowledgement let a
+record queued just after a cycle's batch snapshot wait out that cycle plus the entire next one,
+and warden B's oldest pending record reached 15.274 seconds against the then-declared 15-second
+export bound while the exporter was fault-free and progressing -- the same signature as the
+v1.0.5 failure. Version 1.0.8 responds twice. A two-second publish budget with immediate,
+overhead-free continuation cycles under truncation or full batches keeps typical cycles short
+and backlog drain bounded by publish throughput. And because worst-case analysis of the
+remaining allowances (archive-head call, one in-flight publish, and busy-bounded acknowledgement
+transactions, each lawfully up to five seconds, plus the poll interval) yields a 36-second
+fault-free depth-one supremum for a record that just misses a batch snapshot, the export
+staleness contract itself was re-derived: the runtime now declares a 40-second bound dominating
+that supremum, the host and release-workflow verifiers pin that exact value, and the
+in-container validator enforces whatever bound the runtime declares -- decoupled from the
+unchanged 15-second health-cadence limit that the old value had been inherited from. Sustained
+per-operation latencies near the five-second deadlines remain storage degradation that fails
+closed by design. The failed v1.0.7 run remains diagnostic evidence only.
 
 \section{Interoperability Profiles}
 

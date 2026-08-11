@@ -2377,7 +2377,7 @@ jobs:
                       exporter = document.get("audit_exporter")
                       if (
                           not isinstance(exporter, dict)
-                          or not close_number(exporter.get("max_stall_s"), 15.0, 0.0)
+                          or not close_number(exporter.get("max_stall_s"), 40.0, 0.0)
                           or not finite_number(observed_metrics)
                           or not float(observed_started)
                           <= float(observed_metrics)
@@ -2525,7 +2525,7 @@ jobs:
                           last_error != "StorageError:sqlite_busy"
                           or not finite_number(stalled_for)
                           or not finite_number(maximum_stall)
-                          or float(maximum_stall) != 15.0
+                          or float(maximum_stall) != 40.0
                           or not 0 <= float(stalled_for) <= float(maximum_stall)
                           or not isinstance(exporter.get("pending"), int)
                           or isinstance(exporter.get("pending"), bool)

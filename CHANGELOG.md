@@ -5,6 +5,57 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.8] - 2026-08-10
+
+### Fixed
+
+- Bounded audit-export acknowledgement latency under bursty traffic. Batch acknowledgement (added
+  in 1.0.6) removed per-record authority-admission amplification but let one export cycle run for
+  the length of its whole batch: a record arriving just after a cycle's batch snapshot waited out
+  the remainder of that cycle plus the entire next one, so under partition-driven bursts with
+  fsync-heavy sink publishes the oldest pending record could exceed the declared export bound
+  while the exporter was healthy and progressing. Each export cycle now carries a two-second
+  publish budget: when it expires the cycle acknowledges the sink-committed prefix published so
+  far, and the next cycle starts immediately whenever a cycle was truncated by the budget or its
+  snapshot filled the batch. Continuation cycles skip the archive-head fetch and prefix
+  acknowledgement, since the head is exactly the record this process just acknowledged, keeping
+  backlog drain bounded by publish throughput; every fresh cycle refetches the head, preserving
+  archive rollback detection. Archive-first ordering, exact prefix crash repair, and one reserved
+  acknowledgement transaction per cycle are unchanged, and the budget must not exceed the
+  declared stall bound.
+- Re-derived the audit-export staleness contract from the exporter's fault-free worst case and
+  decoupled it from the health-cadence limit. The previous 15-second oldest-record and
+  no-progress bound was inherited from the 15-second health-cadence constant, but the design's
+  own allowances sum past it with no fault at all: a record that just misses a cycle's batch
+  snapshot can lawfully wait that cycle's tail (prefix acknowledgement, one in-flight publish,
+  and batch acknowledgement at up to five seconds each), one poll interval, and the entire next
+  cycle (archive head, prefix acknowledgement, its own publish, and batch acknowledgement) — a
+  36-second fault-free depth-one supremum, which is why the v1.0.5 and v1.0.7 release soaks
+  failed exactly there with sub-second margins. The runtime now declares a 40-second export
+  staleness bound dominating that supremum; the host and release-workflow verifiers pin that
+  exact value and the in-container workload validator enforces whatever bound the runtime
+  declares. Deeper backlogs drain through overhead-free continuation cycles at publish
+  throughput, and sustained per-operation latencies near the five-second deadlines are storage
+  degradation that fails closed by design. The 15-second health-cadence guarantee is unchanged.
+  Two rounds of adversarial review produced the worst-case arithmetic that forced this
+  correction; the budget alone narrowed but could not close the gap.
+
+### Changed
+
+- The signed `v1.0.7` tag is retained as an unpromoted candidate and is not moved or reused.
+  Release workflow `31453033574` passed signed-tag verification, reproducible packages,
+  dual-platform OCI provenance, and hardened three-node acceptance, but its sole mandatory soak
+  failed after 145 cycles when warden B's audit exporter reported seven pending records with the
+  oldest at 15.274067955 seconds against the 15-second bound while progress was only
+  7.428107944999738 seconds old, with no sink error and `archive_reconciled=false` mid-backlog —
+  the acknowledgement-latency defect fixed above, and the same signature as the v1.0.5 failure.
+  The retained failed evidence has raw SHA-256
+  `d0935655628123ebe6a8717e26965050a495f81933007d14dfcec573857ed434` and canonical payload
+  `sha256:3c819e5757a908e4a2c3f9138ea82a6752e695cc4298f59990e0dc7d1ec7f04b`. No 1.0.7 GitHub
+  release or promoted version image was published. The 1.0.7 admission-parity fixes themselves
+  held: the workload failed live at the producer's bounded-progress gate, not in evidence
+  admission.
+
 ## [1.0.7] - 2026-08-10
 
 ### Fixed

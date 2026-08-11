@@ -11,7 +11,7 @@ import pytest
 
 from lets.audit import AuditArchiveHead, AuditExporter, AuditExportRecord, SQLiteAuditSink
 from lets.authority import FileAuthorityAnchor
-from lets.errors import ConflictError, StorageError
+from lets.errors import ConflictError, StorageError, ValidationError
 from lets.storage import SQLiteStorage, audit_event_hash
 
 _KEY_ID = "warden-a-key"
@@ -80,7 +80,9 @@ def test_exporter_is_idempotent_and_bounds_published_outbox_rows(tmp_path: Path)
     sink = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
     try:
         _events(store, 20)
-        exporter = AuditExporter(store, sink, batch_size=64, retain_published=3)
+        exporter = AuditExporter(
+            store, sink, batch_size=64, retain_published=3, publish_budget_s=30.0
+        )
         assert exporter.run_once() == 20
         assert exporter.run_once() == 0
         assert sink.count() == 20
@@ -96,6 +98,144 @@ def test_exporter_is_idempotent_and_bounds_published_outbox_rows(tmp_path: Path)
 
         reopened = SQLiteAuditSink(sink.path)
         assert reopened.count() == 20
+    finally:
+        store.close()
+
+
+class _SlowPublishSink:
+    """Delay publishes so a nanosecond budget expires even on coarse clocks."""
+
+    def __init__(self, inner: SQLiteAuditSink) -> None:
+        self._inner = inner
+
+    def publish(self, record: AuditExportRecord) -> None:
+        time.sleep(0.02)
+        self._inner.publish(record)
+
+    def head(self, **kwargs: object) -> AuditArchiveHead | None:
+        return self._inner.head(**kwargs)  # type: ignore[arg-type]
+
+
+def test_publish_budget_bounds_each_cycle_and_acknowledges_the_prefix(tmp_path: Path) -> None:
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
+    sink = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+    try:
+        _events(store, 5)
+        exporter = AuditExporter(
+            store,
+            _SlowPublishSink(sink),  # type: ignore[arg-type]
+            batch_size=64,
+            retain_published=0,
+            publish_budget_s=1e-9,
+        )
+        for expected_total in (1, 2, 3, 4, 5):
+            assert exporter.run_once() == 1
+            assert sink.count() == expected_total
+            with store.read() as transaction:
+                pending = transaction.connection.execute(
+                    "SELECT COUNT(*) FROM audit_outbox WHERE published_at_ns IS NULL"
+                ).fetchone()[0]
+            assert pending == 5 - expected_total
+        assert exporter.run_once() == 0
+    finally:
+        store.close()
+
+
+def test_backlog_cycles_continue_without_waiting_the_poll_interval(tmp_path: Path) -> None:
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
+    sink = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+    exporter = AuditExporter(
+        store,
+        sink,
+        batch_size=64,
+        retain_published=0,
+        poll_interval_s=60.0,
+        publish_budget_s=1e-9,
+    )
+    try:
+        _events(store, 5)
+        exporter.start()
+        deadline = time.monotonic() + 20.0
+        while sink.count() < 5 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert sink.count() == 5
+    finally:
+        exporter.stop()
+        store.close()
+
+
+def test_continuation_cycles_skip_the_archive_head_fetch(tmp_path: Path) -> None:
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
+    sink = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+
+    class CountingSlowSink:
+        def __init__(self, inner: SQLiteAuditSink) -> None:
+            self._inner = inner
+            self.head_calls = 0
+
+        def publish(self, record: AuditExportRecord) -> None:
+            time.sleep(0.02)
+            self._inner.publish(record)
+
+        def head(self, **kwargs: object) -> AuditArchiveHead | None:
+            self.head_calls += 1
+            return self._inner.head(**kwargs)  # type: ignore[arg-type]
+
+    try:
+        _events(store, 3)
+        counting = CountingSlowSink(sink)
+        exporter = AuditExporter(
+            store,
+            counting,  # type: ignore[arg-type]
+            batch_size=64,
+            retain_published=0,
+            publish_budget_s=1e-9,
+        )
+        assert exporter.run_once() == 1
+        assert counting.head_calls == 1
+        assert exporter.run_once() == 1
+        assert exporter.run_once() == 1
+        assert counting.head_calls == 1
+        assert exporter.run_once() == 0
+        assert counting.head_calls == 2
+        assert sink.count() == 3
+    finally:
+        store.close()
+
+
+def test_budget_split_prefix_survives_a_replacement_exporter(tmp_path: Path) -> None:
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
+    sink = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+    try:
+        _events(store, 5)
+        first = AuditExporter(
+            store,
+            _SlowPublishSink(sink),  # type: ignore[arg-type]
+            batch_size=64,
+            retain_published=0,
+            publish_budget_s=1e-9,
+        )
+        assert first.run_once() == 1
+        recovered = AuditExporter(store, sink, batch_size=64, retain_published=0)
+        assert recovered.run_once() == 4
+        assert recovered.run_once() == 0
+        assert sink.count() == 5
+        with store.read() as transaction:
+            pending = transaction.connection.execute(
+                "SELECT COUNT(*) FROM audit_outbox WHERE published_at_ns IS NULL"
+            ).fetchone()[0]
+        assert pending == 0
+    finally:
+        store.close()
+
+
+@pytest.mark.parametrize("budget", (0, -1.0, 60.5, True))
+def test_publish_budget_rejects_out_of_range_values(tmp_path: Path, budget: object) -> None:
+    store = SQLiteStorage.initialize(tmp_path / "warden.sqlite3", "warden-a", (10,), **_options())
+    sink = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
+    try:
+        with pytest.raises(ValidationError, match="publish_budget_s"):
+            AuditExporter(store, sink, publish_budget_s=budget)  # type: ignore[arg-type]
     finally:
         store.close()
 
@@ -287,7 +427,9 @@ def test_archive_prefix_repair_is_bounded_and_converges(tmp_path: Path) -> None:
         assert failed.run_once() == 10
         assert archive.count() == 10
 
-        recovered = AuditExporter(store, archive, batch_size=3, retain_published=0)
+        recovered = AuditExporter(
+            store, archive, batch_size=3, retain_published=0, publish_budget_s=30.0
+        )
         prior_pending = 10
         prior_total = 10
         for _ in range(8):
@@ -337,7 +479,9 @@ def test_exporter_acknowledges_a_sink_batch_in_one_authority_transaction(
             return capacity_recovery()
 
         monkeypatch.setattr(store, "capacity_recovery", counted_capacity_recovery)
-        exporter = AuditExporter(store, archive, batch_size=32, retain_published=0)
+        exporter = AuditExporter(
+            store, archive, batch_size=32, retain_published=0, publish_budget_s=30.0
+        )
 
         assert exporter.run_once() == 32
         assert admissions == 1
@@ -379,7 +523,13 @@ def test_exporter_repairs_partially_published_batch_without_duplicate_archive_re
     archive = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
     try:
         _events(store, 3)
-        failed = AuditExporter(store, FailSecondPublish(archive), batch_size=3, retain_published=0)
+        failed = AuditExporter(
+            store,
+            FailSecondPublish(archive),
+            batch_size=3,
+            retain_published=0,
+            publish_budget_s=30.0,
+        )
         assert failed.run_once() == 0
         assert archive.count() == 1
         with store.read() as transaction:
@@ -390,7 +540,9 @@ def test_exporter_repairs_partially_published_batch_without_duplicate_archive_re
                 == 3
             )
 
-        recovered = AuditExporter(store, archive, batch_size=3, retain_published=0)
+        recovered = AuditExporter(
+            store, archive, batch_size=3, retain_published=0, publish_budget_s=30.0
+        )
         assert recovered.run_once() == 2
         assert archive.count() == 3
         with store.read() as transaction:
@@ -458,6 +610,7 @@ def test_hung_sink_fails_readiness_status_and_cannot_block_exporter_shutdown(
             sink,
             poll_interval_s=0.01,
             publish_timeout_s=0.05,
+            publish_budget_s=0.05,
             max_stall_s=0.05,
         )
         exporter.start()
@@ -488,13 +641,18 @@ def test_exporter_detects_archive_rollback_and_backfills_from_immutable_core_log
     stale_path = tmp_path / "archive-stale.sqlite3"
     try:
         _events(store, 5)
-        assert AuditExporter(store, archive, retain_published=1).run_once() == 5
+        assert (
+            AuditExporter(store, archive, retain_published=1, publish_budget_s=30.0).run_once() == 5
+        )
         with closing(sqlite3.connect(archive_path)) as connection:
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         shutil.copy2(archive_path, stale_path)
 
         _events(store, 15)
-        assert AuditExporter(store, archive, retain_published=1).run_once() == 15
+        assert (
+            AuditExporter(store, archive, retain_published=1, publish_budget_s=30.0).run_once()
+            == 15
+        )
         assert archive.count() == 20
         with closing(sqlite3.connect(archive_path)) as connection:
             connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -503,7 +661,7 @@ def test_exporter_detects_archive_rollback_and_backfills_from_immutable_core_log
         shutil.copy2(stale_path, archive_path)
 
         restored = SQLiteAuditSink(archive_path)
-        repair = AuditExporter(store, restored, retain_published=1)
+        repair = AuditExporter(store, restored, retain_published=1, publish_budget_s=30.0)
         assert repair.run_once() == 15
         assert restored.count() == 20
         repair.start()
