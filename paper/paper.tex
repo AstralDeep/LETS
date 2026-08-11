@@ -987,6 +987,17 @@ unchanged 15-second health-cadence limit that the old value had been inherited f
 per-operation latencies near the five-second deadlines remain storage degradation that fails
 closed by design. The failed v1.0.7 run remains diagnostic evidence only.
 
+The fourth signed-tag attempt, v1.0.8, completed its full unweakened soak with every prior fix
+holding -- no admission, stall, or evidence defect across 169 cycles and all health samples --
+and failed only host adequacy: the throughput floor required the workload to average at most 15
+seconds of active time per cycle, and the runner paced 15.37. Retained evidence across the four
+release soaks shows fault-free hosted-runner pace ranging from 10.1 to 19 seconds per cycle, so
+that constant also sat inside lawful environmental variance with zero margin. Version 1.0.9
+recalibrates the not-stalled floor to 25 seconds of active time per cycle, dominating the
+observed range while the separate semantic cycle floor continues to guarantee absolute workload
+coverage; replaying the retained v1.0.8 evidence against the recalibrated floor passes every
+adequacy check. The failed v1.0.8 run remains diagnostic evidence only.
+
 \section{Interoperability Profiles}
 
 \LETS{} is an authorization/accounting substrate, not an agent discovery protocol, invocation
