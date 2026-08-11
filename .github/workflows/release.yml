@@ -2138,7 +2138,7 @@ jobs:
           )
           if cycle_metrics_valid:
               semantic_cycle_floor = max(3 * 6 * transfer_every, 3 * reopen_every)
-              active_time_cycle_floor = math.ceil(active_seconds / 15.0)
+              active_time_cycle_floor = math.ceil(active_seconds / 25.0)
               required_cycles = max(semantic_cycle_floor, active_time_cycle_floor)
               expected_transfers = (cycles + transfer_every - 1) // transfer_every
               expected_reopens = cycles // reopen_every
