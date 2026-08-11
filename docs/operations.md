@@ -143,8 +143,20 @@ audit exporter; a blocked sink, excessive backlog, or stalled export makes readi
 The exporter writes each audit record to the idempotent archive before local acknowledgement, then
 acknowledges the sink-committed prefix in one reserved authority-serialized transaction per batch.
 This keeps crash recovery exact while preventing helper/admission overhead from growing once per
-record. The 15-second oldest-record and no-progress limits remain unchanged and fail readiness
-closed.
+record. Each export cycle additionally carries a two-second publish budget measured from cycle
+start: it can only take effect between publishes, and when it expires the cycle acknowledges the
+prefix published so far. The next cycle starts immediately whenever a cycle was truncated by the
+budget or its snapshot filled the batch, and such continuation cycles skip the archive-head call
+and prefix acknowledgement because the head is exactly the record this process just acknowledged;
+every fresh cycle refetches the head, preserving rollback detection. The archive-head call, each
+in-flight publish, and the acknowledgement transactions keep their own five-second deadlines, so
+a record that just misses a cycle's batch snapshot can fault-free wait that cycle's tail, one
+poll interval, and the whole next cycle — 36 seconds in the worst lawful depth-one schedule. The
+declared oldest-record and no-progress staleness bound is therefore 40 seconds, dominating that
+case; deeper backlogs drain at publish throughput through overhead-free continuation cycles, and
+sustained per-operation latencies near the five-second deadlines are storage degradation that
+fails readiness closed by design. The bound is decoupled from the separate 15-second
+health-cadence limit.
 
 `max_clock_uncertainty_ns` is an operator-attested upper bound, not a measured guarantee. Monitor
 the actual source and configure a conservative bound. Core warden authority and executor replay
