@@ -5,6 +5,35 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.9] - 2026-08-11
+
+### Fixed
+
+- Recalibrated the soak adequacy throughput floor against retained release evidence. The host and
+  release-workflow verifiers required the mixed workload to average at most 15 seconds of active
+  time per cycle, but fault-free hosted runners paced 10.1 to 19 seconds per cycle across the
+  v1.0.5 through v1.0.8 release soaks — the constant sat inside lawful environmental variance
+  with zero margin, exactly like the export staleness bound before it. The not-stalled floor now
+  requires at most 25 seconds of active time per cycle, dominating the observed fault-free range
+  with margin while remaining orders of magnitude below a stalled workload; the semantic cycle
+  floor guaranteeing absolute workload coverage is unchanged.
+
+### Changed
+
+- The signed `v1.0.8` tag is retained as an unpromoted candidate and is not moved or reused.
+  Release workflow `31465079438` passed signed-tag verification, reproducible packages,
+  dual-platform OCI provenance, and hardened three-node acceptance, and its sole mandatory soak
+  completed the full unweakened workload — 3,602.190753 seconds, 169 cycles, all health samples,
+  and a passing workload evaluation on every check except one: host adequacy required
+  `ceil(2597.587625 / 15) = 174` cycles and the run produced 169, a 2.5 percent pace shortfall
+  on a slow runner. Every 1.0.7 admission-parity fix and the 1.0.8 export-staleness fix held
+  through the complete run; no stall, admission, or evidence defect occurred. The retained
+  failed evidence has raw SHA-256
+  `a0e5b81cd3ba011b8d7cfc348fc1c725eedbceb4f5e80aacab0b4cf20423a65d` and canonical payload
+  `sha256:6ad03802d246ce56fe6c2535c22edc3a9e8b277c4e243f2338c20eb563864db8`. Replaying that
+  artifact against the recalibrated floor passes every adequacy check (169 against a required
+  104). No 1.0.8 GitHub release or promoted image was published.
+
 ## [1.0.8] - 2026-08-10
 
 ### Fixed

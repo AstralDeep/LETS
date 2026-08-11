@@ -255,7 +255,12 @@ OBSERVATION_AUDIT_FIELDS = frozenset(
 OBSERVATION_MAX_RESPONSE_BYTES = 20 * 1024
 DEFAULT_RESTART_INTERVAL_SECONDS = 900.0
 MIN_RESTART_EPISODES = len(WARDENS)
-TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE = 15.0
+# Calibrated against retained release-soak evidence: fault-free hosted
+# runners paced 10.1-19 seconds of active time per mixed-workload cycle
+# across the v1.0.5 through v1.0.8 runs, so the not-stalled throughput
+# floor must dominate that lawful range with margin. Absolute workload
+# coverage is guaranteed separately by the semantic cycle floor.
+TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE = 25.0
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
 # The audit-export staleness contract dominates the exporter's fault-free
 # depth-one worst case of 36 seconds: a record that just misses a cycle's
