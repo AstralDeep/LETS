@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How LETS works</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="sheet">
+  <header class="masthead">
+    <div>
+      <h1 class="title">How LETS Works</h1>
+      <p class="subtitle">An authorization runtime for populations of agents that
+        create more agents &mdash; and the accounting that keeps them bounded.</p>
+    </div>
+    <div class="ident">
+      <a class="navlink" href="/">&larr; Back to the register</a>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="shead"><span>The problem</span></div>
+    <div class="prose">
+      <p class="lede">An agent that can create another agent can create a thousand.
+        If authority is a flag on an identity, every new worker is a fresh grant and
+        nothing bounds the total. LETS makes authority a <em>quantity</em> instead of
+        a flag, so delegation divides a fixed budget rather than minting a new one.</p>
+
+      <p>The runtime describes itself as governing &ldquo;recursively created agents,
+        replicas, delegates, robots, services, and other autonomous workers.&rdquo; It is
+        deliberately not an agent framework, a scheduler, a model host, or a transport.
+        Your system keeps all of that. LETS answers one question, durably and with a
+        signature: <em>is this specific action, by this specific worker, right now,
+        within what it was allotted?</em></p>
+
+      <p>Two ideas do the work. First, a worker holds a <b>lease</b> on a slice of a
+        finite budget, and spawning a child moves budget out of the parent's slice
+        &mdash; never out of thin air. Second, permission to act is not a boolean the
+        agent can assert; it is a short-lived <b>signed receipt</b> the agent must
+        obtain and hand to whatever actually performs the effect.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><span>The vocabulary</span>
+      <span class="note">terms as the project itself uses them</span></div>
+    <dl class="terms">
+      <dt>Warden</dt>
+      <dd>A stable accounting replica with its own durable database and signing identity.
+        It owns the ledger and answers every authorization request. This demo runs one.</dd>
+
+      <dt>Envelope</dt>
+      <dd>The bounded resource container, identified by
+        <span class="lit">(tenant_id, envelope_id, config_epoch)</span>. It has an ordered
+        resource schema and a fixed genesis budget. Dimensions and units never change
+        within an epoch.</dd>
+
+      <dt>Rights vector</dt>
+      <dd>The multi-dimensional quantity itself &mdash; a positional tuple of non-negative
+        integers, 1 to 256 dimensions. Every allocation, residual, and cost is a vector of
+        the same arity. <b>Index order is the only thing tying a number to a meaning</b>;
+        units are declarative labels and LETS does no unit math.</dd>
+
+      <dt>Policy</dt>
+      <dd>Immutable and content-addressed: its <span class="lit">sha256:…</span> digest is
+        derived from its contents, and each lease is bound to that exact digest. It declares
+        the resource dimensions and a state machine whose edges are the permitted transitions.</dd>
+
+      <dt>Lease</dt>
+      <dd>A grant of authority to one subject: an allocation, the capabilities it may use,
+        the policy it is bound to, its position in the lineage, a machine state, a sequence
+        number, and an expiry.</dd>
+
+      <dt>Residual</dt>
+      <dd>What a lease has left &mdash; its allocation minus what it has spent and minus what
+        it has escrowed into children.</dd>
+
+      <dt>Free pool</dt>
+      <dd>The warden's unallocated share. Root leases are cut from here.</dd>
+
+      <dt>Capability</dt>
+      <dd>A named permission carried on a lease, such as <span class="lit">agent.research</span>.
+        A transition names the capability it requires. Capabilities not declared by the bound
+        machine are rejected outright.</dd>
+
+      <dt>Attenuation</dt>
+      <dd>The rule that a child may only ever be narrower than its parent. Capabilities,
+        allocation, TTL, tenant, envelope, epoch, and the exact policy digest are inherited
+        or reduced &mdash; never widened.</dd>
+
+      <dt>Transition</dt>
+      <dd>An edge in the policy's state machine, with a source state, a target state, a
+        required capability, and a <b>cost vector that must be non-zero</b>. Authorizing one
+        debits the lease.</dd>
+
+      <dt>Receipt</dt>
+      <dd>The signed, short-lived, audience-bound artifact produced by a successful
+        transition. It names exactly one executor and carries a single-use nonce.</dd>
+
+      <dt>Executor</dt>
+      <dd>The component that actually performs the effect. It verifies the receipt's
+        signature and durably consumes it before acting.</dd>
+
+      <dt>Lineage</dt>
+      <dd>The parent-to-child ancestry of leases. Each grant carries its
+        <span class="lit">lineage_id</span>, <span class="lit">parent_id</span>, and full
+        ancestor path. Depth is capped at 64.</dd>
+    </dl>
+  </section>
+
+  <section class="section">
+    <div class="shead"><span>The conservation rule</span>
+      <span class="note">the guarantee everything else exists to protect</span></div>
+    <div class="prose">
+      <p>Every unit of budget sits in exactly one ownership class at any consistent
+        moment. LETS states the invariant as:</p>
+
+      <figure>
+<pre>  initial budget  +  accepted replenishment
+      =  free pools
+      +  lease residuals
+      +  consumed rights
+      +  source-owned in-flight transfers</pre>
+        <figcaption>From the project's architecture notes. A quantity appears in exactly
+          one ownership class on a consistent distributed cut.</figcaption>
+      </figure>
+
+      <p>The Conservation panel on the register checks this arithmetic componentwise on
+        every refresh. It recomputes the equation from the raw
+        <span class="lit">/v1/invariants</span> snapshot rather than reading the warden's
+        own <span class="lit">healthy</span> flag, because a system reporting its own health
+        proves nothing on its own.</p>
+
+      <p>Two rules keep the equation from being trivially satisfiable. Allocations and
+        transition costs must each contain at least one non-zero component, which prevents
+        cost-free authority trees and unbounded zero-cost receipt production. And the whole
+        debit-and-credit for an operation commits in a single durable transaction, so a
+        parent cannot be over-drawn by two children racing.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><span>The four lifecycle seams</span>
+      <span class="note">where a host application calls the runtime</span></div>
+    <div class="prose">
+      <ol class="seams">
+        <li><b>Issue a root lease</b> when a governed population is admitted. Rights are
+          partitioned out of the warden's free pool.</li>
+        <li><b>Spawn a child lease</b> before creating a replica or delegate. The child's
+          allocation is atomically subtracted from the parent's residual.</li>
+        <li><b>Request a transition receipt</b> immediately before a protected effect.
+          This debits the cost, advances the machine state and sequence, and returns a
+          signed receipt.</li>
+        <li><b>Close, quiesce, renew, or revoke</b> leases as the host lifecycle changes.
+          Closing returns the lease's own residual.</li>
+      </ol>
+
+      <figure>
+<pre>  host application                warden                    executor
+        |                            |                          |
+        |-- issue root ------------->|  debit free pool         |
+        |&lt;-- lease grant ------------|                          |
+        |                            |                          |
+        |-- spawn child ------------>|  move parent -> child    |
+        |&lt;-- lease grant ------------|  (one transaction)       |
+        |                            |                          |
+        |-- authorize transition --->|  debit residual,         |
+        |&lt;-- signed receipt ---------|  advance state, sign     |
+        |                            |                          |
+        |------------- present receipt ------------------------>|
+        |                            |     verify signature,    |
+        |                            |     claim nonce, then    |
+        |&lt;------------ effect performed ----------------------- |  act</pre>
+        <figcaption>The host never decides whether an action is allowed. It asks, and
+          carries the answer to the executor.</figcaption>
+      </figure>
+
+      <div class="callout">
+        <h4>Why the executor checks, not the orchestrator</h4>
+        <p>The integration guide is explicit: <em>&ldquo;Checking a receipt only in the
+          orchestrator is insufficient if an agent can reach the effect through another
+          path.&rdquo;</em></p>
+        <p>The receipt is bound to one named audience and carries a single-use nonce, and
+          the executor durably records having consumed it. So the guarantee does not depend
+          on the agent behaving, or on every code path remembering to ask.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><span>What replication does not copy</span></div>
+    <div class="prose">
+      <p>Spawning a child in LETS means creating a new runtime identity under a declared
+        capability, state, resource, policy, and lineage envelope. The docs are emphatic
+        that it never means copying:</p>
+      <ul>
+        <li>bearer tokens, private keys, or ambient authority;</li>
+        <li>a human or owner identity;</li>
+        <li>process memory, open sockets, or uncommitted work;</li>
+        <li>protected health information or other host-governed data;</li>
+        <li>audit signing secrets.</li>
+      </ul>
+      <p>Artifact and state transfer stay on the host side. Only identifiers and evidence
+        digests go into LETS requests. The adapter interface is shaped to make that boundary
+        hard to cross by accident.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><span>How this demo maps onto it</span></div>
+    <div class="prose">
+      <p>The demo application is the <b>host</b> in the diagram above. It owns durable
+        operation IDs, holds the bearer credential, and calls the runtime at the seams.
+        The browser talks only to the demo app and never sees the token.</p>
+
+      <p>Its policy declares two dimensions &mdash; <span class="lit">actions</span> and
+        <span class="lit">tokens</span> &mdash; and three transitions:</p>
+
+      <figure>
+<pre>  transition   cost (actions, tokens)   requires
+  ----------   ---------------------   ------------------
+  research           1,  500           agent.research
+  summarize          1,  200           agent.summarize
+  publish            5,  100           agent.publish     &lt;- never granted</pre>
+        <figcaption>The root lease holds only the first two capabilities.</figcaption>
+      </figure>
+
+      <p><span class="lit">agent.publish</span> is declared by the state machine but
+        deliberately withheld from the root. That is what makes the escalation button a
+        genuine attenuation failure &mdash; a child reaching for something real that its
+        parent simply does not hold. Asking for a capability the policy had never heard of
+        would fail for an entirely different reason and would prove nothing about
+        attenuation.</p>
+
+      <p>The warden was initialized with a genesis budget of
+        <span class="lit">10,000</span> actions and <span class="lit">1,000,000</span> tokens.
+        Each root agent is provisioned <span class="lit">2,000</span> and
+        <span class="lit">200,000</span> of those, so the free pool stays visibly non-empty
+        beside the leased and consumed columns.</p>
+
+      <div class="callout warn">
+        <h4>This is a development configuration</h4>
+        <p>Loopback HTTP, a static bearer token, and the built-in file signer. LETS refuses
+          all three under <span class="lit">--production</span>, which requires mTLS, a signed
+          cluster manifest, and an external signer or HSM.</p>
+        <p>The parts this demo does not exercise are real features of the runtime, not gaps
+          in it: executor-side receipt verification and replay rejection, lease expiry and
+          reclamation, cross-warden transfers with exactly-once vouchers, branch revocation,
+          and the hash-chained audit export.</p>
+      </div>
+
+      <p>That audit log is running underneath the demo the whole time. Every committed
+        operation appends a signed, hash-chained record; refusals append nothing. You can
+        read it at <a href="/api/audit">/api/audit</a>, which also reports whether the
+        warden considers the chain valid.</p>
+    </div>
+  </section>
+
+  <div class="colophon">
+    <span>LETS 1.0.10 &middot; lineage escrow transition systems &middot; Apache-2.0</span>
+    <span><a href="https://github.com/AstralDeep/LETS">github.com/AstralDeep/LETS</a></span>
+  </div>
+</div>
+</body>
+</html>
