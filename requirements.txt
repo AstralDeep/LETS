@@ -13,7 +13,3 @@
 #   .\.venv\Scripts\python.exe -m pip install "wheels\lets_agent-1.0.10-py3-none-any.whl[server]"
 
 lets-agent[server] == 1.0.10
-
-# Optional, for shoot.py only (drives the dashboard in a headless browser to
-# verify it renders). Not needed to run the demo.
-# playwright

@@ -25,6 +25,5 @@ state/
 .venv/
 .venv-prod/
 wheels/
-shots/
 __pycache__/
 *.pyc

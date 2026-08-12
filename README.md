@@ -11,8 +11,6 @@ can subdivide but never inflate**, and every protected effect should require a s
 This demo makes that claim checkable. It runs a real warden node, drives a fleet of agents
 against it, and puts the runtime's own answers on screen.
 
-![dashboard](shots/05-deep.png)
-
 ## Quickstart
 
 ```powershell
@@ -108,7 +106,6 @@ credential, and calls the runtime at its four lifecycle seams. The browser never
 | [prod/init_node.py](prod/init_node.py) | Provisions state volumes and runs `lets init --production` |
 | [verify_core_four.py](verify_core_four.py) | Headless assertions for the four claims, either node |
 | [verify_production.py](verify_production.py) | Headless assertions that mTLS, JWT, and the manifest are enforced |
-| [shoot.py](shoot.py) | Dev only — drives all three pages in a headless browser to check they render |
 
 ### Leases outlive the process that made them
 
