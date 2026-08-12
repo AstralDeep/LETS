@@ -1,7 +1,10 @@
 # Rebuilding the LETS paper
 
-`paper.tex` is the maintained system paper for the implemented LETS runtime.
-`original-draft.pdf` is historical source material and is never overwritten.
+`paper.tex` is the maintained system paper for the implemented LETS runtime, and
+`lets.pdf` is its tracked build. Shared inputs live beside it: `evidence.tex`
+holds every runtime value shown in the paper, and `references.bib` is the
+shared bibliography. Venue-specific submission builds live in
+`paper/submission/`, which is intentionally untracked.
 
 The build is isolated in a digest-pinned TeX Live container; it installs nothing into the host
 Python or operating system. From the repository root:

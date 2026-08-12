@@ -62,6 +62,14 @@ results/generated/
 benchmarks/results/
 states/
 
+# Venue-specific submission builds. Kept local until the material may be
+# public; do not publish anything from this directory.
+paper/submission/
+
+# Stray in-tree output from running pdflatex directly in paper/ (the
+# canonical build writes to paper/build/ and copies lets.pdf).
+paper/paper.pdf
+
 # LaTeX intermediates (source and final PDFs remain trackable)
 *.aux
 *.bbl
