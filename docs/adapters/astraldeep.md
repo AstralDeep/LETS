@@ -105,4 +105,4 @@ check inside the orchestrator alone is bypassable if any alternate path can reac
 
 Existing Astral UI can display LETS state with current Card, Table, Timeline, Badge, Progress,
 Alert, and KeyValue primitives. No LETS-specific primitive is required. Adding a new primitive
-would require coordinated Astral-Primitives, wire protocol, and every client renderer change.
+would require coordinated AstralPrimitives, wire protocol, and every client renderer change.
