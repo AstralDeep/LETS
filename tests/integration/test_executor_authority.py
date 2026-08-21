@@ -460,42 +460,45 @@ def test_executor_malformed_typed_failure_is_permanent_and_never_reprobed(
     assert anchor.calls == calls
 
 
-def test_process_executor_reconcile_and_confirm_share_one_absolute_deadline(
+def test_process_executor_reconcile_and_confirm_pass_one_exact_deadline(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     authority = tmp_path / "authority"
     authority.mkdir()
-    script = (
-        "import json,sys,time;"
-        "\nfor line in sys.stdin:"
-        "\n r=json.loads(line);op=r['operation'];"
-        "\n if op=='confirm': time.sleep(10);"
-        "\n status='missing' if op=='read' else 'ok';"
-        "\n print(json.dumps({'request_id':r['request_id'],'status':status}),flush=True)"
-    )
     anchor = ProcessFileExecutorAuthorityAnchor(
         authority / "executor.anchor",
         timeout_s=0.5,
-        helper_command=(sys.executable, "-c", script),
     )
-    assert (
-        anchor._invoke(
-            {"operation": "read"},
-            deadline=time.monotonic() + 2.0,
-        )["status"]
-        == "missing"
-    )
+    now = 100.0
+
+    def advancing_monotonic() -> float:
+        nonlocal now
+        current = now
+        now += 0.01
+        return current
+
+    operations: list[tuple[str, float]] = []
+
+    def invoke(request: dict[str, object], *, deadline: float) -> dict[str, object]:
+        operation = str(request.get("operation"))
+        operations.append((operation, deadline))
+        return {"status": "missing" if operation == "read" else "ok"}
+
+    monkeypatch.setattr(executor_authority_module.time, "monotonic", advancing_monotonic)
+    monkeypatch.setattr(anchor, "_invoke", invoke)
     signer = Ed25519Signer.generate("warden-a")
-    started = time.monotonic()
-    with pytest.raises(AuthorityAnchorTransportError) as raised:
-        SQLiteReceiptReplayStore.initialize(
-            tmp_path / "executor.sqlite3",
-            authority_anchor=anchor,
-            identity=_identity(signer),
-        )
-    assert raised.value.operation == "confirm"
-    assert raised.value.reason == "deadline"
-    assert time.monotonic() - started < 1.5
+    store = SQLiteReceiptReplayStore.initialize(
+        tmp_path / "executor.sqlite3",
+        authority_anchor=anchor,
+        identity=_identity(signer),
+    )
+    assert store.rollback_protected
+    assert operations == [
+        ("read", 100.5),
+        ("initialize", 100.5),
+        ("confirm", 100.5),
+    ]
     anchor.close()
 
 

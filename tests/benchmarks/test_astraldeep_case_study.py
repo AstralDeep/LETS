@@ -1289,8 +1289,16 @@ def test_capture_low_level_guards_cover_io_paths_and_public_value_shapes(
     with pytest.raises(capture.EvidenceError, match="five distinct"):
         capture.capture_repository_revisions(repositories)
 
-    monkeypatch.setattr(capture.os, "sysconf", lambda _name: (_ for _ in ()).throw(ValueError()))
-    assert capture._total_memory_bytes() is None
+    with monkeypatch.context() as platform_patch:
+        platform_patch.setattr(capture.sys, "platform", "portable-posix-test")
+        platform_patch.delattr(capture.os, "sysconf", raising=False)
+        platform_patch.setattr(
+            capture.os,
+            "sysconf",
+            lambda _name: (_ for _ in ()).throw(ValueError()),
+            raising=False,
+        )
+        assert capture._total_memory_bytes() is None
     with pytest.raises(capture.EvidenceError, match="reserved"):
         capture.capture_public_environment({"os_system": "override"})
     with pytest.raises(capture.EvidenceError, match="sanitization"):
