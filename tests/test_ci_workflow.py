@@ -8,7 +8,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 PYPROJECT_PATH = ROOT / "pyproject.toml"
-LOCK_PATH = ROOT / "uv.lock"
+PROJECT_LOCK_PATH = ROOT / "uv.lock"
+CI_TOOL_INPUT_PATH = ROOT / "tooling" / "python-ci" / "requirements.in"
+CI_TOOL_LOCK_PATH = ROOT / "tooling" / "python-ci" / "requirements.lock.txt"
 
 CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 SETUP_UV_ACTION = "astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d"
@@ -36,6 +38,9 @@ EXPECTED_MATRIX = {
     ("windows-latest", "3.14"),
 }
 REQUIRED_NEEDS = {"quality", "test", "distributed-acceptance"}
+CI_TOOL_INSTALL = (
+    "uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt"
+)
 
 
 def _top_level_block(text: str, key: str) -> str:
@@ -56,6 +61,24 @@ def _job_blocks(text: str) -> dict[str, str]:
         else jobs[match.end() :]
         for index, match in enumerate(matches)
     }
+
+
+def _logical_requirements(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8").replace("\\\n", " ")
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _pins(path: Path) -> dict[str, str]:
+    pins: dict[str, str] = {}
+    for requirement in _logical_requirements(path):
+        match = re.match(r"^([A-Za-z0-9_.-]+)==([^ ;\\]+)", requirement)
+        assert match, f"requirement is not an exact pin: {requirement}"
+        pins[re.sub(r"[-_.]+", "-", match.group(1)).lower()] = match.group(2)
+    return pins
 
 
 def _assert_ci_contract(text: str) -> None:
@@ -93,15 +116,22 @@ def _assert_ci_contract(text: str) -> None:
     assert "--cov=lets" in quality
     assert "--cov=benchmarks.astraldeep" in quality
     assert "--cov-report=xml:coverage.xml" in quality
+    tool_environment = "uv venv --python 3.14 .ci-tools"
+    assert quality.count(tool_environment) == 1
+    assert quality.count(CI_TOOL_INSTALL) == 1
     changed_coverage = next(
         (line.strip() for line in quality.splitlines() if "diff-cover coverage.xml" in line),
         None,
     )
     assert changed_coverage is not None
+    assert changed_coverage.startswith("run: .ci-tools/bin/diff-cover ")
     assert "--compare-branch origin/main" in changed_coverage
     threshold = re.search(r"--fail-under=([0-9]+)", changed_coverage)
     assert threshold is not None and int(threshold.group(1)) >= 90
     assert "--omit" not in changed_coverage
+    assert quality.index(tool_environment) < quality.index(CI_TOOL_INSTALL)
+    assert quality.index(CI_TOOL_INSTALL) < quality.index(changed_coverage)
+    assert "uv run --frozen diff-cover" not in quality
 
     required = jobs["required"]
     assert re.search(r"(?m)^    if: \$\{\{ always\(\) \}\}$", required)
@@ -150,6 +180,7 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         ),
         ('          - os: ubuntu-latest\n            python: "3.13"', ""),
         ("--fail-under=90", "--fail-under=89"),
+        ("--require-hashes", "--no-verify-hashes"),
         ("needs.test.result", "needs.quality.result"),
     ],
     ids=[
@@ -159,6 +190,7 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         "signed-anchor-preflight",
         "supported-matrix",
         "changed-coverage-threshold",
+        "changed-coverage-hashes",
         "aggregate-dependency",
     ],
 )
@@ -171,16 +203,27 @@ def test_ci_contract_rejects_gate_weakening(old: str, new: str) -> None:
         _assert_ci_contract(mutated)
 
 
-def test_changed_coverage_tooling_is_locked_and_ci_only() -> None:
+def test_changed_coverage_tooling_is_hash_locked_and_ci_only() -> None:
     pyproject = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))
     runtime = pyproject["project"]["dependencies"]
     development = pyproject["project"]["optional-dependencies"]["dev"]
 
     assert not any(requirement.startswith("diff-cover") for requirement in runtime)
-    assert [requirement for requirement in development if requirement.startswith("diff-cover")] == [
-        "diff-cover>=9.7,<10"
-    ]
-    assert re.search(r'(?m)^name = "diff-cover"$', LOCK_PATH.read_text(encoding="utf-8"))
+    assert not any(requirement.startswith("diff-cover") for requirement in development)
+    assert not re.search(
+        r'(?m)^name = "diff-cover"$',
+        PROJECT_LOCK_PATH.read_text(encoding="utf-8"),
+    )
+
+    assert _pins(CI_TOOL_INPUT_PATH) == {"diff-cover": "9.7.2"}
+    locked = _pins(CI_TOOL_LOCK_PATH)
+    assert locked.get("diff-cover") == "9.7.2"
+    assert len(locked) >= 6
+    for requirement in _logical_requirements(CI_TOOL_LOCK_PATH):
+        assert "--hash=sha256:" in requirement, (
+            f"lock requirement has no SHA-256 artifact hash: {requirement}"
+        )
+        assert " @ " not in requirement
 
 
 def test_changed_benchmark_modules_have_no_coverage_suppressions() -> None:

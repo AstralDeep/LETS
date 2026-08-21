@@ -33,8 +33,12 @@ jobs:
       - run: uv run --frozen mypy src
       - name: Run tests and produce complete changed-code coverage input
         run: uv run --frozen pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=xml:coverage.xml --cov-report=term-missing
+      - name: Create isolated changed-coverage tooling environment
+        run: uv venv --python 3.14 .ci-tools
+      - name: Install changed-coverage tooling from the immutable lock
+        run: uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt
       - name: Enforce changed executable-line coverage
-        run: uv run --frozen diff-cover coverage.xml --compare-branch origin/main --fail-under=90
+        run: .ci-tools/bin/diff-cover coverage.xml --compare-branch origin/main --fail-under=90
       - run: uv build
 
   test:
