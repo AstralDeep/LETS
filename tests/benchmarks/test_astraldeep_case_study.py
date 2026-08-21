@@ -340,12 +340,15 @@ def _release_anchor(path: Path) -> Path:
 @contextmanager
 def _candidate_clone(tmp_path: Path) -> Iterator[Path]:
     candidate = tmp_path / "candidate"
-    subprocess.run(
-        ["git", "clone", "--quiet", str(REPOSITORY_ROOT), str(candidate)],
-        check=True,
-    )
+    subprocess.run(["git", "clone", "--quiet", str(REPOSITORY_ROOT), str(candidate)], check=True)
     _git(candidate, "config", "user.name", "Case Study Test")
     _git(candidate, "config", "user.email", "case-study-test@example.invalid")
+    _git(candidate, "checkout", "--quiet", "--detach", versioning.BASELINE_COMMIT)
+    marker = candidate / "benchmarks/astraldeep/integration-only-test.txt"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("integration-only candidate\n", encoding="utf-8")
+    _git(candidate, "add", marker.relative_to(candidate).as_posix())
+    _git(candidate, "commit", "--quiet", "-m", "test integration-only candidate")
     yield candidate
 
 
@@ -355,6 +358,26 @@ def _copied_bundle(
     root = tmp_path / "evidence"
     shutil.copytree(captured_bundle["root"], root)
     return copy.deepcopy(captured_bundle["bundle"]), root
+
+
+def test_verify_anchor_accepts_full_clone_and_rejects_depth_one_no_tags(tmp_path: Path) -> None:
+    full = tmp_path / "full"
+    shallow = tmp_path / "shallow"
+    subprocess.run(["git", "clone", "--quiet", str(REPOSITORY_ROOT), str(full)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--depth=1",
+            "--no-tags",
+            REPOSITORY_ROOT.as_uri(),
+            str(shallow),
+        ],
+        check=True,
+    )
+    assert versioning.main(["verify-anchor", "--repository", str(full)]) == 0
+    assert versioning.main(["verify-anchor", "--repository", str(shallow)]) == 2
 
 
 def _replace_artifact_record(

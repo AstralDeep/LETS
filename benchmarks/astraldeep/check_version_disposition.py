@@ -513,6 +513,12 @@ def _is_ignored(repository: Path, path: Path) -> bool:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+    verify_anchor = subparsers.add_parser(
+        "verify-anchor", help="verify the exact local signed v1.0.10 Git anchor"
+    )
+    verify_anchor.add_argument(
+        "--repository", type=Path, default=Path(__file__).resolve().parents[2]
+    )
     compare = subparsers.add_parser("compare", help="compare a clean candidate to signed v1.0.10")
     compare.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[2])
     compare.add_argument("--release-anchor", type=Path, required=True)
@@ -530,6 +536,10 @@ def main(argv: list[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     repository = arguments.repository.resolve()
     try:
+        if arguments.command == "verify-anchor":
+            _validate_repository_anchor(repository, {"version": BASELINE_RELEASE})
+            print("signed v1.0.10 repository anchor verified")
+            return 0
         if arguments.command == "compare":
             if not _is_ignored(repository, arguments.output):
                 raise EvidenceError("version disposition output must be Git-ignored")
