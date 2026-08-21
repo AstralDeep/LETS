@@ -10,6 +10,7 @@ import venv
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -489,7 +490,7 @@ def test_canonical_interpreter_windows_layout_simulation_uses_probeable_venv(
     windows_executable.symlink_to(probe_executable.resolve(strict=True))
     shutil.copy2(probe_root / ".venv" / "pyvenv.cfg", simulated_root / ".venv" / "pyvenv.cfg")
 
-    with patch.object(runner.os, "name", "nt"):
+    with patch.object(runner, "os", SimpleNamespace(name="nt")):
         canonical = runner._canonical_interpreter(simulated_root)
 
     assert canonical == probe_executable.resolve(strict=True)
