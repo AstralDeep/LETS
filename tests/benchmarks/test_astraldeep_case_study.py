@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+import venv
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
@@ -43,6 +44,13 @@ def _initialize_repository(root: Path, label: str) -> str:
     _git(root, "add", "identity.txt")
     _git(root, "commit", "--quiet", "-m", f"initialize {label}")
     return _git(root, "rev-parse", "HEAD")
+
+
+def _create_complete_virtualenv(root: Path) -> Path:
+    environment_root = root / ".venv"
+    venv.EnvBuilder(with_pip=False).create(environment_root)
+    relative = Path("Scripts/python.exe") if runner.os.name == "nt" else Path("bin/python")
+    return environment_root / relative
 
 
 def _execution_identity(
@@ -453,17 +461,39 @@ def test_driver_revision_requires_canonical_tracked_file_and_clean_root(
 
 
 def test_canonical_interpreter_is_fixed_to_deep_virtualenv(tmp_path: Path) -> None:
-    relative = (
-        Path(".venv/Scripts/python.exe") if runner.os.name == "nt" else Path(".venv/bin/python")
-    )
-    executable = tmp_path / relative
-    executable.parent.mkdir(parents=True)
-    executable.write_bytes(b"canonical interpreter placeholder")
-    assert runner._canonical_interpreter(tmp_path) == executable.resolve(strict=True)
+    executable = _create_complete_virtualenv(tmp_path)
+    assert (tmp_path / ".venv" / "pyvenv.cfg").is_file()
+    expected = ".venv/Scripts/python.exe" if runner.os.name == "nt" else ".venv/bin/python"
+    assert executable.relative_to(tmp_path).as_posix() == expected
+
+    canonical = runner._canonical_interpreter(tmp_path)
+    assert canonical == executable.resolve(strict=True)
+    probe = runner._interpreter_identity(canonical)
+    assert probe["implementation"]
+    assert str(probe["version"]).count(".") == 2
 
     executable.unlink()
     with pytest.raises(capture.EvidenceError, match="interpreter is missing"):
         runner._canonical_interpreter(tmp_path)
+
+
+@pytest.mark.skipif(runner.os.name == "nt", reason="the native Windows lane covers this layout")
+def test_canonical_interpreter_windows_layout_simulation_uses_probeable_venv(
+    tmp_path: Path,
+) -> None:
+    probe_root = tmp_path / "probe"
+    probe_executable = _create_complete_virtualenv(probe_root)
+    simulated_root = tmp_path / "simulated-deep"
+    windows_executable = simulated_root / ".venv" / "Scripts" / "python.exe"
+    windows_executable.parent.mkdir(parents=True)
+    windows_executable.symlink_to(probe_executable.resolve(strict=True))
+    shutil.copy2(probe_root / ".venv" / "pyvenv.cfg", simulated_root / ".venv" / "pyvenv.cfg")
+
+    with patch.object(runner.os, "name", "nt"):
+        canonical = runner._canonical_interpreter(simulated_root)
+
+    assert canonical == probe_executable.resolve(strict=True)
+    assert runner._interpreter_identity(canonical)["implementation"]
 
 
 def test_execution_identity_binds_real_clean_driver_interpreter_and_imports(
@@ -506,15 +536,10 @@ def test_execution_identity_binds_real_clean_driver_interpreter_and_imports(
         ),
         encoding="utf-8",
     )
-    interpreter_relative = (
-        Path(".venv/Scripts/python.exe") if runner.os.name == "nt" else Path(".venv/bin/python")
-    )
-    interpreter = root / interpreter_relative
-    interpreter.parent.mkdir(parents=True)
-    if runner.os.name == "nt":
-        shutil.copy2(Path(sys.executable).resolve(), interpreter)
-    else:
-        interpreter.symlink_to(Path(sys.executable).resolve())
+    interpreter = _create_complete_virtualenv(root)
+    assert (root / ".venv" / "pyvenv.cfg").is_file()
+    expected = ".venv/Scripts/python.exe" if runner.os.name == "nt" else ".venv/bin/python"
+    assert interpreter.relative_to(root).as_posix() == expected
     _git(root, "add", ".gitignore", runner.DRIVER_RELATIVE_PATH, runner.COMPOSITION_RELATIVE_PATH)
     _git(root, "commit", "--quiet", "-m", "track canonical execution inputs")
 
