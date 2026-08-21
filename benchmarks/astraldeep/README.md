@@ -115,3 +115,36 @@ trusting stale disposition fields. Otherwise it exits non-zero and, for
 runtime/wire changes, creates a separate successor-release handoff. Gate
 outputs are forbidden under `paper/`, and no command in this directory changes
 tag `v1.0.10`, publishes a release, or finalizes a manuscript.
+
+## Cross-mode aggregate
+
+After capturing all three mode manifests and creating the unchanged-runtime
+readiness marker, build the root digest index and descriptive summary:
+
+```powershell
+uv run --locked --extra dev python -m benchmarks.astraldeep.aggregate_case_study `
+  --evidence-root results/astraldeep-case-study
+```
+
+The command revalidates canonical evidence-record bytes, strict top-level
+runtime identity input, exact artifact coverage, the complete 19-scenario
+matrix in each mode, shared revisions/runtime/execution identities,
+the immutable candidate-tree disposition, and the readiness binding. It creates
+`manifest.json` and `summary.json` exclusively and refuses missing, mixed,
+stale, linked, unexpected, non-ignored, or pre-existing inputs/outputs. The
+root manifest transitively binds every raw artifact through the three per-mode
+manifest digests and directly binds the runtime identity, version disposition,
+readiness marker, and summary.
+
+The summary retains every per-scenario observation and measurement summary,
+labels `off` as the new flag-off control rather than historical v1.0.10 release
+evidence, and records sample counts plus explicit p95/p99 tail-resolution and
+inferential-statistics limitations. It deliberately records that no distinct
+historical release-result bundle, recovery-time measurement, manuscript check,
+or reproduction attestation is included. This command never creates
+`reproduction.json` and its input readiness marker remains only the
+successor-version gate, not whole-paper readiness.
+
+Repeated single-nibble policy or machine digests are retained for exact replay
+but explicitly flagged as placeholder-pattern identities; they do not establish
+an authenticated deployment trust identity.

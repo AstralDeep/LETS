@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
+from benchmarks.astraldeep import aggregate_case_study as aggregate
 from benchmarks.astraldeep import capture_environment as capture
 from benchmarks.astraldeep import check_version_disposition as versioning
 from benchmarks.astraldeep import run_case_study as runner
@@ -1243,3 +1244,296 @@ def test_unchanged_runtime_gate_rejects_nonbaseline_composition_pin(
             readiness_output=tmp_path / "ready.json",
             handoff_output=tmp_path / "handoff.json",
         )
+
+
+@pytest.fixture(scope="module")
+def aggregate_bundle(
+    captured_bundle: dict[str, Any], tmp_path_factory: pytest.TempPathFactory
+) -> dict[str, Path]:
+    workspace = tmp_path_factory.mktemp("astraldeep-case-study-aggregate")
+    root = workspace / "results" / "astraldeep-case-study"
+    runtime_path = root / "runtime-identities.json"
+    runtime_path.parent.mkdir(parents=True)
+    runtime_path.write_bytes(captured_bundle["runtime_path"].read_bytes())
+    execution_identity = captured_bundle["bundle"]["execution_identity"]
+    modes = {
+        "off": (root / "baseline" / "off", "release-baseline"),
+        "shadow": (root / "integration" / "shadow", "astral-integration"),
+        "enforce": (root / "integration" / "enforce", "astral-integration"),
+    }
+    manifests: dict[str, Path] = {}
+    for mode, (mode_root, evidence_class) in modes.items():
+        mode_root.parent.mkdir(parents=True, exist_ok=True)
+        _run(
+            mode_root,
+            mode=mode,
+            evidence_class=evidence_class,
+            execution_identity=execution_identity,
+        )
+        manifest = mode_root / "manifest.json"
+        with patch.object(runner, "capture_execution_identity", return_value=execution_identity):
+            capture.capture_case_study_evidence(
+                run_manifest_path=mode_root / "run.json",
+                composition_path=captured_bundle["composition_path"],
+                runtime_identities_path=runtime_path,
+                repository_paths=captured_bundle["repositories"],
+                output_path=manifest,
+                additional_environment={"database_version": "17", "parallel_workers": 4},
+                notes="Synthetic public aggregate conformance workload.",
+            )
+        manifests[mode] = manifest
+
+    disposition_path = root / "version-disposition.json"
+    disposition = _disposition(captured_bundle["repositories"]["lets"], [])
+    capture.write_canonical_json_exclusive(disposition_path, disposition)
+    readiness_path = root / "paper-readiness.json"
+    capture.write_canonical_json_exclusive(
+        readiness_path,
+        {
+            "format": versioning.READINESS_FORMAT,
+            "status": "ready-for-local-paper-result-finalization",
+            "lets_release": versioning.BASELINE_RELEASE,
+            "lets_runtime_commit": versioning.BASELINE_COMMIT,
+            "lets_tooling_commit": disposition["candidate"]["commit"],
+            "disposition_sha256": capture.sha256_file(disposition_path),
+            "evidence_manifest_sha256": capture.sha256_file(manifests["enforce"]),
+            "created_at": aggregate._timestamp(),
+        },
+    )
+
+    alternate_runtime = copy.deepcopy(_runtime_identities())
+    alternate_runtime["machine_digest"] = f"sha256:{'9' * 64}"
+    alternate_runtime_path = workspace / "alternate-runtime.json"
+    capture.write_canonical_json_exclusive(alternate_runtime_path, alternate_runtime)
+    alternate_shadow = workspace / "alternate-shadow"
+    _run(
+        alternate_shadow,
+        mode="shadow",
+        evidence_class="astral-integration",
+        execution_identity=execution_identity,
+    )
+    with patch.object(runner, "capture_execution_identity", return_value=execution_identity):
+        capture.capture_case_study_evidence(
+            run_manifest_path=alternate_shadow / "run.json",
+            composition_path=captured_bundle["composition_path"],
+            runtime_identities_path=alternate_runtime_path,
+            repository_paths=captured_bundle["repositories"],
+            output_path=alternate_shadow / "manifest.json",
+            additional_environment={"database_version": "17", "parallel_workers": 4},
+            notes="Synthetic public aggregate conformance workload.",
+        )
+    return {"root": root, "alternate_shadow": alternate_shadow}
+
+
+def _copy_aggregate_root(aggregate_bundle: Mapping[str, Path], tmp_path: Path) -> tuple[Path, Path]:
+    root = tmp_path / "results" / "astraldeep-case-study"
+    shutil.copytree(aggregate_bundle["root"], root)
+    alternate = tmp_path / "alternate-shadow"
+    shutil.copytree(aggregate_bundle["alternate_shadow"], alternate)
+    return root, alternate
+
+
+def test_cross_mode_aggregate_creates_digest_bound_descriptive_outputs(
+    aggregate_bundle: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _ = _copy_aggregate_root(aggregate_bundle, tmp_path)
+    monkeypatch.setattr(aggregate, "_validate_historical_candidate", lambda *args: None)
+    manifest, summary = aggregate.aggregate_case_study(root)
+
+    assert manifest["status"] == "validated"
+    assert summary["status"] == "validated"
+    assert summary["totals"]["scenario_count"] == 57
+    assert summary["totals"]["command_count"] == 57
+    assert summary["modes"]["off"]["comparison_role"] == "flag-off-control"
+    assert summary["modes"]["shadow"]["comparison_role"] == "shadow-observation"
+    assert summary["modes"]["enforce"]["comparison_role"] == "enforced-treatment"
+    assert summary["measurement_coverage"]["recovery_time_included"] is False
+    assert summary["runtime_identity_quality"]["authenticated_runtime_identity_supported"] is False
+    assert summary["statistical_limits"]["publication_inference_supported"] is False
+    assert summary["evidence_scope"]["reproduction_attestation_included"] is False
+    assert summary["evidence_scope"]["distinct_historical_release_reference_included"] is False
+    assert len(summary["modes"]["enforce"]["scenario_outcomes"]) == 19
+    assert summary["modes"]["enforce"]["invariants"]["zero_unreceipted_governed_effects"]
+    assert summary["modes"]["enforce"]["cohort_metrics"]
+    assert manifest["summary"]["sha256"] == capture.sha256_file(root / "summary.json")
+    assert manifest["inputs"]["enforce_manifest"]["sha256"] == capture.sha256_file(
+        root / "integration" / "enforce" / "manifest.json"
+    )
+    assert (root / "manifest.json").read_bytes() == (capture.canonical_json_bytes(manifest) + b"\n")
+    assert (root / "summary.json").read_bytes() == (capture.canonical_json_bytes(summary) + b"\n")
+    assert not (root / "reproduction.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing", "regular retained file"),
+        ("extra", "exact retained file set"),
+        ("noncanonical", "not canonical JSON"),
+    ],
+)
+def test_cross_mode_aggregate_rejects_missing_extra_and_noncanonical_inputs(
+    aggregate_bundle: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    root, _ = _copy_aggregate_root(aggregate_bundle, tmp_path)
+    shadow_manifest = root / "integration" / "shadow" / "manifest.json"
+    if mutation == "missing":
+        shadow_manifest.unlink()
+    elif mutation == "extra":
+        (root / "integration" / "shadow" / "unlisted.json").write_text("{}\n", encoding="utf-8")
+    else:
+        document = capture.read_json_object(shadow_manifest)
+        shadow_manifest.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    monkeypatch.setattr(aggregate, "_validate_historical_candidate", lambda *args: None)
+    with pytest.raises(capture.EvidenceError, match=message):
+        aggregate.aggregate_case_study(root)
+    assert not (root / "manifest.json").exists()
+    assert not (root / "summary.json").exists()
+
+
+def test_cross_mode_aggregate_rejects_individually_valid_mixed_identity(
+    aggregate_bundle: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, alternate_shadow = _copy_aggregate_root(aggregate_bundle, tmp_path)
+    shadow = root / "integration" / "shadow"
+    shutil.rmtree(shadow)
+    shutil.copytree(alternate_shadow, shadow)
+    monkeypatch.setattr(aggregate, "_validate_historical_candidate", lambda *args: None)
+    with pytest.raises(capture.EvidenceError, match="mix shared machine_digest"):
+        aggregate.aggregate_case_study(root)
+
+
+def test_cross_mode_aggregate_rejects_stale_readiness_binding(
+    aggregate_bundle: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _ = _copy_aggregate_root(aggregate_bundle, tmp_path)
+    readiness_path = root / "paper-readiness.json"
+    readiness = capture.read_json_object(readiness_path)
+    readiness["evidence_manifest_sha256"] = "0" * 64
+    readiness_path.write_bytes(capture.canonical_json_bytes(readiness) + b"\n")
+    monkeypatch.setattr(aggregate, "_validate_historical_candidate", lambda *args: None)
+    with pytest.raises(capture.EvidenceError, match="stale or bound to the wrong evidence"):
+        aggregate.aggregate_case_study(root)
+
+
+def test_cross_mode_aggregate_never_replaces_existing_output(
+    aggregate_bundle: dict[str, Path], tmp_path: Path
+) -> None:
+    root, _ = _copy_aggregate_root(aggregate_bundle, tmp_path)
+    marker = b"retained\n"
+    (root / "summary.json").write_bytes(marker)
+    with pytest.raises(capture.EvidenceError, match="refusing to replace"):
+        aggregate.aggregate_case_study(root)
+    assert (root / "summary.json").read_bytes() == marker
+    assert not (root / "manifest.json").exists()
+
+
+def test_cross_mode_aggregate_recomputes_historical_disposition_snapshot(
+    captured_bundle: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = captured_bundle["repositories"]["lets"]
+    disposition = _disposition(repository, [])
+    candidate = disposition["candidate"]
+    monkeypatch.setattr(versioning, "_validate_repository_anchor", lambda *args: None)
+    monkeypatch.setattr(versioning, "_git", lambda *args: candidate["tree"])
+    observed = copy.deepcopy(disposition["comparison"])
+    observed["changed_paths"] = ["benchmarks/astraldeep/forged.py"]
+    observed["integration_only_paths"] = ["benchmarks/astraldeep/forged.py"]
+    monkeypatch.setattr(versioning, "_comparison_snapshot", lambda *args: observed)
+    with pytest.raises(capture.EvidenceError, match="changed_paths no longer matches"):
+        aggregate._validate_historical_candidate(repository, disposition)
+
+
+def test_cross_mode_aggregate_cli_rejects_noncanonical_root(tmp_path: Path) -> None:
+    assert aggregate.main(["--evidence-root", str(tmp_path)]) == 2
+    assert not (tmp_path / "manifest.json").exists()
+
+
+def test_cross_mode_aggregate_pair_rollback_never_removes_preexisting_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    summary_path = tmp_path / "summary.json"
+    marker = b"preexisting\n"
+    manifest_path.write_bytes(marker)
+    real_open = aggregate.os.open
+
+    def guarded_open(path: Path, flags: int, mode: int) -> int:
+        if Path(path) == manifest_path:
+            raise PermissionError("simulated locked pre-existing manifest")
+        return real_open(path, flags, mode)
+
+    monkeypatch.setattr(aggregate.os, "open", guarded_open)
+    with pytest.raises(capture.EvidenceError, match="could not create"):
+        aggregate._write_pair_exclusive(
+            manifest_path,
+            {"format": "test"},
+            summary_path,
+            {"format": "test"},
+        )
+    assert manifest_path.read_bytes() == marker
+    assert not summary_path.exists()
+
+
+def test_cross_mode_aggregate_final_revalidation_detects_concurrent_leaf_change(
+    aggregate_bundle: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _ = _copy_aggregate_root(aggregate_bundle, tmp_path)
+    monkeypatch.setattr(aggregate, "_validate_historical_candidate", lambda *args: None)
+    original = aggregate._mode_summary
+
+    def mutate_after_summary(
+        mode: str, manifest_path: Path, document: Mapping[str, object]
+    ) -> dict[str, object]:
+        summary = original(mode, manifest_path, document)
+        if mode == "enforce":
+            target = manifest_path.parent / "raw" / "commands" / ("enforce-scope-read.stderr.txt")
+            target.write_bytes(b"changed after summary\n")
+        return summary
+
+    monkeypatch.setattr(aggregate, "_mode_summary", mutate_after_summary)
+    with pytest.raises(capture.EvidenceError, match="digest mismatch"):
+        aggregate.aggregate_case_study(root)
+    assert not (root / "manifest.json").exists()
+    assert not (root / "summary.json").exists()
+
+
+def test_cross_mode_aggregate_schema_matches_runtime_digest_and_path_contracts(
+    aggregate_bundle: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, _ = _copy_aggregate_root(aggregate_bundle, tmp_path)
+    monkeypatch.setattr(aggregate, "_validate_historical_candidate", lambda *args: None)
+    manifest, summary = aggregate.build_aggregate_documents(root)
+
+    bare_digest = copy.deepcopy(summary)
+    bare_digest["runtime_identities"]["policy_digest"] = "1" * 64
+    capture._schema_validate(bare_digest, aggregate.AGGREGATE_SCHEMA)
+
+    invalid_epoch = copy.deepcopy(summary)
+    invalid_epoch["runtime_identities"]["config_epoch"] = 0
+    with pytest.raises(capture.EvidenceError, match="schema rejected"):
+        capture._schema_validate(invalid_epoch, aggregate.AGGREGATE_SCHEMA)
+
+    traversal = copy.deepcopy(manifest)
+    traversal["inputs"]["off_manifest"]["relative_path"] = "x/../../secret"
+    with pytest.raises(capture.EvidenceError, match="schema rejected"):
+        capture._schema_validate(traversal, aggregate.AGGREGATE_SCHEMA)
+
+    swapped = copy.deepcopy(manifest)
+    swapped["inputs"]["off_manifest"]["relative_path"] = "integration/shadow/manifest.json"
+    with pytest.raises(capture.EvidenceError, match="schema rejected"):
+        capture._schema_validate(swapped, aggregate.AGGREGATE_SCHEMA)
