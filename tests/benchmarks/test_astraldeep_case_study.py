@@ -161,6 +161,13 @@ def _driver_result(
     }
 
 
+def _set_nested(document: object, path: tuple[str | int, ...], value: object) -> None:
+    target = document
+    for part in path[:-1]:
+        target = target[part]  # type: ignore[index]
+    target[path[-1]] = value  # type: ignore[index]
+
+
 def _run(
     root: Path,
     *,
@@ -459,6 +466,70 @@ def test_canonical_interpreter_is_fixed_to_deep_virtualenv(tmp_path: Path) -> No
         runner._canonical_interpreter(tmp_path)
 
 
+def test_execution_identity_binds_real_clean_driver_interpreter_and_imports(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "AstralDeep"
+    _initialize_repository(root, "deep")
+    (root / ".gitignore").write_text("/components/\n/.venv/\n", encoding="utf-8")
+
+    component_commits: dict[str, str] = {}
+    for component_name, source_relative in (
+        ("AstralPlane", "src/astralplane"),
+        ("LETS", "src/lets"),
+    ):
+        component_root = root / "components" / component_name
+        _initialize_repository(component_root, component_name)
+        source = component_root / source_relative / "identity.py"
+        source.parent.mkdir(parents=True)
+        source.write_text(f'COMPONENT = "{component_name}"\n', encoding="utf-8")
+        _git(component_root, "add", source_relative)
+        _git(component_root, "commit", "--quiet", "-m", "track import source")
+        component_commits[component_name] = _git(component_root, "rev-parse", "HEAD")
+
+    driver = root / runner.DRIVER_RELATIVE_PATH
+    driver.parent.mkdir(parents=True)
+    driver.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    composition = root / runner.COMPOSITION_RELATIVE_PATH
+    composition.parent.mkdir(parents=True)
+    composition.write_text(
+        json.dumps(
+            {
+                "components": {
+                    "astral-plane": {"commit": component_commits["AstralPlane"]},
+                    "lets": {
+                        "commit": component_commits["LETS"],
+                        "ref": "v1.0.10",
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    interpreter_relative = (
+        Path(".venv/Scripts/python.exe") if runner.os.name == "nt" else Path(".venv/bin/python")
+    )
+    interpreter = root / interpreter_relative
+    interpreter.parent.mkdir(parents=True)
+    if runner.os.name == "nt":
+        shutil.copy2(Path(sys.executable).resolve(), interpreter)
+    else:
+        interpreter.symlink_to(Path(sys.executable).resolve())
+    _git(root, "add", ".gitignore", runner.DRIVER_RELATIVE_PATH, runner.COMPOSITION_RELATIVE_PATH)
+    _git(root, "commit", "--quiet", "-m", "track canonical execution inputs")
+
+    identity = runner.capture_execution_identity(root)
+
+    assert identity["astraldeep"]["commit"] == _git(root, "rev-parse", "HEAD")
+    assert identity["interpreter"]["implementation"]
+    assert len(identity["interpreter"]["executable_sha256"]) == 64
+    assert (
+        identity["imports"]["astralplane"]["component_commit"] == component_commits["AstralPlane"]
+    )
+    assert identity["imports"]["lets"]["component_commit"] == component_commits["LETS"]
+    assert identity["imports"]["lets"]["release"] == "v1.0.10"
+
+
 @pytest.mark.parametrize("mode", runner.MODES)
 def test_runner_executes_complete_single_mode_matrix(tmp_path: Path, mode: str) -> None:
     run = _run(tmp_path / mode, mode=mode)
@@ -521,6 +592,155 @@ def test_runner_rejects_fabricated_identity_scope_and_revocation_evidence() -> N
         malformed["observations"][field] = value  # type: ignore[index]
         with pytest.raises(capture.EvidenceError):
             runner._validate_result(malformed, revoked, identity)
+
+
+def test_runner_result_contract_rejects_each_fail_closed_dimension() -> None:
+    identity = _execution_identity()
+    scenarios = runner.build_scenarios("enforce")
+    scope = scenarios[0]
+    lifecycle = next(item for item in scenarios if item.category == "lifecycle")
+    revoked = next(item for item in scenarios if item.category == "post-revocation-effect")
+    denied = next(item for item in scenarios if item.category in runner.FAULT_SCENARIOS)
+    off = runner.build_scenarios("off")[0]
+    shadow = runner.build_scenarios("shadow")[0]
+
+    rows: tuple[tuple[str, runner.Scenario, tuple[str | int, ...], object, str], ...] = (
+        ("header", scope, ("status",), "failed", "does not match"),
+        ("decision", scope, ("observations", "astral_decision"), "maybe", "decision"),
+        ("integer", scope, ("observations", "lets_requests"), True, "non-negative integer"),
+        (
+            "convergence type",
+            scope,
+            ("observations", "sequence_monotonic"),
+            "yes",
+            "convergence or denial",
+        ),
+        (
+            "authority",
+            scope,
+            ("observations", "sequence_monotonic"),
+            False,
+            "authority conservation",
+        ),
+        (
+            "unreceipted",
+            scope,
+            ("observations", "unreceipted_governed_effects"),
+            1,
+            "unreceipted governed effect",
+        ),
+        (
+            "overclaimed",
+            scope,
+            ("observations", "receipts_issued"),
+            0,
+            "more receipts",
+        ),
+        ("off call", off, ("observations", "lets_requests"), 1, "flag-off"),
+        ("missing request", scope, ("observations", "lets_requests"), 0, "no LETS request"),
+        (
+            "shadow claim",
+            shadow,
+            ("observations", "receipts_claimed"),
+            1,
+            "shadow scenario",
+        ),
+        (
+            "lifecycle scope",
+            lifecycle,
+            ("observations", "scope_binding"),
+            {},
+            "tool-scope mapping",
+        ),
+        (
+            "malformed scope",
+            scope,
+            ("observations", "scope_binding"),
+            None,
+            "malformed scope mapping",
+        ),
+        (
+            "unchecked scope",
+            scope,
+            ("observations", "scope_binding", "checks"),
+            0,
+            "every scope mapping request",
+        ),
+        (
+            "revocation",
+            revoked,
+            ("observations", "lifecycle_converged"),
+            False,
+            "causal revoked state",
+        ),
+        (
+            "lifecycle effect",
+            lifecycle,
+            ("observations", "physical_effects"),
+            1,
+            "converge cleanly",
+        ),
+        (
+            "fault denial",
+            denied,
+            ("observations", "astral_decision"),
+            "allowed",
+            "did not deny",
+        ),
+        (
+            "allow effect",
+            scope,
+            ("observations", "astral_decision"),
+            "denied",
+            "expected effect",
+        ),
+        ("measurements", scope, ("measurements",), [], "no measurements"),
+        ("measurement shape", scope, ("measurements", 0), {}, "malformed measurement"),
+        (
+            "measurement name",
+            scope,
+            ("measurements", 0, "name"),
+            "1-not-public",
+            "measurement name",
+        ),
+        ("measurement unit", scope, ("measurements", 0, "unit"), "", "invalid unit"),
+        ("samples empty", scope, ("measurements", 0, "samples"), [], "invalid samples"),
+        (
+            "samples nonfinite",
+            scope,
+            ("measurements", 0, "samples"),
+            [float("nan")],
+            "non-finite samples",
+        ),
+        (
+            "exclusions",
+            scope,
+            ("measurements", 0, "exclusions"),
+            [1],
+            "invalid exclusions",
+        ),
+    )
+    for _label, scenario, path, value, message in rows:
+        result = _driver_result(scenario, identity)
+        _set_nested(result, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            runner._validate_result(result, scenario, identity)
+
+    extra = _driver_result(scope, identity)
+    extra["unexpected"] = True
+    with pytest.raises(capture.EvidenceError, match="undeclared fields"):
+        runner._validate_result(extra, scope, identity)
+    incomplete = _driver_result(scope, identity)
+    incomplete["observations"].pop("denial_code")  # type: ignore[union-attr]
+    with pytest.raises(capture.EvidenceError, match="observations"):
+        runner._validate_result(incomplete, scope, identity)
+
+    recursive = next(item for item in scenarios if item.category == "recursive-dispatch")
+    shallow = _driver_result(recursive, identity)
+    for field in ("physical_effects", "receipts_issued", "receipts_claimed"):
+        shallow["observations"][field] = 1  # type: ignore[index]
+    with pytest.raises(capture.EvidenceError, match="every depth"):
+        runner._validate_result(shallow, recursive, identity)
 
 
 def test_child_environment_is_minimal_and_drops_credentials(
@@ -926,6 +1146,243 @@ def test_public_scanner_rejects_secret_credentials_and_phi(value: object) -> Non
     assert capture.scan_public_value(value)
 
 
+def test_capture_identity_validators_reject_each_semantic_boundary() -> None:
+    runtime = _runtime_identities()
+    capture._validate_runtime_identities(runtime)
+    runtime_rows = (
+        (("extra",), True, "missing or undeclared"),
+        (("format",), "unknown", "format"),
+        (("lets_release",), "main", "release"),
+        (("policy_digest",), "sha256:short", "policy_digest"),
+        (("config_epoch",), True, "config_epoch"),
+        (("scope_profile",), "other", "scope profile"),
+        (("warden_topology",), "patient_name=Example", "sanitization"),
+    )
+    for path, value, message in runtime_rows:
+        changed = copy.deepcopy(runtime)
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture._validate_runtime_identities(changed)
+
+    identity = _execution_identity()
+    capture._validate_execution_identity(identity)
+    identity_rows = (
+        (("format",), "unknown", "malformed"),
+        (("astraldeep", "driver_relative_path"), "other.py", "Deep driver"),
+        (("interpreter", "version"), "3.11", "interpreter"),
+        (("imports",), {}, "imports"),
+        (("imports", "astralplane", "file_count"), 0, "astralplane import"),
+        (("imports", "lets", "release"), "main", "LETS release"),
+        (("interpreter", "implementation"), "patient_name=Example", "sanitization"),
+    )
+    for path, value, message in identity_rows:
+        changed = copy.deepcopy(identity)
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture._validate_execution_identity(changed)
+
+    revisions = {name: "a" * 40 for name in capture.REPOSITORY_KEYS}
+    anchor: dict[str, object] = {
+        "format": capture.REPOSITORY_REVISIONS_FORMAT,
+        "clean": True,
+        "repositories": revisions,
+    }
+    capture._validate_revision_anchor(anchor)
+    for path, value, message in (
+        (("unexpected",), True, "unexpected fields"),
+        (("clean",), False, "clean capture"),
+        (("repositories",), {}, "incomplete"),
+        (("repositories", "lets"), "invalid", "non-commit"),
+    ):
+        changed = copy.deepcopy(anchor)
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture._validate_revision_anchor(changed)
+
+    composition = _composition(revisions)
+    capture._validate_composition_revisions(composition, revisions)
+    for path, value, message in (
+        (("components",), None, "component map"),
+        (("components", "astral-plane", "commit"), "b" * 40, "astral-plane"),
+        (("components", "lets", "ref"), "main", "released LETS"),
+    ):
+        changed = copy.deepcopy(composition)
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture._validate_composition_revisions(changed, revisions)
+
+
+def test_public_artifact_scanner_rejects_size_binary_encoding_and_secrets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "artifact.txt"
+    artifact.write_bytes(b"public")
+    monkeypatch.setattr(capture, "_MAX_PUBLIC_ARTIFACT_BYTES", 1)
+    assert "bounded" in capture._scan_artifact(artifact, "artifact.txt")[0]
+    monkeypatch.setattr(capture, "_MAX_PUBLIC_ARTIFACT_BYTES", 1024)
+    for payload, message in (
+        (b"binary\x00value", "binary"),
+        (b"\xff", "UTF-8"),
+        (b"patient_name=Example", "patient identifier"),
+    ):
+        artifact.write_bytes(payload)
+        assert message in capture._scan_artifact(artifact, "artifact.txt")[0]
+
+
+def test_capture_low_level_guards_cover_io_paths_and_public_value_shapes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(capture.EvidenceError, match="finite JSON"):
+        capture.canonical_json_bytes({"value": float("nan")})
+    with pytest.raises(capture.EvidenceError, match="could not digest"):
+        capture.sha256_file(tmp_path / "missing.txt")
+
+    retained = tmp_path / "retained.bin"
+    retained.write_bytes(b"retained")
+    with pytest.raises(capture.EvidenceError, match="refusing to replace"):
+        capture._write_bytes_exclusive(retained, b"replacement")
+    with (
+        patch.object(Path, "open", side_effect=PermissionError("blocked")),
+        pytest.raises(capture.EvidenceError, match="could not create"),
+    ):
+        capture._write_bytes_exclusive(tmp_path / "blocked.bin", b"value")
+
+    with pytest.raises(capture.EvidenceError, match="Git metadata"):
+        capture._git(tmp_path / "missing-repository", "status")
+    with (
+        patch.object(capture.subprocess, "run", side_effect=OSError("unavailable")),
+        pytest.raises(capture.EvidenceError, match="Git metadata"),
+    ):
+        capture._git(tmp_path, "status")
+
+    repositories = {name: tmp_path for name in capture.REPOSITORY_KEYS}
+    repositories["lets"] = tmp_path / "missing-repository"
+    with pytest.raises(capture.EvidenceError, match="paths are missing"):
+        capture.capture_repository_revisions(repositories)
+    repositories["lets"] = tmp_path
+    with pytest.raises(capture.EvidenceError, match="five distinct"):
+        capture.capture_repository_revisions(repositories)
+
+    monkeypatch.setattr(capture.os, "sysconf", lambda _name: (_ for _ in ()).throw(ValueError()))
+    assert capture._total_memory_bytes() is None
+    with pytest.raises(capture.EvidenceError, match="reserved"):
+        capture.capture_public_environment({"os_system": "override"})
+    with pytest.raises(capture.EvidenceError, match="sanitization"):
+        capture.capture_public_environment({"note": "patient_name=Example"})
+
+    for value, finding in (
+        (float("inf"), "non-finite"),
+        ("control\x00value", "control character"),
+        ({1: "value"}, "non-string key"),
+        ({"api_token": "value"}, "sensitive metadata key"),
+        (object(), "unsupported public value"),
+    ):
+        assert finding in capture.scan_public_value(value)[0]
+
+    for value, message in (
+        (1, "RFC 3339"),
+        ("not-a-time", "RFC 3339"),
+        ("2026-08-14T12:00:00", "UTC offset"),
+    ):
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture._parse_timestamp(value, "test")
+
+    with pytest.raises(capture.EvidenceError, match="path must be a string"):
+        capture._relative_artifact(tmp_path, 1)
+    with pytest.raises(capture.EvidenceError, match="canonical relative"):
+        capture._relative_artifact(tmp_path, "../outside")
+    directory = tmp_path / "directory"
+    directory.mkdir()
+    with pytest.raises(capture.EvidenceError, match="regular file"):
+        capture._relative_artifact(tmp_path, "directory")
+    if runner.os.name != "nt":
+        target = tmp_path / "target.txt"
+        target.write_text("public\n", encoding="utf-8")
+        link = tmp_path / "link.txt"
+        link.symlink_to(target)
+        with pytest.raises(capture.EvidenceError, match="symlink"):
+            capture._relative_artifact(tmp_path, "link.txt")
+    with pytest.raises(capture.EvidenceError, match="canonical evidence"):
+        capture._canonical_file(tmp_path / "missing.json", {})
+    with pytest.raises(capture.EvidenceError, match="exactly one"):
+        capture._require_single_artifact([], "runtime-identities")
+
+
+def test_capture_measurement_derivation_rejects_malformed_retained_samples() -> None:
+    scenario = runner.build_scenarios("enforce")[0]
+    valid = _driver_result(scenario)
+    valid["measurements"][0]["exclusions"] = ["warmup"]  # type: ignore[index]
+    derived = capture._derived_measurements(
+        command_id=scenario.scenario_id,
+        source_artifact="raw/result.json",
+        result=valid,
+    )
+    assert derived[0]["exclusions"] == ["warmup"]
+
+    for path, value, message in (
+        (("measurements",), None, "no raw measurements"),
+        (("measurements", 0), "malformed", "malformed raw measurement"),
+        (("measurements", 0, "name"), 1, "malformed raw measurement"),
+        (("measurements", 0, "samples"), [float("nan")], "non-finite raw samples"),
+    ):
+        changed = _driver_result(scenario)
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture._derived_measurements(
+                command_id=scenario.scenario_id,
+                source_artifact="raw/result.json",
+                result=changed,
+            )
+
+
+def test_capture_run_manifest_validator_rejects_every_envelope_boundary(tmp_path: Path) -> None:
+    run = _run(tmp_path / "run")
+    for path, value, message in (
+        (("format",), "unknown", "manifest is malformed"),
+        (("evidence_class",), "unknown", "evidence class"),
+        (("mode",), "unknown", "mode"),
+        (("status",), "failed", "completely passing"),
+        (("execution_identity",), None, "execution identity"),
+        (("commands",), [], "ordered scenario matrix"),
+        (("artifacts",), None, "artifacts are malformed"),
+        (("artifacts", 0), None, "artifact record"),
+        (("artifacts", 0, "relative_path"), 1, "artifact path"),
+    ):
+        changed = copy.deepcopy(run)
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture._validate_run_for_capture(changed)
+
+    baseline = copy.deepcopy(run)
+    baseline["evidence_class"] = "release-baseline"
+    with pytest.raises(capture.EvidenceError, match="flag-off"):
+        capture._validate_run_for_capture(baseline)
+
+
+def test_bundle_semantic_layer_rejects_malformed_records_after_schema_guard(
+    captured_bundle: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(capture, "_schema_validate", lambda *args: None)
+    rows = (
+        (("repositories",), None, "repositories must be an object"),
+        (("execution_identity",), None, "execution identity must be an object"),
+        (("commands",), None, "must be arrays"),
+        (("commands", 0), None, "command record"),
+        (("commands", 0, "id"), "not canonical!", "command id"),
+        (("commands", 1, "id"), captured_bundle["bundle"]["commands"][0]["id"], "unique"),
+        (("commands", 0, "argv"), ["other.py"], "canonical driver argv"),
+        (("commands", 0, "finished_at"), "2000-01-01T00:00:00Z", "before it started"),
+        (("reproduced_at",), "2000-01-01T00:00:00Z", "precedes retained command"),
+        (("artifacts", 0), None, "artifact record"),
+        (("artifacts", 0, "relative_path"), 1, "artifact path"),
+    )
+    for path, value, message in rows:
+        changed = copy.deepcopy(captured_bundle["bundle"])
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            capture.validate_evidence_bundle(changed, captured_bundle["root"])
+
+
 def test_capture_rejects_missing_or_dirty_repository_inputs(tmp_path: Path) -> None:
     paths, _ = _repositories(tmp_path / "repositories")
     (paths["astraldeep"] / "untracked.txt").write_text("dirty\n", encoding="utf-8")
@@ -1125,6 +1582,123 @@ def test_version_disposition_validation_rejects_inconsistent_records(tmp_path: P
             versioning.validate_disposition(document)
     with pytest.raises(capture.EvidenceError, match="release anchor"):
         versioning._release_anchor({"letsReleaseAnchor": {}})
+
+
+def test_version_disposition_validator_covers_each_exact_record_boundary(tmp_path: Path) -> None:
+    repository = tmp_path / "lets"
+    _initialize_repository(repository, "lets")
+    valid = _disposition(repository, [])
+    integration_path = "benchmarks/astraldeep/run_case_study.py"
+    rows = (
+        (("extra",), True, "malformed"),
+        (("baseline",), None, "sections"),
+        (("candidate", "commit"), "invalid", "candidate identity"),
+        (("comparison", "comparator_sha256"), "invalid", "comparator_sha256"),
+        (("comparison", "candidate_runtime_tree"), "invalid", "candidate_runtime_tree"),
+        (("comparison", "changed_paths"), "invalid", "changed_paths"),
+        (
+            ("comparison", "changed_paths"),
+            [integration_path, integration_path],
+            "canonical and unique",
+        ),
+        (("comparison", "integration_only_paths"), [], "partitions"),
+        (("comparison", "candidate_runtime_tree"), "6" * 40, "tree identities"),
+        (("reason",), "inconsistent", "rationale is inconsistent"),
+        (("generated_at",), 1, "RFC 3339"),
+        (("generated_at",), "2026-08-14T12:00:00", "UTC offset"),
+    )
+    for path, value, message in rows:
+        changed = copy.deepcopy(valid)
+        _set_nested(changed, path, value)
+        with pytest.raises(capture.EvidenceError, match=message):
+            versioning.validate_disposition(changed)
+
+    misclassified = copy.deepcopy(valid)
+    misclassified["comparison"]["runtime_or_wire_paths"] = [integration_path]
+    misclassified["comparison"]["integration_only_paths"] = []
+    with pytest.raises(capture.EvidenceError, match="classification"):
+        versioning.validate_disposition(misclassified)
+
+
+def test_signed_anchor_and_version_helpers_fail_closed_at_each_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    anchor = capture.read_json_object(_release_anchor(tmp_path / "anchor.json"))
+    for document, message in (
+        ({"letsReleaseAnchor": []}, "malformed"),
+        ({"letsReleaseAnchor": {}}, "signature record"),
+    ):
+        with pytest.raises(capture.EvidenceError, match=message):
+            versioning._release_anchor(document)
+    wrong_identity = copy.deepcopy(anchor)
+    wrong_identity["letsReleaseAnchor"]["tree"] = "0" * 40
+    with pytest.raises(capture.EvidenceError, match="immutable signed"):
+        versioning._release_anchor(wrong_identity)
+    wrong_signature = copy.deepcopy(anchor)
+    wrong_signature["letsReleaseAnchor"]["signature"]["verified"] = False
+    with pytest.raises(capture.EvidenceError, match="trust-verified"):
+        versioning._release_anchor(wrong_signature)
+
+    successful = [
+        "true",
+        versioning.BASELINE_TAG_OBJECT,
+        "tag",
+        versioning.BASELINE_COMMIT,
+        versioning.BASELINE_TREE,
+        "-----BEGIN SSH SIGNATURE-----",
+    ]
+    messages = (
+        "Git worktree",
+        "tag object",
+        "annotated tag",
+        "peeled commit",
+        "tree does not match",
+        "embedded SSH signature",
+    )
+    for index, message in enumerate(messages):
+        responses = successful.copy()
+        responses[index] = "invalid"
+        iterator = iter(responses)
+        monkeypatch.setattr(versioning, "_git", lambda *args, _it=iterator: next(_it))
+        with pytest.raises(capture.EvidenceError, match=message):
+            versioning._validate_repository_anchor(tmp_path, {"version": "v1.0.10"})
+    iterator = iter(successful)
+    monkeypatch.setattr(versioning, "_git", lambda *args, _it=iterator: next(_it))
+    with pytest.raises(capture.EvidenceError, match="version changed"):
+        versioning._validate_repository_anchor(tmp_path, {"version": "v2.0.0"})
+
+    for path in ("", "../escape", "/absolute", "windows\\path"):
+        with pytest.raises(capture.EvidenceError, match="non-canonical path"):
+            versioning._canonical_path(path)
+    assert not versioning._is_runtime_or_wire_path("deploy/evidence/public.json")
+    monkeypatch.setattr(
+        versioning,
+        "_git",
+        lambda *args: (_ for _ in ()).throw(capture.EvidenceError("missing")),
+    )
+    assert versioning._candidate_tree_entry(tmp_path, "a" * 40, "src/lets") == "0" * 40
+    monkeypatch.setattr(versioning, "_git", lambda *args: "invalid")
+    with pytest.raises(capture.EvidenceError, match="tree entry"):
+        versioning._candidate_tree_entry(tmp_path, "a" * 40, "src/lets")
+    with pytest.raises(capture.EvidenceError, match="must be distinct"):
+        versioning._paths_are_distinct(tmp_path, tmp_path)
+
+
+def test_evidence_runtime_pin_requires_one_exact_baseline_composition(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest.json"
+    with pytest.raises(capture.EvidenceError, match="retained composition"):
+        versioning._validate_evidence_runtime_pin({}, manifest)
+    with pytest.raises(capture.EvidenceError, match="unique composition"):
+        versioning._validate_evidence_runtime_pin({"artifacts": []}, manifest)
+
+    composition = tmp_path / "composition.json"
+    capture.write_canonical_json_exclusive(
+        composition,
+        {"components": {"lets": {"commit": "0" * 40, "ref": "v1.0.10"}}},
+    )
+    evidence = {"artifacts": [{"kind": "composition-manifest", "relative_path": composition.name}]}
+    with pytest.raises(capture.EvidenceError, match="exact signed"):
+        versioning._validate_evidence_runtime_pin(evidence, manifest)
 
 
 def test_current_candidate_validation_recomputes_signed_tree_comparison(
@@ -1560,3 +2134,111 @@ def test_cross_mode_aggregate_schema_matches_runtime_digest_and_path_contracts(
     swapped["inputs"]["off_manifest"]["relative_path"] = "integration/shadow/manifest.json"
     with pytest.raises(capture.EvidenceError, match="schema rejected"):
         capture._schema_validate(swapped, aggregate.AGGREGATE_SCHEMA)
+
+
+def test_cross_mode_aggregate_small_validators_fail_closed(tmp_path: Path) -> None:
+    canonical = tmp_path / "canonical.json"
+    canonical.write_bytes(capture.canonical_json_bytes({"value": 1}) + b"\n")
+    assert aggregate._read_canonical(canonical, "test") == {"value": 1}
+
+    noncanonical = tmp_path / "noncanonical.json"
+    noncanonical.write_text('{ "value": 1 }\n', encoding="utf-8")
+    with pytest.raises(capture.EvidenceError, match="not canonical JSON"):
+        aggregate._read_canonical(noncanonical, "test")
+    with pytest.raises(capture.EvidenceError, match="regular retained file"):
+        aggregate._require_regular_file(tmp_path / "missing.json", "test")
+    with pytest.raises(capture.EvidenceError, match="escaped"):
+        aggregate._relative(tmp_path, tmp_path.parent)
+
+    assert aggregate._parse_timestamp("2026-08-14T12:00:00Z", "test").tzinfo is not None
+    for value, message in (
+        (1, "RFC 3339"),
+        ("not-a-time", "RFC 3339"),
+        ("2026-08-14T12:00:00", "UTC offset"),
+    ):
+        with pytest.raises(capture.EvidenceError, match=message):
+            aggregate._parse_timestamp(value, "test")
+
+    summary = aggregate._measurement_summary({"sample_count": 1, "name": "latency"})
+    assert summary["statistical_limits"]["single_sample"] is True
+    with pytest.raises(capture.EvidenceError, match="sample count"):
+        aggregate._measurement_summary({"sample_count": True})
+
+
+def test_cross_mode_aggregate_structural_helpers_reject_malformed_inputs(tmp_path: Path) -> None:
+    root_file = tmp_path / "root-file"
+    root_file.write_bytes(b"not a directory")
+    with pytest.raises(capture.EvidenceError, match="regular directory"):
+        aggregate._validate_root_layout(root_file)
+
+    root = tmp_path / "root"
+    root.mkdir()
+    with pytest.raises(capture.EvidenceError, match="missing or unexpected"):
+        aggregate._validate_root_layout(root)
+    for name in aggregate._EXPECTED_ROOT_ENTRIES:
+        path = root / name
+        if name in {"baseline", "integration"}:
+            path.mkdir()
+        else:
+            path.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(capture.EvidenceError, match="baseline directory"):
+        aggregate._validate_root_layout(root)
+    for name in aggregate._EXPECTED_BASELINE_ENTRIES:
+        (root / "baseline" / name).mkdir()
+    with pytest.raises(capture.EvidenceError, match="integration directory"):
+        aggregate._validate_root_layout(root)
+
+    manifest = tmp_path / "mode" / "manifest.json"
+    manifest.parent.mkdir()
+    manifest.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(capture.EvidenceError, match="artifacts are malformed"):
+        aggregate._validate_exact_artifact_coverage(manifest, {"artifacts": None})
+    with pytest.raises(capture.EvidenceError, match="artifact record"):
+        aggregate._validate_exact_artifact_coverage(manifest, {"artifacts": [None]})
+    with pytest.raises(capture.EvidenceError, match="lacks one"):
+        aggregate._single_artifact_path(manifest, {"artifacts": []}, "runtime-identities")
+
+
+def test_cross_mode_aggregate_outcome_and_cohort_helpers_reject_bad_records(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "mode" / "manifest.json"
+    result_path = manifest.parent / "raw" / "commands" / "scenario.stdout.json"
+    result_path.parent.mkdir(parents=True)
+
+    for document, message in (
+        ({"commands": None}, "mode commands"),
+        ({"commands": [None]}, "command is malformed"),
+    ):
+        with pytest.raises(capture.EvidenceError, match=message):
+            aggregate._scenario_outcomes(manifest, document)
+    result_path.write_bytes(capture.canonical_json_bytes({"observations": None}) + b"\n")
+    with pytest.raises(capture.EvidenceError, match="observations"):
+        aggregate._scenario_outcomes(manifest, {"commands": [{"id": "scenario"}]})
+
+    for document, message in (
+        ({"commands": None}, "cohort commands"),
+        ({"commands": [None]}, "cohort command"),
+    ):
+        with pytest.raises(capture.EvidenceError, match=message):
+            aggregate._cohort_metrics(manifest, document)
+    for measurements, message in (
+        (None, "cohort measurements"),
+        ([None], "cohort measurement is malformed"),
+        ([{}], "malformed or duplicate"),
+        ([{"name": "latency", "unit": "ns", "samples": [-1]}], "negative or non-finite"),
+    ):
+        result_path.write_bytes(
+            capture.canonical_json_bytes({"measurements": measurements}) + b"\n"
+        )
+        with pytest.raises(capture.EvidenceError, match=message):
+            aggregate._cohort_metrics(manifest, {"commands": [{"id": "scenario"}]})
+
+    with pytest.raises(capture.EvidenceError, match="mode sections"):
+        aggregate._mode_summary("off", manifest, {})
+    with pytest.raises(capture.EvidenceError, match="measurements are malformed"):
+        aggregate._mode_summary(
+            "off",
+            manifest,
+            {"measurements": [None], "artifacts": [], "commands": [], "sanitization": {}},
+        )

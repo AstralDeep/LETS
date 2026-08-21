@@ -21,6 +21,17 @@ uv run mypy src/lets
 uv run lets --help
 ```
 
+Pull-request CI measures both the runtime package and the executable Astral case-study harness,
+then uses the locked, development-only `diff-cover` dependency to require at least 90% coverage
+of executable lines changed from `origin/main`. Reproduce that gate from a full-history checkout:
+
+```powershell
+uv run pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=xml:coverage.xml
+uv run diff-cover coverage.xml --compare-branch origin/main --fail-under=90
+```
+
+`diff-cover` remains in the `dev` extra and is not installed in LETS runtime artifacts.
+
 `uv run` selects `.venv` without relying on shell activation. To activate it manually in
 PowerShell:
 

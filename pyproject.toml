@@ -34,6 +34,7 @@ server = [
 ]
 client = ["httpx>=0.28,<1"]
 dev = [
+  "diff-cover>=9.7,<10",
   "httpx>=0.28,<1",
   "hypothesis>=6.165.5,<7",
   "jsonschema>=4.25,<5",

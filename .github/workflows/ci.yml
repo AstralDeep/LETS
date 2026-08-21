@@ -31,7 +31,10 @@ jobs:
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
       - run: uv run --frozen mypy src
-      - run: uv run --frozen pytest -m "not e2e" --cov=lets --cov-report=term-missing
+      - name: Run tests and produce complete changed-code coverage input
+        run: uv run --frozen pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=xml:coverage.xml --cov-report=term-missing
+      - name: Enforce changed executable-line coverage
+        run: uv run --frozen diff-cover coverage.xml --compare-branch origin/main --fail-under=90
       - run: uv build
 
   test:
@@ -91,3 +94,19 @@ jobs:
           path: results/generated/
           if-no-files-found: warn
           retention-days: 14
+
+  required:
+    name: LETS owner CI aggregate
+    if: ${{ always() }}
+    needs:
+      - quality
+      - test
+      - distributed-acceptance
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce every owner gate
+        shell: bash
+        run: |
+          [[ '${{ needs.quality.result }}' == 'success' ]]
+          [[ '${{ needs.test.result }}' == 'success' ]]
+          [[ '${{ needs.distributed-acceptance.result }}' == 'success' ]]
