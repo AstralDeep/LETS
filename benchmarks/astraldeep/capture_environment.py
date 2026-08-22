@@ -33,7 +33,7 @@ COMPOSITION_RELATIVE_PATH = "config/astral-composition.json"
 PUBLIC_DRIVER_ARGV = ("python", DRIVER_RELATIVE_PATH)
 PUBLIC_PROFILE = "astral.case-study-public/v1"
 SCOPE_PROFILE = "astral.tools/v1"
-BASELINE_RELEASE = "v1.0.10"
+BASELINE_RELEASE = "v1.0.11"
 REPOSITORY_KEYS = (
     "astraldeep",
     "astral-projection",

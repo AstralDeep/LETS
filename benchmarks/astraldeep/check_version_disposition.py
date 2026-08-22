@@ -1,9 +1,9 @@
-"""Compare LETS to signed v1.0.10 and gate case-study result finalization.
+"""Compare LETS to signed v1.0.11 and gate case-study result finalization.
 
 ``compare`` writes an evidence-backed disposition from a clean candidate tree.
 ``gate`` creates a readiness record only for unchanged runtime semantics and a
 validated integration bundle.  A runtime/wire change instead creates a
-separate defect/release handoff and exits non-zero; the v1.0.10 ref is never
+separate defect/release handoff and exits non-zero; the v1.0.11 ref is never
 modified by this tool.
 """
 
@@ -31,9 +31,9 @@ from benchmarks.astraldeep.capture_environment import (
 DISPOSITION_FORMAT = "lets.astraldeep-version-disposition/v1"
 HANDOFF_FORMAT = "lets.astraldeep-successor-release-handoff/v1"
 READINESS_FORMAT = "lets.astraldeep-paper-result-readiness/v1"
-BASELINE_TAG_OBJECT = "5ed575066a0c61a51dc55278fa7412f60772fac7"
-BASELINE_COMMIT = "82dbe4f5ddf410cc86778784bb612440725ec66d"
-BASELINE_TREE = "16f6034c26e0d538eaf94867ed8dce166dc9f447"
+BASELINE_TAG_OBJECT = "341a4fe96b1c3984d53205cb2692e0ee8d5c0819"
+BASELINE_COMMIT = "6245189920c686353c4ced7a208d56ec266f745c"
+BASELINE_TREE = "a4f316fb7a74d142d41357cd4f356f0d8d3e99d8"
 BASELINE_SIGNER_FINGERPRINT = "SHA256:5KasB4SV3tUn6UHrxeFR3ZmQ9faDA4Uq6blCa06ShRw"
 _SHA1 = re.compile(r"[0-9a-f]{40}\Z")
 _RUNTIME_ROOTS = ("src/lets/", "protocol/")
@@ -81,7 +81,7 @@ def _release_anchor(document: Mapping[str, object]) -> Mapping[str, object]:
         "tree": BASELINE_TREE,
     }
     if any(anchor.get(field) != value for field, value in expected.items()):
-        raise EvidenceError("release anchor does not identify immutable signed v1.0.10")
+        raise EvidenceError("release anchor does not identify immutable signed v1.0.11")
     if (
         signature.get("verified") is not True
         or signature.get("scheme") != "ssh-ed25519"
@@ -95,17 +95,17 @@ def _release_anchor(document: Mapping[str, object]) -> Mapping[str, object]:
 def _validate_repository_anchor(repository: Path, anchor: Mapping[str, object]) -> None:
     if _git(repository, "rev-parse", "--is-inside-work-tree") != "true":
         raise EvidenceError("LETS comparison root is not a Git worktree")
-    if _git(repository, "rev-parse", "refs/tags/v1.0.10") != BASELINE_TAG_OBJECT:
-        raise EvidenceError("local v1.0.10 tag object does not match the trusted anchor")
+    if _git(repository, "rev-parse", "refs/tags/v1.0.11") != BASELINE_TAG_OBJECT:
+        raise EvidenceError("local v1.0.11 tag object does not match the trusted anchor")
     if _git(repository, "cat-file", "-t", BASELINE_TAG_OBJECT) != "tag":
-        raise EvidenceError("local v1.0.10 is not an annotated tag")
-    if _git(repository, "rev-parse", "refs/tags/v1.0.10^{}") != BASELINE_COMMIT:
-        raise EvidenceError("local v1.0.10 peeled commit does not match the trusted anchor")
+        raise EvidenceError("local v1.0.11 is not an annotated tag")
+    if _git(repository, "rev-parse", "refs/tags/v1.0.11^{}") != BASELINE_COMMIT:
+        raise EvidenceError("local v1.0.11 peeled commit does not match the trusted anchor")
     if _git(repository, "show", "-s", "--format=%T", BASELINE_COMMIT) != BASELINE_TREE:
-        raise EvidenceError("local v1.0.10 tree does not match the trusted anchor")
+        raise EvidenceError("local v1.0.11 tree does not match the trusted anchor")
     tag_payload = _git(repository, "cat-file", "-p", BASELINE_TAG_OBJECT)
     if "-----BEGIN SSH SIGNATURE-----" not in tag_payload:
-        raise EvidenceError("local v1.0.10 tag has no embedded SSH signature")
+        raise EvidenceError("local v1.0.11 tag has no embedded SSH signature")
     if anchor.get("version") != BASELINE_RELEASE:
         raise EvidenceError("release anchor version changed during validation")
 
@@ -217,9 +217,9 @@ def compare_version_disposition(
         },
         "disposition": disposition,
         "reason": (
-            "candidate runtime or wire inputs differ from signed v1.0.10"
+            "candidate runtime or wire inputs differ from signed v1.0.11"
             if runtime_paths
-            else "candidate changes do not alter signed v1.0.10 runtime or wire inputs"
+            else "candidate changes do not alter signed v1.0.11 runtime or wire inputs"
         ),
         "generated_at": _timestamp(),
     }
@@ -254,7 +254,7 @@ def validate_disposition(document: Mapping[str, object]) -> None:
         "signature_verified": True,
     }
     if dict(baseline) != expected_baseline:
-        raise EvidenceError("version disposition baseline is not immutable signed v1.0.10")
+        raise EvidenceError("version disposition baseline is not immutable signed v1.0.11")
     if set(candidate) != {"commit", "tree", "clean"} or candidate.get("clean") is not True:
         raise EvidenceError("version disposition candidate is not an exact clean tree")
     if any(_SHA1.fullmatch(str(candidate.get(field))) is None for field in ("commit", "tree")):
@@ -319,9 +319,9 @@ def validate_disposition(document: Mapping[str, object]) -> None:
     if not isinstance(document.get("reason"), str) or not document["reason"]:
         raise EvidenceError("version disposition has no rationale")
     expected_reason = (
-        "candidate runtime or wire inputs differ from signed v1.0.10"
+        "candidate runtime or wire inputs differ from signed v1.0.11"
         if runtime
-        else "candidate changes do not alter signed v1.0.10 runtime or wire inputs"
+        else "candidate changes do not alter signed v1.0.11 runtime or wire inputs"
     )
     if document["reason"] != expected_reason:
         raise EvidenceError("version disposition rationale is inconsistent")
@@ -403,7 +403,7 @@ def _validate_evidence_runtime_pin(
         or lets_component.get("commit") != BASELINE_COMMIT
     ):
         raise EvidenceError(
-            "unchanged-runtime finalization requires the exact signed v1.0.10 runtime pin"
+            "unchanged-runtime finalization requires the exact signed v1.0.11 runtime pin"
         )
 
 
@@ -448,7 +448,7 @@ def gate_paper_result_finalization(
             "disposition_sha256": sha256_file(disposition_path),
             "required_actions": [
                 "review and fix the separately identified LETS runtime or wire change",
-                "create and verify a successor LETS release without altering v1.0.10",
+                "create and verify a successor LETS release without altering v1.0.11",
                 "update the exact Astral composition pin and version disposition",
                 "rerun every affected case-study experiment from clean exact revisions",
                 "finalize paper results only from the replacement validated evidence bundle",
@@ -514,12 +514,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     verify_anchor = subparsers.add_parser(
-        "verify-anchor", help="verify the exact local signed v1.0.10 Git anchor"
+        "verify-anchor", help="verify the exact local signed v1.0.11 Git anchor"
     )
     verify_anchor.add_argument(
         "--repository", type=Path, default=Path(__file__).resolve().parents[2]
     )
-    compare = subparsers.add_parser("compare", help="compare a clean candidate to signed v1.0.10")
+    compare = subparsers.add_parser("compare", help="compare a clean candidate to signed v1.0.11")
     compare.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[2])
     compare.add_argument("--release-anchor", type=Path, required=True)
     compare.add_argument("--output", type=Path, required=True)
@@ -538,7 +538,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if arguments.command == "verify-anchor":
             _validate_repository_anchor(repository, {"version": BASELINE_RELEASE})
-            print("signed v1.0.10 repository anchor verified")
+            print("signed v1.0.11 repository anchor verified")
             return 0
         if arguments.command == "compare":
             if not _is_ignored(repository, arguments.output):

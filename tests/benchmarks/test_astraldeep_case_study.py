@@ -22,7 +22,7 @@ from benchmarks.astraldeep import check_version_disposition as versioning
 from benchmarks.astraldeep import run_case_study as runner
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_SHA256 = "616b1c778b7d834c724047513becbc705e0c2cacfa334d82ecd214920591f3dc"
+SCHEMA_SHA256 = "e6f5d66b49a2b3548b41497b2e7f888bd231bcb8b9266d7a2a44b005c6fea011"
 
 
 def _git(root: Path, *arguments: str) -> str:
@@ -82,7 +82,7 @@ def _execution_identity(
                 "component_commit": lets_commit,
                 "file_count": 24,
                 "tree_sha256": "4" * 64,
-                "release": "v1.0.10",
+                "release": "v1.0.11",
             },
         },
     }
@@ -224,16 +224,16 @@ def _composition(revisions: Mapping[str, str]) -> dict[str, object]:
             "astral-projection": {"commit": revisions["astral-projection"]},
             "astral-plane": {"commit": revisions["astral-plane"]},
             "astral-primitives": {"commit": revisions["astral-primitives"]},
-            "lets": {"commit": versioning.BASELINE_COMMIT, "ref": "v1.0.10"},
+            "lets": {"commit": versioning.BASELINE_COMMIT, "ref": "v1.0.11"},
         },
-        "compatibility": {"lets": {"release": "v1.0.10"}},
+        "compatibility": {"lets": {"release": "v1.0.11"}},
     }
 
 
 def _runtime_identities() -> dict[str, object]:
     return {
         "format": capture.RUNTIME_IDENTITIES_FORMAT,
-        "lets_release": "v1.0.10",
+        "lets_release": "v1.0.11",
         "policy_digest": f"sha256:{'1' * 64}",
         "machine_digest": f"sha256:{'2' * 64}",
         "config_epoch": 7,
@@ -303,7 +303,7 @@ def _disposition(candidate_repository: Path, runtime_paths: list[str]) -> dict[s
     return {
         "format": versioning.DISPOSITION_FORMAT,
         "baseline": {
-            "release": "v1.0.10",
+            "release": "v1.0.11",
             "tag_object": versioning.BASELINE_TAG_OBJECT,
             "commit": versioning.BASELINE_COMMIT,
             "tree": versioning.BASELINE_TREE,
@@ -324,9 +324,9 @@ def _disposition(candidate_repository: Path, runtime_paths: list[str]) -> dict[s
         },
         "disposition": "successor-required" if runtime_paths else "unchanged-runtime",
         "reason": (
-            "candidate runtime or wire inputs differ from signed v1.0.10"
+            "candidate runtime or wire inputs differ from signed v1.0.11"
             if runtime_paths
-            else "candidate changes do not alter signed v1.0.10 runtime or wire inputs"
+            else "candidate changes do not alter signed v1.0.11 runtime or wire inputs"
         ),
         "generated_at": "2026-08-14T12:00:00Z",
     }
@@ -337,7 +337,7 @@ def _release_anchor(path: Path) -> Path:
         path,
         {
             "letsReleaseAnchor": {
-                "version": "v1.0.10",
+                "version": "v1.0.11",
                 "tagObject": versioning.BASELINE_TAG_OBJECT,
                 "peeledCommit": versioning.BASELINE_COMMIT,
                 "tree": versioning.BASELINE_TREE,
@@ -530,7 +530,7 @@ def test_execution_identity_binds_real_clean_driver_interpreter_and_imports(
                     "astral-plane": {"commit": component_commits["AstralPlane"]},
                     "lets": {
                         "commit": component_commits["LETS"],
-                        "ref": "v1.0.10",
+                        "ref": "v1.0.11",
                     },
                 }
             }
@@ -553,7 +553,7 @@ def test_execution_identity_binds_real_clean_driver_interpreter_and_imports(
         identity["imports"]["astralplane"]["component_commit"] == component_commits["AstralPlane"]
     )
     assert identity["imports"]["lets"]["component_commit"] == component_commits["LETS"]
-    assert identity["imports"]["lets"]["release"] == "v1.0.10"
+    assert identity["imports"]["lets"]["release"] == "v1.0.11"
 
 
 @pytest.mark.parametrize("mode", runner.MODES)
@@ -941,6 +941,32 @@ def test_capture_binds_exact_revisions_and_raw_composition_digest(
     )
     assert bundle["sanitization"]["findings"] == 0
     capture.validate_evidence_bundle(bundle, captured_bundle["root"])
+
+
+def test_schema_accepts_only_current_release_baseline(
+    captured_bundle: dict[str, Any],
+) -> None:
+    baseline = copy.deepcopy(captured_bundle["bundle"])
+    baseline["evidence_class"] = "release-baseline"
+    baseline["mode"] = "off"
+    capture._schema_validate(
+        baseline,
+        Path(capture.__file__).with_name("case-study-evidence.schema.json"),
+    )
+    baseline["lets_release"] = "v1.0.10"
+    with pytest.raises(capture.EvidenceError, match="schema rejected"):
+        capture._schema_validate(
+            baseline,
+            Path(capture.__file__).with_name("case-study-evidence.schema.json"),
+        )
+
+    integration = copy.deepcopy(captured_bundle["bundle"])
+    integration["lets_release"] = "v1.0.10"
+    with pytest.raises(capture.EvidenceError, match="schema rejected"):
+        capture._schema_validate(
+            integration,
+            Path(capture.__file__).with_name("case-study-evidence.schema.json"),
+        )
 
 
 def test_capture_recomputes_execution_identity_and_binds_deep_composition(
@@ -1547,7 +1573,7 @@ def test_schema_refuses_to_relabel_enforced_integration_as_release_baseline(
         capture.validate_evidence_bundle(mixed, captured_bundle["root"])
 
 
-def test_signed_v1010_comparison_classifies_integration_only_and_runtime_changes(
+def test_signed_v1011_comparison_classifies_integration_only_and_runtime_changes(
     tmp_path: Path,
 ) -> None:
     anchor = _release_anchor(tmp_path / "anchor.json")
@@ -1695,7 +1721,7 @@ def test_signed_anchor_and_version_helpers_fail_closed_at_each_boundary(
         iterator = iter(responses)
         monkeypatch.setattr(versioning, "_git", lambda *args, _it=iterator: next(_it))
         with pytest.raises(capture.EvidenceError, match=message):
-            versioning._validate_repository_anchor(tmp_path, {"version": "v1.0.10"})
+            versioning._validate_repository_anchor(tmp_path, {"version": "v1.0.11"})
     iterator = iter(successful)
     monkeypatch.setattr(versioning, "_git", lambda *args, _it=iterator: next(_it))
     with pytest.raises(capture.EvidenceError, match="version changed"):
@@ -1728,7 +1754,7 @@ def test_evidence_runtime_pin_requires_one_exact_baseline_composition(tmp_path: 
     composition = tmp_path / "composition.json"
     capture.write_canonical_json_exclusive(
         composition,
-        {"components": {"lets": {"commit": "0" * 40, "ref": "v1.0.10"}}},
+        {"components": {"lets": {"commit": "0" * 40, "ref": "v1.0.11"}}},
     )
     evidence = {"artifacts": [{"kind": "composition-manifest", "relative_path": composition.name}]}
     with pytest.raises(capture.EvidenceError, match="exact signed"):
@@ -2158,6 +2184,16 @@ def test_cross_mode_aggregate_schema_matches_runtime_digest_and_path_contracts(
     invalid_epoch["runtime_identities"]["config_epoch"] = 0
     with pytest.raises(capture.EvidenceError, match="schema rejected"):
         capture._schema_validate(invalid_epoch, aggregate.AGGREGATE_SCHEMA)
+
+    historical_relabel = copy.deepcopy(summary)
+    historical_relabel["lets_release"] = "v1.0.10"
+    with pytest.raises(capture.EvidenceError, match="schema rejected"):
+        capture._schema_validate(historical_relabel, aggregate.AGGREGATE_SCHEMA)
+
+    historical_manifest_relabel = copy.deepcopy(manifest)
+    historical_manifest_relabel["lets_release"] = "v1.0.10"
+    with pytest.raises(capture.EvidenceError, match="schema rejected"):
+        capture._schema_validate(historical_manifest_relabel, aggregate.AGGREGATE_SCHEMA)
 
     traversal = copy.deepcopy(manifest)
     traversal["inputs"]["off_manifest"]["relative_path"] = "x/../../secret"

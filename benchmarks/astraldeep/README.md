@@ -50,7 +50,7 @@ Create a public runtime-identity input with only these required fields:
 {
   "config_epoch": 1,
   "format": "lets.astraldeep-runtime-identities/v1",
-  "lets_release": "v1.0.10",
+  "lets_release": "v1.0.11",
   "machine_digest": "sha256:<64 lowercase hex characters>",
   "policy_digest": "sha256:<64 lowercase hex characters>",
   "scope_profile": "astral.tools/v1"
@@ -98,23 +98,23 @@ signed-release anchor recorded by AstralDeep:
 ```powershell
 uv run --locked --extra dev python -m benchmarks.astraldeep.check_version_disposition `
   compare `
-  --release-anchor ../AstralDeep/specs/074-multirepo-lets-integration/execution/baseline.json `
+  --release-anchor ../AstralDeep/specs/074-multirepo-lets-integration/execution/lets-v1.0.11-release-anchor.json `
   --output results/astraldeep-case-study/version-disposition.json
 ```
 
-The comparison uses the immutable v1.0.10 tag object, peeled commit, tree, and
+The comparison uses the immutable v1.0.11 tag object, peeled commit, tree, and
 verified SSH-signature anchor. Changes to LETS runtime, wire, packaging, or
 executable deployment inputs produce `successor-required`; benchmark, test,
 documentation, and case-study-only changes produce `unchanged-runtime`.
 
 The `gate` subcommand creates a readiness marker only when an unchanged-runtime
 disposition matches both the current clean Git tree and a validated integration
-bundle whose composition still pins the exact signed v1.0.10 commit. The gate
+bundle whose composition still pins the exact signed v1.0.11 commit. The gate
 recomputes the path partition and runtime/protocol tree identities rather than
 trusting stale disposition fields. Otherwise it exits non-zero and, for
 runtime/wire changes, creates a separate successor-release handoff. Gate
 outputs are forbidden under `paper/`, and no command in this directory changes
-tag `v1.0.10`, publishes a release, or finalizes a manuscript.
+tag `v1.0.11`, publishes a release, or finalizes a manuscript.
 
 ## Cross-mode aggregate
 
@@ -144,6 +144,13 @@ historical release-result bundle, recovery-time measurement, manuscript check,
 or reproduction attestation is included. This command never creates
 `reproduction.json` and its input readiness marker remains only the
 successor-version gate, not whole-paper readiness.
+
+Retained v1.0.10 Astral case-study bytes remain historical records bound to
+tooling commit `126b494c0676af7c216f5caa9367d127ebc9078f`, aggregate-schema
+SHA-256 `367a062ca642510091b292f36a5b4f284f1a0b3f29495088a5b6c5384dab4161`,
+and scanner SHA-256 `4a397cbe94105b6b0894576a2cf776aabd9f402b7513dfcf45b51f81c2c2229c`.
+They are not a distinct LETS release-result bundle. The current leaf validator
+and v1.0.11 aggregate both reject relabeling those bytes as current evidence.
 
 Repeated single-nibble policy or machine digests are retained for exact replay
 but explicitly flagged as placeholder-pattern identities; they do not establish
