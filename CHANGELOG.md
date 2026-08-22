@@ -5,6 +5,26 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.11] - 2026-08-21
+
+### Changed
+
+- Refreshed the pinned Python 3.14 Alpine runtime, uv build/runtime tooling, supported server
+  dependency floor, development toolchain, and immutable GitHub Actions revisions already present
+  on `main`. Removed the retired tracked manuscript tree; release evidence remains owned by the
+  release workflow and immutable release assets.
+
+### Compatibility, migration, and rollback
+
+- Runtime behavior, the public HTTP and receipt-wire contracts, and SQLite schema version are
+  unchanged from v1.0.10. Existing v1.0.10 state and configuration require no data or schema
+  migration. LETS v1 still forbids a mixed-version cluster, so upgrade through the documented
+  drain, stop-the-world replacement, verification, and activation procedure.
+- No earlier published LETS release has an approved OCI rollback digest: v1.0.10 published package
+  and local acceptance artifacts but no promoted image, and v1.0.1 through v1.0.9 remain
+  unpromoted candidates. If v1.0.11 must be withdrawn, fence affected wardens, preserve its
+  immutable evidence, and recover forward with a patch release; never move or reuse a signed tag.
+
 ## [1.0.10] - 2026-08-11
 
 ### Fixed
@@ -672,7 +692,12 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.11...HEAD
+[1.0.11]: https://github.com/AstralDeep/LETS/compare/v1.0.10...v1.0.11
+[1.0.10]: https://github.com/AstralDeep/LETS/compare/v1.0.9...v1.0.10
+[1.0.9]: https://github.com/AstralDeep/LETS/compare/v1.0.8...v1.0.9
+[1.0.8]: https://github.com/AstralDeep/LETS/compare/v1.0.7...v1.0.8
+[1.0.7]: https://github.com/AstralDeep/LETS/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/AstralDeep/LETS/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/AstralDeep/LETS/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/AstralDeep/LETS/compare/v1.0.3...v1.0.4

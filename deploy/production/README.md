@@ -644,12 +644,12 @@ authority checkpoint for every node before starting any replacement. Stage the s
 on all nodes, start the entire cluster in its durable drained state, prove uniform version/config,
 invariants, capacity, audit state, and peer reachability, then activate and canary the uniform
 cluster before restoring traffic. Do not restore a database behind its monotonic anchor. The signed
-v1.0.1 through v1.0.5 tags were never promoted and are not rollback artifacts; v1.0.0 lacks the
-later production defenses, and the signed v1.0.5 candidate failed its mandatory release soak.
-Therefore v1.0.6 has no approved earlier binary rollback target. Recover forward with a patch
-release unless future release notes explicitly name a compatible published
-digest. A restore is admitted only while fenced and only when the live anchor proves the bundle
-cannot resurrect spent authority.
+v1.0.1 through v1.0.9 tags were never promoted and are not rollback artifacts; v1.0.0 lacks later
+production defenses. The v1.0.10 GitHub release published package and local acceptance assets but
+did not promote an OCI image. Therefore v1.0.11 has no approved earlier binary rollback target.
+Recover forward with a patch release unless future release notes explicitly name a compatible
+published digest. A restore is admitted only while fenced and only when the live anchor proves the
+bundle cannot resurrect spent authority.
 
 ## Provider integration boundary
 
