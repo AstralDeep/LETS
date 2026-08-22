@@ -692,7 +692,12 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.6...HEAD
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.11...HEAD
+[1.0.11]: https://github.com/AstralDeep/LETS/compare/v1.0.10...v1.0.11
+[1.0.10]: https://github.com/AstralDeep/LETS/compare/v1.0.9...v1.0.10
+[1.0.9]: https://github.com/AstralDeep/LETS/compare/v1.0.8...v1.0.9
+[1.0.8]: https://github.com/AstralDeep/LETS/compare/v1.0.7...v1.0.8
+[1.0.7]: https://github.com/AstralDeep/LETS/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/AstralDeep/LETS/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/AstralDeep/LETS/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/AstralDeep/LETS/compare/v1.0.3...v1.0.4
