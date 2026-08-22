@@ -13,6 +13,7 @@ coverage.xml
 
 # Python environments and packaging
 .venv/
+.ci-tools/
 venv/
 env/
 ENV/

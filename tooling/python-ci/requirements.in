@@ -1,0 +1,4 @@
+# Feature 074 changed-coverage tooling. This input is never installed into a
+# LETS runtime or shipping artifact. Keep direct inputs exact; the generated
+# requirements.lock.txt owns the complete transitive artifact hashes.
+diff-cover==9.7.2

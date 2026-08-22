@@ -17,17 +17,28 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           python-version: "3.14"
           enable-cache: true
+      - name: Verify the immutable signed comparison anchor
+        run: uv run --no-project python -m benchmarks.astraldeep.check_version_disposition verify-anchor --repository .
       - run: uv lock --check
       - run: uv sync --all-extras --frozen
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
       - run: uv run --frozen mypy src
-      - run: uv run --frozen pytest -m "not e2e" --cov=lets --cov-report=term-missing
+      - name: Run tests and produce complete changed-code coverage input
+        run: uv run --frozen pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=xml:coverage.xml --cov-report=term-missing
+      - name: Create isolated changed-coverage tooling environment
+        run: uv venv --python 3.14 .ci-tools
+      - name: Install changed-coverage tooling from the immutable lock
+        run: uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt
+      - name: Enforce changed executable-line coverage
+        run: .ci-tools/bin/diff-cover coverage.xml --compare-branch origin/main --fail-under=90
       - run: uv build
 
   test:
@@ -50,11 +61,15 @@ jobs:
           - os: windows-latest
             python: "3.14"
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
+      - name: Verify the immutable signed comparison anchor
+        run: uv run --no-project python -m benchmarks.astraldeep.check_version_disposition verify-anchor --repository .
       - run: uv sync --all-extras --frozen
       - run: uv run --frozen pytest -m "not e2e"
 
@@ -64,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@ae62891fec2bb8e7d6c99fc78c9fec3a63790f8d # v10.0.0
@@ -83,3 +98,19 @@ jobs:
           path: results/generated/
           if-no-files-found: warn
           retention-days: 14
+
+  required:
+    name: LETS owner CI aggregate
+    if: ${{ always() }}
+    needs:
+      - quality
+      - test
+      - distributed-acceptance
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Enforce every owner gate
+        shell: bash
+        run: |
+          [[ '${{ needs.quality.result }}' == 'success' ]]
+          [[ '${{ needs.test.result }}' == 'success' ]]
+          [[ '${{ needs.distributed-acceptance.result }}' == 'success' ]]

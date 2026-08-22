@@ -21,6 +21,21 @@ uv run mypy src/lets
 uv run lets --help
 ```
 
+Pull-request CI measures both the runtime package and the executable Astral case-study harness,
+then uses the standalone, hash-locked CI tooling environment to require at least 90% coverage of
+executable lines changed from `origin/main`. Reproduce that gate from a full-history checkout:
+
+```powershell
+uv run pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=xml:coverage.xml
+uv venv --python 3.14 .ci-tools
+uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt
+& .\.ci-tools\Scripts\diff-cover.exe coverage.xml --compare-branch origin/main --fail-under=90
+```
+
+`diff-cover` and its transitive dependencies are exact-pinned with artifact hashes in
+`tooling/python-ci/requirements.lock.txt`. They are absent from LETS package metadata,
+`uv.lock`, and runtime artifacts.
+
 `uv run` selects `.venv` without relying on shell activation. To activate it manually in
 PowerShell:
 

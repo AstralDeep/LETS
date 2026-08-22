@@ -1,0 +1,690 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AstralDeep/LETS/blob/main/benchmarks/astraldeep/case-study-aggregate.schema.json",
+  "title": "AstralDeep case-study aggregate records",
+  "oneOf": [
+    {"$ref": "#/$defs/aggregateManifest"},
+    {"$ref": "#/$defs/aggregateSummary"}
+  ],
+  "$defs": {
+    "sha1": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^(?:sha256:)?[0-9a-f]{64}$"},
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*//)(?!.*:)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))(?!.*(?:[ .])(?:/|$))[^\\u0000-\\u001f\\u007f/]+(?:/[^\\u0000-\\u001f\\u007f/]+)*$"
+    },
+    "timestamp": {"type": "string", "format": "date-time"},
+    "count": {"type": "integer", "minimum": 0},
+    "repositories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "astraldeep",
+        "astral-projection",
+        "astral-plane",
+        "astral-primitives",
+        "lets"
+      ],
+      "properties": {
+        "astraldeep": {"$ref": "#/$defs/sha1"},
+        "astral-projection": {"$ref": "#/$defs/sha1"},
+        "astral-plane": {"$ref": "#/$defs/sha1"},
+        "astral-primitives": {"$ref": "#/$defs/sha1"},
+        "lets": {"$ref": "#/$defs/sha1"}
+      }
+    },
+    "runtimeIdentities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "lets_release",
+        "policy_digest",
+        "machine_digest",
+        "config_epoch",
+        "scope_profile"
+      ],
+      "properties": {
+        "format": {"const": "lets.astraldeep-runtime-identities/v1"},
+        "lets_release": {"const": "v1.0.11"},
+        "policy_digest": {"$ref": "#/$defs/digest"},
+        "machine_digest": {"$ref": "#/$defs/digest"},
+        "config_epoch": {"type": "integer", "minimum": 1},
+        "scope_profile": {"const": "astral.tools/v1"},
+        "api_version": {"type": "string", "minLength": 1, "maxLength": 100},
+        "receipt_wire_type": {"type": "string", "minLength": 1, "maxLength": 100},
+        "warden_topology": {"type": "string", "minLength": 1, "maxLength": 200}
+      }
+    },
+    "fileRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "relative_path", "sha256", "bytes"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "mode-manifest",
+            "runtime-identities",
+            "version-disposition",
+            "paper-readiness",
+            "aggregate-summary"
+          ]
+        },
+        "relative_path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "bytes": {"type": "integer", "minimum": 1, "maximum": 16777216}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "off_manifest",
+        "shadow_manifest",
+        "enforce_manifest",
+        "runtime_identities",
+        "version_disposition",
+        "paper_readiness"
+      ],
+      "properties": {
+        "off_manifest": {"$ref": "#/$defs/offManifestRecord"},
+        "shadow_manifest": {"$ref": "#/$defs/shadowManifestRecord"},
+        "enforce_manifest": {"$ref": "#/$defs/enforceManifestRecord"},
+        "runtime_identities": {"$ref": "#/$defs/runtimeIdentitiesRecord"},
+        "version_disposition": {"$ref": "#/$defs/versionDispositionRecord"},
+        "paper_readiness": {"$ref": "#/$defs/paperReadinessRecord"}
+      }
+    },
+    "offManifestRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "properties": {
+            "kind": {"const": "mode-manifest"},
+            "relative_path": {"const": "baseline/off/manifest.json"}
+          }
+        }
+      ]
+    },
+    "shadowManifestRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "properties": {
+            "kind": {"const": "mode-manifest"},
+            "relative_path": {"const": "integration/shadow/manifest.json"}
+          }
+        }
+      ]
+    },
+    "enforceManifestRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "properties": {
+            "kind": {"const": "mode-manifest"},
+            "relative_path": {"const": "integration/enforce/manifest.json"}
+          }
+        }
+      ]
+    },
+    "runtimeIdentitiesRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "properties": {
+            "kind": {"const": "runtime-identities"},
+            "relative_path": {"const": "runtime-identities.json"}
+          }
+        }
+      ]
+    },
+    "versionDispositionRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "properties": {
+            "kind": {"const": "version-disposition"},
+            "relative_path": {"const": "version-disposition.json"}
+          }
+        }
+      ]
+    },
+    "paperReadinessRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "properties": {
+            "kind": {"const": "paper-readiness"},
+            "relative_path": {"const": "paper-readiness.json"}
+          }
+        }
+      ]
+    },
+    "summaryRecord": {
+      "allOf": [
+        {"$ref": "#/$defs/fileRecord"},
+        {
+          "properties": {
+            "kind": {"const": "aggregate-summary"},
+            "relative_path": {"const": "summary.json"}
+          }
+        }
+      ]
+    },
+    "numericSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "p50", "p95", "p99", "maximum", "mean"],
+      "properties": {
+        "minimum": {"type": "number"},
+        "p50": {"type": "number"},
+        "p95": {"type": "number"},
+        "p99": {"type": "number"},
+        "maximum": {"type": "number"},
+        "mean": {"type": "number"}
+      }
+    },
+    "measurementLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "single_sample",
+        "p95_tail_resolution_supported",
+        "p99_tail_resolution_supported",
+        "inferential_claim_supported",
+        "interpretation"
+      ],
+      "properties": {
+        "single_sample": {"type": "boolean"},
+        "p95_tail_resolution_supported": {"type": "boolean"},
+        "p99_tail_resolution_supported": {"type": "boolean"},
+        "inferential_claim_supported": {"const": false},
+        "interpretation": {"const": "empirical-descriptive-only"}
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "unit",
+        "sample_count",
+        "summary",
+        "source_artifact",
+        "statistical_limits"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "unit": {"type": "string", "minLength": 1, "maxLength": 50},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "summary": {"$ref": "#/$defs/numericSummary"},
+        "source_artifact": {"type": "string", "minLength": 1, "maxLength": 300},
+        "exclusions": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {"type": "string", "maxLength": 500}
+        },
+        "statistical_limits": {"$ref": "#/$defs/measurementLimits"}
+      }
+    },
+    "cohortMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "unit",
+        "cohort",
+        "scenario_ids",
+        "source_measurement_count",
+        "sample_count",
+        "summary",
+        "statistical_limits"
+      ],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 100},
+        "unit": {"type": "string", "minLength": 1, "maxLength": 50},
+        "cohort": {"const": "all-mode-scenarios-reporting-this-metric"},
+        "scenario_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z0-9-]+$", "maxLength": 80}
+        },
+        "source_measurement_count": {"type": "integer", "minimum": 1},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "summary": {"$ref": "#/$defs/numericSummary"},
+        "statistical_limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "p95_tail_resolution_supported",
+            "p99_tail_resolution_supported",
+            "inferential_claim_supported",
+            "interpretation"
+          ],
+          "properties": {
+            "p95_tail_resolution_supported": {"type": "boolean"},
+            "p99_tail_resolution_supported": {"type": "boolean"},
+            "inferential_claim_supported": {"const": false},
+            "interpretation": {"const": "heterogeneous-scenario-descriptive-only"}
+          }
+        }
+      }
+    },
+    "scenarioOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_id",
+        "category",
+        "status",
+        "astral_decision",
+        "denial_code",
+        "lets_requests",
+        "receipts_issued",
+        "receipts_claimed",
+        "physical_effects",
+        "denied_effects",
+        "unreceipted_governed_effects",
+        "budget_conserved",
+        "sequence_monotonic",
+        "lifecycle_converged",
+        "lifecycle_state",
+        "scope"
+      ],
+      "properties": {
+        "scenario_id": {"type": "string", "pattern": "^[a-z0-9-]+$", "maxLength": 80},
+        "category": {"type": "string", "pattern": "^[a-z0-9-]+$", "maxLength": 80},
+        "status": {"const": "passed"},
+        "astral_decision": {"enum": ["allowed", "denied", "not-applicable"]},
+        "denial_code": {"type": ["string", "null"], "maxLength": 100},
+        "lets_requests": {"$ref": "#/$defs/count"},
+        "receipts_issued": {"$ref": "#/$defs/count"},
+        "receipts_claimed": {"$ref": "#/$defs/count"},
+        "physical_effects": {"$ref": "#/$defs/count"},
+        "denied_effects": {"$ref": "#/$defs/count"},
+        "unreceipted_governed_effects": {"$ref": "#/$defs/count"},
+        "budget_conserved": {"const": true},
+        "sequence_monotonic": {"const": true},
+        "lifecycle_converged": {"type": "boolean"},
+        "lifecycle_state": {"type": ["string", "null"], "maxLength": 100},
+        "scope": {"type": ["string", "null"], "maxLength": 100}
+      }
+    },
+    "modeInvariants": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_semantics_revalidated",
+        "complete_ordered_matrix",
+        "all_scenarios_passed",
+        "all_budgets_conserved",
+        "all_sequences_monotonic",
+        "zero_unreceipted_governed_effects",
+        "lifecycle_events_converged",
+        "post_revocation_causally_revoked",
+        "zero_sanitization_findings"
+      ],
+      "properties": {
+        "scenario_semantics_revalidated": {"const": true},
+        "complete_ordered_matrix": {"const": true},
+        "all_scenarios_passed": {"const": true},
+        "all_budgets_conserved": {"const": true},
+        "all_sequences_monotonic": {"const": true},
+        "zero_unreceipted_governed_effects": {"const": true},
+        "lifecycle_events_converged": {"const": true},
+        "post_revocation_causally_revoked": {"const": true},
+        "zero_sanitization_findings": {"const": true}
+      }
+    },
+    "observations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lets_requests",
+        "receipts_issued",
+        "receipts_claimed",
+        "physical_effects",
+        "denied_effects",
+        "unreceipted_governed_effects",
+        "decision_counts",
+        "denial_reason_counts",
+        "lifecycle_state_counts"
+      ],
+      "properties": {
+        "lets_requests": {"$ref": "#/$defs/count"},
+        "receipts_issued": {"$ref": "#/$defs/count"},
+        "receipts_claimed": {"$ref": "#/$defs/count"},
+        "physical_effects": {"$ref": "#/$defs/count"},
+        "denied_effects": {"$ref": "#/$defs/count"},
+        "unreceipted_governed_effects": {"$ref": "#/$defs/count"},
+        "decision_counts": {"$ref": "#/$defs/counter"},
+        "denial_reason_counts": {"$ref": "#/$defs/counter"},
+        "lifecycle_state_counts": {"$ref": "#/$defs/counter"}
+      }
+    },
+    "counter": {
+      "type": "object",
+      "propertyNames": {"type": "string", "minLength": 1, "maxLength": 100},
+      "additionalProperties": {"$ref": "#/$defs/count"}
+    },
+    "sampleDistribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sample_count", "measurement_count"],
+      "properties": {
+        "sample_count": {"type": "integer", "minimum": 1},
+        "measurement_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "modeSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_class",
+        "comparison_role",
+        "scenario_count",
+        "command_count",
+        "retained_artifact_count",
+        "measurement_count",
+        "sample_count",
+        "measurement_sample_count_distribution",
+        "observations",
+        "invariants",
+        "scenario_outcomes",
+        "measurements",
+        "cohort_metrics"
+      ],
+      "properties": {
+        "evidence_class": {"enum": ["release-baseline", "astral-integration"]},
+        "comparison_role": {
+          "enum": ["flag-off-control", "shadow-observation", "enforced-treatment"]
+        },
+        "scenario_count": {"const": 19},
+        "command_count": {"const": 19},
+        "retained_artifact_count": {"type": "integer", "minimum": 1},
+        "measurement_count": {"type": "integer", "minimum": 1},
+        "sample_count": {"type": "integer", "minimum": 1},
+        "measurement_sample_count_distribution": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/sampleDistribution"}
+        },
+        "observations": {"$ref": "#/$defs/observations"},
+        "invariants": {"$ref": "#/$defs/modeInvariants"},
+        "scenario_outcomes": {
+          "type": "array",
+          "minItems": 19,
+          "maxItems": 19,
+          "items": {"$ref": "#/$defs/scenarioOutcome"}
+        },
+        "measurements": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/measurement"}
+        },
+        "cohort_metrics": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/cohortMetric"}
+        }
+      }
+    },
+    "statisticalLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measurement_count",
+        "minimum_sample_count",
+        "maximum_sample_count",
+        "single_sample_measurement_count",
+        "p95_tail_resolution_measurement_count",
+        "p99_tail_resolution_measurement_count",
+        "all_percentiles_descriptive_only",
+        "inferential_statistics_present",
+        "publication_inference_supported",
+        "limitation"
+      ],
+      "properties": {
+        "measurement_count": {"type": "integer", "minimum": 1},
+        "minimum_sample_count": {"type": "integer", "minimum": 1},
+        "maximum_sample_count": {"type": "integer", "minimum": 1},
+        "single_sample_measurement_count": {"$ref": "#/$defs/count"},
+        "p95_tail_resolution_measurement_count": {"$ref": "#/$defs/count"},
+        "p99_tail_resolution_measurement_count": {"$ref": "#/$defs/count"},
+        "all_percentiles_descriptive_only": {"const": true},
+        "inferential_statistics_present": {"const": false},
+        "publication_inference_supported": {"const": false},
+        "limitation": {"type": "string", "minLength": 1, "maxLength": 500}
+      }
+    },
+    "evidenceScope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "historical_v1_0_10_release_results_included",
+        "manuscript_checks_included",
+        "reproduction_attestation_included",
+        "distinct_historical_release_reference_included",
+        "readiness_interpretation"
+      ],
+      "properties": {
+        "historical_v1_0_10_release_results_included": {"const": false},
+        "manuscript_checks_included": {"const": false},
+        "reproduction_attestation_included": {"const": false},
+        "distinct_historical_release_reference_included": {"const": false},
+        "readiness_interpretation": {"const": "successor-version-gate-only"}
+      }
+    },
+    "aggregateSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "status",
+        "study_id",
+        "generated_at",
+        "aggregator_sha256",
+        "aggregate_schema_sha256",
+        "composition_sha256",
+        "lets_release",
+        "repositories",
+        "runtime_identities",
+        "inputs",
+        "totals",
+        "cross_mode_invariants",
+        "modes",
+        "measurement_coverage",
+        "runtime_identity_quality",
+        "statistical_limits",
+        "evidence_scope"
+      ],
+      "properties": {
+        "format": {"const": "lets.astraldeep-case-study-summary/v1"},
+        "status": {"const": "validated"},
+        "study_id": {"$ref": "#/$defs/digest"},
+        "generated_at": {"$ref": "#/$defs/timestamp"},
+        "aggregator_sha256": {"$ref": "#/$defs/sha256"},
+        "aggregate_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "composition_sha256": {"$ref": "#/$defs/sha256"},
+        "lets_release": {"const": "v1.0.11"},
+        "repositories": {"$ref": "#/$defs/repositories"},
+        "runtime_identities": {"$ref": "#/$defs/runtimeIdentities"},
+        "inputs": {"$ref": "#/$defs/inputs"},
+        "totals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode_count",
+            "scenario_count",
+            "command_count",
+            "retained_artifact_count",
+            "measurement_count",
+            "cohort_metric_count",
+            "sample_count",
+            "sanitization_findings"
+          ],
+          "properties": {
+            "mode_count": {"const": 3},
+            "scenario_count": {"const": 57},
+            "command_count": {"const": 57},
+            "retained_artifact_count": {"type": "integer", "minimum": 3},
+            "measurement_count": {"type": "integer", "minimum": 3},
+            "cohort_metric_count": {"type": "integer", "minimum": 3},
+            "sample_count": {"type": "integer", "minimum": 3},
+            "sanitization_findings": {"const": 0}
+          }
+        },
+        "cross_mode_invariants": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "complete_mode_set",
+            "shared_identity_exact",
+            "canonical_evidence_records",
+            "exact_artifact_coverage",
+            "all_commands_passed",
+            "off_no_lets_requests",
+            "shadow_no_receipt_claims",
+            "enforce_zero_unreceipted_governed_effects",
+            "unchanged_runtime_disposition",
+            "readiness_bound_to_enforce_manifest"
+          ],
+          "properties": {
+            "complete_mode_set": {"const": true},
+            "shared_identity_exact": {"const": true},
+            "canonical_evidence_records": {"const": true},
+            "exact_artifact_coverage": {"const": true},
+            "all_commands_passed": {"const": true},
+            "off_no_lets_requests": {"const": true},
+            "shadow_no_receipt_claims": {"const": true},
+            "enforce_zero_unreceipted_governed_effects": {"const": true},
+            "unchanged_runtime_disposition": {"const": true},
+            "readiness_bound_to_enforce_manifest": {"const": true}
+          }
+        },
+        "modes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["off", "shadow", "enforce"],
+          "properties": {
+            "off": {"$ref": "#/$defs/modeSummary"},
+            "shadow": {"$ref": "#/$defs/modeSummary"},
+            "enforce": {"$ref": "#/$defs/modeSummary"}
+          }
+        },
+        "measurement_coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "authorization_latency_included",
+            "end_to_end_latency_included",
+            "throughput_included",
+            "storage_growth_included",
+            "refusal_latency_included",
+            "lifecycle_convergence_included",
+            "recovery_time_included"
+          ],
+          "properties": {
+            "authorization_latency_included": {"type": "boolean"},
+            "end_to_end_latency_included": {"type": "boolean"},
+            "throughput_included": {"type": "boolean"},
+            "storage_growth_included": {"type": "boolean"},
+            "refusal_latency_included": {"type": "boolean"},
+            "lifecycle_convergence_included": {"type": "boolean"},
+            "recovery_time_included": {"type": "boolean"}
+          }
+        },
+        "runtime_identity_quality": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "policy_digest_placeholder_pattern",
+            "machine_digest_placeholder_pattern",
+            "authenticated_runtime_identity_supported",
+            "limitation"
+          ],
+          "properties": {
+            "policy_digest_placeholder_pattern": {"type": "boolean"},
+            "machine_digest_placeholder_pattern": {"type": "boolean"},
+            "authenticated_runtime_identity_supported": {"type": "boolean"},
+            "limitation": {"type": "string", "minLength": 1, "maxLength": 500}
+          }
+        },
+        "statistical_limits": {"$ref": "#/$defs/statisticalLimits"},
+        "evidence_scope": {"$ref": "#/$defs/evidenceScope"}
+      }
+    },
+    "modeCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_count",
+        "measurement_count",
+        "cohort_metric_count",
+        "sample_count"
+      ],
+      "properties": {
+        "scenario_count": {"const": 19},
+        "measurement_count": {"type": "integer", "minimum": 1},
+        "cohort_metric_count": {"type": "integer", "minimum": 1},
+        "sample_count": {"type": "integer", "minimum": 1}
+      }
+    },
+    "aggregateManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "status",
+        "study_id",
+        "generated_at",
+        "aggregator_sha256",
+        "aggregate_schema_sha256",
+        "composition_sha256",
+        "lets_release",
+        "repositories",
+        "inputs",
+        "summary",
+        "mode_counts",
+        "version_disposition",
+        "paper_readiness_status",
+        "statistical_limits",
+        "evidence_scope"
+      ],
+      "properties": {
+        "format": {"const": "lets.astraldeep-case-study-aggregate/v1"},
+        "status": {"const": "validated"},
+        "study_id": {"$ref": "#/$defs/digest"},
+        "generated_at": {"$ref": "#/$defs/timestamp"},
+        "aggregator_sha256": {"$ref": "#/$defs/sha256"},
+        "aggregate_schema_sha256": {"$ref": "#/$defs/sha256"},
+        "composition_sha256": {"$ref": "#/$defs/sha256"},
+        "lets_release": {"const": "v1.0.11"},
+        "repositories": {"$ref": "#/$defs/repositories"},
+        "inputs": {"$ref": "#/$defs/inputs"},
+        "summary": {"$ref": "#/$defs/summaryRecord"},
+        "mode_counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["off", "shadow", "enforce"],
+          "properties": {
+            "off": {"$ref": "#/$defs/modeCount"},
+            "shadow": {"$ref": "#/$defs/modeCount"},
+            "enforce": {"$ref": "#/$defs/modeCount"}
+          }
+        },
+        "version_disposition": {"const": "unchanged-runtime"},
+        "paper_readiness_status": {
+          "const": "ready-for-local-paper-result-finalization"
+        },
+        "statistical_limits": {"$ref": "#/$defs/statisticalLimits"},
+        "evidence_scope": {"$ref": "#/$defs/evidenceScope"}
+      }
+    }
+  }
+}

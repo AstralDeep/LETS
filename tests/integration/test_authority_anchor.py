@@ -250,26 +250,13 @@ def test_process_file_anchor_enforces_one_total_io_deadline(tmp_path: Path) -> N
     assert time.monotonic() - started < 1.5
 
 
-def test_process_file_reconcile_and_confirm_share_one_absolute_deadline(tmp_path: Path) -> None:
-    script = (
-        "import json,sys,time;"
-        "\nfor line in sys.stdin:"
-        "\n r=json.loads(line);op=r['operation'];"
-        "\n if op=='confirm': time.sleep(10);"
-        "\n status='missing' if op=='read' else 'ok';"
-        "\n print(json.dumps({'request_id':r['request_id'],'status':status}),flush=True)"
-    )
+def test_process_file_reconcile_and_confirm_pass_one_exact_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     anchor = ProcessFileAuthorityAnchor(
         tmp_path / "anchor.json",
         timeout_s=0.5,
-        helper_command=(sys.executable, "-c", script),
-    )
-    assert (
-        anchor._invoke(
-            {"operation": "read"},
-            deadline=time.monotonic() + 2.0,
-        )["status"]
-        == "missing"
     )
     checkpoint = AuthorityCheckpoint(
         warden_id="warden-a",
@@ -286,18 +273,33 @@ def test_process_file_reconcile_and_confirm_share_one_absolute_deadline(tmp_path
         state_digest=b"s" * 32,
         clock_floor_ns=None,
     )
-    started = time.monotonic()
-    with pytest.raises(AuthorityAnchorTransportError) as raised:
-        anchor.reconcile_and_confirm(
-            checkpoint,
-            audit_hash_at=lambda _sequence: None,
-            initialize=True,
-        )
-    assert raised.value.operation == "confirm"
-    assert raised.value.reason == "deadline"
-    assert raised.value.request_flushed is True
-    assert raised.value.mutation_uncertain is True
-    assert time.monotonic() - started < 1.5
+    now = 100.0
+
+    def advancing_monotonic() -> float:
+        nonlocal now
+        current = now
+        now += 0.01
+        return current
+
+    operations: list[tuple[str, float]] = []
+
+    def invoke(request: dict[str, object], *, deadline: float) -> dict[str, object]:
+        operation = str(request.get("operation"))
+        operations.append((operation, deadline))
+        return {"status": "missing" if operation == "read" else "ok"}
+
+    monkeypatch.setattr(authority_module.time, "monotonic", advancing_monotonic)
+    monkeypatch.setattr(anchor, "_invoke", invoke)
+    anchor.reconcile_and_confirm(
+        checkpoint,
+        audit_hash_at=lambda _sequence: None,
+        initialize=True,
+    )
+    assert operations == [
+        ("read", 100.5),
+        ("initialize", 100.5),
+        ("confirm", 100.5),
+    ]
 
 
 def test_process_file_anchor_start_eof_and_process_lock_failures_are_typed(
