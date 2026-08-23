@@ -626,8 +626,11 @@ def _finish_initialization(
         config["allow_insecure_manifest"] = bool(arguments.allow_insecure_manifest)
     if node_endpoints is not None:
         config["endpoints"] = node_endpoints
-    if peer_endpoints:
-        config["peer_endpoints"] = peer_endpoints
+    # Always persist the peer map — an empty mapping is the explicit,
+    # serve-admissible statement that this is a single-warden cluster.
+    # (Omitting the key made a production single-warden config fail the
+    # serve-time "peer endpoints exactly match the signed manifest" check.)
+    config["peer_endpoints"] = dict(peer_endpoints)
     _atomic_json(resolved, config)
 
     document: dict[str, object] = {
@@ -1272,8 +1275,14 @@ def _manifest_trust_registry(
         for warden in manifest.wardens
         if warden.warden_id != signer.warden_id
     }
-    configured_endpoints = config.get("peer_endpoints")
-    if not isinstance(configured_endpoints, Mapping) or configured_endpoints != expected_endpoints:
+    # A config written before the key was always persisted may omit it; a
+    # missing map means "no peers", which is only admissible when the signed
+    # manifest declares no other wardens.
+    configured_endpoints = config.get("peer_endpoints", {})
+    if (
+        not isinstance(configured_endpoints, Mapping)
+        or dict(configured_endpoints) != expected_endpoints
+    ):
         raise ValidationError("configured peer endpoints do not exactly match the signed manifest")
 
     registry = PublicKeyRegistry(clock=clock)

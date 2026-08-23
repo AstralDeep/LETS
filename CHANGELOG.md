@@ -5,6 +5,15 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Single-warden clusters round-trip `init` → `serve --production` without hand edits: `init` now
+  always persists `peer_endpoints` (an empty map for a one-warden manifest) and the serve-time
+  manifest trust rebuild treats a missing map as "no peers", admissible only when the signed
+  manifest declares no other wardens. Previously every production single-warden config was refused
+  with "configured peer endpoints do not exactly match the signed manifest" (found while
+  commissioning the AstralDeep sandbox warden, 2026-08-23).
+
 ## [1.0.11] - 2026-08-21
 
 ### Changed

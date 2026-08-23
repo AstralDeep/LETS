@@ -1445,3 +1445,107 @@ def test_manifest_cli_bootstrap_preloads_peer_trust_policy_and_verified_backup(
     with pytest.raises(SystemExit):
         cli_main(["--config", str(config_path), "backup", "--output", str(race_path)])
     assert race_path.read_bytes() == b"racer-owned-content"
+
+
+def test_single_warden_manifest_init_config_is_admitted_by_serve_trust_rebuild(
+    tmp_path: Path,
+) -> None:
+    """A one-warden cluster must round-trip init -> serve without hand edits.
+
+    Regression: ``init`` wrote ``peer_endpoints`` only when non-empty, while the
+    serve-time manifest trust rebuild required the key to be a mapping, so every
+    production single-warden config was refused with "configured peer endpoints
+    do not exactly match the signed manifest" until an operator added
+    ``"peer_endpoints": {}`` by hand.
+    """
+
+    local_signer = Ed25519Signer.generate("warden-a")
+    operator = Ed25519Signer.generate("operator-a")
+    seed_path = tmp_path / "local.seed"
+    local_signer.save_seed_file(seed_path)
+    resources = (ResourceDimension("actions", "count"),)
+    policy = PolicySpec(
+        policy_id="runtime",
+        policy_version="v1",
+        dimensions=resources,
+        machine=MachineSpec(
+            machine_id="agent",
+            initial_state="ready",
+            transitions=(
+                TransitionSpec(
+                    name="run",
+                    source="ready",
+                    target="ready",
+                    cost=(1,),
+                    capability="agent.run",
+                ),
+            ),
+        ),
+        max_lease_ttl_ns=1_000_000,
+        receipt_ttl_ns=10_000,
+        max_clock_uncertainty_ns=100,
+        transfer_gap_window=64,
+    )
+    unsigned = ClusterManifest(
+        tenant_id="tenant-a",
+        envelope_id="envelope-a",
+        config_epoch=1,
+        created_at="2026-08-09T05:00:00Z",
+        resources=resources,
+        initial_budget=(100,),
+        wardens=(
+            WardenManifest(
+                "warden-a",
+                "https://warden-a:8741",
+                "https://warden-a:8741",
+                (100,),
+                (ManifestPublicKey(local_signer.key_id, local_signer.public_key_bytes),),
+                {},
+            ),
+        ),
+        policies=(policy,),
+        extensions={},
+    )
+    manifest = replace(
+        unsigned,
+        signatures=(
+            ManifestSignature(
+                operator.key_id,
+                operator.sign(canonical_json(unsigned.unsigned_dict())),
+            ),
+        ),
+    )
+    manifest_path = tmp_path / "cluster.json"
+    manifest_path.write_text(json.dumps(manifest.to_dict()), encoding="utf-8")
+    config_path = tmp_path / "node" / "config.json"
+
+    assert cli_main(
+        [
+            "--config",
+            str(config_path),
+            "init",
+            "--warden-id",
+            "warden-a",
+            "--manifest",
+            str(manifest_path),
+            "--operator-key",
+            f"{operator.key_id}={b64url_encode(operator.public_key_bytes)}",
+            "--signing-seed-file",
+            str(seed_path),
+        ]
+    ) == 0
+
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    assert config["peer_endpoints"] == {}
+    assert config["trusted_peers"] == []
+    clock = SystemClock(declared_uncertainty_ns=0)
+    # The serve-time rebuild accepts both the persisted empty map and an older
+    # config that never carried the key.
+    proof = b"single-warden-trust"
+    for candidate in (config, {k: v for k, v in config.items() if k != "peer_endpoints"}):
+        registry = cli_module._manifest_trust_registry(
+            candidate, local_signer, clock=clock
+        )
+        assert registry.verify(
+            "warden-a", local_signer.key_id, proof, local_signer.sign(proof)
+        )
