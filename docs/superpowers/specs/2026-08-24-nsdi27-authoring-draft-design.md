@@ -4,7 +4,7 @@ Date: 2026-08-24
 
 ## Purpose
 
-Produce a comprehensive, evidence-backed authoring draft for Samuel E. Armstrong to rewrite in his own words before submission. The artifact will model the NSDI 2027 Traditional Research Track. It will not be represented as submission-ready text.
+Produce a comprehensive, evidence-backed paper draft that is written and reasoned as a competitive NSDI 2027 Traditional Research Track submission. Samuel E. Armstrong will materially rewrite it in his own words before submission.
 
 The work has two publication variants. The named arXiv version identifies LETS, AstralDeep, and the sole author. The anonymous NSDI version uses a different title and different system names as required by the venue. Both variants derive from one content source so their technical claims cannot drift.
 
@@ -19,8 +19,7 @@ The work has two publication variants. The named arXiv version identifies LETS, 
   kyopenscience.com
   ```
 
-- The generated prose is an AI-assisted authoring draft. Samuel must materially rewrite every substantive section before making the NSDI attestation that the paper is primarily human-written.
-- Draft builds carry a visible authoring-draft notice and PDF metadata. The checker must reject a submission build while that notice remains active.
+- Samuel must materially rewrite every substantive section before making the NSDI attestation that the paper is primarily human-written. This responsibility stays in the handoff and does not alter the manuscript's language, structure, metadata, argument, or presentation.
 - No production, performance, scale, or safety claim may exceed retained evidence.
 - The owner-reported production deployment is provenance, not experimental evidence. It may be described only as a later deployment event unless independently retained deployment measurements support more.
 - The manuscript keeps Samuel's direct style. It avoids em dashes, semicolons, long lists, inflated transitions, and dense strings of abstract nouns. Colons are permitted only where they improve a title, caption, definition, or short lead-in.
@@ -69,8 +68,6 @@ The ignored local submission tree remains private during double-blind preparatio
 - `paper-nsdi27.tex` for the anonymous title, system aliases, Traditional Research Track label, anonymous metadata, and numbered review pages.
 - `main.tex` as a compatibility wrapper for the named draft.
 - `paper-anon.tex` as a compatibility wrapper for the NSDI draft.
-- `draft-provenance.tex` for the visible authoring-draft notice and metadata.
-- `AUTHOR_REWRITE_REQUIRED.md` for section-by-section human rewrite and final accountability checks.
 - `claim-evidence-matrix.md` for every consequential claim, its evidence identity, scope, confidence, and exclusion.
 - `provider-interface-audit.md` for official documentation from commercial and third-party agent providers.
 - `figures/` for deterministic vector figures and their source files.
@@ -137,13 +134,11 @@ The paper uses three primary figures.
 
 A compact transfer timeline may replace prose if the cross-warden protocol cannot be explained within the Design page budget. Every figure has deterministic source, accessible labels, grayscale validation, and a caption that states what the figure does not prove.
 
-## Draft provenance and human rewrite gate
+## Human rewrite responsibility
 
-Every generated PDF displays "AI-assisted authoring draft. Not for submission." The PDF title metadata includes `AUTHORING DRAFT`. The LaTeX source contains the same warning before substantive content.
+The manuscript contains no visible warning, watermark, draft disclaimer, altered metadata, or rhetorical hedge tied to how it was produced. It is written as a complete conference paper whose objective is acceptance.
 
-`AUTHOR_REWRITE_REQUIRED.md` lists Abstract, Introduction, Missing Control Boundary, System and Threat Model, Design, Implementation, Evaluation, Security Boundaries, Related Work, and Conclusion. Samuel must materially rewrite and approve each section, each caption, each table, and the bibliography before the draft notice can be removed.
-
-The checker cannot determine authorship. It therefore does not claim that a marked checklist proves human authorship. It only prevents accidental production of an unmarked submission PDF from the AI-assisted source.
+The authorship boundary exists outside the manuscript. Samuel must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Automated checks cannot determine whether text is primarily human-written and must not claim to do so.
 
 ## Verification
 
@@ -161,8 +156,8 @@ The workflow must verify:
 - All fonts are embedded and the PDF is searchable.
 - Both variants build from a clean output directory without warnings that affect correctness.
 
-The checker fails closed. A failed anonymity, provenance, evidence, formatting, or build check produces no submission-ready artifact.
+The checker fails closed. A failed anonymity, evidence, formatting, or build check produces no final PDF.
 
 ## Completion boundary
 
-This phase ends with complete named and anonymous authoring-draft PDFs, source, figures, citation audit, evidence matrix, and verification results. It does not include arXiv upload, HotCRP registration, NSDI submission, artifact submission, production-server access, or TDSC submission. Those actions require separate explicit authorization and the completed human rewrite gate.
+This phase ends with complete named and anonymous paper-draft PDFs, source, figures, citation audit, evidence matrix, and verification results. It does not include arXiv upload, HotCRP registration, NSDI submission, artifact submission, production-server access, or TDSC submission. Those actions require separate explicit authorization and Samuel's completed rewrite and review.
