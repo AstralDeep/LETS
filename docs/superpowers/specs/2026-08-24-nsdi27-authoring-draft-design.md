@@ -112,6 +112,10 @@ The current 57-scenario evidence supports integration, typed refusal, lifecycle,
 
 Historical formal exploration, three-warden acceptance, soak, mutation, and microbenchmark results may be recovered only when their exact source version, configuration, and retained output are verified. Version-bound results remain labeled as such. No result is silently promoted to the current v1.0.11 runtime.
 
+The 2026-08-24 evidence refresh binds new evaluation to the exact v1.0.11 tag and published OCI index digest. It first authenticates the immutable release checksum manifest and retains the published v1.0.11 production-profile acceptance and one-hour soak objects. It then uses a detached exact-tag checkout to rerun the full test suite, bounded and TLA+ exploration, duplicate-credit mutation, repeated single-host microbenchmarks, three-warden fault acceptance, production-profile acceptance, and a one-hour exact-image soak. Raw outputs, commands, host facts, source identities, and cleanup results remain separate from the manuscript and enter the claim matrix before any number enters prose.
+
+Published release runs and fresh local runs remain distinct evidence rows. A Docker Desktop run on one physical host is not an independent production failure domain. Neither the release workflow nor the local reproduction supplies AstralDeep production telemetry, a clinical outcome, or a population performance distribution.
+
 The paper states the chronology directly. The integration study alone did not authorize rollout. A later owner-authorized deployment occurred. The paper does not infer production reliability or scale from that event.
 
 Missing competitive, independent-host, or repeated performance experiments are described as evaluation gaps. The draft does not invent baselines, uncertainty, or measurements. If new evidence is later collected, it enters through the claim-evidence matrix before entering prose or figures.

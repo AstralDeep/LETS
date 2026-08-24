@@ -231,6 +231,51 @@ Run: `python -m unittest paper/submission/test_check_submission.py -v`
 
 Expected: all macro values equal retained JSON and every manuscript number has one claim-matrix row.
 
+### Task 3A: Regenerate current v1.0.11 evaluation evidence
+
+**Files:**
+- Create: `paper/submission/evaluation/v1.0.11/release/`
+- Create: `paper/submission/evaluation/v1.0.11/local/`
+- Create: `paper/submission/evaluation/summarize_v1_0_11.py`
+- Create: `paper/submission/evaluation/v1.0.11/README.md`
+- Modify: `paper/submission/claim-evidence-matrix.md`
+- Modify: `paper/submission/evidence.tex`
+- Test: `paper/submission/test_check_submission.py`
+
+**Interfaces:**
+- Consumes: the exact `v1.0.11` tag at `6245189920c686353c4ced7a208d56ec266f745c`, the immutable v1.0.11 GitHub release assets, `ghcr.io/astraldeep/lets@sha256:73f6b442df0a849f1d8cf6e13e29ff8b23bf515aae2d34cfc56bac7ccc60774c`, the current formal and benchmark harnesses, Docker Desktop, and no production credentials.
+- Produces: authenticated release evidence, fresh exact-tag local evidence, a machine-readable aggregate, and current-version macros whose scope remains explicit.
+
+- [ ] **Step 1: Authenticate the immutable release evidence**
+
+Download the complete v1.0.11 release asset set. Verify `RELEASE_SHA256SUMS` with Cosign v3.1.3 against the release workflow identity and GitHub Actions issuer, then verify every payload digest. Retain the authenticated production-profile acceptance, one-hour soak, image manifest, image digest, checksum manifest, Sigstore bundle, release metadata, and verification transcript. Reject a partial, extra, unsigned, or mismatched asset set.
+
+- [ ] **Step 2: Create an exact-release execution boundary**
+
+Create a temporary detached worktree at the signed `v1.0.11` tag. Record the tag, commit, tree, source archive digest, tool versions, host facts, and a clean pre-run status. Inventory Docker containers, networks, images, and volumes before mutation. Assert that `astraldeep_pgdata` exists and is never a cleanup target. Do not inspect or copy its credential contents.
+
+- [ ] **Step 3: Rerun code and formal checks**
+
+From the exact-tag worktree run the frozen full test suite. Rerun the bounded model exploration, its duplicate-credit mutation, and TLC with the pinned v1.8.0 JAR. If the host lacks Java, use a digest-pinned Java container through a recorded wrapper rather than changing the host. Retain raw logs and outputs, including the expected nonzero mutation result and its counterexample.
+
+- [ ] **Step 4: Collect repeated current-version microbenchmarks**
+
+Run ten independent benchmark trials with 1,000 measured operations, 100 warmups, and four workers. Also run the existing storage-scaling and invariant-scaling profiles. Preserve every raw JSON/CSV file. Summarize per-trial medians and p95 values with median, interquartile range, minimum, and maximum across trials. Treat the results as descriptive evidence from one physical host, not a population estimate or a cross-system comparison.
+
+- [ ] **Step 5: Rerun both three-warden acceptance profiles**
+
+Run `deploy/run_acceptance.py` from the clean exact-tag source. Then run `deploy/production/run_acceptance.py` against the exact published OCI index digest. Retain both sanitized outputs and logs. Record that Docker Desktop supplies one VM-backed host and does not test independent machines or WAN behavior.
+
+- [ ] **Step 6: Rerun the one-hour exact-image soak**
+
+Run `deploy/production/run_soak.py` for 3,600 seconds with its release-default fault cadence and the exact published image digest. Preserve success or failure evidence exactly. Do not replace a failed local reproduction with the published release result or weaken the harness. The published release soak remains a separate authenticated execution.
+
+- [ ] **Step 7: Normalize, admit, test, and clean**
+
+Generate a deterministic aggregate and SHA-256 manifest across all release and local objects. Add only validated current-v1.0.11 observations to the claim matrix and `evidence.tex`, with separate rows for release-run and local-run topology. Extend the checker so every new macro is source-derived and mapped to one approved claim family. Remove the temporary worktree and all LETS/Astral containers, networks, test volumes, and task-created LETS/Astral images. Verify that no such resources remain and that `astraldeep_pgdata` still exists.
+
+Expected: the paper uses current v1.0.11 numbers, every admitted number resolves to authenticated or locally retained raw evidence, all rerun limitations are explicit, and the Docker cleanup leaves only the protected AstralDeep credential volume among Astral/LETS resources.
+
 ### Task 4: Audit provider interfaces and primary related work
 
 **Files:**
@@ -278,7 +323,7 @@ Search the exact named and anonymous titles. Record the queries and result date 
 - Test: `paper/submission/test_check_submission.py`
 
 **Interfaces:**
-- Consumes: approved claim families, wrapper-neutral labels, and exact evidence counts from Task 3.
+- Consumes: approved claim families, wrapper-neutral labels, and exact evidence counts from Tasks 3 and 3A.
 - Produces: deterministic vector files with a stable `render_all(output_dir: Path, evidence: dict[str, object]) -> list[Path]` interface.
 
 - [ ] **Step 1: Write failing deterministic-render tests**
@@ -377,7 +422,7 @@ Describe the implemented Python 3.11 runtime and the normal authenticated Astral
 - Modify: `paper/submission/figures/evidence_behavior.json`
 
 **Interfaces:**
-- Consumes: only evidence admitted by Task 3, exact study manifests, and the evidence-behavior figure.
+- Consumes: only evidence admitted by Tasks 3 and 3A, exact study manifests, and the evidence-behavior figure.
 - Produces: reproducible research questions, methods, results, and explicit limits with no invented baseline or uncertainty.
 
 - [ ] **Step 1: Frame four evaluation questions**
@@ -390,7 +435,7 @@ Include bounded exploration and TLA+ results only when exact configs and outputs
 
 - [ ] **Step 3: Write runtime qualification evidence**
 
-Include three-warden acceptance, soak, mutation, and microbenchmark observations only when their version identities are retained. Report trial counts and descriptive statistics exactly. Do not transfer archived v1.0.10 values to v1.0.11.
+Include three-warden acceptance, soak, mutation, and microbenchmark observations only when their version identities are retained. Report trial counts and descriptive statistics exactly. Prefer authenticated or freshly generated v1.0.11 evidence. Do not transfer archived v1.0.10 values to v1.0.11.
 
 - [ ] **Step 4: Write the 57-scenario host study**
 
