@@ -2,7 +2,7 @@
 
 ARG SOURCE_DATE_EPOCH=0
 
-FROM ghcr.io/astral-sh/uv:0.12.3@sha256:2d890623d310b57771ce840f0da5eed5fc6d657da05ffaa45d82797b53fa3abc AS uv
+FROM ghcr.io/astral-sh/uv:0.12.7@sha256:95f2aa1fe59274951cfe9b0cbc7972e879ff1004bc8945d130a32eb0dbd85945 AS uv
 
 FROM python:3.14-alpine@sha256:05b2b8b732ecd268fee8727a369f936f022d1321b59befd13c30ede22769dcdc AS builder
 ARG SOURCE_DATE_EPOCH
@@ -39,7 +39,8 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
-RUN rm -rf \
+RUN apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 \
+    && rm -rf \
         /usr/local/lib/python3.14/site-packages/pip \
         /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
         /usr/local/bin/pip \
@@ -69,7 +70,7 @@ CMD ["lets", "--help"]
 
 FROM runtime AS production-acceptance
 USER 0:0
-RUN apk add --no-cache openssl=3.5.7-r0
+RUN apk add --no-cache openssl=3.5.8-r0
 COPY --chown=0:0 deploy/production/acceptance /app/deploy/production/acceptance
 RUN chmod -R a-w /app/deploy/production/acceptance \
     && find /app/deploy/production/acceptance -type d -exec chmod a+rx {} +

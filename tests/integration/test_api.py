@@ -1519,21 +1519,24 @@ def test_single_warden_manifest_init_config_is_admitted_by_serve_trust_rebuild(
     manifest_path.write_text(json.dumps(manifest.to_dict()), encoding="utf-8")
     config_path = tmp_path / "node" / "config.json"
 
-    assert cli_main(
-        [
-            "--config",
-            str(config_path),
-            "init",
-            "--warden-id",
-            "warden-a",
-            "--manifest",
-            str(manifest_path),
-            "--operator-key",
-            f"{operator.key_id}={b64url_encode(operator.public_key_bytes)}",
-            "--signing-seed-file",
-            str(seed_path),
-        ]
-    ) == 0
+    assert (
+        cli_main(
+            [
+                "--config",
+                str(config_path),
+                "init",
+                "--warden-id",
+                "warden-a",
+                "--manifest",
+                str(manifest_path),
+                "--operator-key",
+                f"{operator.key_id}={b64url_encode(operator.public_key_bytes)}",
+                "--signing-seed-file",
+                str(seed_path),
+            ]
+        )
+        == 0
+    )
 
     config = json.loads(config_path.read_text(encoding="utf-8"))
     assert config["peer_endpoints"] == {}
@@ -1543,9 +1546,5 @@ def test_single_warden_manifest_init_config_is_admitted_by_serve_trust_rebuild(
     # config that never carried the key.
     proof = b"single-warden-trust"
     for candidate in (config, {k: v for k, v in config.items() if k != "peer_endpoints"}):
-        registry = cli_module._manifest_trust_registry(
-            candidate, local_signer, clock=clock
-        )
-        assert registry.verify(
-            "warden-a", local_signer.key_id, proof, local_signer.sign(proof)
-        )
+        registry = cli_module._manifest_trust_registry(candidate, local_signer, clock=clock)
+        assert registry.verify("warden-a", local_signer.key_id, proof, local_signer.sign(proof))
