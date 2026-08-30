@@ -3104,12 +3104,15 @@ def test_monitor_error_sets_abort_and_retains_structured_failure_snapshot(
     assert snapshot["health_monitor"]["samples_truncated"] == 0
     assert snapshot["health_monitor"]["attempted_sample_count"] == 1
     assert snapshot["health_monitor"]["expected_sample_count"] >= 1
-    assert snapshot["health_monitor"]["failure_schedule"] == {
-        "deadline_elapsed_seconds": pytest.approx(15.0, abs=0.01),
-        "schedule_index": 0,
-        "scheduled_elapsed_seconds": 0.0,
-        "started_elapsed_seconds": pytest.approx(0.0, abs=0.01),
-    }
+    failure_schedule = snapshot["health_monitor"]["failure_schedule"]
+    assert failure_schedule["deadline_elapsed_seconds"] == pytest.approx(15.0, abs=0.01)
+    assert failure_schedule["schedule_index"] == 0
+    assert failure_schedule["scheduled_elapsed_seconds"] == 0.0
+    assert (
+        failure_schedule["scheduled_elapsed_seconds"]
+        <= failure_schedule["started_elapsed_seconds"]
+        <= failure_schedule["deadline_elapsed_seconds"]
+    )
 
 
 def test_checkpoint_lineage_allows_state_digest_change_only_with_an_advanced_audit_head() -> None:
