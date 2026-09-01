@@ -1,0 +1,5780 @@
+{
+  "checks": {
+    "duplicate_executor_claim_rejected": true,
+    "duplicate_transfer_credit_prevented": true,
+    "global_conservation": true,
+    "heterogeneous_costs_exercised": true,
+    "independent_dimension_attenuation_exercised": true,
+    "multi_dimension_cost_exercised": true,
+    "spendable_bound": true,
+    "transfer_backed_target_action_claimed": true,
+    "two_dimensions_exercised": true,
+    "unclaimed_expired_receipt_remained_debited": true,
+    "zero_read_denied_multi_dimension_action": true
+  },
+  "configuration": {
+    "budget": [
+      40,
+      60
+    ],
+    "dimensions": [
+      {
+        "id": "read",
+        "unit": "count"
+      },
+      {
+        "id": "system",
+        "unit": "count"
+      }
+    ],
+    "executor_storage": "SQLite WAL synchronous=FULL; unanchored experiment mode",
+    "initial_shares": {
+      "source-warden": [
+        40,
+        60
+      ],
+      "target-warden": [
+        0,
+        0
+      ]
+    },
+    "transitions": [
+      {
+        "capability": "service.inspect",
+        "cost": [
+          1,
+          0
+        ],
+        "name": "inspect_configuration",
+        "source": "ready",
+        "target": "ready"
+      },
+      {
+        "capability": "service.restart",
+        "cost": [
+          0,
+          3
+        ],
+        "name": "restart_service",
+        "source": "ready",
+        "target": "ready"
+      },
+      {
+        "capability": "service.rotate",
+        "cost": [
+          1,
+          5
+        ],
+        "name": "rotate_credential",
+        "source": "ready",
+        "target": "ready"
+      }
+    ]
+  },
+  "environment": {
+    "logical_cpu_count": 32,
+    "machine": "AMD64",
+    "os_release": "10",
+    "os_system": "Windows",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "python_executable": "$REPOSITORY\\.venv\\Scripts\\python.exe",
+    "python_implementation": "CPython",
+    "python_version": "3.14.0",
+    "sqlite_version": "3.50.4"
+  },
+  "final": {
+    "conserved": [
+      40,
+      60
+    ],
+    "consumed": [
+      8,
+      27
+    ],
+    "free_pool": [
+      6,
+      10
+    ],
+    "identity_holds": true,
+    "in_flight": [
+      0,
+      0
+    ],
+    "initial_share": [
+      40,
+      60
+    ],
+    "lease_residual": [
+      26,
+      23
+    ],
+    "local_invariants_healthy": true,
+    "spendable": [
+      32,
+      33
+    ],
+    "spendable_bound_holds": true,
+    "transferred_in": [
+      4,
+      10
+    ],
+    "transferred_out": [
+      4,
+      10
+    ],
+    "wardens": {
+      "source-warden": {
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "healthy": true,
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          4,
+          10
+        ]
+      },
+      "target-warden": {
+        "consumed": [
+          2,
+          8
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "healthy": true,
+        "initial_share": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          2,
+          2
+        ],
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "generated_at": "2026-08-31T23:50:35.874444Z",
+  "operations": [
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          -30,
+          -40
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          40,
+          60
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              40,
+              60
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "root_issue",
+      "details": {
+        "allocation": [
+          30,
+          40
+        ],
+        "lease": "source-root",
+        "lease_id": "lease_5a6625eb8db740e182469993a0fc40ba"
+      },
+      "expected_failure": null,
+      "index": 0,
+      "operation": "root_issue_source",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "spawn",
+      "details": {
+        "allocation": [
+          8,
+          0
+        ],
+        "capabilities": [
+          "service.inspect"
+        ],
+        "lease": "reader",
+        "lease_id": "lease_9746b79ce4c24ffc9f5ba89bccb8a5a4"
+      },
+      "expected_failure": null,
+      "index": 1,
+      "operation": "spawn_reader",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "spawn",
+      "details": {
+        "allocation": [
+          0,
+          15
+        ],
+        "capabilities": [
+          "service.restart",
+          "service.rotate"
+        ],
+        "lease": "operator",
+        "lease_id": "lease_98b439e343b742049dd4c0f46674500c"
+      },
+      "expected_failure": null,
+      "index": 2,
+      "operation": "spawn_operator",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "spawn",
+      "details": {
+        "allocation": [
+          5,
+          15
+        ],
+        "capabilities": [
+          "service.inspect",
+          "service.restart",
+          "service.rotate"
+        ],
+        "lease": "recovery",
+        "lease_id": "lease_62882cbac488497f8e339cf3e872b30a"
+      },
+      "expected_failure": null,
+      "index": 3,
+      "operation": "spawn_recovery",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          1,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          29,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          39,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              1,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              29,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          0
+        ],
+        "spendable": [
+          -1,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          30,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          40,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              30,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          0
+        ],
+        "lease": "reader",
+        "receipt_id": "receipt_2dfca1c57aed4c04a1cacedebaeaeb2a",
+        "transition": "inspect_configuration",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 4,
+      "operation": "reader_inspect_1",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          2,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          28,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          38,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              2,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              28,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          0
+        ],
+        "spendable": [
+          -1,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          1,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          29,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          39,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              1,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              29,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          0
+        ],
+        "lease": "reader",
+        "receipt_id": "receipt_c7a513d6ab514911998ee761682a119b",
+        "transition": "inspect_configuration",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 5,
+      "operation": "reader_inspect_2",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          0
+        ],
+        "spendable": [
+          -1,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          2,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          28,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          38,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              2,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              28,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          0
+        ],
+        "lease": "reader",
+        "receipt_id": "receipt_94230029193c4cd8b6383f3fb034c91d",
+        "transition": "inspect_configuration",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 6,
+      "operation": "reader_inspect_3",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          3
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          37
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          57
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              3
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              37
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          3
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          -3
+        ],
+        "spendable": [
+          0,
+          -3
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          0
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          40
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          60
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              0
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              40
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          0,
+          3
+        ],
+        "lease": "operator",
+        "receipt_id": "receipt_9121c31c0f884d6dbf430212d2297501",
+        "transition": "restart_service",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 7,
+      "operation": "operator_restart_1",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          6
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          34
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          54
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              6
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              34
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          3
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          -3
+        ],
+        "spendable": [
+          0,
+          -3
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          3
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          37
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          57
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              3
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              37
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          0,
+          3
+        ],
+        "lease": "operator",
+        "receipt_id": "receipt_8944eb912841450995aaab2452380e2e",
+        "transition": "restart_service",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 8,
+      "operation": "operator_restart_2",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          6
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          34
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          54
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              6
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              34
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          6
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          34
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          54
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              6
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              34
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorization_denial",
+      "details": {
+        "error_code": "policy_denied",
+        "error_type": "PolicyError"
+      },
+      "expected_failure": "policy_denied",
+      "index": 9,
+      "operation": "operator_rotate_denied_zero_read",
+      "outcome": "denied"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          4,
+          11
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          29
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          36,
+          49
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              4,
+              11
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              26,
+              29
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          5
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          -5
+        ],
+        "spendable": [
+          -1,
+          -5
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          3,
+          6
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          34
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          37,
+          54
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              3,
+              6
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              27,
+              34
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          5
+        ],
+        "lease": "recovery",
+        "receipt_id": "receipt_155c27d8ca934ae38f2769ee42634947",
+        "transition": "rotate_credential",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 10,
+      "operation": "recovery_rotate_1",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          5,
+          16
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          25,
+          24
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          35,
+          44
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              5,
+              16
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              25,
+              24
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          5
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          -5
+        ],
+        "spendable": [
+          -1,
+          -5
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          4,
+          11
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          29
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          36,
+          49
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              4,
+              11
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              26,
+              29
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          5
+        ],
+        "lease": "recovery",
+        "receipt_id": "receipt_9d64153f27dd4304953cecc6199b2f1c",
+        "transition": "rotate_credential",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 11,
+      "operation": "recovery_rotate_2",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          16
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          24
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          44
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              16
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              24
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          0
+        ],
+        "spendable": [
+          -1,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          5,
+          16
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          25,
+          24
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          35,
+          44
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              5,
+              16
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              25,
+              24
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          0
+        ],
+        "lease": "recovery",
+        "receipt_id": "receipt_61d5061aeff64a89b61d3ef86392cc40",
+        "transition": "inspect_configuration",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 12,
+      "operation": "recovery_inspect",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          3
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          -3
+        ],
+        "spendable": [
+          0,
+          -3
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          16
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          24
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          44
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              16
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              24
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          0,
+          3
+        ],
+        "lease": "recovery",
+        "receipt_id": "receipt_8ddf130e2aab4282b5e3aa2b2329a8a9",
+        "transition": "restart_service",
+        "warden": "source-warden"
+      },
+      "expected_failure": null,
+      "index": 13,
+      "operation": "recovery_restart",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          4,
+          10
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          30,
+          31
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          -4,
+          -10
+        ],
+        "in_flight": [
+          4,
+          10
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          -4,
+          -10
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          0,
+          0
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              10,
+              20
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "transfer_prepare",
+      "details": {
+        "amount": [
+          4,
+          10
+        ],
+        "sequence": 1
+      },
+      "expected_failure": null,
+      "index": 14,
+      "operation": "transfer_prepare",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              4,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          4,
+          10
+        ],
+        "in_flight": [
+          -4,
+          -10
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          4,
+          10
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          4,
+          10
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          30,
+          31
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          0,
+          0
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "transfer_accept",
+      "details": {
+        "amount": [
+          4,
+          10
+        ],
+        "contiguous_watermark": 1,
+        "sequence": 1
+      },
+      "expected_failure": null,
+      "index": 15,
+      "operation": "transfer_accept",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              4,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              4,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "transfer_duplicate_accept",
+      "details": {
+        "amount": [
+          4,
+          10
+        ],
+        "contiguous_watermark": 1,
+        "sequence": 1
+      },
+      "expected_failure": null,
+      "index": 16,
+      "operation": "transfer_duplicate_accept",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              4,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              4,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "transfer_finalize",
+      "details": {
+        "sequence": 1
+      },
+      "expected_failure": null,
+      "index": 17,
+      "operation": "transfer_finalize",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          28,
+          31
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              4,
+              10
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          -4,
+          -10
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          4,
+          10
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          10,
+          20
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          24,
+          21
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              4,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              0,
+              0
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "root_issue",
+      "details": {
+        "allocation": [
+          4,
+          10
+        ],
+        "lease": "target-root",
+        "lease_id": "lease_06eb75f3a90a4a168eb6ebd440dc4b24"
+      },
+      "expected_failure": null,
+      "index": 18,
+      "operation": "target_root_from_transferred_units",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          7,
+          24
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          26
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          33,
+          36
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              1,
+              5
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              3,
+              5
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          5
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          -5
+        ],
+        "spendable": [
+          -1,
+          -5
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          6,
+          19
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          28,
+          31
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          34,
+          41
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              0,
+              0
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              4,
+              10
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          5
+        ],
+        "lease": "target-root",
+        "receipt_id": "receipt_88d13c84e2e741d1ac88ffad7c809619",
+        "transition": "rotate_credential",
+        "warden": "target-warden"
+      },
+      "expected_failure": null,
+      "index": 19,
+      "operation": "target_rotate_transfer_backed",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          8,
+          24
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          26
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          32,
+          36
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              2,
+              5
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              2,
+              5
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          1,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          -1,
+          0
+        ],
+        "spendable": [
+          -1,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          7,
+          24
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          27,
+          26
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          33,
+          36
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              1,
+              5
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              3,
+              5
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "authorize_and_claim",
+      "details": {
+        "claimed": true,
+        "cost": [
+          1,
+          0
+        ],
+        "lease": "target-root",
+        "receipt_id": "receipt_6daa9b514ef94fc184a5f7c7cdc68f6f",
+        "transition": "inspect_configuration",
+        "warden": "target-warden"
+      },
+      "expected_failure": null,
+      "index": 20,
+      "operation": "target_inspect_transfer_backed",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          8,
+          24
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          26
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          32,
+          36
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              2,
+              5
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              2,
+              5
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          8,
+          24
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          26
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          32,
+          36
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              2,
+              5
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              2,
+              5
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "executor_duplicate_claim",
+      "details": {
+        "error_code": "replay_detected",
+        "error_type": "ReplayError"
+      },
+      "expected_failure": "replay_detected",
+      "index": 21,
+      "operation": "duplicate_executor_claim_rejected",
+      "outcome": "denied"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          8,
+          27
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          23
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          32,
+          33
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              2,
+              8
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              2,
+              2
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          3
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          -3
+        ],
+        "spendable": [
+          0,
+          -3
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          8,
+          24
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          26
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          32,
+          36
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              2,
+              5
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              2,
+              5
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "warden_debit_without_executor_claim",
+      "details": {
+        "claimed": false,
+        "cost": [
+          0,
+          3
+        ],
+        "lease": "target-root",
+        "receipt_id": "receipt_ad4c574c18d34c739111a1dc3250903d",
+        "transition": "restart_service",
+        "warden": "target-warden"
+      },
+      "expected_failure": null,
+      "index": 22,
+      "operation": "target_restart_debited_but_unclaimed",
+      "outcome": "succeeded"
+    },
+    {
+      "after": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          8,
+          27
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          23
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          32,
+          33
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              2,
+              8
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              2,
+              2
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "aggregate_delta": {
+        "consumed": [
+          0,
+          0
+        ],
+        "free_pool": [
+          0,
+          0
+        ],
+        "in_flight": [
+          0,
+          0
+        ],
+        "lease_residual": [
+          0,
+          0
+        ],
+        "spendable": [
+          0,
+          0
+        ]
+      },
+      "before": {
+        "conserved": [
+          40,
+          60
+        ],
+        "consumed": [
+          8,
+          27
+        ],
+        "free_pool": [
+          6,
+          10
+        ],
+        "identity_holds": true,
+        "in_flight": [
+          0,
+          0
+        ],
+        "initial_share": [
+          40,
+          60
+        ],
+        "lease_residual": [
+          26,
+          23
+        ],
+        "local_invariants_healthy": true,
+        "spendable": [
+          32,
+          33
+        ],
+        "spendable_bound_holds": true,
+        "transferred_in": [
+          4,
+          10
+        ],
+        "transferred_out": [
+          4,
+          10
+        ],
+        "wardens": {
+          "source-warden": {
+            "consumed": [
+              6,
+              19
+            ],
+            "free_pool": [
+              6,
+              10
+            ],
+            "healthy": true,
+            "initial_share": [
+              40,
+              60
+            ],
+            "lease_residual": [
+              24,
+              21
+            ],
+            "transferred_in": [
+              0,
+              0
+            ],
+            "transferred_out": [
+              4,
+              10
+            ]
+          },
+          "target-warden": {
+            "consumed": [
+              2,
+              8
+            ],
+            "free_pool": [
+              0,
+              0
+            ],
+            "healthy": true,
+            "initial_share": [
+              0,
+              0
+            ],
+            "lease_residual": [
+              2,
+              2
+            ],
+            "transferred_in": [
+              4,
+              10
+            ],
+            "transferred_out": [
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "category": "expired_executor_claim",
+      "details": {
+        "error_code": "policy_denied",
+        "error_type": "PolicyError"
+      },
+      "expected_failure": "policy_denied",
+      "index": 23,
+      "operation": "expired_unclaimed_receipt_cannot_settle",
+      "outcome": "denied"
+    }
+  ],
+  "receipt_accounting": {
+    "authority_refunded_after_expiry": false,
+    "claimed_receipts": 11,
+    "claims_after_receipt_expiry": 2,
+    "claims_after_unclaimed_issue": 2,
+    "claims_before_unclaimed_issue": 2,
+    "issued_receipts": 12,
+    "unclaimed_cost": [
+      0,
+      3
+    ],
+    "unclaimed_receipt_id": "receipt_ad4c574c18d34c739111a1dc3250903d"
+  },
+  "schema": "lets.vector-workload/v1",
+  "source": {
+    "branch": "main",
+    "commit": "a9f4ba810e1741f93ba204eb782b6c4e3d409a03",
+    "dirty": true,
+    "tracked_diff": ""
+  }
+}

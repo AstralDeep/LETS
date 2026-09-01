@@ -1,0 +1,155 @@
+{
+  "artifacts": {
+    "junit": {
+      "bytes": 1763,
+      "file": "rollback-matrix.junit.xml",
+      "sha256": "sha256:d0f1f17631f13e1c156caec9d962e9b1ed0454d8056e605d37c94f262c6875e3"
+    },
+    "stderr": {
+      "bytes": 0,
+      "file": "rollback-matrix.stderr.log",
+      "sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "bytes": 1855,
+      "file": "rollback-matrix.stdout.log",
+      "sha256": "sha256:83b0a13bd80d07bb7a553c3420c84342af6a5243fe5358e831f36ed850d0beb0"
+    }
+  },
+  "command": [
+    "$REPOSITORY\\.venv\\Scripts\\python.exe",
+    "-m",
+    "pytest",
+    "--color=no",
+    "-vv",
+    "--tb=long",
+    "-p",
+    "no:cacheprovider",
+    "--junitxml",
+    "$REPOSITORY\\results\\nsdi-strengthening-2026-08-31\\rollback\\.rollback-matrix-oajkonwn\\rollback-matrix.junit.xml",
+    "--basetemp",
+    "$REPOSITORY\\results\\nsdi-strengthening-2026-08-31\\rollback\\.rollback-matrix-oajkonwn\\pytest-temp",
+    "tests/integration/test_authority_anchor.py::test_external_anchor_rejects_a_stale_but_internally_valid_backup",
+    "tests/integration/test_authority_anchor.py::test_anchor_fences_a_second_database_copy_before_its_next_write",
+    "tests/integration/test_authority_anchor.py::test_commit_anchor_crash_window_fails_closed_then_recovers_extension",
+    "tests/integration/test_authority_anchor.py::test_simultaneous_database_forks_use_one_linearizable_anchor_successor",
+    "tests/integration/test_executor_authority.py::test_process_anchor_rejects_stale_preclaim_database_restore",
+    "tests/integration/test_executor_authority.py::test_concurrent_cloned_databases_have_one_external_cas_winner",
+    "tests/integration/test_executor_authority.py::test_process_executor_startup_confirm_lost_reply_preserves_and_reconfirms",
+    "tests/integration/test_executor_authority.py::test_commit_before_anchor_failure_recovers_claim_without_reauthorizing",
+    "tests/integration/test_backup_restore_fencing.py::test_stale_recovery_bundle_is_fenced_before_live_files_are_replaced",
+    "tests/unit/test_cli_recovery.py::test_server_holds_same_process_lock_as_recovery_for_its_full_lifetime"
+  ],
+  "completed_at": "2026-09-01T00:16:20.475890Z",
+  "duration_seconds": 3.609885,
+  "environment": {
+    "machine": "AMD64",
+    "operating_system": "Windows",
+    "operating_system_release": "10",
+    "operating_system_version": "10.0.19045",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "python_executable": "$REPOSITORY\\.venv\\Scripts\\python.exe",
+    "python_implementation": "CPython",
+    "python_version": "3.14.0",
+    "python_version_detail": "3.14.0 (main, Nov 19 2025, 22:43:52) [MSC v.1944 64 bit (AMD64)]"
+  },
+  "git": {
+    "branch": "main",
+    "captured_before_evidence_write": true,
+    "commit": "a9f4ba810e1741f93ba204eb782b6c4e3d409a03",
+    "dirty": true,
+    "status_sha256": "sha256:14e581f9e94e97781c69c19d7e662f58eb65cbd2ca67769cb9585e8cf61fda1a"
+  },
+  "junit": {
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0,
+    "tests": 10,
+    "time_seconds": 3.156
+  },
+  "limitations": [
+    "The selected clone races execute inside local pytest processes, not on independent hosts.",
+    "The file-anchor implementation requires an independently administered non-rollback domain.",
+    "Joint rollback of a database and its independent anchor is outside the LETS threat model.",
+    "A database ahead of a stale anchor may safely prove a contiguous extension and repair it forward."
+  ],
+  "passed": true,
+  "pytest_returncode": 0,
+  "repository_root": "$REPOSITORY",
+  "requirement_to_test_mapping": [
+    {
+      "coverage": "direct",
+      "description": "A stale but internally valid warden database is rejected by the live anchor.",
+      "requirement_id": "review-8.warden-stale-snapshot",
+      "test_node_ids": [
+        "tests/integration/test_authority_anchor.py::test_external_anchor_rejects_a_stale_but_internally_valid_backup",
+        "tests/integration/test_backup_restore_fencing.py::test_stale_recovery_bundle_is_fenced_before_live_files_are_replaced"
+      ]
+    },
+    {
+      "coverage": "direct-local-process",
+      "description": "Two warden database copies cannot both advance one authority lineage.",
+      "requirement_id": "review-8.warden-clone",
+      "test_node_ids": [
+        "tests/integration/test_authority_anchor.py::test_anchor_fences_a_second_database_copy_before_its_next_write",
+        "tests/integration/test_authority_anchor.py::test_simultaneous_database_forks_use_one_linearizable_anchor_successor"
+      ]
+    },
+    {
+      "coverage": "direct",
+      "description": "Restoring a pre-claim executor database behind its anchor fails closed.",
+      "requirement_id": "review-8.executor-stale-claim-store",
+      "test_node_ids": [
+        "tests/integration/test_executor_authority.py::test_process_anchor_rejects_stale_preclaim_database_restore"
+      ]
+    },
+    {
+      "coverage": "direct-local-process",
+      "description": "Concurrent executor database clones have exactly one external-CAS winner.",
+      "requirement_id": "review-8.executor-clone",
+      "test_node_ids": [
+        "tests/integration/test_executor_authority.py::test_concurrent_cloned_databases_have_one_external_cas_winner"
+      ]
+    },
+    {
+      "coverage": "direct-fault-injection",
+      "description": "Post-commit anchor/confirmation failures recover the committed head without reauthorizing or replaying the protected effect.",
+      "requirement_id": "review-8.commit-response-loss",
+      "test_node_ids": [
+        "tests/integration/test_authority_anchor.py::test_commit_anchor_crash_window_fails_closed_then_recovers_extension",
+        "tests/integration/test_executor_authority.py::test_process_executor_startup_confirm_lost_reply_preserves_and_reconfirms",
+        "tests/integration/test_executor_authority.py::test_commit_before_anchor_failure_recovers_claim_without_reauthorizing"
+      ]
+    },
+    {
+      "coverage": "direct-local-process",
+      "description": "Serving and recovery cannot concurrently own one node state directory.",
+      "requirement_id": "review-8.same-state-process-exclusion",
+      "test_node_ids": [
+        "tests/unit/test_cli_recovery.py::test_server_holds_same_process_lock_as_recovery_for_its_full_lifetime"
+      ]
+    },
+    {
+      "coverage": "assumption-boundary-not-directly-tested",
+      "description": "Replacing or jointly rolling back the independent anchor is an infrastructure assumption, not a property established by the selected file-anchor tests.",
+      "requirement_id": "review-8.stale-anchor-replacement",
+      "test_node_ids": []
+    }
+  ],
+  "runner_error": null,
+  "schema": "lets.nsdi-rollback-clone-evidence/v1",
+  "selected_test_node_ids": [
+    "tests/integration/test_authority_anchor.py::test_external_anchor_rejects_a_stale_but_internally_valid_backup",
+    "tests/integration/test_authority_anchor.py::test_anchor_fences_a_second_database_copy_before_its_next_write",
+    "tests/integration/test_authority_anchor.py::test_commit_anchor_crash_window_fails_closed_then_recovers_extension",
+    "tests/integration/test_authority_anchor.py::test_simultaneous_database_forks_use_one_linearizable_anchor_successor",
+    "tests/integration/test_executor_authority.py::test_process_anchor_rejects_stale_preclaim_database_restore",
+    "tests/integration/test_executor_authority.py::test_concurrent_cloned_databases_have_one_external_cas_winner",
+    "tests/integration/test_executor_authority.py::test_process_executor_startup_confirm_lost_reply_preserves_and_reconfirms",
+    "tests/integration/test_executor_authority.py::test_commit_before_anchor_failure_recovers_claim_without_reauthorizing",
+    "tests/integration/test_backup_restore_fencing.py::test_stale_recovery_bundle_is_fenced_before_live_files_are_replaced",
+    "tests/unit/test_cli_recovery.py::test_server_holds_same_process_lock_as_recovery_for_its_full_lifetime"
+  ],
+  "started_at": "2026-09-01T00:16:16.871403Z"
+}

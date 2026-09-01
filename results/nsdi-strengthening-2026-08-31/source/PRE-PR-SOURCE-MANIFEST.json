@@ -1,0 +1,157 @@
+{
+  "files": [
+    {
+      "bytes": 81,
+      "path": "benchmarks/nsdi_strengthening/__init__.py",
+      "sha256": "1264fdf87fd1b391f6f21e3320519bdacdfe36106d7da3c18c3a016d6df6cc55"
+    },
+    {
+      "bytes": 4252,
+      "path": "benchmarks/nsdi_strengthening/common.py",
+      "sha256": "79195373f9abc0dc0ea58ff807e071ddef3bc00fb09b9c5c97919420b78684cc"
+    },
+    {
+      "bytes": 35522,
+      "path": "benchmarks/nsdi_strengthening/distributed_partition.py",
+      "sha256": "0a6a4ccaca3ce5024a1068905b031f13608e52fe879e99a22e64bbf856fc5dc5"
+    },
+    {
+      "bytes": 13238,
+      "path": "benchmarks/nsdi_strengthening/implementation_inventory.py",
+      "sha256": "9d73c16e8890e49baf9fb65faba683a64c9598fec3190b3eed471eed933c5a4d"
+    },
+    {
+      "bytes": 21030,
+      "path": "benchmarks/nsdi_strengthening/lineage_scaling.py",
+      "sha256": "e2fa14285705202d19e228f26c2a1fbbd4723990dd076c8344a7499634c59a0a"
+    },
+    {
+      "bytes": 53516,
+      "path": "benchmarks/nsdi_strengthening/matched_host_path.py",
+      "sha256": "81deccb273743f6536f22a2951bcaca99f075fce2c50e9c5264a79dc5aba0713"
+    },
+    {
+      "bytes": 30621,
+      "path": "benchmarks/nsdi_strengthening/performance_matrix.py",
+      "sha256": "31ef2a1c42c4c4e4d3978aa6ebd4f34c279eb1cf07cd36bd7a3f25ff97127f6c"
+    },
+    {
+      "bytes": 8334,
+      "path": "benchmarks/nsdi_strengthening/remote_cluster.py",
+      "sha256": "055bdac0614185b7019349a83b65eb63c364a6ac62be89a2a46e23dbf48388e1"
+    },
+    {
+      "bytes": 69972,
+      "path": "benchmarks/nsdi_strengthening/remote_matched_host.py",
+      "sha256": "14822649d21ec627419c088e53e7411841280c1c7fbdbe89b37599ac32c8b9f8"
+    },
+    {
+      "bytes": 93707,
+      "path": "benchmarks/nsdi_strengthening/remote_three_host.py",
+      "sha256": "6aed5e70f186a4823ad04f1bb3c2265922aeab2cd7e6fd8457d6bfeb1f4a3760"
+    },
+    {
+      "bytes": 32991,
+      "path": "benchmarks/nsdi_strengthening/remote_three_host_agent.py",
+      "sha256": "401793f4271e237485101beb069e52371301299762572b0058a7943d7a230f46"
+    },
+    {
+      "bytes": 14130,
+      "path": "benchmarks/nsdi_strengthening/rollback_matrix.py",
+      "sha256": "d1154d5bc7e8ddccb84649de6358b51dfc82a443875fd34172009ba3ecc4f8ec"
+    },
+    {
+      "bytes": 28150,
+      "path": "benchmarks/nsdi_strengthening/vector_workload.py",
+      "sha256": "f7859f19d23a990387a258de1048e58a6f3c552b40f3823f29a471f153ace4d8"
+    },
+    {
+      "bytes": 43147,
+      "path": "formal/sensitivity_frontier.py",
+      "sha256": "c6db9dfd332c2895562fa8cfb3f9729637c6c033823dde6cfd131f685d403f68"
+    },
+    {
+      "bytes": 29730,
+      "path": "formal/vector_model_checker.py",
+      "sha256": "178bb82e630fe432cef215fbe82dc4878be580acea8539a330ca7a7e676cae5b"
+    },
+    {
+      "bytes": 2069,
+      "path": "pyproject.toml",
+      "sha256": "8904d14f154ebf837deff32c3467e47442e181c5f8d893cc13433c10bda76a26"
+    },
+    {
+      "bytes": 3334,
+      "path": "tests/benchmarks/test_nsdi_distributed_partition.py",
+      "sha256": "acc3c2ef8d62ee803e1a8cb377255c45cae2b687adcbd487a6ed8eabcfffb7a7"
+    },
+    {
+      "bytes": 1935,
+      "path": "tests/benchmarks/test_nsdi_implementation_inventory.py",
+      "sha256": "f4b34ff267d03573130c21c2b8b1448fb7e3e64e7dbc66dd019d29fb66917af9"
+    },
+    {
+      "bytes": 2420,
+      "path": "tests/benchmarks/test_nsdi_lineage_scaling.py",
+      "sha256": "196ca2897681893f86ade345fb0a7350410ad34c52687632cde3aefbc0d10461"
+    },
+    {
+      "bytes": 6781,
+      "path": "tests/benchmarks/test_nsdi_matched_host_path.py",
+      "sha256": "b508c305e2d9d971b26003d6e2e399b8ac82f2c0452b105d44d42240771ab3ea"
+    },
+    {
+      "bytes": 3350,
+      "path": "tests/benchmarks/test_nsdi_performance_matrix.py",
+      "sha256": "a1999177629b766e1d915f3709db65535de0613fb559f0dbc7baafce5c0633e3"
+    },
+    {
+      "bytes": 2300,
+      "path": "tests/benchmarks/test_nsdi_vector_workload.py",
+      "sha256": "91db8e0a1f5a43c7d09724fe008e776110d541f47d71147d269ac4cab7edafd9"
+    },
+    {
+      "bytes": 1429,
+      "path": "tests/benchmarks/test_remote_cluster.py",
+      "sha256": "602de09b0b38c86b07eca1fcc2b53e50d445e85d38e093098a3918f036d75ee6"
+    },
+    {
+      "bytes": 19367,
+      "path": "tests/benchmarks/test_remote_matched_host.py",
+      "sha256": "e7cc0aaecfd4894cda305d5f51510015547440a2bb4c8feef24396371fdc7d4f"
+    },
+    {
+      "bytes": 19971,
+      "path": "tests/benchmarks/test_remote_three_host.py",
+      "sha256": "8a08cc84fca7944913560cdfa030ba4c4eba8b7f726307e9d6556d9caa7a86d7"
+    },
+    {
+      "bytes": 7249,
+      "path": "tests/benchmarks/test_rollback_matrix.py",
+      "sha256": "553ef759e1afa13a2f617b171dc728b34bf15af09e8b50fa23a2ad89a27a5068"
+    },
+    {
+      "bytes": 4419,
+      "path": "tests/formal/test_sensitivity_frontier.py",
+      "sha256": "40fbb6b8f11e92090911427b10970316760a5acd16d83f1db0d47a41d122813f"
+    },
+    {
+      "bytes": 2653,
+      "path": "tests/formal/test_vector_model_checker.py",
+      "sha256": "1f365a846ec897a6c62031b3c692a254fab093fe347f9fe0f9c96eeaab9e29f5"
+    },
+    {
+      "bytes": 339312,
+      "path": "uv.lock",
+      "sha256": "6958d5095faaa13ad01d598c68ff7ec2897ac42eef06cfb7b950ee1612e51c61"
+    }
+  ],
+  "git": {
+    "branch": "main",
+    "commit": "a9f4ba810e1741f93ba204eb782b6c4e3d409a03",
+    "dirty": true,
+    "tracked_diff": ""
+  },
+  "purpose": "retain the exact pre-PR source bytes before CI-required Ruff formatting; raw remote artifacts retain their own executed-source hashes",
+  "schema": "lets.nsdi-pre-pr-source-manifest/v1"
+}
