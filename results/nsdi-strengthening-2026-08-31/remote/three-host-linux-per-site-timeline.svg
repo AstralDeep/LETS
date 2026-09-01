@@ -1,0 +1,244 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="904" viewBox="0 0 1500 904" role="img" aria-labelledby="title description">
+<title id="title">LETS per-site state over the retained three-host experiment</title>
+<desc id="description">Four placement and workload scenarios by three sites, with cumulative authorized and denied actions, actions remaining, stranded authority, and application partition windows.</desc>
+<style>text{font-family:system-ui,sans-serif;fill:#172033}.title{font-size:18px;font-weight:700}.subtitle{font-size:11px;fill:#4b5563}.panel-title{font-size:11px;font-weight:650}.tick{font-size:9px;fill:#5d6678}.axis{stroke:#8590a6;stroke-width:1}.grid{stroke:#d8dde7;stroke-width:.7}.panel{fill:#fff;stroke:#c7cedb;stroke-width:1}.partition-window{fill:#ef4444;opacity:.09}.authorized{fill:none;stroke:#1167b1;stroke-width:2.2}.denied{fill:none;stroke:#b42318;stroke-width:2;stroke-dasharray:5 3}.remaining{fill:none;stroke:#15803d;stroke-width:2}.stranded{fill:none;stroke:#7e22ce;stroke-width:2;stroke-dasharray:2 3}.series{vector-effect:non-scaling-stroke}</style>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text id="title-text" x="24" y="28" class="title">Per-site LETS state over time</text>
+<text x="24" y="48" class="subtitle">Site-event observations at global operation step; fixed y-axis 0-30; red shading is the s1↔s2 application-path gate.</text>
+<line x1="24" y1="73" x2="54" y2="73" class="authorized series"/>
+<text x="60" y="77" class="subtitle">authorized (cumulative)</text>
+<line x1="238" y1="73" x2="268" y2="73" class="denied series"/>
+<text x="274" y="77" class="subtitle">denied (cumulative)</text>
+<line x1="430" y1="73" x2="460" y2="73" class="remaining series"/>
+<text x="466" y="77" class="subtitle">actions remaining</text>
+<line x1="600" y1="73" x2="630" y2="73" class="stranded series"/>
+<text x="636" y="77" class="subtitle">stranded on blocked peer</text>
+<g class="site-panel" data-scenario="equal placement / equal workload" data-site="s1">
+<rect x="72" y="112" width="430" height="142" rx="3" class="panel"/>
+<text x="80" y="129" class="panel-title">equal placement / equal workload · s1</text>
+<rect x="249.8" y="141" width="188.0" height="89" class="partition-window"/>
+<line x1="114" y1="230.0" x2="490" y2="230.0" class="grid"/>
+<text x="108" y="233.0" text-anchor="end" class="tick">0</text>
+<line x1="114" y1="200.3" x2="490" y2="200.3" class="grid"/>
+<line x1="114" y1="170.7" x2="490" y2="170.7" class="grid"/>
+<line x1="114" y1="141.0" x2="490" y2="141.0" class="grid"/>
+<text x="108" y="144.0" text-anchor="end" class="tick">30</text>
+<line x1="114" y1="141" x2="114" y2="230" class="axis"/>
+<line x1="114" y1="230" x2="490" y2="230" class="axis"/>
+<text x="114" y="245" class="tick">initial</text>
+<text x="490" y="245" text-anchor="end" class="tick">step 17</text>
+<polyline points="114.0,230.0 134.9,227.0 155.8,224.1 260.2,221.1 281.1,218.1 302.0,215.2 448.2,212.2" class="authorized series" data-metric="authorized"/>
+<polyline points="114.0,230.0 134.9,230.0 155.8,230.0 260.2,230.0 281.1,230.0 302.0,230.0 448.2,230.0" class="denied series" data-metric="denied"/>
+<polyline points="114.0,200.3 134.9,203.3 155.8,206.3 260.2,209.2 281.1,212.2 302.0,215.2 448.2,215.2" class="remaining series" data-metric="remaining"/>
+<polyline points="114.0,230.0 134.9,230.0 155.8,230.0 260.2,206.3 281.1,206.3 302.0,206.3 448.2,230.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="equal placement / equal workload" data-site="s2">
+<rect x="536" y="112" width="430" height="142" rx="3" class="panel"/>
+<text x="544" y="129" class="panel-title">equal placement / equal workload · s2</text>
+<rect x="713.8" y="141" width="188.0" height="89" class="partition-window"/>
+<line x1="578" y1="230.0" x2="954" y2="230.0" class="grid"/>
+<text x="572" y="233.0" text-anchor="end" class="tick">0</text>
+<line x1="578" y1="200.3" x2="954" y2="200.3" class="grid"/>
+<line x1="578" y1="170.7" x2="954" y2="170.7" class="grid"/>
+<line x1="578" y1="141.0" x2="954" y2="141.0" class="grid"/>
+<text x="572" y="144.0" text-anchor="end" class="tick">30</text>
+<line x1="578" y1="141" x2="578" y2="230" class="axis"/>
+<line x1="578" y1="230" x2="954" y2="230" class="axis"/>
+<text x="578" y="245" class="tick">initial</text>
+<text x="954" y="245" text-anchor="end" class="tick">step 17</text>
+<polyline points="578.0,230.0 640.7,227.0 661.6,224.1 786.9,221.1 807.8,218.1 828.7,215.2 933.1,212.2" class="authorized series" data-metric="authorized"/>
+<polyline points="578.0,230.0 640.7,230.0 661.6,230.0 786.9,230.0 807.8,230.0 828.7,230.0 933.1,230.0" class="denied series" data-metric="denied"/>
+<polyline points="578.0,200.3 640.7,203.3 661.6,206.3 786.9,209.2 807.8,212.2 828.7,215.2 933.1,221.1" class="remaining series" data-metric="remaining"/>
+<polyline points="578.0,230.0 640.7,230.0 661.6,230.0 786.9,215.2 807.8,215.2 828.7,215.2 933.1,230.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="equal placement / equal workload" data-site="s3">
+<rect x="1000" y="112" width="430" height="142" rx="3" class="panel"/>
+<text x="1008" y="129" class="panel-title">equal placement / equal workload · s3</text>
+<rect x="1177.8" y="141" width="188.0" height="89" class="partition-window"/>
+<line x1="1042" y1="230.0" x2="1418" y2="230.0" class="grid"/>
+<text x="1036" y="233.0" text-anchor="end" class="tick">0</text>
+<line x1="1042" y1="200.3" x2="1418" y2="200.3" class="grid"/>
+<line x1="1042" y1="170.7" x2="1418" y2="170.7" class="grid"/>
+<line x1="1042" y1="141.0" x2="1418" y2="141.0" class="grid"/>
+<text x="1036" y="144.0" text-anchor="end" class="tick">30</text>
+<line x1="1042" y1="141" x2="1042" y2="230" class="axis"/>
+<line x1="1042" y1="230" x2="1418" y2="230" class="axis"/>
+<text x="1042" y="245" class="tick">initial</text>
+<text x="1418" y="245" text-anchor="end" class="tick">step 17</text>
+<polyline points="1042.0,230.0 1146.4,227.0 1167.3,224.1 1313.6,221.1 1334.4,218.1 1355.3,215.2 1418.0,212.2" class="authorized series" data-metric="authorized"/>
+<polyline points="1042.0,230.0 1146.4,230.0 1167.3,230.0 1313.6,230.0 1334.4,230.0 1355.3,230.0 1418.0,230.0" class="denied series" data-metric="denied"/>
+<polyline points="1042.0,200.3 1146.4,203.3 1167.3,206.3 1313.6,209.2 1334.4,212.2 1355.3,215.2 1418.0,218.1" class="remaining series" data-metric="remaining"/>
+<polyline points="1042.0,230.0 1146.4,230.0 1167.3,230.0 1313.6,230.0 1334.4,230.0 1355.3,230.0 1418.0,230.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="equal placement / 70-percent-s1 workload" data-site="s1">
+<rect x="72" y="308" width="430" height="142" rx="3" class="panel"/>
+<text x="80" y="325" class="panel-title">equal placement / 70-percent-s1 workload · s1</text>
+<rect x="236.2" y="337" width="169.2" height="89" class="partition-window"/>
+<line x1="114" y1="426.0" x2="490" y2="426.0" class="grid"/>
+<text x="108" y="429.0" text-anchor="end" class="tick">0</text>
+<line x1="114" y1="396.3" x2="490" y2="396.3" class="grid"/>
+<line x1="114" y1="366.7" x2="490" y2="366.7" class="grid"/>
+<line x1="114" y1="337.0" x2="490" y2="337.0" class="grid"/>
+<text x="108" y="340.0" text-anchor="end" class="tick">30</text>
+<line x1="114" y1="337" x2="114" y2="426" class="axis"/>
+<line x1="114" y1="426" x2="490" y2="426" class="axis"/>
+<text x="114" y="441" class="tick">initial</text>
+<text x="490" y="441" text-anchor="end" class="tick">step 19</text>
+<polyline points="114.0,426.0 132.8,423.0 151.6,420.1 170.4,417.1 189.2,414.1 245.6,411.2 264.4,408.2 283.2,405.2 302.0,402.3 320.8,399.3 339.6,396.3 358.4,396.3 414.8,393.4 433.6,390.4 452.4,387.4" class="authorized series" data-metric="authorized"/>
+<polyline points="114.0,426.0 132.8,426.0 151.6,426.0 170.4,426.0 189.2,426.0 245.6,426.0 264.4,426.0 283.2,426.0 302.0,426.0 320.8,426.0 339.6,426.0 358.4,423.0 414.8,423.0 433.6,423.0 452.4,423.0" class="denied series" data-metric="denied"/>
+<polyline points="114.0,396.3 132.8,399.3 151.6,402.3 170.4,405.2 189.2,408.2 245.6,411.2 264.4,414.1 283.2,417.1 302.0,420.1 320.8,423.0 339.6,426.0 358.4,426.0 414.8,420.1 433.6,423.0 452.4,426.0" class="remaining series" data-metric="remaining"/>
+<polyline points="114.0,426.0 132.8,426.0 151.6,426.0 170.4,426.0 189.2,426.0 245.6,399.3 264.4,399.3 283.2,399.3 302.0,399.3 320.8,399.3 339.6,399.3 358.4,399.3 414.8,426.0 433.6,426.0 452.4,426.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="equal placement / 70-percent-s1 workload" data-site="s2">
+<rect x="536" y="308" width="430" height="142" rx="3" class="panel"/>
+<text x="544" y="325" class="panel-title">equal placement / 70-percent-s1 workload · s2</text>
+<rect x="700.2" y="337" width="169.2" height="89" class="partition-window"/>
+<line x1="578" y1="426.0" x2="954" y2="426.0" class="grid"/>
+<text x="572" y="429.0" text-anchor="end" class="tick">0</text>
+<line x1="578" y1="396.3" x2="954" y2="396.3" class="grid"/>
+<line x1="578" y1="366.7" x2="954" y2="366.7" class="grid"/>
+<line x1="578" y1="337.0" x2="954" y2="337.0" class="grid"/>
+<text x="572" y="340.0" text-anchor="end" class="tick">30</text>
+<line x1="578" y1="337" x2="578" y2="426" class="axis"/>
+<line x1="578" y1="426" x2="954" y2="426" class="axis"/>
+<text x="578" y="441" class="tick">initial</text>
+<text x="954" y="441" text-anchor="end" class="tick">step 19</text>
+<polyline points="578.0,426.0 672.0,423.0 841.2,420.1 935.2,417.1" class="authorized series" data-metric="authorized"/>
+<polyline points="578.0,426.0 672.0,426.0 841.2,426.0 935.2,426.0" class="denied series" data-metric="denied"/>
+<polyline points="578.0,396.3 672.0,399.3 841.2,402.3 935.2,414.1" class="remaining series" data-metric="remaining"/>
+<polyline points="578.0,426.0 672.0,426.0 841.2,426.0 935.2,426.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="equal placement / 70-percent-s1 workload" data-site="s3">
+<rect x="1000" y="308" width="430" height="142" rx="3" class="panel"/>
+<text x="1008" y="325" class="panel-title">equal placement / 70-percent-s1 workload · s3</text>
+<rect x="1164.2" y="337" width="169.2" height="89" class="partition-window"/>
+<line x1="1042" y1="426.0" x2="1418" y2="426.0" class="grid"/>
+<text x="1036" y="429.0" text-anchor="end" class="tick">0</text>
+<line x1="1042" y1="396.3" x2="1418" y2="396.3" class="grid"/>
+<line x1="1042" y1="366.7" x2="1418" y2="366.7" class="grid"/>
+<line x1="1042" y1="337.0" x2="1418" y2="337.0" class="grid"/>
+<text x="1036" y="340.0" text-anchor="end" class="tick">30</text>
+<line x1="1042" y1="337" x2="1042" y2="426" class="axis"/>
+<line x1="1042" y1="426" x2="1418" y2="426" class="axis"/>
+<text x="1042" y="441" class="tick">initial</text>
+<text x="1418" y="441" text-anchor="end" class="tick">step 19</text>
+<polyline points="1042.0,426.0 1154.8,423.0 1324.0,420.1 1418.0,417.1" class="authorized series" data-metric="authorized"/>
+<polyline points="1042.0,426.0 1154.8,426.0 1324.0,426.0 1418.0,426.0" class="denied series" data-metric="denied"/>
+<polyline points="1042.0,396.3 1154.8,399.3 1324.0,402.3 1418.0,405.2" class="remaining series" data-metric="remaining"/>
+<polyline points="1042.0,426.0 1154.8,426.0 1324.0,426.0 1418.0,426.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="70-percent-s1 placement / equal workload" data-site="s1">
+<rect x="72" y="504" width="430" height="142" rx="3" class="panel"/>
+<text x="80" y="521" class="panel-title">70-percent-s1 placement / equal workload · s1</text>
+<rect x="249.8" y="533" width="188.0" height="89" class="partition-window"/>
+<line x1="114" y1="622.0" x2="490" y2="622.0" class="grid"/>
+<text x="108" y="625.0" text-anchor="end" class="tick">0</text>
+<line x1="114" y1="592.3" x2="490" y2="592.3" class="grid"/>
+<line x1="114" y1="562.7" x2="490" y2="562.7" class="grid"/>
+<line x1="114" y1="533.0" x2="490" y2="533.0" class="grid"/>
+<text x="108" y="536.0" text-anchor="end" class="tick">30</text>
+<line x1="114" y1="533" x2="114" y2="622" class="axis"/>
+<line x1="114" y1="622" x2="490" y2="622" class="axis"/>
+<text x="114" y="637" class="tick">initial</text>
+<text x="490" y="637" text-anchor="end" class="tick">step 17</text>
+<polyline points="114.0,622.0 134.9,619.0 155.8,616.1 260.2,613.1 281.1,610.1 302.0,607.2 448.2,604.2" class="authorized series" data-metric="authorized"/>
+<polyline points="114.0,622.0 134.9,622.0 155.8,622.0 260.2,622.0 281.1,622.0 302.0,622.0 448.2,622.0" class="denied series" data-metric="denied"/>
+<polyline points="114.0,559.7 134.9,562.7 155.8,565.6 260.2,568.6 281.1,571.6 302.0,574.5 448.2,583.4" class="remaining series" data-metric="remaining"/>
+<polyline points="114.0,622.0 134.9,622.0 155.8,622.0 260.2,616.1 281.1,616.1 302.0,616.1 448.2,622.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="70-percent-s1 placement / equal workload" data-site="s2">
+<rect x="536" y="504" width="430" height="142" rx="3" class="panel"/>
+<text x="544" y="521" class="panel-title">70-percent-s1 placement / equal workload · s2</text>
+<rect x="713.8" y="533" width="188.0" height="89" class="partition-window"/>
+<line x1="578" y1="622.0" x2="954" y2="622.0" class="grid"/>
+<text x="572" y="625.0" text-anchor="end" class="tick">0</text>
+<line x1="578" y1="592.3" x2="954" y2="592.3" class="grid"/>
+<line x1="578" y1="562.7" x2="954" y2="562.7" class="grid"/>
+<line x1="578" y1="533.0" x2="954" y2="533.0" class="grid"/>
+<text x="572" y="536.0" text-anchor="end" class="tick">30</text>
+<line x1="578" y1="533" x2="578" y2="622" class="axis"/>
+<line x1="578" y1="622" x2="954" y2="622" class="axis"/>
+<text x="578" y="637" class="tick">initial</text>
+<text x="954" y="637" text-anchor="end" class="tick">step 17</text>
+<polyline points="578.0,622.0 640.7,619.0 661.6,616.1 786.9,613.1 807.8,610.1 828.7,610.1 933.1,607.2" class="authorized series" data-metric="authorized"/>
+<polyline points="578.0,622.0 640.7,622.0 661.6,622.0 786.9,622.0 807.8,622.0 828.7,619.0 933.1,619.0" class="denied series" data-metric="denied"/>
+<polyline points="578.0,610.1 640.7,613.1 661.6,616.1 786.9,619.0 807.8,622.0 828.7,622.0 933.1,619.0" class="remaining series" data-metric="remaining"/>
+<polyline points="578.0,622.0 640.7,622.0 661.6,622.0 786.9,574.5 807.8,574.5 828.7,574.5 933.1,622.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="70-percent-s1 placement / equal workload" data-site="s3">
+<rect x="1000" y="504" width="430" height="142" rx="3" class="panel"/>
+<text x="1008" y="521" class="panel-title">70-percent-s1 placement / equal workload · s3</text>
+<rect x="1177.8" y="533" width="188.0" height="89" class="partition-window"/>
+<line x1="1042" y1="622.0" x2="1418" y2="622.0" class="grid"/>
+<text x="1036" y="625.0" text-anchor="end" class="tick">0</text>
+<line x1="1042" y1="592.3" x2="1418" y2="592.3" class="grid"/>
+<line x1="1042" y1="562.7" x2="1418" y2="562.7" class="grid"/>
+<line x1="1042" y1="533.0" x2="1418" y2="533.0" class="grid"/>
+<text x="1036" y="536.0" text-anchor="end" class="tick">30</text>
+<line x1="1042" y1="533" x2="1042" y2="622" class="axis"/>
+<line x1="1042" y1="622" x2="1418" y2="622" class="axis"/>
+<text x="1042" y="637" class="tick">initial</text>
+<text x="1418" y="637" text-anchor="end" class="tick">step 17</text>
+<polyline points="1042.0,622.0 1146.4,619.0 1167.3,616.1 1313.6,613.1 1334.4,610.1 1355.3,607.2 1418.0,607.2" class="authorized series" data-metric="authorized"/>
+<polyline points="1042.0,622.0 1146.4,622.0 1167.3,622.0 1313.6,622.0 1334.4,622.0 1355.3,622.0 1418.0,619.0" class="denied series" data-metric="denied"/>
+<polyline points="1042.0,607.2 1146.4,610.1 1167.3,613.1 1313.6,616.1 1334.4,619.0 1355.3,622.0 1418.0,622.0" class="remaining series" data-metric="remaining"/>
+<polyline points="1042.0,622.0 1146.4,622.0 1167.3,622.0 1313.6,622.0 1334.4,622.0 1355.3,622.0 1418.0,622.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="70-percent-s1 placement / 70-percent-s1 workload" data-site="s1">
+<rect x="72" y="700" width="430" height="142" rx="3" class="panel"/>
+<text x="80" y="717" class="panel-title">70-percent-s1 placement / 70-percent-s1 workload · s1</text>
+<rect x="236.2" y="729" width="169.2" height="89" class="partition-window"/>
+<line x1="114" y1="818.0" x2="490" y2="818.0" class="grid"/>
+<text x="108" y="821.0" text-anchor="end" class="tick">0</text>
+<line x1="114" y1="788.3" x2="490" y2="788.3" class="grid"/>
+<line x1="114" y1="758.7" x2="490" y2="758.7" class="grid"/>
+<line x1="114" y1="729.0" x2="490" y2="729.0" class="grid"/>
+<text x="108" y="732.0" text-anchor="end" class="tick">30</text>
+<line x1="114" y1="729" x2="114" y2="818" class="axis"/>
+<line x1="114" y1="818" x2="490" y2="818" class="axis"/>
+<text x="114" y="833" class="tick">initial</text>
+<text x="490" y="833" text-anchor="end" class="tick">step 19</text>
+<polyline points="114.0,818.0 132.8,815.0 151.6,812.1 170.4,809.1 189.2,806.1 245.6,803.2 264.4,800.2 283.2,797.2 302.0,794.3 320.8,791.3 339.6,788.3 358.4,785.4 414.8,782.4 433.6,779.4 452.4,776.5" class="authorized series" data-metric="authorized"/>
+<polyline points="114.0,818.0 132.8,818.0 151.6,818.0 170.4,818.0 189.2,818.0 245.6,818.0 264.4,818.0 283.2,818.0 302.0,818.0 320.8,818.0 339.6,818.0 358.4,818.0 414.8,818.0 433.6,818.0 452.4,818.0" class="denied series" data-metric="denied"/>
+<polyline points="114.0,755.7 132.8,758.7 151.6,761.6 170.4,764.6 189.2,767.6 245.6,770.5 264.4,773.5 283.2,776.5 302.0,779.4 320.8,782.4 339.6,785.4 358.4,788.3 414.8,788.3 433.6,791.3 452.4,794.3" class="remaining series" data-metric="remaining"/>
+<polyline points="114.0,818.0 132.8,818.0 151.6,818.0 170.4,818.0 189.2,818.0 245.6,809.1 264.4,809.1 283.2,809.1 302.0,809.1 320.8,809.1 339.6,809.1 358.4,809.1 414.8,818.0 433.6,818.0 452.4,818.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="70-percent-s1 placement / 70-percent-s1 workload" data-site="s2">
+<rect x="536" y="700" width="430" height="142" rx="3" class="panel"/>
+<text x="544" y="717" class="panel-title">70-percent-s1 placement / 70-percent-s1 workload · s2</text>
+<rect x="700.2" y="729" width="169.2" height="89" class="partition-window"/>
+<line x1="578" y1="818.0" x2="954" y2="818.0" class="grid"/>
+<text x="572" y="821.0" text-anchor="end" class="tick">0</text>
+<line x1="578" y1="788.3" x2="954" y2="788.3" class="grid"/>
+<line x1="578" y1="758.7" x2="954" y2="758.7" class="grid"/>
+<line x1="578" y1="729.0" x2="954" y2="729.0" class="grid"/>
+<text x="572" y="732.0" text-anchor="end" class="tick">30</text>
+<line x1="578" y1="729" x2="578" y2="818" class="axis"/>
+<line x1="578" y1="818" x2="954" y2="818" class="axis"/>
+<text x="578" y="833" class="tick">initial</text>
+<text x="954" y="833" text-anchor="end" class="tick">step 19</text>
+<polyline points="578.0,818.0 672.0,815.0 841.2,812.1 935.2,809.1" class="authorized series" data-metric="authorized"/>
+<polyline points="578.0,818.0 672.0,818.0 841.2,818.0 935.2,818.0" class="denied series" data-metric="denied"/>
+<polyline points="578.0,806.1 672.0,809.1 841.2,812.1 935.2,818.0" class="remaining series" data-metric="remaining"/>
+<polyline points="578.0,818.0 672.0,818.0 841.2,788.3 935.2,818.0" class="stranded series" data-metric="stranded"/>
+</g>
+<g class="site-panel" data-scenario="70-percent-s1 placement / 70-percent-s1 workload" data-site="s3">
+<rect x="1000" y="700" width="430" height="142" rx="3" class="panel"/>
+<text x="1008" y="717" class="panel-title">70-percent-s1 placement / 70-percent-s1 workload · s3</text>
+<rect x="1164.2" y="729" width="169.2" height="89" class="partition-window"/>
+<line x1="1042" y1="818.0" x2="1418" y2="818.0" class="grid"/>
+<text x="1036" y="821.0" text-anchor="end" class="tick">0</text>
+<line x1="1042" y1="788.3" x2="1418" y2="788.3" class="grid"/>
+<line x1="1042" y1="758.7" x2="1418" y2="758.7" class="grid"/>
+<line x1="1042" y1="729.0" x2="1418" y2="729.0" class="grid"/>
+<text x="1036" y="732.0" text-anchor="end" class="tick">30</text>
+<line x1="1042" y1="729" x2="1042" y2="818" class="axis"/>
+<line x1="1042" y1="818" x2="1418" y2="818" class="axis"/>
+<text x="1042" y="833" class="tick">initial</text>
+<text x="1418" y="833" text-anchor="end" class="tick">step 19</text>
+<polyline points="1042.0,818.0 1154.8,815.0 1324.0,812.1 1418.0,809.1" class="authorized series" data-metric="authorized"/>
+<polyline points="1042.0,818.0 1154.8,818.0 1324.0,818.0 1418.0,818.0" class="denied series" data-metric="denied"/>
+<polyline points="1042.0,803.2 1154.8,806.1 1324.0,809.1 1418.0,812.1" class="remaining series" data-metric="remaining"/>
+<polyline points="1042.0,818.0 1154.8,818.0 1324.0,818.0 1418.0,818.0" class="stranded series" data-metric="stranded"/>
+</g>
+</svg>

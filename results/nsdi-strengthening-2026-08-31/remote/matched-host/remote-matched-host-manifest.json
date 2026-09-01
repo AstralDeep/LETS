@@ -1,0 +1,302 @@
+{
+  "artifacts": {
+    "matched-host-path-samples.csv": {
+      "remote_raw_sha256": "73539404ed98d9a51f0e3fc83954c67ff1b549f0c79d5c207200dacc36f7c1c2",
+      "retained_sanitized_sha256": "73539404ed98d9a51f0e3fc83954c67ff1b549f0c79d5c207200dacc36f7c1c2"
+    },
+    "matched-host-path.json.gz": {
+      "archive_sha256": "ea0455cd3ce2fb780b5506921c2fdaeddbe0e7b3fc6465f05b3c3b8f1669bcfe",
+      "compression": "deterministic gzip, level 9, mtime 0, empty header filename",
+      "decompressed_bytes": 54117510,
+      "decompressed_name": "matched-host-path.json",
+      "remote_raw_sha256": "cee1fe1be519891938fe4230f75cf94160937c2fef6952008e9106a7ec2d5e4c",
+      "retained_sanitized_sha256": "6d55ca2b60cd7d60ee7ba1c090864386494389c55b443c69b9a64a6d0eade289"
+    },
+    "matched-host-path.md": {
+      "remote_raw_sha256": "564693d1044ce0b96d536561327d57ab104d570730879f834c671d658f0d0cd5",
+      "retained_sanitized_sha256": "564693d1044ce0b96d536561327d57ab104d570730879f834c671d658f0d0cd5"
+    }
+  },
+  "claim": "replacement-current-composition-not-historical-reproduction",
+  "commands": {
+    "original_run_contract": [
+      "git checkout exact Deep commit and initialize only Plane/LETS",
+      "create exact Deep .venv and install the three direct requirements",
+      "run matched_host_path.py with trials=10, operations=1000, warmups=100"
+    ],
+    "original_shell_log_recovered": false,
+    "recovery_read_only": [
+      "verify pinned endpoint and normalized owned home",
+      "enumerate guarded run directories without following symlinks",
+      "hash runner/uv inputs and validate exact Git composition",
+      "download and validate the exact JSON/CSV/Markdown artifact set"
+    ]
+  },
+  "completed_at_utc": "2026-09-01T03:02:29.381774+00:00",
+  "configuration": {
+    "operations_per_mode": 1000,
+    "trials": 10,
+    "warmups": 100
+  },
+  "endpoint_verification": {
+    "address_pin_verified": true,
+    "host_key_pin_verified": true,
+    "host_key_type": "ssh-ed25519"
+  },
+  "historical_mismatch_diagnosis": {
+    "disclosure": "The original artifact is unavailable, and the replacement host uses SQLite 3.45.1 rather than the historical 3.53.4; this run is replacement evidence, not an exact reproduction.",
+    "historical_artifact": "20260826T231656Z",
+    "historical_artifact_available": false,
+    "historical_sqlite": "3.53.4",
+    "replacement_s1_sqlite": "3.45.1",
+    "sqlite_versions_match": false
+  },
+  "privacy": {
+    "addresses_retained": false,
+    "credentials_retained": false,
+    "home_paths_retained": false,
+    "usernames_retained": false
+  },
+  "recovery": {
+    "benchmark_rerun": false,
+    "environment_captured_at_utc": "2026-09-01T02:31:21.181469+00:00",
+    "matching_candidate_count": 1,
+    "mode": "read-only-existing-run-retention",
+    "recovered_at_utc": "2026-09-01T03:02:29.381774+00:00",
+    "remote_writes": false,
+    "run_root_created_at_utc": "2026-09-01T02:23:49+00:00",
+    "selected_timestamp_utc": "2026-09-01T02:23:49+00:00",
+    "selection": "unique candidate at the greatest run-id UTC timestamp"
+  },
+  "remote_scope": {
+    "docker_used": false,
+    "normalized_owned_home_verified": true,
+    "remote_run_retained": true,
+    "sudo_used": false,
+    "symlink_parents_rejected": true,
+    "system_paths_written": false,
+    "unique_run_id": "run-20260901-022349-bf809136",
+    "write_boundary": "$HOME/.lets-nsdi-matched-host/run-20260901-022349-bf809136"
+  },
+  "remote_source": {
+    "astral_plane": "4a1d990387428436041dd70d9c417e9e86000b6c",
+    "astraldeep": "04f04ee93718d2ff681726e2a47a2550a837612d",
+    "clean": true,
+    "initialized_submodules": [
+      "components/AstralPlane",
+      "components/LETS"
+    ],
+    "lets": "6245189920c686353c4ced7a208d56ec266f745c",
+    "other_submodules_initialized": false
+  },
+  "schema": "lets.remote-matched-host/v1",
+  "source": {
+    "benchmark_sha256": "81deccb273743f6536f22a2951bcaca99f075fce2c50e9c5264a79dc5aba0713",
+    "controller_git": {
+      "commit": "a9f4ba810e1741f93ba204eb782b6c4e3d409a03",
+      "dirty": true,
+      "status_sha256": "dfca63bcad0eb64d72820afd0da816503d1e428c9738b4c697cca8c2ad61056e",
+      "tree": "a370e13175155a693e2a242e52e80d4dbc87e693"
+    },
+    "controller_paramiko": "4.0.0",
+    "controller_platform": "Windows-10-10.0.19045-SP0",
+    "controller_python": "3.14.0",
+    "orchestrator_sha256": "14822649d21ec627419c088e53e7411841280c1c7fbdbe89b37599ac32c8b9f8"
+  },
+  "started_at_utc": null,
+  "status": "passed",
+  "target_alias": "s1",
+  "toolchain": {
+    "component_import_mode": "exact initialized source trees",
+    "components_installed_as_packages": false,
+    "direct_requirements": [
+      "PyNaCl==1.6.2",
+      "httpx==0.28.1",
+      "pydantic==2.13.4"
+    ],
+    "environment": {
+      "astraldeep": {
+        "describe": "04f04ee",
+        "dirty": false,
+        "revision": "04f04ee93718d2ff681726e2a47a2550a837612d",
+        "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "tree": "adec837187a43e5129995de9b32c7234491ca8ab"
+      },
+      "captured_at_utc": "2026-09-01T02:31:21.181469+00:00",
+      "components": {
+        "astral-plane": {
+          "describe": "4a1d990",
+          "dirty": false,
+          "revision": "4a1d990387428436041dd70d9c417e9e86000b6c",
+          "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "tree": "b3bfe945bd8ed5a49911bc05ebe86a436573e0ef"
+        },
+        "lets": {
+          "describe": "v1.0.11",
+          "dirty": false,
+          "revision": "6245189920c686353c4ced7a208d56ec266f745c",
+          "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "tree": "a4f316fb7a74d142d41357cd4f356f0d8d3e99d8"
+        }
+      },
+      "composition_sha256": "6e72d6c7224605d80c3ba3af813b38bfd8744d71b64b702492bd576e26afcdd9",
+      "executable_sha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
+      "harness_repository": {
+        "available": false,
+        "benchmark_sha256": "81deccb273743f6536f22a2951bcaca99f075fce2c50e9c5264a79dc5aba0713",
+        "reason": "standalone-source-upload"
+      },
+      "installed_packages": [
+        {
+          "name": "annotated-types",
+          "version": "0.8.0"
+        },
+        {
+          "name": "anyio",
+          "version": "4.14.2"
+        },
+        {
+          "name": "certifi",
+          "version": "2026.7.22"
+        },
+        {
+          "name": "cffi",
+          "version": "2.1.1"
+        },
+        {
+          "name": "h11",
+          "version": "0.16.0"
+        },
+        {
+          "name": "httpcore",
+          "version": "1.0.9"
+        },
+        {
+          "name": "httpx",
+          "version": "0.28.1"
+        },
+        {
+          "name": "idna",
+          "version": "3.19"
+        },
+        {
+          "name": "pycparser",
+          "version": "3.0"
+        },
+        {
+          "name": "pydantic",
+          "version": "2.13.4"
+        },
+        {
+          "name": "pydantic_core",
+          "version": "2.46.4"
+        },
+        {
+          "name": "PyNaCl",
+          "version": "1.6.2"
+        },
+        {
+          "name": "typing-inspection",
+          "version": "0.4.4"
+        },
+        {
+          "name": "typing_extensions",
+          "version": "4.16.0"
+        }
+      ],
+      "instrumentation": {
+        "benchmark_sha256": "81deccb273743f6536f22a2951bcaca99f075fce2c50e9c5264a79dc5aba0713",
+        "executor_authority_sha256": "91d03406b982184530f89c31deaef3fcb23305eba03d28c11ae014d83a6e22f1",
+        "executor_sha256": "8ae43baaaeb2f455d46c418e43b644744083cdd655a9dfa5af087135ecdde0ea",
+        "governed_dispatch_sha256": "cd894feacb5fa5a899b7632f25478094863f7c0246620cf8d608dca7015d5df3",
+        "lets_gateway_sha256": "519bf595c971501616f0bd1e2d393e0ff6fcbb4339e7e2583782d8d0d0d95588",
+        "warden_service_sha256": "e63fd00d321859cb2fc8f02f2cfd99d0d44e317e4312dd97ba31179e1e4e3874"
+      },
+      "logical_cpus": 80,
+      "machine": "x86_64",
+      "platform": "Linux-6.8.0-110-generic-x86_64-with-glibc2.39",
+      "processor": "x86_64",
+      "python": "3.12.3",
+      "python_implementation": "CPython",
+      "sqlite": "3.45.1",
+      "sqlite_compile_options": [
+        "ATOMIC_INTRINSICS=1",
+        "COMPILER=gcc-13.3.0",
+        "DEFAULT_AUTOVACUUM",
+        "DEFAULT_CACHE_SIZE=-2000",
+        "DEFAULT_FILE_FORMAT=4",
+        "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+        "DEFAULT_MMAP_SIZE=0",
+        "DEFAULT_PAGE_SIZE=4096",
+        "DEFAULT_PCACHE_INITSZ=20",
+        "DEFAULT_RECURSIVE_TRIGGERS",
+        "DEFAULT_SECTOR_SIZE=4096",
+        "DEFAULT_SYNCHRONOUS=2",
+        "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+        "DEFAULT_WAL_SYNCHRONOUS=2",
+        "DEFAULT_WORKER_THREADS=0",
+        "DIRECT_OVERFLOW_READ",
+        "ENABLE_COLUMN_METADATA",
+        "ENABLE_DBSTAT_VTAB",
+        "ENABLE_FTS3",
+        "ENABLE_FTS3_PARENTHESIS",
+        "ENABLE_FTS3_TOKENIZER",
+        "ENABLE_FTS4",
+        "ENABLE_FTS5",
+        "ENABLE_LOAD_EXTENSION",
+        "ENABLE_MATH_FUNCTIONS",
+        "ENABLE_PREUPDATE_HOOK",
+        "ENABLE_RTREE",
+        "ENABLE_SESSION",
+        "ENABLE_STMTVTAB",
+        "ENABLE_UNLOCK_NOTIFY",
+        "ENABLE_UPDATE_DELETE_LIMIT",
+        "HAVE_ISNAN",
+        "LIKE_DOESNT_MATCH_BLOBS",
+        "MALLOC_SOFT_LIMIT=1024",
+        "MAX_ATTACHED=10",
+        "MAX_COLUMN=2000",
+        "MAX_COMPOUND_SELECT=500",
+        "MAX_DEFAULT_PAGE_SIZE=32768",
+        "MAX_EXPR_DEPTH=1000",
+        "MAX_FUNCTION_ARG=127",
+        "MAX_LENGTH=1000000000",
+        "MAX_LIKE_PATTERN_LENGTH=50000",
+        "MAX_MMAP_SIZE=0x7fff0000",
+        "MAX_PAGE_COUNT=0xfffffffe",
+        "MAX_PAGE_SIZE=65536",
+        "MAX_SCHEMA_RETRY=25",
+        "MAX_SQL_LENGTH=1000000000",
+        "MAX_TRIGGER_DEPTH=1000",
+        "MAX_VARIABLE_NUMBER=250000",
+        "MAX_VDBE_OP=250000000",
+        "MAX_WORKER_THREADS=8",
+        "MUTEX_PTHREADS",
+        "SECURE_DELETE",
+        "SOUNDEX",
+        "SYSTEM_MALLOC",
+        "TEMP_STORE=1",
+        "THREADSAFE=1",
+        "USE_URI"
+      ],
+      "storage": {
+        "allocation": "fresh sibling temporary directory per trial and mode",
+        "device_id": 2050,
+        "disk_free_bytes_before": 148669087744,
+        "disk_total_bytes": 470272819200,
+        "disk_used_bytes_before": 297639944192,
+        "drive": "",
+        "resolved_root": "$RUN_ROOT/storage",
+        "warden_executor_same_device": true
+      }
+    },
+    "harness_delivery": "standalone upload outside the clean Deep root",
+    "python_required": "3.12.3",
+    "python_source": "exact retained interpreter; provisioning branch not re-executed",
+    "uv": {
+      "asset": "uv-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "8ca3db7b2a3199171cfc0870be1f819cb853ddcec29a5fa28dae30278922b7ba",
+      "version": "0.8.13"
+    }
+  }
+}

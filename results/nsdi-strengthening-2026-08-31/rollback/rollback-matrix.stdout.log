@@ -1,0 +1,21 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.0, pytest-9.1.1, pluggy-1.6.0 -- $REPOSITORY\.venv\Scripts\python.exe
+hypothesis profile 'default'
+rootdir: $REPOSITORY
+configfile: pyproject.toml
+plugins: anyio-4.14.2, hypothesis-6.165.10, cov-7.1.0
+collecting ... collected 10 items
+
+tests/integration/test_authority_anchor.py::test_external_anchor_rejects_a_stale_but_internally_valid_backup PASSED [ 10%]
+tests/integration/test_authority_anchor.py::test_anchor_fences_a_second_database_copy_before_its_next_write PASSED [ 20%]
+tests/integration/test_authority_anchor.py::test_commit_anchor_crash_window_fails_closed_then_recovers_extension PASSED [ 30%]
+tests/integration/test_authority_anchor.py::test_simultaneous_database_forks_use_one_linearizable_anchor_successor PASSED [ 40%]
+tests/integration/test_executor_authority.py::test_process_anchor_rejects_stale_preclaim_database_restore PASSED [ 50%]
+tests/integration/test_executor_authority.py::test_concurrent_cloned_databases_have_one_external_cas_winner PASSED [ 60%]
+tests/integration/test_executor_authority.py::test_process_executor_startup_confirm_lost_reply_preserves_and_reconfirms PASSED [ 70%]
+tests/integration/test_executor_authority.py::test_commit_before_anchor_failure_recovers_claim_without_reauthorizing PASSED [ 80%]
+tests/integration/test_backup_restore_fencing.py::test_stale_recovery_bundle_is_fenced_before_live_files_are_replaced PASSED [ 90%]
+tests/unit/test_cli_recovery.py::test_server_holds_same_process_lock_as_recovery_for_its_full_lifetime PASSED [100%]
+
+- generated xml file: $REPOSITORY\results\nsdi-strengthening-2026-08-31\rollback\.rollback-matrix-oajkonwn\rollback-matrix.junit.xml -
+============================= 10 passed in 3.16s ==============================
