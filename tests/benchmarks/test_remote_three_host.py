@@ -355,7 +355,7 @@ def test_report_states_transport_and_host_limitations() -> None:
         },
         "scenarios": [
             {
-                "placement": "equal",
+                "placement": "70-percent-s1",
                 "workload": "equal",
                 "final_snapshots": [
                     {"authorized": 1, "denied": 0},
@@ -364,8 +364,12 @@ def test_report_states_transport_and_host_limitations() -> None:
                 ],
                 "central_baseline_summary": {"authorized": 2, "denied": 1},
                 "recovery": {"transfer": {"source": "s2", "target": "s1", "amount": 1}},
-                "aggregate_final": {"consumed": 3, "conservation_holds": True},
-                "name": "equal-placement-equal-workload",
+                "aggregate_final": {
+                    "consumed": 3,
+                    "conservation_holds": True,
+                    "initial_share": 30,
+                },
+                "name": "skew70-placement-equal-workload",
                 "timeline": [
                     {
                         "step": 0,
@@ -385,11 +389,39 @@ def test_report_states_transport_and_host_limitations() -> None:
     report = report_markdown(result)
 
     assert "not prove physical-machine" in report
-    assert "not a direct host-to-host route" in report
+    assert "not a direct endpoint-to-endpoint route" in report
+    assert "Inter-warden authentication" in report
     assert "HMAC-SHA256" in report
     assert "production rollback protection" in report
-    assert "equal-placement-equal-workload" in timeline_csv(result)
-    assert timeline_svg(result).startswith("<svg")
+    assert report.startswith("# LETS three-endpoint development experiment")
+    assert "## Endpoint and transport evidence" in report
+    assert "## Partitioned local progress" in report
+    assert (
+        "| Initial placement | Demand | Partitioned wardens | Central counter | "
+        "Post-heal transfer |" in report
+    )
+    assert "| 70% at s1 | Equal | 3/0 | 2/1 | s2→s1, 1 |" in report
+    assert "Every row conserved its 30-unit envelope." in report
+    assert "warden debit equaled the authorized count" in report
+    assert "70-percent-s1" not in report
+    assert "Full-factorial placement/workload matrix" not in report
+    report_table = report.split("## Partitioned local progress\n\n", 1)[1].split("\n\n", 1)[0]
+    assert "Consumed" not in report_table
+    assert "Conservation" not in report_table
+    assert "warden debit" not in report_table
+
+    rendered_csv = timeline_csv(result)
+    assert "placement,workload" in rendered_csv
+    assert "skew70-placement-equal-workload,70-percent-s1,equal" in rendered_csv
+
+    aggregate_svg = timeline_svg(result)
+    aggregate_text = " ".join(ET.fromstring(aggregate_svg).itertext())
+    assert "Cumulative authorized operations for four fixed schedules" in aggregate_text
+    assert "(a) 70% s1 authority / equal demand" in aggregate_text
+    assert "partitioned wardens" in aggregate_text
+    assert "central counter" in aggregate_text
+    assert "70-percent-s1" not in aggregate_text
+    assert "LETS" not in aggregate_text
 
 
 def _supplemental_result() -> dict[str, object]:
@@ -427,6 +459,8 @@ def _supplemental_result() -> dict[str, object]:
                         "step": phase_index * 3 + site_index,
                         "phase": phase,
                         "site": alias,
+                        "lets_authorized": True,
+                        "central_authorized": True,
                         "site_authorized_cumulative": phase_index + 1,
                         "site_denied_cumulative": 0,
                         "actions_remaining_at_site": 9 - phase_index,
@@ -502,8 +536,28 @@ def test_supplemental_phase_end_renderers_are_explicit_and_deterministic() -> No
     }
     assert rendered_csv.count("\n") == 13
     assert "normal_authorized" in rendered_csv
-    assert "Normal A/D/R/S" in rendered_markdown
-    assert rendered_markdown.count("| equal | equal | s1 |") == 1
+    assert "placement,workload" in rendered_csv
+    assert "70-percent-s1" in rendered_csv
+    assert rendered_markdown.startswith("# LETS three-endpoint per-site phase endpoints")
+    assert (
+        "| Initial placement | Demand | Site | Initial authority | Pre-gate A/D/R/S | "
+        "Application-path gate A/D/R/S | Recovery A/D/R/S | Central counter A/D | "
+        "Post-heal transfer |" in rendered_markdown
+    )
+    ordered_rows = (
+        "| Equal | Equal | s1 |",
+        "| Equal | 70% at s1 | s1 |",
+        "| 70% at s1 | Equal | s1 |",
+        "| 70% at s1 | 70% at s1 | s1 |",
+    )
+    assert [rendered_markdown.index(row) for row in ordered_rows] == sorted(
+        rendered_markdown.index(row) for row in ordered_rows
+    )
+    assert rendered_markdown.count("| Equal | Equal | s1 |") == 1
+    assert "s2→s1, 1" in rendered_markdown
+    assert "70-percent-s1" not in rendered_markdown
+    assert "Normal A/D/R/S" not in rendered_markdown
+    assert "| Placement | Workload |" not in rendered_markdown
     assert phase_end_csv(result) == rendered_csv
     assert phase_end_markdown(result) == rendered_markdown
 
@@ -511,7 +565,7 @@ def test_supplemental_phase_end_renderers_are_explicit_and_deterministic() -> No
 def test_per_site_timeline_is_four_by_three_and_exposes_all_four_metrics() -> None:
     svg = per_site_timeline_svg(_supplemental_result())
 
-    ET.fromstring(svg)
+    visible_text = " ".join(ET.fromstring(svg).itertext())
     assert svg.count('<g class="site-panel"') == 12
     assert svg.count('class="partition-window"') == 12
     assert svg.count('data-metric="authorized"') == 12
@@ -519,7 +573,56 @@ def test_per_site_timeline_is_four_by_three_and_exposes_all_four_metrics() -> No
     assert svg.count('data-metric="remaining"') == 12
     assert svg.count('data-metric="stranded"') == 12
     assert "fixed y-axis 0-30" in svg
+    assert "Per-site state over the retained three-endpoint experiment" in visible_text
+    assert "Per-site warden state over time" in visible_text
+    assert "equal authority / equal demand · s1" in visible_text
+    assert "70% s1 authority / 70% s1 demand · s3" in visible_text
+    assert "70-percent-s1" not in visible_text
+    assert 'data-scenario="70-percent-s1 placement / equal workload"' in svg
     assert per_site_timeline_svg(_supplemental_result()) == svg
+
+
+def test_aggregate_timeline_uses_paper_labels_in_canonical_order() -> None:
+    svg = timeline_svg(_supplemental_result())
+    visible_text = " ".join(ET.fromstring(svg).itertext())
+
+    labels = (
+        "(a) equal authority / equal demand",
+        "(b) equal authority / 70% s1 demand",
+        "(c) 70% s1 authority / equal demand",
+        "(d) 70% s1 authority / 70% s1 demand",
+    )
+    assert [visible_text.index(label) for label in labels] == sorted(
+        visible_text.index(label) for label in labels
+    )
+    assert visible_text.count("partitioned wardens") == 4
+    assert visible_text.count("central counter") == 4
+    assert "70-percent-s1" not in visible_text
+    assert "placement /" not in visible_text
+    assert "workload" not in visible_text
+    assert "LETS" not in visible_text
+
+
+@pytest.mark.parametrize(
+    ("field", "message"),
+    (
+        ("placement", "unsupported placement display token"),
+        ("workload", "unsupported demand display token"),
+    ),
+)
+def test_human_renderers_reject_unknown_scenario_display_tokens(field: str, message: str) -> None:
+    result = _supplemental_result()
+    scenarios = result["scenarios"]
+    assert isinstance(scenarios, list)
+    assert isinstance(scenarios[0], dict)
+    scenarios[0][field] = "unmapped"
+
+    with pytest.raises(ValueError, match=message):
+        phase_end_markdown(result)
+    with pytest.raises(ValueError, match=message):
+        per_site_timeline_svg(result)
+    with pytest.raises(ValueError, match=message):
+        timeline_svg(result)
 
 
 def test_render_existing_mode_is_local_only(

@@ -1,7 +1,7 @@
-"""Run a reproducible LETS experiment on three separately booted Linux SSH hosts.
+"""Run a reproducible LETS experiment on three separately booted Linux SSH endpoints.
 
 The experiment creates one real LETS warden SQLite database and one real local
-executor receipt-claim database on each host.  Healthy peer probes and transfer
+executor receipt-claim database on each endpoint.  Healthy peer probes and transfer
 messages use a controller byte relay over two SSH sessions because the tested
 high ports are not directly reachable.  The injected fault is a symmetric
 application-path gate at s1 and s2; it is explicitly not a firewall or physical
@@ -103,6 +103,30 @@ SCENARIOS = (
         ("s2", "s1", 1),
     ),
 )
+
+
+_SCENARIO_DISPLAY_VALUES = {
+    "equal": "Equal",
+    "70-percent-s1": "70% at s1",
+}
+
+
+def _display_scenario_value(value: object, *, field: str) -> str:
+    """Return the paper-facing label for a stable raw scenario token."""
+
+    if not isinstance(value, str) or value not in _SCENARIO_DISPLAY_VALUES:
+        raise ValueError(f"unsupported {field} display token: {value!r}")
+    return _SCENARIO_DISPLAY_VALUES[value]
+
+
+def _scenario_panel_label(scenario: Mapping[str, object]) -> str:
+    """Describe a scenario without leaking machine-oriented enum spellings."""
+
+    placement = _display_scenario_value(scenario.get("placement"), field="placement")
+    demand = _display_scenario_value(scenario.get("workload"), field="demand")
+    placement = placement.lower().replace(" at ", " ")
+    demand = demand.lower().replace(" at ", " ")
+    return f"{placement} authority / {demand} demand"
 
 
 class RemoteExperimentError(RuntimeError):
@@ -1292,9 +1316,9 @@ def _scenario_failures(result: Mapping[str, Any]) -> list[str]:
         failures.append("a final local LETS invariant was unhealthy")
     artifacts = result["durable_artifacts"]
     if len({item["warden_sqlite_sha256"] for item in artifacts}) != 3:
-        failures.append("warden SQLite artifacts are not distinct across all three hosts")
+        failures.append("warden SQLite artifacts are not distinct across all three endpoints")
     if len({item["executor_sqlite_sha256"] for item in artifacts}) != 3:
-        failures.append("executor SQLite artifacts are not distinct across all three hosts")
+        failures.append("executor SQLite artifacts are not distinct across all three endpoints")
     attempted = sum(
         sum(int(value) for value in values.values()) for values in result["phase_counts"].values()
     )
@@ -1514,7 +1538,9 @@ def run_experiment(
                 len({host.host_key_sha256 for host in hosts}) != 3
                 or len({host.address_sha256 for host in hosts}) != 3
             ):
-                raise RemoteExperimentError("SSH inventory does not identify three distinct hosts")
+                raise RemoteExperimentError(
+                    "SSH inventory does not identify three distinct endpoints"
+                )
 
             for host in hosts:
                 facts = _provision_runtime(host, source_archive, local_uv, AGENT_SOURCE)
@@ -1539,7 +1565,7 @@ def run_experiment(
                 "completed_at": utc_now(),
                 "run_id": checked_run_id,
                 "scope": {
-                    "deployment": "three separately booted Linux SSH hosts",
+                    "deployment": "three separately booted Linux SSH endpoints",
                     "mode": "development",
                     "host_claim": (
                         "distinct SSH endpoints and boot identities; not proof of physical, "
@@ -1547,7 +1573,7 @@ def run_experiment(
                     ),
                     "peer_transport": (
                         "controller-mediated byte relay over two Paramiko SSH sessions; "
-                        "not a direct host-to-host route or WAN measurement"
+                        "not a direct endpoint-to-endpoint route or WAN measurement"
                     ),
                     "partition": "application-path gate, not firewall or physical partition",
                     "remote_write_boundary": "authenticated normalized home only",
@@ -1745,14 +1771,16 @@ def phase_end_markdown(result: Mapping[str, Any]) -> str:
     """Render a compact per-site phase table suitable for paper drafting."""
 
     lines = [
-        "# LETS three-host per-site phase endpoints",
+        "# LETS three-endpoint per-site phase endpoints",
         "",
-        "Counts are cumulative at each phase endpoint. `A/D/R/S` means LETS authorized, "
-        "LETS denied, local actions remaining, and authority stranded on the blocked peer.",
+        "Counts are cumulative for each site at each phase boundary. `A/D/R/S` means "
+        "authorized, denied, local actions remaining, and authority stranded on the blocked "
+        "peer.",
         "",
-        "| Placement | Workload | Site | Share | Normal A/D/R/S | Partition A/D/R/S | "
-        "Recovery A/D/R/S | Central A/D | Post-heal transfer |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---|",
+        "| Initial placement | Demand | Site | Initial authority | Pre-gate A/D/R/S | "
+        "Application-path gate A/D/R/S | Recovery A/D/R/S | Central counter A/D | "
+        "Post-heal transfer |",
+        "|---|---|---|---:|---:|---:|---:|---:|---|",
     ]
     for row in phase_end_rows(result):
         phase_values = {
@@ -1762,9 +1790,11 @@ def phase_end_markdown(result: Mapping[str, Any]) -> str:
             )
             for phase in ("normal", "partition", "recovery")
         }
-        transfer = f"{row['transfer_source']}→{row['transfer_target']} ({row['transfer_amount']})"
+        placement = _display_scenario_value(row["placement"], field="placement")
+        demand = _display_scenario_value(row["workload"], field="demand")
+        transfer = f"{row['transfer_source']}→{row['transfer_target']}, {row['transfer_amount']}"
         lines.append(
-            f"| {row['placement']} | {row['workload']} | {row['site']} | "
+            f"| {placement} | {demand} | {row['site']} | "
             f"{row['initial_share']} | {phase_values['normal']} | "
             f"{phase_values['partition']} | {phase_values['recovery']} | "
             f"{row['central_authorized']}/{row['central_denied']} | {transfer} |"
@@ -1772,9 +1802,9 @@ def phase_end_markdown(result: Mapping[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "The partition is the symmetric s1↔s2 application-path gate. Stranded authority is "
-            "therefore zero for s3 and outside the partition phase. The central counts use the "
-            "identical per-operation site/phase schedule as LETS.",
+            "The application-path gate is symmetric between s1 and s2. Stranded authority is "
+            "therefore zero for s3 and outside that phase. The central-counter counts use the "
+            "same per-operation site/phase schedule as the partitioned wardens.",
             "",
         ]
     )
@@ -1802,10 +1832,13 @@ def per_site_timeline_svg(result: Mapping[str, Any]) -> str:
     elements = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">',
-        '<title id="title">LETS per-site state over the retained three-host experiment</title>',
-        '<desc id="description">Four placement and workload scenarios by three sites, with '
-        "cumulative authorized and denied actions, actions remaining, stranded authority, and "
-        "application partition windows.</desc>",
+        ('<title id="title">Per-site state over the retained three-endpoint experiment</title>'),
+        (
+            '<desc id="description">Four authority-placement and demand scenarios by three '
+            "sites, with "
+            "cumulative authorized and denied actions, actions remaining, stranded authority, "
+            "and application-path gate windows.</desc>"
+        ),
         "<style>text{font-family:system-ui,sans-serif;fill:#172033}.title{font-size:18px;"
         "font-weight:700}.subtitle{font-size:11px;fill:#4b5563}.panel-title{font-size:11px;"
         "font-weight:650}.tick{font-size:9px;fill:#5d6678}.axis{stroke:#8590a6;stroke-width:1}"
@@ -1815,9 +1848,15 @@ def per_site_timeline_svg(result: Mapping[str, Any]) -> str:
         ".remaining{fill:none;stroke:#15803d;stroke-width:2}.stranded{fill:none;stroke:#7e22ce;"
         "stroke-width:2;stroke-dasharray:2 3}.series{vector-effect:non-scaling-stroke}</style>",
         '<rect width="100%" height="100%" fill="#ffffff"/>',
-        '<text id="title-text" x="24" y="28" class="title">Per-site LETS state over time</text>',
-        '<text x="24" y="48" class="subtitle">Site-event observations at global operation step; '
-        "fixed y-axis 0-30; red shading is the s1↔s2 application-path gate.</text>",
+        (
+            '<text id="title-text" x="24" y="28" class="title">Per-site warden state over '
+            "time</text>"
+        ),
+        (
+            '<text x="24" y="48" class="subtitle">Site-event observations at global '
+            "operation step; "
+            "fixed y-axis 0-30; shading marks the s1↔s2 application-path gate.</text>"
+        ),
         '<line x1="24" y1="73" x2="54" y2="73" class="authorized series"/>',
         '<text x="60" y="77" class="subtitle">authorized (cumulative)</text>',
         '<line x1="238" y1="73" x2="268" y2="73" class="denied series"/>',
@@ -1875,14 +1914,15 @@ def per_site_timeline_svg(result: Mapping[str, Any]) -> str:
                 bounded = max(0, min(30, value))
                 return bottom - span * bounded / 30
 
-            scenario_label = html.escape(
+            raw_scenario_label = html.escape(
                 f"{scenario.get('placement')} placement / {scenario.get('workload')} workload",
                 quote=True,
             )
+            scenario_label = html.escape(_scenario_panel_label(scenario))
             safe_alias = html.escape(alias, quote=True)
             elements.extend(
                 [
-                    f'<g class="site-panel" data-scenario="{scenario_label}" '
+                    f'<g class="site-panel" data-scenario="{raw_scenario_label}" '
                     f'data-site="{safe_alias}">',
                     f'<rect x="{panel_x}" y="{panel_y}" width="{panel_width}" '
                     f'height="{panel_height}" rx="3" class="panel"/>',
@@ -1962,7 +2002,10 @@ def timeline_svg(result: Mapping[str, Any]) -> str:
         "fill:none;stroke:#1167b1;stroke-width:2.5}.central{fill:none;stroke:#d97706;"
         "stroke-width:2.5}.partition{fill:#ef4444;opacity:.09}</style>",
         '<rect width="100%" height="100%" fill="#ffffff"/>',
-        '<text x="24" y="28" class="title">Authorized actions over time: LETS vs central</text>',
+        (
+            '<text x="24" y="28" class="title">Cumulative authorized operations for four '
+            "fixed schedules</text>"
+        ),
     ]
     for panel, scenario in enumerate(result["scenarios"]):
         events = scenario["timeline"]
@@ -1992,7 +2035,8 @@ def timeline_svg(result: Mapping[str, Any]) -> str:
                 f'<line x1="{margin_left}" y1="{bottom}" x2="{width - 30}" '
                 f'y2="{bottom}" class="axis"/>',
                 f'<text x="{margin_left}" y="{top + 13}" class="label">'
-                f"{scenario['placement']} placement / {scenario['workload']} workload</text>",
+                f"({chr(ord('a') + panel)}) "
+                f"{html.escape(_scenario_panel_label(scenario))}</text>",
                 f'<text x="8" y="{bottom}" class="label">0</text>',
                 f'<text x="8" y="{top + 29}" class="label">{maximum}</text>',
             ]
@@ -2010,8 +2054,8 @@ def timeline_svg(result: Mapping[str, Any]) -> str:
         elements.append(f'<polyline points="{" ".join(central_points)}" class="central"/>')
         elements.append(
             f'<text x="{width - 235}" y="{top + 13}" class="label">'
-            '<tspan fill="#1167b1">LETS</tspan><tspan>  </tspan>'
-            '<tspan fill="#d97706">central</tspan></text>'
+            '<tspan fill="#1167b1">partitioned wardens</tspan><tspan>  </tspan>'
+            '<tspan fill="#d97706">central counter</tspan></text>'
         )
     elements.append("</svg>")
     return "\n".join(elements)
@@ -2021,18 +2065,19 @@ def report_markdown(result: Mapping[str, Any]) -> str:
     scope = result["scope"]
     evidence = result["host_evidence"]
     distinct_boots = len({item["boot_id_sha256"] for item in evidence["linux_boot_identity"]})
+    peer_transport = str(scope["peer_transport"]).replace("host-to-host", "endpoint-to-endpoint")
     lines = [
-        "# LETS three-host Linux development experiment",
+        "# LETS three-endpoint development experiment",
         "",
         f"- **Result:** `{result['status']}`",
         f"- **Run:** `{result['run_id']}`",
         f"- **Tracked source commit:** `{result['source']['commit']}`",
         "",
         "> Scope: three distinct SSH endpoints with distinct Linux boot identities, one real "
-        "LETS SQLite warden, and one separate local SQLite executor claim store per host. "
+        "LETS SQLite warden, and one separate local SQLite executor claim store per endpoint. "
         "This does not prove physical-machine, power, rack, or failure-domain independence. "
         "Peer bytes traversed a controller relay over two SSH sessions, so this is not a direct "
-        "host-to-host route or WAN latency measurement.",
+        "endpoint-to-endpoint route or WAN latency measurement.",
         "",
         "## Reproducibility and safety",
         "",
@@ -2045,42 +2090,75 @@ def report_markdown(result: Mapping[str, Any]) -> str:
         "- No sudo, Docker, system package mutation, credential retention, raw address "
         "retention, or raw username retention.",
         "",
-        "## Host and transport evidence",
+        "## Endpoint and transport evidence",
         "",
         f"- Distinct address fingerprints: **{evidence['distinct_address_hashes']}**.",
         f"- Distinct SSH host keys: **{evidence['distinct_ssh_host_keys']}**.",
         f"- Distinct Linux boot IDs: **{distinct_boots}**.",
-        f"- Peer transport: {scope['peer_transport']}.",
-        "- Inter-host authentication: HMAC-SHA256 over method, path, timestamp, nonce, body "
+        f"- Peer transport: {peer_transport}.",
+        "- Inter-warden authentication: HMAC-SHA256 over method, path, timestamp, nonce, body "
         "digest, and source alias; the shared key was never sent on the peer path.",
         "",
-        "## Full-factorial placement/workload matrix",
+        "## Partitioned local progress",
         "",
-        "| Placement | Workload | LETS auth/deny | Central auth/deny | Consumed | "
-        "Conservation | Transfer |",
-        "|---|---|---:|---:|---:|---|---|",
+        "| Initial placement | Demand | Partitioned wardens | Central counter | "
+        "Post-heal transfer |",
+        "|---|---|---:|---:|---|",
     ]
+    conservation_count = 0
+    debit_match_count = 0
+    envelope_units: set[int] = set()
     for scenario in result["scenarios"]:
         lets_authorized = sum(int(item["authorized"]) for item in scenario["final_snapshots"])
         lets_denied = sum(int(item["denied"]) for item in scenario["final_snapshots"])
         central = scenario["central_baseline_summary"]
         transfer = scenario["recovery"]["transfer"]
+        aggregate = scenario["aggregate_final"]
+        placement = _display_scenario_value(scenario.get("placement"), field="placement")
+        demand = _display_scenario_value(scenario.get("workload"), field="demand")
+        conservation_count += int(aggregate["conservation_holds"] is True)
+        debit_match_count += int(int(aggregate["consumed"]) == lets_authorized)
+        envelope_units.add(int(aggregate["initial_share"]))
         lines.append(
-            f"| {scenario['placement']} | {scenario['workload']} | "
+            f"| {placement} | {demand} | "
             f"{lets_authorized}/{lets_denied} | {central['authorized']}/{central['denied']} | "
-            f"{scenario['aggregate_final']['consumed']} | "
-            f"{scenario['aggregate_final']['conservation_holds']} | "
-            f"{transfer['source']}→{transfer['target']} ({transfer['amount']}) |"
+            f"{transfer['source']}→{transfer['target']}, {transfer['amount']} |"
+        )
+    scenario_count = len(result["scenarios"])
+    if len(envelope_units) != 1:
+        raise ValueError("scenario envelopes do not share one displayable initial allocation")
+    envelope_units_value = next(iter(envelope_units))
+    if conservation_count == scenario_count:
+        conservation_summary = f"Every row conserved its {envelope_units_value}-unit envelope."
+    else:
+        conservation_summary = (
+            f"{conservation_count}/{scenario_count} rows conserved their "
+            f"{envelope_units_value}-unit envelope."
+        )
+    if debit_match_count == scenario_count:
+        debit_summary = (
+            "Each operation cost one unit, so warden debit equaled the authorized count in "
+            "every row."
+        )
+    else:
+        debit_summary = (
+            f"Warden debit equaled the authorized count in "
+            f"{debit_match_count}/{scenario_count} rows."
         )
     lines.extend(
         [
             "",
-            "Each scenario includes normal, symmetric s1↔s2 application-gate, and recovery "
-            "phases. Raw events contain cumulative authorized/denied counts, remaining local "
-            "actions, phase snapshots, authority stranded on the blocked counterpart, and the "
-            "same operation schedule against a durable centralized SQLite counter on s2.",
+            conservation_summary,
+            debit_summary,
             "",
-            "The executor stores deliberately used LETS's explicit unanchored development mode. "
+            "Each fixed schedule includes pre-gate, symmetric s1↔s2 application-path gate, "
+            "and recovery phases. Raw events contain cumulative authorized/denied counts, "
+            "remaining local actions, phase snapshots, authority stranded on the blocked "
+            "counterpart, and the same operation schedule against a durable centralized SQLite "
+            "counter on s2.",
+            "",
+            "The executor claim stores deliberately used LETS's explicit unanchored development "
+            "mode. "
             "The result demonstrates separately hosted durable state and executors, but does not "
             "claim production rollback protection, firewall-level partitioning, direct WAN "
             "transport, or physical failure-domain independence.",
