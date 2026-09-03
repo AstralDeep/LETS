@@ -750,6 +750,95 @@ def test_finalize_rejects_credential_file_without_manifesting_it(tmp_path: Path)
     assert not (staging / MANIFEST_NAME).exists()
 
 
+@pytest.mark.parametrize(
+    ("relative", "leaked_path"),
+    [
+        ("performance/performance-matrix.json", r"C:\Users\sam\campaign\results.json"),
+        ("raw/final-full-suite.xml", r"Y:\WORK\MCP\LETS-clean\tests"),
+    ],
+)
+def test_finalize_rejects_local_absolute_paths_in_retained_text(
+    tmp_path: Path, relative: str, leaked_path: str
+) -> None:
+    repository, commit = _clean_repository(tmp_path)
+    staging = repository / "staging/campaign"
+    preflight_campaign(repository=repository, staging_root=staging, expected_commit=commit)
+    _add_complete_campaign(staging, repository, commit)
+    path = staging.joinpath(*relative.split("/"))
+    if path.suffix == ".json":
+        document = _load(path)
+        document["retained_local_path"] = leaked_path
+        _write(path, json.dumps(document))
+    else:
+        content = path.read_text(encoding="utf-8")
+        _write(
+            path,
+            content.replace("</testsuites>", f"<!-- {leaked_path} --></testsuites>"),
+        )
+
+    with pytest.raises(CampaignError, match="local absolute path"):
+        finalize_campaign(
+            repository=repository,
+            staging_root=staging,
+            paper_input_root=repository / "paper/submission",
+            expected_commit=commit,
+            campaign_binding=CAMPAIGN_BINDING,
+        )
+
+    assert not (staging / MANIFEST_NAME).exists()
+
+
+def test_finalize_rejects_local_absolute_path_in_compressed_text(tmp_path: Path) -> None:
+    repository, commit = _clean_repository(tmp_path)
+    staging = repository / "staging/campaign"
+    preflight_campaign(repository=repository, staging_root=staging, expected_commit=commit)
+    _add_complete_campaign(staging, repository, commit)
+    archive_path = staging / "remote/matched-host/matched-host-path.json.gz"
+    payload = json.loads(gzip.decompress(archive_path.read_bytes()))
+    payload["retained_local_path"] = r"C:\Users\sam\campaign\matched-host.json"
+    archive_path.write_bytes(
+        gzip.compress((json.dumps(payload) + "\n").encode(), compresslevel=9, mtime=0)
+    )
+
+    with pytest.raises(CampaignError, match="local absolute path"):
+        finalize_campaign(
+            repository=repository,
+            staging_root=staging,
+            paper_input_root=repository / "paper/submission",
+            expected_commit=commit,
+            campaign_binding=CAMPAIGN_BINDING,
+        )
+
+    assert not (staging / MANIFEST_NAME).exists()
+
+
+def test_text_privacy_guard_skips_binary_artifacts() -> None:
+    evidence_campaign._validate_text_artifact_privacy(
+        "figure.pdf", b"\xff\x00C:\\Users\\sam\\source"
+    )
+
+
+def test_finalize_allows_drive_and_model_labels_without_absolute_paths(tmp_path: Path) -> None:
+    repository, commit = _clean_repository(tmp_path)
+    staging = repository / "staging/campaign"
+    preflight_campaign(repository=repository, staging_root=staging, expected_commit=commit)
+    _add_complete_campaign(staging, repository, commit)
+    performance_path = staging / "performance/performance-matrix.json"
+    performance = _load(performance_path)
+    performance["retained_labels"] = {"drive": "C:", "model": "NVMe C: benchmark device"}
+    _write(performance_path, json.dumps(performance))
+
+    finalize_campaign(
+        repository=repository,
+        staging_root=staging,
+        paper_input_root=repository / "paper/submission",
+        expected_commit=commit,
+        campaign_binding=CAMPAIGN_BINDING,
+    )
+
+    assert (staging / MANIFEST_NAME).is_file()
+
+
 def test_finalize_never_overwrites_an_existing_manifest(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"

@@ -1,0 +1,9 @@
+{
+  "git": {
+    "commit": "ca6baef43541197d3b812c9f05ebe2e3494d49d0",
+    "dirty": false,
+    "tree": "9cf727f6fb33856c0a111fb6bc9ec63885c057df"
+  },
+  "purpose": "bind a clean exact checkout before evidence is written",
+  "schema": "lets.nsdi-clean-evidence-campaign/v1"
+}

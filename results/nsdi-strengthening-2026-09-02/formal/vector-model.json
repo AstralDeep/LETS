@@ -1,0 +1,229 @@
+{
+  "action_costs": {
+    "inspect_configuration": [
+      1,
+      0
+    ],
+    "restart_service": [
+      0,
+      3
+    ],
+    "rotate_credential": [
+      1,
+      5
+    ]
+  },
+  "baseline": {
+    "action_counts": {
+      "accept_transfer": 2891,
+      "authorize:inspect_configuration": 2464,
+      "authorize:restart_service": 1801,
+      "authorize:rotate_credential": 537,
+      "close": 6546,
+      "issue_root": 1197,
+      "prepare_transfer": 2891,
+      "spawn": 141
+    },
+    "counterexample_depth": null,
+    "cutoff_states": 26,
+    "cutoff_transitions_probed": 0,
+    "frontier_exhausted": true,
+    "maximum_shortest_depth": 10,
+    "passed": true,
+    "shortest_trace": [],
+    "states_by_shortest_depth": {
+      "0": 1,
+      "1": 11,
+      "10": 26,
+      "2": 75,
+      "3": 341,
+      "4": 1005,
+      "5": 1931,
+      "6": 2340,
+      "7": 1701,
+      "8": 733,
+      "9": 184
+    },
+    "states_checked": 8348,
+    "termination": "frontier_exhausted",
+    "transitions_by_source_depth": {
+      "0": 11,
+      "1": 96,
+      "2": 566,
+      "3": 1953,
+      "4": 4203,
+      "5": 5413,
+      "6": 4057,
+      "7": 1724,
+      "8": 403,
+      "9": 42
+    },
+    "transitions_checked": 18468,
+    "unseen_successors_at_cutoff": 0,
+    "violated_property": null,
+    "violation": null
+  },
+  "bounds": {
+    "initial_free": [
+      [
+        2,
+        5
+      ],
+      [
+        1,
+        3
+      ]
+    ],
+    "max_depth": 10,
+    "max_leases": 2,
+    "max_transfers": 1,
+    "total_budget": [
+      3,
+      8
+    ]
+  },
+  "checker": "standalone_bounded_two_dimensional_explicit_state_bfs",
+  "configuration_sha256": "3d8369603603566c9f8eaeb4c1d75841501159e9d9ebd856ba74f24fdb1cb428",
+  "dimensions": [
+    "operation_tokens",
+    "service_impact_units"
+  ],
+  "generated_at_utc": "2026-09-03T01:33:51.225150+00:00",
+  "invariants": [
+    "component-wise conservation of free + residual + consumed + in-flight",
+    "component-wise spendable free + residual <= initial budget",
+    "prepared transfers exactly equal explicit in-flight resources",
+    "child delegation is warden-local and debits parent residual"
+  ],
+  "model_sha256": "f8dde628cd26df625e06b3ddeeae339acebf4da3c13844e370c36db42a03b538",
+  "modeled_actions": [
+    "issue_root",
+    "attenuated_spawn",
+    "authorize",
+    "close_leaf",
+    "prepare_transfer",
+    "accept_transfer"
+  ],
+  "mutant": {
+    "action_counts": {
+      "MUTANT_cross_dimension_debit": 1,
+      "authorize:inspect_configuration": 2,
+      "authorize:restart_service": 2,
+      "authorize:rotate_credential": 1,
+      "close": 3,
+      "issue_root": 17,
+      "prepare_transfer": 16,
+      "spawn": 5
+    },
+    "counterexample_depth": 2,
+    "cutoff_states": 0,
+    "description": "charge (1,5), debit residual by only (1,0)",
+    "expected_property": "per_dimension_conservation",
+    "frontier_exhausted": false,
+    "killed": true,
+    "maximum_shortest_depth": 1,
+    "name": "cross_dimension_debit",
+    "passed": false,
+    "shortest_trace": [
+      {
+        "action": "issue_root(w=0,allocation=(1, 5))",
+        "state": {
+          "consumed": [
+            0,
+            0
+          ],
+          "free": [
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              3
+            ]
+          ],
+          "in_flight": [
+            0,
+            0
+          ],
+          "residual": [
+            {
+              "active": true,
+              "allocation": [
+                1,
+                5
+              ],
+              "lease_id": 0,
+              "parent_id": null,
+              "residual": [
+                1,
+                5
+              ],
+              "warden": 0
+            }
+          ],
+          "transfers": []
+        },
+        "step": 1
+      },
+      {
+        "action": "MUTANT_cross_dimension_debit(lease=0,cost=(1, 5),debited=(1, 0))",
+        "state": {
+          "consumed": [
+            1,
+            5
+          ],
+          "free": [
+            [
+              1,
+              0
+            ],
+            [
+              1,
+              3
+            ]
+          ],
+          "in_flight": [
+            0,
+            0
+          ],
+          "residual": [
+            {
+              "active": true,
+              "allocation": [
+                1,
+                5
+              ],
+              "lease_id": 0,
+              "parent_id": null,
+              "residual": [
+                0,
+                5
+              ],
+              "warden": 0
+            }
+          ],
+          "transfers": []
+        },
+        "step": 2
+      }
+    ],
+    "states_by_shortest_depth": {
+      "0": 1,
+      "1": 11,
+      "2": 35
+    },
+    "states_checked": 47,
+    "termination": "counterexample",
+    "transitions_by_source_depth": {
+      "0": 11,
+      "1": 36
+    },
+    "transitions_checked": 47,
+    "unseen_successors_at_cutoff": null,
+    "violated_property": "per_dimension_conservation",
+    "violation": "accounted total (3, 13) differs from initial budget (3, 8)"
+  },
+  "schema_version": 1,
+  "success": true
+}

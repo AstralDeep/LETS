@@ -96,6 +96,8 @@ _ALLOWED_EVIDENCE_ENDINGS = (
     ".xml",
     ".zip",
 )
+_TEXT_EVIDENCE_ENDINGS = (".csv", ".json", ".log", ".md", ".svg", ".xml")
+_WINDOWS_ABSOLUTE_PATH = re.compile(r"(?i)(?<![a-z0-9_])[a-z]:[\\/]+")
 _SENSITIVE_NAME = re.compile(
     r"(^|[._-])(credential|credentials|password|passwd|private[._-]?key|"
     r"secret|secrets|servers?|token|tokens)([._-]|$)",
@@ -551,6 +553,28 @@ def _reject_sensitive_path(relative: Path) -> None:
         _SENSITIVE_ENDINGS
     ):
         raise CampaignError("credential-like files are forbidden in campaign inputs")
+
+
+def _validate_text_artifact_privacy(relative: str, content: bytes) -> None:
+    """Reject local Windows paths from retained text without inspecting binaries."""
+
+    lowered = relative.lower()
+    if lowered.endswith(".gz"):
+        try:
+            text_bytes = gzip.decompress(content)
+        except (EOFError, OSError) as error:
+            raise CampaignError(f"staged gzip artifact is invalid: {relative}") from error
+    elif lowered.endswith(_TEXT_EVIDENCE_ENDINGS):
+        text_bytes = content
+    else:
+        return
+    try:
+        text = text_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise CampaignError(f"staged text artifact is not valid UTF-8: {relative}") from error
+    if _WINDOWS_ABSOLUTE_PATH.search(text):
+        # Do not echo the matched value: the path itself is what must not leak.
+        raise CampaignError(f"local absolute path retained in staged text artifact: {relative}")
 
 
 def _walk_mappings(
@@ -1404,6 +1428,7 @@ def _staged_artifacts(
             continue
         _validate_evidence_path(relative_path)
         content = _read_regular_file(path)
+        _validate_text_artifact_privacy(relative, content)
         if path.suffix.lower() == ".json" and relative != CAMPAIGN_PREFLIGHT_NAME:
             _validate_json_provenance(relative, content, identity.commit)
         entries.append(_file_entry(relative, content))

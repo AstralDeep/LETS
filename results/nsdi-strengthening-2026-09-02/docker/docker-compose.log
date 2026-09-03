@@ -1,0 +1,10 @@
+bootstrap-1  | {"manifest_digest": "sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3", "policy_digest": "sha256:04fedc989f5cf5d9956fe71bd4465fd4da00c278dff485b6f3ac7cf75684dba0", "status": "bootstrapped", "wardens": ["warden-a", "warden-b", "warden-c"]}
+toxiproxy-1  | {"level":"info","version":"2.12.0","caller":"server.go:78","time":"2026-09-03T02:14:14Z","message":"Starting Toxiproxy"}
+toxiproxy-1  | {"level":"info","address":"0.0.0.0:8474","caller":"api.go:57","time":"2026-09-03T02:14:14Z","message":"Starting Toxiproxy HTTP server"}
+toxiproxy-1  | {"level":"info","name":"a_to_b","listen":"0.0.0.0:8666","upstream":"warden-b:8080","caller":"proxy.go:123","time":"2026-09-03T02:14:24Z","message":"Started proxy"}
+toxiproxy-1  | {"level":"info","name":"b_to_a","listen":"0.0.0.0:8667","upstream":"warden-a:8080","caller":"proxy.go:123","time":"2026-09-03T02:14:24Z","message":"Started proxy"}
+toxiproxy-1  | {"level":"info","name":"a_to_b","listen":"0.0.0.0:8666","upstream":"warden-b:8080","caller":"proxy.go:264","time":"2026-09-03T02:14:29Z","message":"Terminated proxy"}
+toxiproxy-1  | {"level":"info","name":"b_to_a","listen":"0.0.0.0:8667","upstream":"warden-a:8080","caller":"proxy.go:264","time":"2026-09-03T02:14:29Z","message":"Terminated proxy"}
+toxiproxy-1  | {"level":"info","name":"a_to_b","listen":"0.0.0.0:8666","upstream":"warden-b:8080","caller":"proxy.go:123","time":"2026-09-03T02:14:35Z","message":"Started proxy"}
+toxiproxy-1  | {"level":"info","name":"b_to_a","listen":"0.0.0.0:8667","upstream":"warden-a:8080","caller":"proxy.go:123","time":"2026-09-03T02:14:35Z","message":"Started proxy"}
+toxiproxy-1  | {"level":"info","name":"a_to_b","listen":"0.0.0.0:8666","upstream":"warden-b:8080","client":"172.18.0.5:52114","caller":"proxy.go:204","time":"2026-09-03T02:14:38Z","message":"Accepted client"}

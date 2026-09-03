@@ -1,0 +1,13 @@
+scenario,placement,workload,site,initial_share,normal_authorized,normal_denied,normal_actions_remaining,normal_stranded,partition_authorized,partition_denied,partition_actions_remaining,partition_stranded,recovery_authorized,recovery_denied,recovery_actions_remaining,recovery_stranded,central_authorized,central_denied,transfer_source,transfer_target,transfer_amount
+equal-placement-equal-workload,equal,equal,s1,10,2,0,8,0,5,0,5,5,6,0,5,0,3,3,s2,s1,1
+equal-placement-equal-workload,equal,equal,s2,10,2,0,8,0,5,0,5,5,6,0,3,0,6,0,s2,s1,1
+equal-placement-equal-workload,equal,equal,s3,10,2,0,8,0,5,0,5,0,6,0,4,0,6,0,s2,s1,1
+equal-placement-skew70-workload,equal,70-percent-s1,s1,10,4,0,6,0,10,1,0,8,13,1,0,0,7,7,s2,s1,3
+equal-placement-skew70-workload,equal,70-percent-s1,s2,10,1,0,9,0,2,0,8,0,3,0,4,0,3,0,s2,s1,3
+equal-placement-skew70-workload,equal,70-percent-s1,s3,10,1,0,9,0,2,0,8,0,3,0,7,0,3,0,s2,s1,3
+skew70-placement-equal-workload,70-percent-s1,equal,s1,21,2,0,19,0,5,0,16,0,6,0,13,0,3,3,s1,s2,2
+skew70-placement-equal-workload,70-percent-s1,equal,s2,4,2,0,2,0,4,1,0,16,5,1,1,0,6,0,s1,s2,2
+skew70-placement-equal-workload,70-percent-s1,equal,s3,5,2,0,3,0,5,0,0,0,5,1,0,0,6,0,s1,s2,2
+skew70-placement-skew70-workload,70-percent-s1,70-percent-s1,s1,21,4,0,17,0,11,0,10,2,14,0,8,0,7,7,s2,s1,1
+skew70-placement-skew70-workload,70-percent-s1,70-percent-s1,s2,4,1,0,3,0,2,0,2,10,3,0,0,0,3,0,s2,s1,1
+skew70-placement-skew70-workload,70-percent-s1,70-percent-s1,s3,5,1,0,4,0,2,0,3,0,3,0,2,0,3,0,s2,s1,1

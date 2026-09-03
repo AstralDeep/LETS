@@ -1,0 +1,201 @@
+{
+  "controller_only_dependencies": [
+    {
+      "declaration": "campaign RUNBOOK.md (not part of the project uv.lock)",
+      "name": "paramiko",
+      "scope": "remote orchestration only",
+      "version": "4.0.0"
+    }
+  ],
+  "files": [
+    {
+      "bytes": 3597,
+      "path": "Dockerfile",
+      "sha256": "74fabbc66e3c9692400ab695c0f4c790b860b1faa86a811100cf4298fc176fcf"
+    },
+    {
+      "bytes": 80,
+      "path": "benchmarks/nsdi_strengthening/__init__.py",
+      "sha256": "a8bf11a7e526b3baffaac712996cb3da154330022f1d820e2fa998cf893ebf37"
+    },
+    {
+      "bytes": 4251,
+      "path": "benchmarks/nsdi_strengthening/common.py",
+      "sha256": "5995702807b9d4e1e6cbbaf95ac6681e21c277b55916f8bd5e19c1eb93158121"
+    },
+    {
+      "bytes": 35360,
+      "path": "benchmarks/nsdi_strengthening/distributed_partition.py",
+      "sha256": "938ad4748379d1da52b361daaff35eec4d1bb4fa8c09acfec62d2e0dfd0796ab"
+    },
+    {
+      "bytes": 65825,
+      "path": "benchmarks/nsdi_strengthening/evidence_campaign.py",
+      "sha256": "46e50ff26982e410079939f0406890b1b7f1e2ebaedfb327bde79d34588d0464"
+    },
+    {
+      "bytes": 13268,
+      "path": "benchmarks/nsdi_strengthening/implementation_inventory.py",
+      "sha256": "dfb5d49bf1cd8a9ba1517b3c93ac5a1d3384e20cfd09d5e7171afbe6df05bcfc"
+    },
+    {
+      "bytes": 20870,
+      "path": "benchmarks/nsdi_strengthening/lineage_scaling.py",
+      "sha256": "eca861b43f76b88cf59d730a4de7c727dad67aad2255a6772e213bc0368220bf"
+    },
+    {
+      "bytes": 53405,
+      "path": "benchmarks/nsdi_strengthening/matched_host_path.py",
+      "sha256": "e97f43962e89c4f09e90169a6fd8e1fae8e8e4773797c4e896efd7e2cbf2f2fc"
+    },
+    {
+      "bytes": 30579,
+      "path": "benchmarks/nsdi_strengthening/performance_matrix.py",
+      "sha256": "6dc6a613db468f16ea03ad18a42bc81793b0550c55befa1df43591a57982cabf"
+    },
+    {
+      "bytes": 8279,
+      "path": "benchmarks/nsdi_strengthening/remote_cluster.py",
+      "sha256": "abe6c5ec8728e485a0fbaf925601f26f86330794912880d7377feee4490f7f12"
+    },
+    {
+      "bytes": 69775,
+      "path": "benchmarks/nsdi_strengthening/remote_matched_host.py",
+      "sha256": "7f2de1e3686c33f9a5bf1ff9cc075d5a3ec98366c284b76074d02d05852ed81f"
+    },
+    {
+      "bytes": 96150,
+      "path": "benchmarks/nsdi_strengthening/remote_three_host.py",
+      "sha256": "c43b9d60d0c6fa79c012723086f844ac4fea9afe5b7a3bc29955957747c377f7"
+    },
+    {
+      "bytes": 32909,
+      "path": "benchmarks/nsdi_strengthening/remote_three_host_agent.py",
+      "sha256": "e8db3259ae8e240c5ce4efd34faf42c97d8eaf98af2257e2949430644ca31fe3"
+    },
+    {
+      "bytes": 14130,
+      "path": "benchmarks/nsdi_strengthening/rollback_matrix.py",
+      "sha256": "d1154d5bc7e8ddccb84649de6358b51dfc82a443875fd34172009ba3ecc4f8ec"
+    },
+    {
+      "bytes": 28001,
+      "path": "benchmarks/nsdi_strengthening/vector_workload.py",
+      "sha256": "45feb48d06786a0a38bc86de3b9338621b4bed6dfe01998241d20c981750f29c"
+    },
+    {
+      "bytes": 3228,
+      "path": "compose.yaml",
+      "sha256": "5eb124cdfcc755391aded75ededa0f6a7c14f4b43d8d0eb8f5cc745f02840615"
+    },
+    {
+      "bytes": 26328,
+      "path": "deploy/run_acceptance.py",
+      "sha256": "3ed4873e357b6a3ff1d6427611391794adf184a87f3e3fe178dfe90488a20472"
+    },
+    {
+      "bytes": 42825,
+      "path": "formal/sensitivity_frontier.py",
+      "sha256": "459e16c4ded18fde0e7e348e0d2a5ccf2c4bd598750a00f2266aadd48410c47d"
+    },
+    {
+      "bytes": 29698,
+      "path": "formal/vector_model_checker.py",
+      "sha256": "f8dde628cd26df625e06b3ddeeae339acebf4da3c13844e370c36db42a03b538"
+    },
+    {
+      "bytes": 2069,
+      "path": "pyproject.toml",
+      "sha256": "8904d14f154ebf837deff32c3467e47442e181c5f8d893cc13433c10bda76a26"
+    },
+    {
+      "bytes": 37143,
+      "path": "tests/benchmarks/test_evidence_campaign.py",
+      "sha256": "8046dc540a451826ab378b69acf7dc4765c74f59f051eab38968650204194e08"
+    },
+    {
+      "bytes": 3346,
+      "path": "tests/benchmarks/test_nsdi_distributed_partition.py",
+      "sha256": "3ca93ac2da7ffd73256b584838b4ae920ec5f01a2a1ea20839bfb0bf58720f37"
+    },
+    {
+      "bytes": 1904,
+      "path": "tests/benchmarks/test_nsdi_implementation_inventory.py",
+      "sha256": "e44d52e0e42c8c67e165d22b347461d1b95c7ea817ef11e30bb33c3c5bfcef04"
+    },
+    {
+      "bytes": 2450,
+      "path": "tests/benchmarks/test_nsdi_lineage_scaling.py",
+      "sha256": "bc61ee74b023b932504ef8984ca71c3d7940e134cd2f27ccf9b5f11a759840b8"
+    },
+    {
+      "bytes": 6781,
+      "path": "tests/benchmarks/test_nsdi_matched_host_path.py",
+      "sha256": "b508c305e2d9d971b26003d6e2e399b8ac82f2c0452b105d44d42240771ab3ea"
+    },
+    {
+      "bytes": 3350,
+      "path": "tests/benchmarks/test_nsdi_performance_matrix.py",
+      "sha256": "a1999177629b766e1d915f3709db65535de0613fb559f0dbc7baafce5c0633e3"
+    },
+    {
+      "bytes": 2330,
+      "path": "tests/benchmarks/test_nsdi_vector_workload.py",
+      "sha256": "2ea04b765fd048304649282f09a4b6a56e2a129038ee757a2996b90336051ea0"
+    },
+    {
+      "bytes": 1397,
+      "path": "tests/benchmarks/test_remote_cluster.py",
+      "sha256": "198d95a1734b94dd1b66f5d94aa6e5834a49c2648f8926e87d05cc9e01fd67cf"
+    },
+    {
+      "bytes": 19273,
+      "path": "tests/benchmarks/test_remote_matched_host.py",
+      "sha256": "b60af1e8fb9ca0e7f2aaca11e3cbec07d863423db228640578375eb96444c4ee"
+    },
+    {
+      "bytes": 24393,
+      "path": "tests/benchmarks/test_remote_three_host.py",
+      "sha256": "af50beca0831f376de6a0cac541082d7b216c90e4e69188f53a3d0ac1a2c4294"
+    },
+    {
+      "bytes": 7249,
+      "path": "tests/benchmarks/test_rollback_matrix.py",
+      "sha256": "553ef759e1afa13a2f617b171dc728b34bf15af09e8b50fa23a2ad89a27a5068"
+    },
+    {
+      "bytes": 20296,
+      "path": "tests/e2e/test_compose_cluster.py",
+      "sha256": "4959e19dbf8a05dd70cf67e9626431e7ca2d89ea0de84aa30ead542a3e0d74bf"
+    },
+    {
+      "bytes": 2247,
+      "path": "tests/e2e/test_production_profile.py",
+      "sha256": "e8da70c9176aa7e6ec3336b83c5688b142f20ee1db530c672c89eb2718578679"
+    },
+    {
+      "bytes": 4419,
+      "path": "tests/formal/test_sensitivity_frontier.py",
+      "sha256": "40fbb6b8f11e92090911427b10970316760a5acd16d83f1db0d47a41d122813f"
+    },
+    {
+      "bytes": 2639,
+      "path": "tests/formal/test_vector_model_checker.py",
+      "sha256": "046b9435bf59f06a2d5f476ff0fbfea0ec7ece4f2a4e9f8358289395a7a67ae8"
+    },
+    {
+      "bytes": 339312,
+      "path": "uv.lock",
+      "sha256": "6958d5095faaa13ad01d598c68ff7ec2897ac42eef06cfb7b950ee1612e51c61"
+    }
+  ],
+  "git": {
+    "branch": null,
+    "commit": "ca6baef43541197d3b812c9f05ebe2e3494d49d0",
+    "dirty": false,
+    "tracked_diff": "",
+    "tree": "9cf727f6fb33856c0a111fb6bc9ec63885c057df"
+  },
+  "purpose": "bind evidence sources to an exact clean Git commit",
+  "schema": "lets.nsdi-source-manifest/v1"
+}

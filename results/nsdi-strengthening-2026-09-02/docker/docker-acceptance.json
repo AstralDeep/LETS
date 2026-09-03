@@ -1,0 +1,585 @@
+{
+  "bootstrap": {
+    "initial_budget": [
+      300
+    ],
+    "manifest_digest": "sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3",
+    "policy_digest": "sha256:04fedc989f5cf5d9956fe71bd4465fd4da00c278dff485b6f3ac7cf75684dba0",
+    "shares": {
+      "warden-a": [
+        150
+      ],
+      "warden-b": [
+        100
+      ],
+      "warden-c": [
+        50
+      ]
+    },
+    "warden_keys": {
+      "warden-a": "warden-a/ed25519-3cf97477c45d6432828ede05456d73ca",
+      "warden-b": "warden-b/ed25519-58c5b379f8c4491e9d7f4ea2c1d6a46e",
+      "warden-c": "warden-c/ed25519-c59fa0b1c4e4b4c422ccc1ae823a1756"
+    }
+  },
+  "command": "python.exe deploy/run_acceptance.py",
+  "completed_at": "2026-09-03T02:14:46.016776Z",
+  "compose": {
+    "declared_images": [
+      "ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e",
+      "lets-runtime:acceptance"
+    ],
+    "file": "compose.yaml",
+    "file_sha256": "sha256:5eb124cdfcc755391aded75ededa0f6a7c14f4b43d8d0eb8f5cc745f02840615"
+  },
+  "duration_seconds": 64.508,
+  "host": {
+    "machine": "AMD64",
+    "operating_system": "Windows",
+    "operating_system_release": "10",
+    "python": "3.14.0 (main, Nov 19 2025, 22:43:52) [MSC v.1944 64 bit (AMD64)]",
+    "python_implementation": "CPython"
+  },
+  "images": {
+    "lets_runtime": {
+      "architecture": "amd64",
+      "created": "2026-09-03T02:14:13.528944847Z",
+      "image_id": "sha256:72f6df2db25ce1c1ff0fe4f076af6b24a421606ecf77b9504bc624a1bd02e7f7",
+      "os": "linux",
+      "repo_digests": [],
+      "repo_tags": [
+        "lets-runtime:acceptance"
+      ],
+      "size_bytes": 146078110,
+      "variant": null
+    },
+    "toxiproxy": {
+      "architecture": "amd64",
+      "created": "2025-03-18T13:12:13.176393585Z",
+      "image_id": "sha256:3edf5d14625b9aa8ad71d5dd084da1f8a0eb46ee749457549ae91d29d96546aa",
+      "os": "linux",
+      "repo_digests": [
+        "ghcr.io/shopify/toxiproxy@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e"
+      ],
+      "repo_tags": [],
+      "size_bytes": 18747696,
+      "variant": null
+    }
+  },
+  "manifest_digest": "sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3",
+  "nodes": {
+    "warden-a": {
+      "audit": {
+        "valid": true
+      },
+      "container_image_id": "sha256:72f6df2db25ce1c1ff0fe4f076af6b24a421606ecf77b9504bc624a1bd02e7f7",
+      "container_python": "Python 3.14.7",
+      "container_state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "0001-01-01T00:00:00Z",
+        "Health": {
+          "FailingStreak": 0,
+          "Log": [
+            {
+              "End": "2026-09-03T02:14:30.079091059Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:29.731809944Z"
+            },
+            {
+              "End": "2026-09-03T02:14:32.430211288Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:32.079339811Z"
+            },
+            {
+              "End": "2026-09-03T02:14:34.790935764Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:34.431519904Z"
+            },
+            {
+              "End": "2026-09-03T02:14:37.13589387Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:36.791402492Z"
+            },
+            {
+              "End": "2026-09-03T02:14:39.487248742Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:39.136292586Z"
+            }
+          ],
+          "Status": "healthy"
+        },
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 31304,
+        "Restarting": false,
+        "Running": true,
+        "StartedAt": "2026-09-03T02:14:17.422287705Z",
+        "Status": "running"
+      },
+      "info": {
+        "api_version": "v1",
+        "metadata": {
+          "config_epoch": 1,
+          "envelope_id": "acceptance-envelope",
+          "manifest_digest": "sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3",
+          "runtime_provider": "builtin",
+          "sqlite_version": "3.53.2",
+          "tenant_id": "acceptance-tenant"
+        },
+        "protocol": "lets/1",
+        "warden_id": "warden-a"
+      },
+      "invariants": {
+        "checked_at_ns": 1788401682357724096,
+        "config_epoch": 1,
+        "consumed": [
+          1
+        ],
+        "envelope_id": "acceptance-envelope",
+        "free_pool": [
+          100
+        ],
+        "healthy": true,
+        "initial_share": [
+          150
+        ],
+        "lease_residual": [
+          29
+        ],
+        "tenant_id": "acceptance-tenant",
+        "transferred_in": [
+          0
+        ],
+        "transferred_out": [
+          20
+        ]
+      },
+      "keys": {
+        "keys": [
+          {
+            "algorithm": "Ed25519",
+            "key_id": "warden-a/ed25519-3cf97477c45d6432828ede05456d73ca",
+            "public_key": "TCYrLhVR0KFMEdQQZtymmENYcARNh-wTt4yR9EWEMp4"
+          }
+        ],
+        "warden_id": "warden-a"
+      }
+    },
+    "warden-b": {
+      "audit": {
+        "valid": true
+      },
+      "container_image_id": "sha256:72f6df2db25ce1c1ff0fe4f076af6b24a421606ecf77b9504bc624a1bd02e7f7",
+      "container_python": "Python 3.14.7",
+      "container_state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "2026-09-03T02:14:31.585432127Z",
+        "Health": {
+          "FailingStreak": 0,
+          "Log": [
+            {
+              "End": "2026-09-03T02:14:27.759254269Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:27.402754005Z"
+            },
+            {
+              "End": "2026-09-03T02:14:30.103567751Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:29.760150624Z"
+            },
+            {
+              "End": "2026-09-03T02:14:37.652105157Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:37.295068006Z"
+            },
+            {
+              "End": "2026-09-03T02:14:39.997934859Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:39.652666481Z"
+            },
+            {
+              "End": "2026-09-03T02:14:42.359250078Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:41.998690261Z"
+            }
+          ],
+          "Status": "healthy"
+        },
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 31842,
+        "Restarting": false,
+        "Running": true,
+        "StartedAt": "2026-09-03T02:14:32.115712572Z",
+        "Status": "running"
+      },
+      "info": {
+        "api_version": "v1",
+        "metadata": {
+          "config_epoch": 1,
+          "envelope_id": "acceptance-envelope",
+          "manifest_digest": "sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3",
+          "runtime_provider": "builtin",
+          "sqlite_version": "3.53.2",
+          "tenant_id": "acceptance-tenant"
+        },
+        "protocol": "lets/1",
+        "warden_id": "warden-b"
+      },
+      "invariants": {
+        "checked_at_ns": 1788401683213238305,
+        "config_epoch": 1,
+        "consumed": [
+          1
+        ],
+        "envelope_id": "acceptance-envelope",
+        "free_pool": [
+          100
+        ],
+        "healthy": true,
+        "initial_share": [
+          100
+        ],
+        "lease_residual": [
+          19
+        ],
+        "tenant_id": "acceptance-tenant",
+        "transferred_in": [
+          20
+        ],
+        "transferred_out": [
+          0
+        ]
+      },
+      "keys": {
+        "keys": [
+          {
+            "algorithm": "Ed25519",
+            "key_id": "warden-b/ed25519-58c5b379f8c4491e9d7f4ea2c1d6a46e",
+            "public_key": "d0D9pDVwQ1_imKQ-KJzRI7d0zxGxqc_bqyFNRv2vVFc"
+          }
+        ],
+        "warden_id": "warden-b"
+      }
+    },
+    "warden-c": {
+      "audit": {
+        "valid": true
+      },
+      "container_image_id": "sha256:72f6df2db25ce1c1ff0fe4f076af6b24a421606ecf77b9504bc624a1bd02e7f7",
+      "container_python": "Python 3.14.7",
+      "container_state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "0001-01-01T00:00:00Z",
+        "Health": {
+          "FailingStreak": 0,
+          "Log": [
+            {
+              "End": "2026-09-03T02:14:32.364434287Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:32.009967439Z"
+            },
+            {
+              "End": "2026-09-03T02:14:34.729195881Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:34.365048631Z"
+            },
+            {
+              "End": "2026-09-03T02:14:37.076063862Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:36.729750518Z"
+            },
+            {
+              "End": "2026-09-03T02:14:39.430140767Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:39.076654288Z"
+            },
+            {
+              "End": "2026-09-03T02:14:41.798635232Z",
+              "ExitCode": 0,
+              "Output": "",
+              "Start": "2026-09-03T02:14:41.431270846Z"
+            }
+          ],
+          "Status": "healthy"
+        },
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 31298,
+        "Restarting": false,
+        "Running": true,
+        "StartedAt": "2026-09-03T02:14:17.41827163Z",
+        "Status": "running"
+      },
+      "info": {
+        "api_version": "v1",
+        "metadata": {
+          "config_epoch": 1,
+          "envelope_id": "acceptance-envelope",
+          "manifest_digest": "sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3",
+          "runtime_provider": "builtin",
+          "sqlite_version": "3.53.2",
+          "tenant_id": "acceptance-tenant"
+        },
+        "protocol": "lets/1",
+        "warden_id": "warden-c"
+      },
+      "invariants": {
+        "checked_at_ns": 1788401684068641309,
+        "config_epoch": 1,
+        "consumed": [
+          1
+        ],
+        "envelope_id": "acceptance-envelope",
+        "free_pool": [
+          40
+        ],
+        "healthy": true,
+        "initial_share": [
+          50
+        ],
+        "lease_residual": [
+          9
+        ],
+        "tenant_id": "acceptance-tenant",
+        "transferred_in": [
+          0
+        ],
+        "transferred_out": [
+          0
+        ]
+      },
+      "keys": {
+        "keys": [
+          {
+            "algorithm": "Ed25519",
+            "key_id": "warden-c/ed25519-c59fa0b1c4e4b4c422ccc1ae823a1756",
+            "public_key": "H3o82xr5ukmOouK4DdsP3-SpFcWe0PIDyT4lrLZBUjQ"
+          }
+        ],
+        "warden_id": "warden-c"
+      }
+    }
+  },
+  "passed": true,
+  "provenance_boundary": "before acceptance evidence outputs are written",
+  "pytest_duration_seconds": 16.863,
+  "pytest_exit_code": 0,
+  "pytest_output": "============================= test session starts =============================\nplatform win32 -- Python 3.14.0, pytest-9.1.1, pluggy-1.6.0 -- $REPOSITORY\\.venv\\Scripts\\python.exe\ncachedir: .pytest_cache\nhypothesis profile 'default'\nrootdir: $REPOSITORY\nconfigfile: pyproject.toml\nplugins: anyio-4.14.2, hypothesis-6.165.10, cov-7.1.0\ncollecting ... collected 2 items\n\ntests/e2e/test_compose_cluster.py::test_real_three_node_fault_recovery_and_conservation PASSED [ 50%]\ntests/e2e/test_production_profile.py::test_production_profile_acceptance SKIPPEDe) [100%]\n\n=========================== short test summary info ===========================\nSKIPPED [1] tests\\e2e\\test_production_profile.py:26: set LETS_RUN_PRODUCTION_ACCEPTANCE=1 to run the mTLS production profile\n======================== 1 passed, 1 skipped in 15.06s ========================\n",
+  "scenario": {
+    "conservation": {
+      "audit_chains_valid": {
+        "warden-a": true,
+        "warden-b": true,
+        "warden-c": true
+      },
+      "free_plus_residual_plus_consumed": [
+        300
+      ],
+      "initial_budget": [
+        300
+      ],
+      "local_invariants_healthy": [
+        true,
+        true,
+        true
+      ],
+      "transferred_in": [
+        20
+      ],
+      "transferred_out": [
+        20
+      ]
+    },
+    "dispatcher_convergence": {
+      "automatic_accept_finalize_checkpoint": true,
+      "source_compacted_high_water": 2,
+      "source_peer_dispatcher": {
+        "configured_peers": 2,
+        "delivered_records": 4,
+        "durable_retry": null,
+        "failed_records": 0,
+        "healthy": true,
+        "last_cycle_ns": 1788401678669726912,
+        "last_error": null,
+        "pending_records": 0,
+        "prepared_transfers": 0,
+        "running": true,
+        "superseded_records": 0
+      },
+      "target_compacted_high_water": 2
+    },
+    "independent_executor": {
+      "durable_replay_rejected_after_reopen": true,
+      "receipt_id": "receipt_09ebe0a6ec2045dd83b526755605a612",
+      "replay_store_integrity": [
+        "ok"
+      ],
+      "signature_verified": true
+    },
+    "nodes": {
+      "distinct_key_ids": {
+        "warden-a": "warden-a/ed25519-3cf97477c45d6432828ede05456d73ca",
+        "warden-b": "warden-b/ed25519-58c5b379f8c4491e9d7f4ea2c1d6a46e",
+        "warden-c": "warden-c/ed25519-c59fa0b1c4e4b4c422ccc1ae823a1756"
+      },
+      "distinct_process_ids": [
+        31304,
+        31300,
+        31298
+      ],
+      "manifest_digest": "sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3"
+    },
+    "partition": {
+      "durable_peer_delivery": {
+        "configured_peers": 2,
+        "delivered_records": 0,
+        "durable_retry": {
+          "attempt_count": 2,
+          "exception_class": "ConnectError",
+          "next_retry_delay_seconds": 0.482,
+          "record_kind": "transfer",
+          "target_warden": "warden-b"
+        },
+        "failed_records": 1,
+        "healthy": false,
+        "last_cycle_ns": 1788401670226832155,
+        "last_error": "ConnectError",
+        "pending_records": 2,
+        "prepared_transfers": 2,
+        "running": true,
+        "superseded_records": 0
+      },
+      "links_disabled": [
+        "a_to_b",
+        "b_to_a"
+      ],
+      "local_progress_receipts": [
+        "receipt_09ebe0a6ec2045dd83b526755605a612",
+        "receipt_c116061ec5744407a32729393340e451"
+      ]
+    },
+    "reordered_transfer": {
+      "contiguous_watermark": 0,
+      "exact_http_replay_code": "replay_detected",
+      "exact_http_replay_status": 409,
+      "missing_sequence": 1,
+      "sent_sequence_first": 2
+    },
+    "restart_recovery": {
+      "application_duplicate_ack_stable": true,
+      "exact_http_replay_code_after_restart": "replay_detected",
+      "exact_http_replay_status_after_restart": 409,
+      "pid_after": 31842,
+      "pid_before": 31300,
+      "signal": "SIGKILL",
+      "signing_key_stable": true
+    },
+    "schema": "lets.acceptance-scenario/v1"
+  },
+  "schema": "lets.acceptance-evidence/v2",
+  "source": {
+    "dirty": false,
+    "git_commit": "ca6baef43541197d3b812c9f05ebe2e3494d49d0",
+    "git_commit_time": "2026-09-02T21:29:03-04:00",
+    "git_ref": "HEAD",
+    "git_status_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime_input_digest_algorithm": "LETS runtime and acceptance inputs v1",
+    "runtime_input_file_count": 57,
+    "runtime_input_selection": {
+      "deploy_rule": "deploy/*.py",
+      "directory_prefixes": [
+        "protocol/",
+        "src/",
+        "tests/e2e/"
+      ],
+      "exact_files": [
+        ".dockerignore",
+        ".gitattributes",
+        ".gitignore",
+        ".python-version",
+        "Dockerfile",
+        "LICENSE",
+        "NOTICE",
+        "README.md",
+        "compose.yaml",
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    "runtime_input_sha256": "sha256:760757fd5e0c0e5b428435e22ce6d1780c4766e486efc8a686b15fad5341e662",
+    "source_digest_algorithm": "LETS repository source tree v1",
+    "source_file_count": 266,
+    "source_sha256": "sha256:b4bd5483f5fac96bce14525baf981d97cce310e6221fa2c09c2fd0c1351127a9",
+    "staged_file_count": 0,
+    "unstaged_file_count": 0,
+    "untracked_file_count": 0
+  },
+  "source_after": {
+    "dirty": false,
+    "git_commit": "ca6baef43541197d3b812c9f05ebe2e3494d49d0",
+    "git_commit_time": "2026-09-02T21:29:03-04:00",
+    "git_ref": "HEAD",
+    "git_status_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "runtime_input_digest_algorithm": "LETS runtime and acceptance inputs v1",
+    "runtime_input_file_count": 57,
+    "runtime_input_selection": {
+      "deploy_rule": "deploy/*.py",
+      "directory_prefixes": [
+        "protocol/",
+        "src/",
+        "tests/e2e/"
+      ],
+      "exact_files": [
+        ".dockerignore",
+        ".gitattributes",
+        ".gitignore",
+        ".python-version",
+        "Dockerfile",
+        "LICENSE",
+        "NOTICE",
+        "README.md",
+        "compose.yaml",
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    "runtime_input_sha256": "sha256:760757fd5e0c0e5b428435e22ce6d1780c4766e486efc8a686b15fad5341e662",
+    "source_digest_algorithm": "LETS repository source tree v1",
+    "source_file_count": 266,
+    "source_sha256": "sha256:b4bd5483f5fac96bce14525baf981d97cce310e6221fa2c09c2fd0c1351127a9",
+    "staged_file_count": 0,
+    "unstaged_file_count": 0,
+    "untracked_file_count": 0
+  },
+  "source_stable": true,
+  "started_at": "2026-09-03T02:13:41.508821Z",
+  "tools": {
+    "docker_client": "Docker version 29.7.2, build a7dcaa6",
+    "docker_compose": "Docker Compose version v5.5.0",
+    "docker_server": "29.7.2",
+    "git": "git version 2.45.1.windows.1",
+    "pytest": "pytest 9.1.1",
+    "uv": "uv 0.11.21 (5aa65dd7a 2026-06-11 x86_64-pc-windows-msvc)"
+  }
+}

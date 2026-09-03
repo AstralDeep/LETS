@@ -1,0 +1,133 @@
+{
+  "artifacts": {
+    "matched-host-path-samples.csv": {
+      "remote_raw_sha256": "bdd5b8f395a58efa45f13434eb7821e6cd77f0cc2039ab8167c9763e85243cd5",
+      "retained_sanitized_sha256": "bdd5b8f395a58efa45f13434eb7821e6cd77f0cc2039ab8167c9763e85243cd5"
+    },
+    "matched-host-path.json": {
+      "remote_raw_sha256": "4481961555dbc71d3e6c808e7f2f3011376567f0d77e27aa44e90feb0e885bc5",
+      "retained_sanitized_sha256": "94b995dc8e764ed413eec584410ac72aaa0e90857546ace211b512ed84e7ce80"
+    },
+    "matched-host-path.md": {
+      "remote_raw_sha256": "e8884b3757d0b70de46d41a19fec3ade62d0e7286c2822a888356c6463e8d039",
+      "retained_sanitized_sha256": "e8884b3757d0b70de46d41a19fec3ade62d0e7286c2822a888356c6463e8d039"
+    }
+  },
+  "claim": "replacement-current-composition-not-historical-reproduction",
+  "commands": [
+    "upload uv-x86_64-unknown-linux-gnu.tar.gz -> $RUN_ROOT/uploads/uv-x86_64-unknown-linux-gnu.tar.gz",
+    "upload matched_host_path.py -> $RUN_ROOT/runner/matched_host_path.py",
+    "extract verified uv-x86_64-unknown-linux-gnu.tar.gz; install tools/uv",
+    "git clone --filter=blob:none --no-checkout --no-tags <public-AstralDeep> $RUN_ROOT/AstralDeep",
+    "git checkout --detach 04f04ee93718d2ff681726e2a47a2550a837612d; git submodule update --init --checkout -- components/AstralPlane components/LETS",
+    "create AstralDeep/.venv with system-exact-cpython-3.12.3",
+    "uv pip install --python AstralDeep/.venv/bin/python --only-binary=:all: PyNaCl==1.6.2 httpx==0.28.1 pydantic==2.13.4",
+    "AstralDeep/.venv/bin/python runner/matched_host_path.py --astraldeep-root AstralDeep --storage-root storage --output output --trials 10 --operations 1000 --warmups 100"
+  ],
+  "completed_at_utc": "2026-09-03T01:55:22.625340+00:00",
+  "configuration": {
+    "operations_per_mode": 1000,
+    "trials": 10,
+    "warmups": 100
+  },
+  "endpoint_verification": {
+    "address_pin_verified": true,
+    "host_key_pin_verified": true,
+    "host_key_type": "ssh-ed25519"
+  },
+  "historical_mismatch_diagnosis": {
+    "disclosure": "The original artifact is unavailable, and the replacement host uses SQLite 3.45.1 rather than the historical 3.53.4; this run is replacement evidence, not an exact reproduction.",
+    "historical_artifact": "20260826T231656Z",
+    "historical_artifact_available": false,
+    "historical_sqlite": "3.53.4",
+    "replacement_s1_sqlite": "3.45.1",
+    "sqlite_versions_match": false
+  },
+  "privacy": {
+    "addresses_retained": false,
+    "credentials_retained": false,
+    "home_paths_retained": false,
+    "usernames_retained": false
+  },
+  "remote_scope": {
+    "docker_used": false,
+    "normalized_owned_home_verified": true,
+    "remote_run_retained": true,
+    "sudo_used": false,
+    "symlink_parents_rejected": true,
+    "system_paths_written": false,
+    "unique_run_id": "run-20260903-014603-b972e8a8",
+    "write_boundary": "$HOME/.lets-nsdi-matched-host/run-20260903-014603-b972e8a8"
+  },
+  "remote_source": {
+    "astral_plane": "4a1d990387428436041dd70d9c417e9e86000b6c",
+    "astraldeep": "04f04ee93718d2ff681726e2a47a2550a837612d",
+    "clean": true,
+    "initialized_submodules": [
+      "components/AstralPlane",
+      "components/LETS"
+    ],
+    "lets": "6245189920c686353c4ced7a208d56ec266f745c",
+    "other_submodules_initialized": false
+  },
+  "schema": "lets.remote-matched-host/v1",
+  "source": {
+    "benchmark_sha256": "e97f43962e89c4f09e90169a6fd8e1fae8e8e4773797c4e896efd7e2cbf2f2fc",
+    "controller_git": {
+      "commit": "ca6baef43541197d3b812c9f05ebe2e3494d49d0",
+      "dirty": false,
+      "status_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "9cf727f6fb33856c0a111fb6bc9ec63885c057df"
+    },
+    "controller_paramiko": "4.0.0",
+    "controller_platform": "Windows-10-10.0.19045-SP0",
+    "controller_python": "3.14.0",
+    "orchestrator_sha256": "7f2de1e3686c33f9a5bf1ff9cc075d5a3ec98366c284b76074d02d05852ed81f"
+  },
+  "started_at_utc": "2026-09-03T01:46:03.342742+00:00",
+  "status": "passed",
+  "target_alias": "s1",
+  "toolchain": {
+    "component_import_mode": "exact initialized source trees",
+    "components_installed_as_packages": false,
+    "direct_requirements": [
+      "PyNaCl==1.6.2",
+      "httpx==0.28.1",
+      "pydantic==2.13.4"
+    ],
+    "environment": {
+      "executable_sha256": "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118",
+      "git": "git version 2.43.0",
+      "implementation": "CPython",
+      "machine": "x86_64",
+      "packages": [
+        "annotated-types==0.8.0",
+        "anyio==4.15.0",
+        "certifi==2026.7.22",
+        "cffi==2.1.1",
+        "h11==0.16.0",
+        "httpcore==1.0.9",
+        "httpx==0.28.1",
+        "idna==3.19",
+        "pycparser==3.0",
+        "pydantic-core==2.46.4",
+        "pydantic==2.13.4",
+        "pynacl==1.6.2",
+        "typing-extensions==4.16.0",
+        "typing-inspection==0.4.4"
+      ],
+      "platform": "Linux-6.8.0-110-generic-x86_64-with-glibc2.39",
+      "python": "3.12.3",
+      "sqlite": "3.45.1",
+      "uv": "uv 0.8.13"
+    },
+    "harness_delivery": "standalone upload outside the clean Deep root",
+    "python_required": "3.12.3",
+    "python_source": "system-exact-cpython-3.12.3",
+    "uv": {
+      "asset": "uv-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "8ca3db7b2a3199171cfc0870be1f819cb853ddcec29a5fa28dae30278922b7ba",
+      "version": "0.8.13"
+    }
+  }
+}
