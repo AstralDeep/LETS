@@ -26,7 +26,7 @@ ALLOWED_VOLUMES = {
 COMPOSE = ("docker", "compose", "--project-directory", str(ROOT))
 RESULTS = ROOT / "results" / "generated"
 SCENARIO_EVIDENCE = RESULTS / "scenario-evidence.json"
-TRACKED_SUMMARY = ROOT / "deploy" / "evidence" / "acceptance-2026-08-09.md"
+TRACKED_SUMMARY = ROOT / "deploy" / "evidence" / "acceptance-latest.md"
 NODES = {
     "warden-a": "http://127.0.0.1:18741",
     "warden-b": "http://127.0.0.1:18742",
@@ -371,6 +371,21 @@ def _manifest_digest(
     return manifest_digest
 
 
+def _evidence_start_date(evidence: dict[str, Any]) -> str:
+    """Return the UTC calendar date recorded by an evidence document."""
+
+    value = evidence.get("started_at")
+    if not isinstance(value, str):
+        raise RuntimeError("acceptance evidence started_at must be a timestamp string")
+    try:
+        started_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise RuntimeError("acceptance evidence started_at is not a valid timestamp") from error
+    if started_at.tzinfo is None:
+        raise RuntimeError("acceptance evidence started_at must include a UTC offset")
+    return started_at.astimezone(UTC).date().isoformat()
+
+
 def _render_tracked_summary(evidence: dict[str, Any]) -> str:
     """Render curated evidence without logs or per-run identities."""
 
@@ -405,7 +420,9 @@ def _render_tracked_summary(evidence: dict[str, Any]) -> str:
     conserved = json.dumps(conservation["free_plus_residual_plus_consumed"], separators=(",", ":"))
     initial_budget = json.dumps(conservation["initial_budget"], separators=(",", ":"))
 
-    return f"""# LETS distributed acceptance — 2026-08-09
+    summary_date = _evidence_start_date(evidence)
+
+    return f"""# LETS distributed acceptance - {summary_date}
 
 This is the sanitized, runner-generated summary of the latest successful local
 three-node Docker Compose acceptance. The authoritative machine-readable record

@@ -1,4 +1,4 @@
-# LETS distributed acceptance — 2026-08-09
+# LETS distributed acceptance - 2026-09-03
 
 This is the sanitized, runner-generated summary of the latest successful local
 three-node Docker Compose acceptance. The authoritative machine-readable record
@@ -9,31 +9,31 @@ public-key identifiers, receipt identifiers, and host filesystem paths.
 ## Provenance
 
 - Evidence schema: `lets.acceptance-evidence/v2`.
-- Started `2026-08-11T13:04:11.321165Z`; completed `2026-08-11T13:04:38.272102Z`.
-- Total evidence-bound duration: `26.954` seconds;
-  pytest scenario duration: `11.421` seconds.
-- Git commit `82dbe4f5ddf410cc86778784bb612440725ec66d` on `main`; worktree was
-  `dirty` with 0 staged,
+- Started `2026-09-03T02:13:41.508821Z`; completed `2026-09-03T02:14:46.016776Z`.
+- Total evidence-bound duration: `64.508` seconds;
+  pytest scenario duration: `16.863` seconds.
+- Git commit `ca6baef43541197d3b812c9f05ebe2e3494d49d0` on `HEAD`; worktree was
+  `clean` with 0 staged,
   0 unstaged, and
-  1 non-ignored untracked files.
-- The 176-file source snapshot was stable before and
+  0 non-ignored untracked files.
+- The 266-file source snapshot was stable before and
   after the acceptance scenario. Its deterministic digest was
-  `sha256:94ba80c3241cb16d0c3656736f2bdbccff6053b168994f0b04f2e7beab713db3`; the path-redacted status digest was
-  `sha256:ad2287f3cbbaaf89a8d7d52bee50399e82de419754e9707b9dc5516e77f8d648`.
+  `sha256:b4bd5483f5fac96bce14525baf981d97cce310e6221fa2c09c2fd0c1351127a9`; the path-redacted status digest was
+  `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
 - The non-circular runtime/acceptance-input set contained
   57 files and had deterministic digest
-  `sha256:ac3c88ff1b01bfc9483f566bb09d262deba3bace3505337c7fe63660b137ec4e`. That explicit set covers container build
+  `sha256:760757fd5e0c0e5b428435e22ce6d1780c4766e486efc8a686b15fad5341e662`. That explicit set covers container build
   inputs, top-level deployment programs, protocol artifacts, and `tests/e2e`,
   while excluding this derived evidence summary and paper prose.
 - Compose digest: `sha256:5eb124cdfcc755391aded75ededa0f6a7c14f4b43d8d0eb8f5cc745f02840615`.
-- Runtime image content ID: `sha256:bfc609fd759494a1afb6430364eee6e461aff964800c5724f52b2a8de7760cf8`.
+- Runtime image content ID: `sha256:72f6df2db25ce1c1ff0fe4f076af6b24a421606ecf77b9504bc624a1bd02e7f7`.
 - Toxiproxy image content ID: `sha256:3edf5d14625b9aa8ad71d5dd084da1f8a0eb46ee749457549ae91d29d96546aa`; pulled repository
   digest: `ghcr.io/shopify/toxiproxy@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e`.
-- Signed manifest digest: `sha256:a8d17de274b3cc54c69942c2c3674befffc251e2e23f49d398132a53e70ea650`; policy digest:
+- Signed manifest digest: `sha256:c7db5e64b864c261b30aed1e97f07ef981cca4f49c6919e04c0ca79b8ad52ff3`; policy digest:
   `sha256:04fedc989f5cf5d9956fe71bd4465fd4da00c278dff485b6f3ac7cf75684dba0`.
 - Tools: uv 0.11.21 (5aa65dd7a 2026-06-11 x86_64-pc-windows-msvc); git version 2.45.1.windows.1; pytest 9.1.1;
   Docker version 29.7.2, build a7dcaa6; server 29.7.2;
-  Docker Compose version v5.3.1.
+  Docker Compose version v5.5.0.
 
 The runner records both complete source snapshots in the JSON evidence and
 compares them before it writes evidence outputs. A source change during the

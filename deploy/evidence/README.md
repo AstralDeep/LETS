@@ -27,9 +27,10 @@ paper prose are excluded from that second digest.
 The runner captures both complete provenance objects before the build and
 again after the scenario, before it writes evidence outputs; a source change
 invalidates an otherwise passing run. It then generates the sanitized tracked
-summary from the structured record. The evidence also records the Compose-file
-digest, declared image references, content-addressed image IDs and available
-repository digests for the LETS runtime and Toxiproxy, the signed manifest
+summary at `deploy/evidence/acceptance-latest.md` from the structured record,
+including the UTC date parsed from `started_at`. The evidence also records the
+Compose-file digest, declared image references, content-addressed image IDs,
+and available repository digests for the LETS runtime and Toxiproxy, the signed manifest
 digest observed by every node, start/completion times, elapsed durations,
 host/container Python, and Git, uv, pytest, Docker Engine, and Docker Compose
 versions. A supplied `LETS_BOOTSTRAP_TOKEN` is redacted from retained pytest

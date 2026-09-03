@@ -1,0 +1,67 @@
+{
+  "clean_campaign": {
+    "git_commit": "ca6baef43541197d3b812c9f05ebe2e3494d49d0",
+    "manifest_path": "results/nsdi-strengthening-2026-09-02/MANIFEST.json",
+    "manifest_sha256": "472e7c0edaef874e82a113802a73ebc12de3e7e4b1a3b1e154e30ccf28a907fd",
+    "paper_input_manifest_sha256": "87685c5043dea5391f3415da9252eddae415bd7d4643271650f1587eb429a237",
+    "source_manifest_sha256": "36c3b4a252463c66a2342bbb8a289c037d36e5bf6c8476f0079a7fee222fe53c",
+    "worktree_dirty": false
+  },
+  "corrections": [
+    {
+      "artifact": "results/nsdi-strengthening-2026-09-02/docker/DOCKER-ACCEPTANCE.md",
+      "authoritative_field": "docker/docker-acceptance.json.started_at",
+      "authoritative_utc_date": "2026-09-03",
+      "corrected_summary": "deploy/evidence/acceptance-latest.md",
+      "corrected_summary_sha256": "88b3cd449bcb663499a54cd4bff37e0b4c6cbb99c9c981ed2c344c1d97ccccd4",
+      "incorrect_heading_date": "2026-08-09",
+      "note": "The sealed artifact remains unchanged. The acceptance-summary generator now derives the heading date from started_at."
+    }
+  ],
+  "evidence_outside_clean_campaign": {
+    "host_mediation": {
+      "archive_sha256": "e9015ad53bf97e4238d11a1c6847816fd95ebee567a19f3bb475a8558441e22f",
+      "astraldeep_commit": "d380f7ceff8b855f71f1bf99b558f799622a21b2",
+      "classification": "prior-local-qualification",
+      "enforce_claimed_receipts": 15,
+      "enforce_denials": 4,
+      "enforce_issued_receipts": 15,
+      "enforce_physical_effects": 14,
+      "enforce_scenarios": 19,
+      "enforce_unreceipted_governed_effects": 0,
+      "included_in_clean_campaign": false,
+      "lets_harness_commit": "4ddadfd03f9f3f70d5ce79d2a0c04b07122177eb",
+      "manifest_sha256": "0bd8e2d2de9945675bf9ee108b11b8347034e8949203bd558377ad20dc329ade",
+      "qualification_date": "2026-08-22",
+      "qualification_record_merged_at": "2026-08-22T04:42:46Z",
+      "qualification_record_url": "https://github.com/AstralDeep/LETS/pull/26",
+      "raw_bundle_available": false,
+      "summary_sha256": "3f7708e6b9911e4de510472ec08863d536260c6aac8b9b7017375a5b5bd82846",
+      "verification_note": "The recorded digests and merged qualification record remain, but the raw bundle is not retained locally or in the current campaign."
+    },
+    "release_soak": {
+      "asset_bytes": 23870619,
+      "asset_name": "production-profile-soak.json",
+      "asset_published_at": "2026-08-22T02:53:29Z",
+      "asset_sha256": "3bca83530b255c13e85f920263ede34932bfd7e2b76313e32d5e40b9cd570c68",
+      "asset_url": "https://github.com/AstralDeep/LETS/releases/download/v1.0.11/production-profile-soak.json",
+      "classification": "published-prior-release",
+      "completed_at": "2026-08-22T02:50:59Z",
+      "cycles": 303,
+      "duration_seconds": 3676.169,
+      "evidence_payload_sha256": "43bcedd697fd534c388da97785bcc5d67e32e8197d0ab2c6227a220a1c61a330",
+      "health_samples": 362,
+      "included_in_clean_campaign": false,
+      "partitions": 27,
+      "passed": true,
+      "release_tag": "v1.0.11",
+      "restarts": 3,
+      "source_commit": "6245189920c686353c4ced7a208d56ec266f745c",
+      "source_dirty": false,
+      "started_at": "2026-08-22T01:49:43Z",
+      "workload_duration_seconds": 3608.057208
+    }
+  },
+  "purpose": "Separate the clean strengthening campaign from evidence that predates its seal without modifying the sealed bundle.",
+  "schema": "lets.nsdi-evidence-scope/v1"
+}

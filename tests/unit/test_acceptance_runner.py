@@ -108,3 +108,17 @@ def test_retained_text_redacts_supplied_bootstrap_token(
     retained = acceptance._redact_sensitive_text(f"before {token} after")
     assert token not in retained
     assert "[REDACTED LETS_BOOTSTRAP_TOKEN]" in retained
+
+
+def test_evidence_start_date_uses_recorded_timestamp_in_utc() -> None:
+    evidence = {"started_at": "2026-09-03T00:14:15.926832+00:00"}
+    assert acceptance._evidence_start_date(evidence) == "2026-09-03"
+
+
+@pytest.mark.parametrize("started_at", [None, "", "2026-09-03", "not-a-timestamp"])
+def test_evidence_start_date_rejects_missing_or_invalid_timestamp(
+    started_at: object,
+) -> None:
+    evidence = {"started_at": started_at}
+    with pytest.raises(RuntimeError, match="started_at"):
+        acceptance._evidence_start_date(evidence)
