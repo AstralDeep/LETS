@@ -528,7 +528,10 @@ def test_runtime_image_is_pinned_nonroot_and_root_owned() -> None:
     assert "chmod -R a-w /app" in dockerfile
     assert "USER 10001:10001" in dockerfile
     assert "python:3.14-alpine@sha256:" in dockerfile
-    assert "apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0" in dockerfile
+    assert (
+        "apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 libuuid=2.42.3-r1"
+        in dockerfile
+    )
     assert "apk add --no-cache openssl=3.5.8-r0" in dockerfile
     assert "/usr/local/lib/python3.14/site-packages/pip" in dockerfile
     assert "/sbin/nologin" in dockerfile
@@ -2525,7 +2528,7 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert 'signature_name = f"{checksum_name}.sigstore.json"' in workflow
     assert "path.name not in {checksum_name, signature_name}" in workflow
     assert 'test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 17' in workflow
-    assert "anchore/sbom-action/download-syft@aa80c8c5bd439a416a62804f2151ab38c671a638" in workflow
+    assert "anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26" in workflow
     assert "syft-version: v1.50.0" in workflow
     assert "--from registry" in workflow
     assert '--platform "$platform"' in workflow
