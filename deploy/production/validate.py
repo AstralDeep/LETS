@@ -1,4 +1,7 @@
-"""Validate a fail-closed LETS production Compose environment file."""
+"""Validates a fail-closed LETS production Compose environment: required
+files/directories, storage mount and rollback-domain boundaries, trust-file mapping,
+and bounded runtime limits, run inside the immutable image.
+"""
 
 from __future__ import annotations
 
@@ -790,8 +793,6 @@ def validate_runtime_image(
     provider: str | None = None,
     signer_executable: str | None = None,
 ) -> str:
-    """Run the production SQLite admission check inside the immutable image."""
-
     container_name = f"lets-production-validator-{os.getpid()}-{secrets.token_hex(8)}"
     if provider is None:
         probe = (

@@ -1,9 +1,6 @@
-"""Run the fixed Astral/LETS case-study matrix through the exact Deep driver.
-
-The driver is an exact-composition AstralDeep test entrypoint.  It receives one
-canonical JSON scenario on stdin and returns one bounded JSON result on stdout.
-This repository stays standalone: the tracked harness imports no AstralDeep
-implementation and stores no manuscript or generated result in Git.
+"""Runs the fixed Astral/LETS case-study scenario matrix against the exact Deep driver
+over stdin/stdout JSON, feeding capture_environment.py; imports no AstralDeep code
+and stores no manuscript or result in Git.
 """
 
 from __future__ import annotations
@@ -141,8 +138,6 @@ class Scenario:
 
 
 def build_scenarios(mode: str) -> tuple[Scenario, ...]:
-    """Return the deterministic six-scope, lifecycle, dispatch, and fault matrix."""
-
     if mode not in MODES:
         raise EvidenceError(f"unsupported case-study mode {mode!r}")
     lets_behavior = {"off": "off", "shadow": "evaluate", "enforce": "enforce"}[mode]
@@ -381,8 +376,6 @@ def _interpreter_identity(executable: Path) -> dict[str, object]:
 
 
 def capture_execution_identity(astraldeep_root: Path) -> dict[str, object]:
-    """Bind the only accepted driver and imported runtime trees without paths."""
-
     try:
         root = astraldeep_root.resolve(strict=True)
         driver_path = (root / DRIVER_RELATIVE_PATH).resolve(strict=True)
@@ -798,8 +791,6 @@ def run_case_study(
     output_root: Path,
     timeout_seconds: float = 120.0,
 ) -> dict[str, object]:
-    """Execute one single-mode matrix and retain bounded raw evidence."""
-
     if evidence_class not in {"release-baseline", "astral-integration"}:
         raise EvidenceError("evidence class must be release-baseline or astral-integration")
     if mode not in MODES:

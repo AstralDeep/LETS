@@ -1,3 +1,7 @@
+"""Tests for client.py's response handling: oversize responses are rejected without full
+buffering, and a total deadline interrupts a slow drip response or retry backoff.
+"""
+
 from __future__ import annotations
 
 import time

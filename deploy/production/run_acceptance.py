@@ -1,4 +1,7 @@
-"""Run and safely tear down the opt-in production-profile Docker acceptance."""
+"""Runs and safely tears down the opt-in production-profile Docker Compose acceptance
+cluster, configuring Toxiproxy fault injection and collecting hardening evidence
+around deploy/production/acceptance/scenario.py.
+"""
 
 from __future__ import annotations
 
@@ -47,8 +50,6 @@ IMAGE_DIGEST = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 
 
 def _source_tree_digest() -> tuple[str, int]:
-    """Hash the exact tracked/untracked, non-ignored working tree used by Docker."""
-
     listed = _run(["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"])
     paths = sorted(item for item in listed.stdout.split("\0") if item)
     digest = sha256(b"lets-source-tree/v1\0")

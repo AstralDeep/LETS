@@ -1,3 +1,8 @@
+"""Tests for the foundation modules canonical.py, clock.py, and vector.py: stable
+canonical JSON, base64url round-tripping, checked vector arithmetic, and validated
+monotonic clock inputs.
+"""
+
 from __future__ import annotations
 
 import math

@@ -1,8 +1,6 @@
-"""Shape of an external LETS runtime-provider package.
-
-Replace ``open_managed_signer`` and ``open_identity_authenticator`` with audited
-organization-specific integrations. They are intentionally not implemented by
-this vendor-neutral example.
+"""Vendor-neutral example shape for an external LETS runtime-provider package
+(src/lets/runtime.py): open_managed_signer and open_identity_authenticator are stubs
+organizations must replace with audited integrations.
 """
 
 from __future__ import annotations
@@ -46,8 +44,6 @@ def open_runtime(context: RuntimeProviderContext) -> RuntimeBindings:
     )
 
 
-# These declarations document the integration seam without pretending that a
-# generic implementation could safely validate tokens or access managed keys.
 def open_managed_signer(uri: str, *, expected_warden_id: str):
     raise NotImplementedError((uri, expected_warden_id))
 

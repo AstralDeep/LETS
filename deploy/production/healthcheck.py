@@ -1,4 +1,7 @@
-"""Fail-closed HTTPS/mTLS readiness probe for the production image."""
+"""Fail-closed HTTPS/mTLS readiness probe for the production LETS image: builds one
+authenticated, hostname-verifying request and accepts only a bounded 200 response
+carrying the ready document.
+"""
 
 from __future__ import annotations
 
@@ -32,8 +35,6 @@ def _port(value: str) -> int:
 
 
 def build_request(server_name: str) -> bytes:
-    """Build a constant, connection-closing readiness request."""
-
     if not server_name or "\r" in server_name or "\n" in server_name:
         raise ValueError("healthcheck server name is unsafe")
     try:
@@ -51,8 +52,6 @@ def build_request(server_name: str) -> bytes:
 
 
 def is_ready_response(response: bytes) -> bool:
-    """Accept only a bounded HTTP 200 response carrying the LETS ready document."""
-
     if not response or len(response) > MAX_RESPONSE_BYTES:
         return False
     head, separator, body = response.partition(b"\r\n\r\n")
@@ -82,8 +81,6 @@ def _read_response(stream: ssl.SSLSocket) -> bytes:
 
 
 def check_ready() -> None:
-    """Perform one authenticated, hostname-verifying readiness request."""
-
     host = _required_environment("LETS_HEALTHCHECK_HOST", "127.0.0.1")
     port = _port(_required_environment("LETS_HEALTHCHECK_PORT", "8443"))
     server_name = _required_environment("LETS_HEALTHCHECK_SERVER_NAME")

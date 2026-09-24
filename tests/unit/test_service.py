@@ -1,3 +1,9 @@
+"""Tests for WardenService (service.py): atomic idempotent authorization,
+spawn/renewal/revocation cascades, exactly-once bilateral transfer with bounded
+checkpoint pruning, capacity-degraded readiness, and audit-chain pagination and
+verification.
+"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -357,7 +363,6 @@ def test_drain_fences_new_authority_but_preserves_retries_and_safety(
     assert service.runtime_status(identity=admin) == draining
     assert not service.ready()
 
-    # Retries committed before the fence remain exactly idempotent.
     assert (
         service.issue_root(
             request_id="drain-root",

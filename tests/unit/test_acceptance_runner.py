@@ -1,3 +1,8 @@
+"""Tests for deploy/run_acceptance.py: source provenance hashes only git-visible
+content, the manifest digest requires all evidence to agree, and a supplied bootstrap
+token is redacted from retained text.
+"""
+
 from __future__ import annotations
 
 import json

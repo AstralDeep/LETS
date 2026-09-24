@@ -1,3 +1,8 @@
+"""Security tests for WardenService's (service.py) authorization boundaries:
+tenant/machine isolation, fail-closed evidence evaluation, request-id collision
+resistance, and rejection of clock rollback and cross-warden branch revocation.
+"""
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor

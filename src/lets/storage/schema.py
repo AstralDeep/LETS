@@ -1,8 +1,6 @@
-"""SQLite schema for the durable LETS warden state.
-
-The first schema intentionally stores one envelope in each database.  Tenant and
-envelope identifiers are nevertheless present on every safety-relevant row so a
-future multi-envelope backend can retain the same transaction/repository API.
+"""SQLite schema definition (tables, indexes, triggers, migrations) for one warden's
+durable state; sqlite.py opens and migrates against it, and recovery.py verifies a
+bundle's database against the same expected schema.
 """
 
 from __future__ import annotations

@@ -1,4 +1,7 @@
-"""Independent protected-executor receipt verification and replay defense."""
+"""Independent verifier a protected executor uses to check a warden's signed receipt and
+claim it exactly once via SQLiteReceiptReplayStore, optionally anchored by
+executor_authority.py. Used by AstralDeep's and AstralProjection's executors.
+"""
 
 from __future__ import annotations
 
@@ -91,8 +94,6 @@ class ExecutorPolicy:
 
 
 def executor_policy_digest(policy: ExecutorPolicy) -> bytes:
-    """Canonical fingerprint of the complete executor authorization policy."""
-
     return sha256(
         canonical_json(
             {
@@ -113,8 +114,6 @@ def executor_policy_digest(policy: ExecutorPolicy) -> bytes:
 def executor_replay_identity(
     policy: ExecutorPolicy, registry: PublicKeyRegistry
 ) -> ExecutorReplayIdentity:
-    """Build the immutable replay/anchor identity admitted by a verifier."""
-
     if policy.tenant_id is None or policy.envelope_id is None or policy.config_epoch is None:
         raise ValidationError(
             "anchored executor policy must fix tenant, envelope, and configuration epoch"
@@ -131,8 +130,6 @@ def executor_replay_identity(
 
 @dataclass(frozen=True, slots=True)
 class ExecutorReplayStatus:
-    """Operator-facing capacity and monotonic-head snapshot."""
-
     path: str
     rollback_protected: bool
     authority_healthy: bool
@@ -149,14 +146,6 @@ class ExecutorReplayStatus:
 
 
 class SQLiteReceiptReplayStore:
-    """Receipt replay authority with optional external rollback protection.
-
-    Production callers must provide an :class:`ExecutorAuthorityAnchor`.  The
-    unanchored mode survives ordinary restart but not restoration of older
-    bytes, and is available only through the explicit ``allow_unanchored``
-    development switch.
-    """
-
     APPLICATION_ID = 0x4C455845
     SCHEMA_VERSION = 5
 
@@ -267,8 +256,6 @@ class SQLiteReceiptReplayStore:
         identity: ExecutorReplayIdentity | None = None,
         allow_unanchored: bool = False,
     ) -> Self:
-        """Create executor replay authority state exactly once."""
-
         return cls(
             path,
             busy_timeout_ms=busy_timeout_ms,
@@ -724,20 +711,14 @@ class SQLiteReceiptReplayStore:
 
     @property
     def identity(self) -> ExecutorReplayIdentity | None:
-        """Return the fixed replay-policy identity, if this store has one."""
-
         return self._identity
 
     @property
     def rollback_protected(self) -> bool:
-        """Whether successful claims are acknowledged by an external anchor."""
-
         with self._authority_transaction_lock:
             return self._anchored and self._authority_state == "healthy"
 
     def authority_status(self) -> dict[str, object]:
-        """Return bounded monotonic executor-anchor state for soak evidence."""
-
         with self._authority_transaction_lock:
             return {
                 "enabled": self._authority_anchor is not None,
@@ -1052,11 +1033,7 @@ class SQLiteReceiptReplayStore:
                 yield connection
                 connection.commit()
                 if self._anchored:
-                    # Reacquire the SQLite writer lock before publishing the
-                    # committed head.  Another process may win the small
-                    # COMMIT/BEGIN race; if so, this snapshot includes and
-                    # publishes its extension too.  A separate cloned database
-                    # is not locked and must still win the external CAS.
+                    # Reacquire the writer lock before publishing the commit
                     connection.execute("BEGIN IMMEDIATE")
                     self._reconcile_authority_anchor(connection, stage="post_commit")
                     connection.rollback()
@@ -1127,10 +1104,6 @@ class SQLiteReceiptReplayStore:
             next_floor = (
                 claimed_at_ns if prior_floor is None else max(claimed_at_ns, int(prior_floor))
             )
-            # Replay cleanup is deliberately bounded.  A protected effect must never
-            # inherit an arbitrarily large write transaction merely because a long-
-            # lived executor accumulated expired history.  Repeated claims converge;
-            # operators may also run maintenance while preserving the same batch cap.
             connection.execute(
                 """
                 DELETE FROM receipt_claims
@@ -1269,13 +1242,6 @@ class SQLiteReceiptReplayStore:
             )
 
     def checkpoint_wal(self) -> tuple[int, int, int]:
-        """Synchronously truncate WAL before an operator-managed database copy.
-
-        The returned tuple is SQLite's ``(busy, log_frames,
-        checkpointed_frames)`` result.  A nonzero busy result fails closed.
-        Anchor files are intentionally not copied with the database.
-        """
-
         with self._authority_transaction_lock:
             connection = self._connect()
             try:
@@ -1297,8 +1263,6 @@ class SQLiteReceiptReplayStore:
                 connection.close()
 
     def status(self) -> ExecutorReplayStatus:
-        """Return an explicit authority/capacity snapshot for health checks."""
-
         with self._authority_transaction_lock:
             connection = self._connect()
             authority_checkpoint: ExecutorAuthorityCheckpoint | None = None
@@ -1351,8 +1315,6 @@ class SQLiteReceiptReplayStore:
         )
 
     def verify_authority_anchor(self) -> bool:
-        """Reconcile the current head without accepting a new receipt."""
-
         if self._authority_anchor is None:
             raise StorageError("no executor authority anchor is configured")
         self._reconcile_existing()
@@ -1370,8 +1332,6 @@ class SQLiteReceiptReplayStore:
 
 
 class ReceiptVerifier:
-    """Fail-closed receipt verifier used by a protected executor boundary."""
-
     def __init__(
         self,
         registry: PublicKeyRegistry,

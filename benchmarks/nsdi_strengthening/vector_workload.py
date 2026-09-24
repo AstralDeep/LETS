@@ -1,4 +1,7 @@
-"""Exercise vector authority, attenuated delegation, transfer-backed use, and claims."""
+"""Exercises two-dimensional LETS vector authority — attenuated delegation,
+transfer-backed use, and claims — against the real policy/service/storage stack,
+writing evidence via benchmarks/nsdi_strengthening/common.py.
+"""
 
 from __future__ import annotations
 

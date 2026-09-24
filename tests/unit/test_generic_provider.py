@@ -1,3 +1,8 @@
+"""Tests for providers/generic.py: the production provider wires an external signer, JWT
+authenticator, and anchor/sink correctly, JWTs fail closed on expiry/tenant/algorithm
+mismatch, and missing resources or bad signatures are rejected.
+"""
+
 from __future__ import annotations
 
 import json

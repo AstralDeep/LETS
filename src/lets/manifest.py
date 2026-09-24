@@ -1,4 +1,7 @@
-"""Validated and signed bootstrap manifests for a LETS warden cluster."""
+"""Signed, size-bounded cluster manifest format (ClusterManifest, WardenManifest,
+ManifestSignature) that bootstraps trust and peer endpoints for a LETS deployment.
+cli.py loads it at init/serve, and deploy/bootstrap_cluster.py generates it.
+"""
 
 from __future__ import annotations
 
@@ -72,11 +75,9 @@ def _timestamp(value: object, field: str) -> str:
 
 
 def _timestamp_ns(value: str, field: str) -> int:
-    """Convert a validated RFC 3339 timestamp to exact Unix nanoseconds."""
-
     checked = _timestamp(value, field)
     matched = _RFC3339.fullmatch(checked)
-    if matched is None:  # Defensive: _timestamp validates the same expression.
+    if matched is None:
         raise ValidationError(f"{field} must be an RFC 3339 timestamp")
     offset = "+00:00" if matched.group("offset") == "Z" else matched.group("offset")
     parsed = datetime.fromisoformat(f"{matched.group('date')}{offset}").astimezone(UTC)

@@ -1,8 +1,6 @@
-"""Capture and validate public, exact-revision Astral/LETS case-study evidence.
-
-The manuscript and measured results remain ignored local state.  This tracked
-module supplies the deterministic capture and semantic validation boundary; it
-never guesses a revision, a result, or a runtime identity.
+"""Deterministic capture and semantic validation of public, exact-revision
+AstralDeep/LETS case-study evidence; never guesses a revision, result, or runtime
+identity, feeding run_case_study.py and aggregate_case_study.py.
 """
 
 from __future__ import annotations
@@ -96,7 +94,7 @@ _MAX_PUBLIC_ARTIFACT_BYTES = 16 * 1024 * 1024
 
 
 class EvidenceError(ValueError):
-    """An evidence input cannot support a public reproducibility claim."""
+    pass
 
 
 def _reject_constant(value: str) -> None:
@@ -113,8 +111,6 @@ def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]
 
 
 def read_json_object(path: Path) -> dict[str, Any]:
-    """Read a strict JSON object without accepting duplicate or non-finite values."""
-
     try:
         document = json.loads(
             path.read_text(encoding="utf-8"),
@@ -129,8 +125,6 @@ def read_json_object(path: Path) -> dict[str, Any]:
 
 
 def canonical_json_bytes(document: object) -> bytes:
-    """Return the single canonical byte representation used by tracked tooling."""
-
     try:
         return json.dumps(
             document,
@@ -159,8 +153,6 @@ def sha256_file(path: Path) -> str:
 
 
 def write_canonical_json_exclusive(path: Path, document: object) -> None:
-    """Create, but never replace, a canonical JSON record."""
-
     payload = canonical_json_bytes(document) + b"\n"
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -208,8 +200,6 @@ def _git(root: Path, *arguments: str) -> str:
 def capture_repository_revisions(
     repositories: Mapping[str, Path], *, require_clean: bool = True
 ) -> dict[str, str]:
-    """Capture five exact commits and reject dirty or aliased worktrees."""
-
     if tuple(sorted(repositories)) != tuple(sorted(REPOSITORY_KEYS)):
         raise EvidenceError("all five canonical repository paths are required exactly once")
     try:
@@ -269,8 +259,6 @@ def _total_memory_bytes() -> int | None:
 
 
 def capture_public_environment(additional: Mapping[str, object] | None = None) -> dict[str, object]:
-    """Capture non-identifying environment facts; never capture paths, users, or hosts."""
-
     result: dict[str, object] = {
         "os_system": platform.system(),
         "os_release": platform.release(),
@@ -294,8 +282,6 @@ def capture_public_environment(additional: Mapping[str, object] | None = None) -
 
 
 def scan_public_value(value: object, *, location: str = "$") -> list[str]:
-    """Return redacted finding locations for secret, credential, and PHI shapes."""
-
     findings: list[str] = []
 
     def visit(item: object, path: str) -> None:
@@ -333,8 +319,6 @@ def scan_public_value(value: object, *, location: str = "$") -> list[str]:
 
 
 def scan_public_text(value: str, *, location: str) -> list[str]:
-    """Scan a UTF-8 text artifact while permitting ordinary line formatting."""
-
     lines = value.splitlines() or [""]
     findings: list[str] = []
     for index, line in enumerate(lines):
@@ -643,8 +627,6 @@ def validate_evidence_bundle(
     *,
     schema_path: Path | None = None,
 ) -> None:
-    """Apply schema and cross-record semantics to a retained public bundle."""
-
     schema_path = schema_path or Path(__file__).with_name("case-study-evidence.schema.json")
     _schema_validate(document, schema_path)
     evidence_root = evidence_root.resolve(strict=True)
@@ -988,8 +970,6 @@ def capture_case_study_evidence(
     additional_environment: Mapping[str, object] | None = None,
     notes: str | None = None,
 ) -> dict[str, object]:
-    """Capture one complete, single-mode evidence bundle without overwriting state."""
-
     output_path = output_path.resolve()
     root = output_path.parent
     root.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,7 @@
-"""One-shot, idempotent bootstrap for the three-node acceptance cluster."""
+"""One-shot, idempotent bootstrap for the three-node LETS acceptance cluster: writes
+signed policy/trust manifests and per-node config via src/lets/manifest.py and
+src/lets/crypto.py.
+"""
 
 from __future__ import annotations
 
@@ -40,8 +43,6 @@ NODES = (
 
 
 def acceptance_policy() -> PolicySpec:
-    """Return the immutable policy loaded by every acceptance warden."""
-
     dimension = ResourceDimension(
         "operations",
         "count",

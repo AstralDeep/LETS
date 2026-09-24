@@ -1,3 +1,8 @@
+"""Tests for observation.py's ObservationPublisher: bounded and isolated snapshot
+caching, the exact freshness boundary, priority admission ahead of normal traffic,
+and fail-closed terminal verification against the durable audit log.
+"""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,4 +1,7 @@
-"""Immutable domain and wire records for the LETS v1 protocol."""
+"""Immutable domain and wire records for the LETS v1 protocol: leases, receipts,
+transfer vouchers/acks, revocations, and runtime status. service.py, peer.py, and
+executor.py build on these records; AstralDeep and AstralProjection clients too.
+"""
 
 from __future__ import annotations
 
@@ -74,8 +77,6 @@ class RuntimeMode(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class IdentityContext:
-    """Identity resolved by a transport authenticator, never from request JSON."""
-
     subject_id: str
     tenant_id: str
     scopes: frozenset[str]

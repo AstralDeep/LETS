@@ -1,3 +1,8 @@
+"""Tests for benchmarks/run.py: the benchmark harness smoke run preserves production
+durability settings, SQLite comparison runs are explicitly marked non-production, and
+the reviewed baseline stays machine-readable.
+"""
+
 from __future__ import annotations
 
 import csv

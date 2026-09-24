@@ -1,3 +1,7 @@
+"""Tests that a real WardenService (service.py) execution trace, including a transfer
+and an executor claim, refines the bounded formal model in formal/model_checker.py.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -197,7 +201,6 @@ def test_service_transfer_and_executor_trace_refines_bounded_model(tmp_path: Pat
         assert claim_receipt(abstract, 1) == abstract
         _assert_refines(abstract, bounds, source, target)
 
-        # Finalization and executor claims do not create or destroy rights.
         assert abstract.consumed == 1
     finally:
         source_store.close()

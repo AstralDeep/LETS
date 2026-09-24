@@ -1,9 +1,6 @@
-"""Authoritative LETS warden application service.
-
-This module is the local serialization point for a warden.  All safety
-decisions and their durable consequences happen in one SQLite
-``BEGIN IMMEDIATE`` transaction supplied by :mod:`lets.storage`.  Network
-adapters are deliberately kept outside this module.
+"""WardenService: the authoritative service where every safety decision and its durable
+consequence happen inside one SQLite transaction from storage/sqlite.py. cli.py,
+observation.py, and peer.py all drive a warden through this class.
 """
 
 from __future__ import annotations
@@ -163,8 +160,6 @@ def _row_value(row: sqlite3.Row | Mapping[str, Any], key: str) -> Any:
 
 
 class WardenService:
-    """Durable, fail-closed application service for one stable warden."""
-
     def __init__(
         self,
         store: Storage,
@@ -218,14 +213,6 @@ class WardenService:
             self._verify_database_identity(self._connection(transaction))
 
     def _write_transaction(self, *, capacity_recovery: bool = False) -> AbstractContextManager[Any]:
-        """Open a normal write or the emergency reserve lane.
-
-        The reserve lane is limited to operations that reduce authority or
-        complete already-debited distributed work. It cannot be selected for
-        issuance, execution, renewal, resume, policy changes, or new transfer
-        preparation.
-        """
-
         if capacity_recovery:
             recovery = getattr(self._store, "capacity_recovery", None)
             if callable(recovery):
@@ -234,14 +221,6 @@ class WardenService:
 
     @contextmanager
     def _write_or_degraded_retry(self, *, capacity_recovery: bool = False) -> Iterator[Any | None]:
-        """Yield a write transaction, or ``None`` when only a read retry is safe.
-
-        Capacity admission happens before the underlying context yields.  An
-        exact request-id replay can therefore be served from immutable durable
-        state without weakening the new-write fence.  Capacity failures raised
-        after a yielded mutation still propagate and roll the transaction back.
-        """
-
         with ExitStack() as stack:
             try:
                 transaction = stack.enter_context(
@@ -433,10 +412,7 @@ class WardenService:
             raise ConflictError("signer public key does not match the durable database identity")
 
     def _require_signing_key_current(self) -> None:
-        """Require the full declared clock interval to fit the manifest key interval."""
-
         if self._signing_key_validity is None:
-            # Direct in-process/non-manifest embeddings explicitly have no manifest interval.
             return
         now_ns = self._clock.now_ns()
         uncertainty_ns = self._clock.uncertainty_ns()
@@ -517,8 +493,6 @@ class WardenService:
         return uncertainty
 
     def ready(self) -> bool:
-        """Return whether the durable database and declared clock are safe for authority."""
-
         try:
             capacity_provider = getattr(self._store, "capacity_snapshot", None)
             if callable(capacity_provider):
@@ -560,8 +534,6 @@ class WardenService:
         *,
         identity: IdentityContext,
     ) -> dict[str, object]:
-        """Capture all core readiness facts from one caller-owned read snapshot."""
-
         identity_tenant, _, scopes = self._identity_fields(identity)
         if not self._has_scope(scopes, _ADMIN_SCOPES | frozenset({"lets.metrics.read"})):
             raise PolicyError("metrics read scope is required")
@@ -624,8 +596,6 @@ class WardenService:
         now_s: int,
         clock_tolerance_s: int = 0,
     ) -> bool:
-        """Atomically burn one peer HTTP nonce in externally anchored core state."""
-
         peer = require_warden_id(warden_id, field="peer warden_id")
         key = require_key_id(key_id, field="peer key_id")
         checked_nonce = require_identifier(nonce, field="peer nonce")
@@ -759,8 +729,6 @@ class WardenService:
         active_claim_count: int,
         now_s: int,
     ) -> bool:
-        """Bind drained schema-1 replay authority exactly once during migration."""
-
         now = self._peer_replay_seconds(now_s, "migration now_s")
         if not isinstance(snapshot_digest, bytes) or len(snapshot_digest) != 32:
             raise ValidationError("legacy peer replay snapshot digest must contain 32 bytes")
@@ -852,8 +820,6 @@ class WardenService:
         return True
 
     def peer_replay_status(self) -> dict[str, object]:
-        """Return the anchored core replay head and active claim count."""
-
         with self._store.read() as transaction:
             connection = self._connection(transaction)
             metadata = connection.execute(
@@ -1374,7 +1340,6 @@ class WardenService:
             _row_value(lease, "lease_id"),
         )
         placeholders = ",".join("?" for _ in path)
-        # Only the number of bound placeholders is interpolated; every value remains bound.
         query = (
             "SELECT 1 FROM revocations "
             "WHERE tenant_id = ? AND envelope_id = ? AND lineage_id = ? "
@@ -1402,14 +1367,6 @@ class WardenService:
         branch_lease_id: str,
         now_ns: int,
     ) -> tuple[tuple[str, ...], bool]:
-        """Materialize one bounded revocation batch.
-
-        The durable ``revocations`` row is the immediate authorization fence;
-        ``leases.status`` is a query-friendly materialization.  Selecting one
-        look-ahead row makes both the write set and the audit payload bounded
-        while allowing identical request/delivery retries to converge.
-        """
-
         rows = connection.execute(
             """
             SELECT candidate.lease_id
@@ -1528,8 +1485,6 @@ class WardenService:
         watermark: int,
         limit: int = _MAINTENANCE_ROW_BATCH,
     ) -> tuple[int, int]:
-        """Consume at most ``limit`` consecutive accepted gap rows."""
-
         if limit <= 0:
             return watermark, 0
         rows = connection.execute(
@@ -1571,8 +1526,6 @@ class WardenService:
         target_warden: str,
         watermark: int,
     ) -> int:
-        """Return a source watermark advanced across at most one terminal batch."""
-
         rows = connection.execute(
             """
             SELECT sequence, status FROM outgoing_transfers
@@ -1618,8 +1571,6 @@ class WardenService:
             raise PolicyError("lease is beneath a revoked branch")
 
     def runtime_status(self, *, identity: IdentityContext) -> RuntimeStatus:
-        """Return the durable maintenance mode to an authorized operator."""
-
         with self._store.read() as transaction:
             connection = self._connection(transaction)
             self._verify_database_identity(connection)
@@ -1635,8 +1586,6 @@ class WardenService:
         mode: RuntimeMode | str,
         reason: str,
     ) -> RuntimeStatus:
-        """Idempotently activate or drain this warden under admin authority."""
-
         require_identifier(request_id, field="request_id")
         try:
             requested_mode = mode if isinstance(mode, RuntimeMode) else RuntimeMode(mode)
@@ -1750,8 +1699,6 @@ class WardenService:
         dimension_metadata: Sequence[Mapping[str, Any]] = (),
         config: Mapping[str, Any] | None = None,
     ) -> InvariantSnapshot:
-        """Create the immutable local projection of a signed genesis envelope."""
-
         actor = self._require_admin(identity, tenant_id)
         require_identifier(envelope_id, field="envelope_id")
         if (
@@ -1883,8 +1830,6 @@ class WardenService:
         *,
         identity: IdentityContext | None = None,
     ) -> str:
-        """Register one immutable, content-addressed policy and machine."""
-
         payload = self._policy_payload(policy)
         allowed_policy_fields = {
             "tenant_id",
@@ -2196,8 +2141,6 @@ class WardenService:
         ttl_ns: int,
         lineage_id: str | None = None,
     ) -> LeaseGrant:
-        """Idempotently debit the local free pool and issue a signed root grant."""
-
         require_identifier(request_id, field="request_id")
         require_identifier(envelope_id, field="envelope_id")
         require_digest(policy_digest, field="policy_digest")
@@ -2380,8 +2323,6 @@ class WardenService:
         policy_digest: str | None = None,
         expected_sequence: int | None = None,
     ) -> LeaseGrant:
-        """Atomically partition a parent's residual rights into a child grant."""
-
         require_identifier(request_id, field="request_id")
         require_identifier(parent_id, field="parent_id")
         require_identifier(subject_id, field="subject_id")
@@ -2580,8 +2521,6 @@ class WardenService:
         expected_state: str | None = None,
         expected_sequence: int | None = None,
     ) -> Receipt:
-        """Authorize, debit, advance state/sequence, and persist one signed receipt."""
-
         require_identifier(request_id, field="request_id")
         require_identifier(lease_id, field="lease_id")
         require_identifier(transition, field="transition")
@@ -2908,8 +2847,6 @@ class WardenService:
         expected_sequence: int | None = None,
         cascade: bool = False,
     ) -> LeaseSnapshot:
-        """Renew a lease while preserving every ancestor/descendant expiry bound."""
-
         require_identifier(request_id, field="request_id")
         require_identifier(lease_id, field="lease_id")
         ttl = self._positive_ttl(ttl_ns)
@@ -3399,8 +3336,6 @@ class WardenService:
         reason: str,
         expected_epoch: int | None = None,
     ) -> BranchRevocation:
-        """Increment and sign a branch-scoped revocation epoch."""
-
         require_identifier(request_id, field="request_id")
         require_identifier(lease_id, field="lease_id")
         if not isinstance(reason, str) or not reason or len(reason) > 1000:
@@ -3622,8 +3557,6 @@ class WardenService:
         identity: IdentityContext,
         revocation: BranchRevocation | Mapping[str, Any],
     ) -> BranchRevocation:
-        """Verify and monotonically apply a peer-issued branch revocation."""
-
         parsed = (
             revocation
             if isinstance(revocation, BranchRevocation)
@@ -3788,8 +3721,6 @@ class WardenService:
         tenant_id: str | None = None,
         envelope_id: str | None = None,
     ) -> ResourceVector:
-        """Reclaim residual only beyond the uncertainty and receipt-freshness barrier."""
-
         now_ns = self._clock.now_ns()
         with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
@@ -3905,8 +3836,6 @@ class WardenService:
         identity: IdentityContext,
         lease_id: str,
     ) -> LeaseSnapshot:
-        """Return a non-authoritative client snapshot after tenant/subject binding."""
-
         require_identifier(lease_id, field="lease_id")
         identity_tenant, actor, scopes = self._identity_fields(identity)
         with self._store.read() as transaction:
@@ -3945,9 +3874,7 @@ class WardenService:
         ).fetchone()
         if state is None:
             raise StorageError("warden state is missing")
-        # Lease triggers maintain this aggregate in the same transaction as every
-        # residual mutation. Startup and explicit diagnostics reconcile it against
-        # lease rows; frequent snapshots can therefore remain O(dimensions).
+        # Kept current by DB triggers on every residual mutation
         residual = _unpack_blob(_row_value(state, "lease_residual"))
         conservation = ConservationSnapshot(
             initial_share=_unpack_blob(_row_value(envelope, "initial_local_share")),
@@ -3996,8 +3923,6 @@ class WardenService:
         amount: Sequence[int],
         policy_digest: str | None = None,
     ) -> TransferVoucher:
-        """Move free rights into a signed, per-peer sequenced transfer voucher."""
-
         require_identifier(request_id, field="request_id")
         require_identifier(envelope_id, field="envelope_id")
         require_warden_id(target_warden, field="target_warden")
@@ -4240,8 +4165,6 @@ class WardenService:
         identity: IdentityContext,
         voucher: TransferVoucher | Mapping[str, Any],
     ) -> TransferAck:
-        """Verify and exactly-once credit a peer voucher within a bounded gap window."""
-
         parsed = (
             voucher
             if isinstance(voucher, TransferVoucher)
@@ -4540,8 +4463,6 @@ class WardenService:
         identity: IdentityContext,
         acknowledgement: TransferAck | Mapping[str, Any],
     ) -> TransferAck:
-        """Durably record the target's signed acceptance and advance source watermark."""
-
         ack = (
             acknowledgement
             if isinstance(acknowledgement, TransferAck)
@@ -4697,8 +4618,6 @@ class WardenService:
         target_warden: str,
         through_sequence: int | None = None,
     ) -> WireObject:
-        """Sign a finalized prefix proof and compact its source-side voucher rows."""
-
         require_warden_id(target_warden, field="target_warden")
         identity_tenant, actor, scopes = self._identity_fields(identity)
         if actor != self.warden_id and not self._has_scope(
@@ -4841,8 +4760,6 @@ class WardenService:
         identity: IdentityContext,
         checkpoint: Mapping[str, Any],
     ) -> WireObject:
-        """Verify a source prefix proof before compacting target acknowledgements."""
-
         wire = dict(checkpoint)
         required = {
             "type",
@@ -4962,8 +4879,6 @@ class WardenService:
         *,
         identity: IdentityContext,
     ) -> tuple[int, bytes]:
-        """Verify and return the exact complete durable audit head."""
-
         identity_tenant, _, scopes = self._identity_fields(identity)
         if not self._has_scope(
             scopes,
@@ -5035,8 +4950,6 @@ class WardenService:
         *,
         identity: IdentityContext,
     ) -> bool:
-        """Verify the complete durable audit hash chain and every event signature."""
-
         self.verify_audit_head(identity=identity)
         return True
 
@@ -5049,8 +4962,6 @@ class WardenService:
         expected_sequence: int,
         expected_previous_hash: bytes,
     ) -> tuple[int, bytes]:
-        """Verify one copied audit page without holding a storage transaction."""
-
         sequence_cursor = expected_sequence
         previous_cursor = bytes(expected_previous_hash)
         if len(previous_cursor) != 32:
@@ -5106,8 +5017,6 @@ class WardenService:
         after_sequence: int = -1,
         limit: int = 100,
     ) -> tuple[AuditRecord, ...]:
-        """Return one bounded, ordered page of independently verifiable audit records."""
-
         if (
             isinstance(after_sequence, bool)
             or not isinstance(after_sequence, int)
@@ -5173,13 +5082,9 @@ class WardenService:
             return tuple(output)
 
     def authorize_transition(self, **arguments: Any) -> Receipt:
-        """Compatibility name matching the protocol operation."""
-
         return self.authorize(**arguments)
 
     def get_lease(self, **arguments: Any) -> LeaseSnapshot:
-        """Compatibility name matching storage/RPC adapters."""
-
         return self.snapshot(**arguments)
 
 

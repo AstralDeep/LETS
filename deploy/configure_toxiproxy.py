@@ -1,4 +1,6 @@
-"""Create the directed fault-injection links used by the acceptance suite."""
+"""Creates the directed Toxiproxy fault-injection links (PROXIES) the LETS acceptance
+suite uses to simulate network faults between nodes.
+"""
 
 from __future__ import annotations
 

@@ -1,9 +1,6 @@
-"""Transport authentication for LETS client and peer HTTP APIs.
-
-The core service deliberately receives :class:`~lets.models.IdentityContext`
-objects rather than credentials.  This module is the trust-boundary adapter
-that creates those identities and authenticates messages exchanged by stable
-wardens.
+"""Trust-boundary transport authentication for LETS client and peer HTTP APIs: creates
+the IdentityContext objects the core service consumes, and authenticates inter-warden
+messages via Ed25519-signed headers and a durable replay store.
 """
 
 from __future__ import annotations
@@ -47,33 +44,20 @@ _LEGACY_REPLAY_GC_BATCH = 128
 
 
 class AuthenticationError(PolicyError):
-    """A client did not present an accepted transport identity."""
-
     code = "authentication_required"
 
 
 @runtime_checkable
 class HTTPAuthRequest(Protocol):
-    """Small request surface understood by transport authenticators."""
-
     headers: Mapping[str, str]
 
 
 @runtime_checkable
 class IdentityAuthenticator(Protocol):
-    """Resolve a client identity without consulting the JSON request body."""
-
     def authenticate(self, request: object) -> IdentityContext | Awaitable[IdentityContext]: ...
 
 
 class StaticBearerAuthenticator:
-    """Constant-time bearer authenticator for bootstrap and test deployments.
-
-    Only SHA-256 token digests are retained.  This is intentionally a small
-    bootstrap mechanism, not an OAuth token issuer; production deployments can
-    inject an mTLS, SPIFFE, OIDC, or gateway-backed ``IdentityAuthenticator``.
-    """
-
     def __init__(
         self,
         credentials: Mapping[str, IdentityContext] | Iterable[tuple[str, IdentityContext]],
@@ -97,8 +81,6 @@ class StaticBearerAuthenticator:
         checked = tuple(entries)
         if not checked:
             raise ValidationError("at least one bootstrap bearer token is required")
-        # A tuple prevents accidental mutation and, unlike a token-keyed dict,
-        # forces every credential digest through compare_digest.
         self._entries = checked
 
     @classmethod
@@ -110,8 +92,6 @@ class StaticBearerAuthenticator:
         cls,
         credentials: Iterable[tuple[str, IdentityContext]],
     ) -> StaticBearerAuthenticator:
-        """Load already-digested bootstrap credentials from node configuration."""
-
         entries: list[tuple[bytes, IdentityContext]] = []
         seen: set[bytes] = set()
         for encoded_digest, identity in credentials:
@@ -137,8 +117,6 @@ class StaticBearerAuthenticator:
             raise AuthenticationError("the authentication request has no HTTP headers")
         authorization = _single_header(request, AUTHORIZATION_HEADER)
         if authorization is None:
-            # Starlette Headers is case-insensitive; plain mappings used by an
-            # embedding might not be, so accept the conventional spelling too.
             authorization = headers.get("Authorization")
         if not isinstance(authorization, str):
             raise AuthenticationError("a bearer credential is required")
@@ -157,13 +135,6 @@ class StaticBearerAuthenticator:
 
 
 class TenantBoundAuthenticator:
-    """Validate identities returned by an external authenticator.
-
-    Runtime providers are selected by the operator, but their request results
-    still cross an authorization boundary.  This wrapper prevents malformed or
-    cross-tenant results from reaching the application service.
-    """
-
     def __init__(self, authenticator: IdentityAuthenticator, tenant_id: str) -> None:
         if not isinstance(authenticator, IdentityAuthenticator):
             raise TypeError("authenticator must implement IdentityAuthenticator")
@@ -185,8 +156,6 @@ class TenantBoundAuthenticator:
 
 @dataclass(frozen=True, slots=True)
 class PeerIdentity:
-    """Authenticated identity of the warden that signed an HTTP message."""
-
     warden_id: str
     key_id: str
 
@@ -214,8 +183,6 @@ class PeerTrustRegistry(Protocol):
 
 @runtime_checkable
 class ReplayStore(Protocol):
-    """Atomic durable nonce claim used after a peer signature is verified."""
-
     def claim(
         self,
         *,
@@ -230,8 +197,6 @@ class ReplayStore(Protocol):
 
 
 class CoreReplayAuthority(Protocol):
-    """Core service boundary that burns transport nonces under the authority anchor."""
-
     def claim_peer_request(
         self,
         *,
@@ -246,8 +211,6 @@ class CoreReplayAuthority(Protocol):
 
 
 class CorePeerReplayStore:
-    """ReplayStore adapter for the externally anchored core authority service."""
-
     def __init__(self, authority: CoreReplayAuthority) -> None:
         if not callable(getattr(authority, "claim_peer_request", None)):
             raise TypeError("core replay authority must implement claim_peer_request")
@@ -277,16 +240,12 @@ class CorePeerReplayStore:
 
 @dataclass(frozen=True, slots=True)
 class LegacyPeerReplaySnapshot:
-    """Bounded logical snapshot imported once from the schema-1 replay database."""
-
     clock_floor_s: int | None
     active_claim_count: int
     digest: bytes
 
 
 class SQLitePeerReplayStore:
-    """Process-safe and crash-durable replay store backed by SQLite."""
-
     APPLICATION_ID = 0x4C455450
     SCHEMA_VERSION = 1
 
@@ -345,8 +304,6 @@ class SQLitePeerReplayStore:
 
     @classmethod
     def initialize(cls, path: str | Path, *, busy_timeout_ms: int = 5000) -> Self:
-        """Create replay authority state exactly once."""
-
         return cls(path, busy_timeout_ms=busy_timeout_ms, _create=True)
 
     def _initialize(self) -> None:
@@ -469,8 +426,6 @@ class SQLitePeerReplayStore:
             raise StorageError("could not verify the peer replay database integrity") from exc
 
     def active_claim_count(self, *, now_s: int) -> int:
-        """Count still-valid schema-1 claims without materializing them."""
-
         if not self._read_only:
             raise ValidationError("legacy peer replay inspection requires a read-only store")
         if (
@@ -501,14 +456,6 @@ class SQLitePeerReplayStore:
         return 0 if count is None else int(count[0])
 
     def snapshot(self, *, now_s: int, expected_digest: bytes) -> LegacyPeerReplaySnapshot:
-        """Read frozen legacy metadata after binding the exact backup artifact.
-
-        Migration deliberately refuses live legacy claims.  Operators stop the
-        schema-1 node and wait out the peer signature validity window first, so
-        the one-time import is O(1) in memory and WAL rather than an unbounded
-        authority transaction.
-        """
-
         if not self._read_only:
             raise ValidationError("legacy peer replay snapshots require a read-only store")
         if not isinstance(expected_digest, bytes) or len(expected_digest) != 32:
@@ -710,8 +657,6 @@ def canonical_peer_message(
     warden_id: str,
     key_id: str,
 ) -> bytes:
-    """Canonical, versioned signature input for one peer HTTP request."""
-
     if not method or not method.isascii():
         raise ValidationError("peer HTTP method is invalid")
     if not path.startswith("/") or "#" in path:
@@ -749,8 +694,6 @@ def sign_peer_headers(
     timestamp_s: int | None = None,
     nonce: str | None = None,
 ) -> dict[str, str]:
-    """Return all headers needed to authenticate one exact peer request."""
-
     actual_timestamp = int(time.time()) if timestamp_s is None else timestamp_s
     actual_nonce = secrets.token_urlsafe(24) if nonce is None else nonce
     digest = peer_body_digest(body)
@@ -777,8 +720,6 @@ def sign_peer_headers(
 
 
 class PeerMessageAuthenticator:
-    """Verify an Ed25519-authenticated HTTP body and durably reject replays."""
-
     def __init__(
         self,
         trust_registry: PeerTrustRegistry,
@@ -852,10 +793,7 @@ class PeerMessageAuthenticator:
             raise SignatureError("peer request signature could not be verified") from exc
         if valid is not True:
             raise SignatureError("peer request signature is invalid or untrusted")
-        # The production replay boundary performs an anchored SQLite commit.  Keep
-        # that bounded blocking operation off the ASGI event loop so liveness and
-        # unrelated request parsing continue while the single authority writer is
-        # serialized in its worker thread.
+        # Blocking SQLite commit; keep off the event loop
         claimed = await asyncio.to_thread(
             self._replay_store.claim,
             warden_id=warden_id,
@@ -872,8 +810,6 @@ class PeerMessageAuthenticator:
 
 
 def asgi_request_target(request: object) -> str:
-    """Return the raw path and query used in peer signature verification."""
-
     scope = getattr(request, "scope", None)
     if not isinstance(scope, Mapping):
         raise AuthenticationError("peer request has no ASGI scope")
@@ -896,8 +832,6 @@ def asgi_request_target(request: object) -> str:
 
 
 def _single_header(request: object, name: str) -> str | None:
-    """Return one header value and reject ambiguous duplicate ASGI fields."""
-
     scope = getattr(request, "scope", None)
     if isinstance(scope, Mapping):
         raw_headers = scope.get("headers")

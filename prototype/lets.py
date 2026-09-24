@@ -1,9 +1,8 @@
-"""Reference implementation of LETS: Lineage Escrow Transition Systems.
-
-This module is intentionally small and auditable.  It is a research prototype,
-not a production authorization service.  The trusted-computing-base assumptions
-and unsupported threat classes are documented in the companion manuscript.
+"""Small, auditable reference implementation of Lineage Escrow Transition Systems
+(Warden, LETSystem): a research prototype, not the production service, assuming its
+own process, state, signing key, and clock are trusted.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
@@ -175,13 +174,6 @@ class AuditEvent:
 
 
 class Warden:
-    """Stable escrow replica and complete-mediation boundary.
-
-    The reasoner, planner, agent memory, and generated code are outside this
-    object.  The reference implementation assumes the warden's process,
-    persistent state, signing key, and clock are trusted.
-    """
-
     def __init__(self, warden_id: str, initial_pool: Vector):
         if any(x < 0 for x in initial_pool):
             raise ValueError("initial rights must be non-negative")
@@ -387,8 +379,6 @@ class Warden:
                 raise PermissionError("cannot renew beneath an expired or revoked parent")
             requested_expiry = min(requested_expiry, parent.expires_at)
 
-        # Renewal changes immutable token fields; issue a fresh signature. Descendant
-        # expiry remains nested beneath the parent so no sublease outlives its grant.
         lease.expires_at = requested_expiry
         lease.issued_at = now
         lease.signature = self._sign_lease(lease)
@@ -450,7 +440,6 @@ class Warden:
         ]
 
     def online_metadata_cells(self) -> int:
-        # Research accounting model: one record per live lease, plus revocation prefixes.
         return len(self.active_leases()) + len(self.known_revocations)
 
     def _revoked_by_known_prefix(self, lease: Lease) -> bool:
@@ -470,8 +459,6 @@ class Warden:
 
 
 class LETSystem:
-    """A small multi-warden container with an idempotent escrow handoff."""
-
     def __init__(self, initial_budget: Vector, warden_ids: Sequence[str]):
         if not warden_ids:
             raise ValueError("at least one warden is required")
@@ -548,17 +535,11 @@ class LETSystem:
                         raise AssertionError("capability amplification detected")
 
     def online_metadata_cells(self) -> int:
-        # W^2 rights-transfer matrix equivalent plus live lease/revocation records.
         w = len(self.wardens)
         return w * w + sum(warden.online_metadata_cells() for warden in self.wardens.values())
 
 
 def default_machine(dim: int = 2) -> MachineSpec:
-    """A domain-neutral lifecycle used by tests and benchmarks.
-
-    Resource dimension 0 is an abstract protected-action budget.  Dimension 1
-    is an abstract communication/actuation budget.
-    """
     if dim != 2:
         raise ValueError("default_machine currently uses exactly two resource dimensions")
 

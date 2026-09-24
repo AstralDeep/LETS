@@ -1,4 +1,7 @@
-"""Drive sustained mixed traffic and verify production-profile soak health."""
+"""Drives sustained mixed traffic against the production-profile acceptance cluster and
+verifies health, restart, and audit-export evidence over the run, injecting
+classified fault scenarios at the executor anchor.
+"""
 
 from __future__ import annotations
 
@@ -74,11 +77,6 @@ WORKLOAD_JOURNAL_CYCLE_SECONDS = 5.0
 OBSERVATION_RESPONSE_MAX_BYTES = 20 * 1024
 GENERAL_RESPONSE_MAX_BYTES = 2 * 1024 * 1024
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
-# A terminal sample may be scheduled milliseconds after the last regular sample
-# when the workload duration lands on a cadence boundary.  Wait for one full
-# publisher sleep plus bounded scheduling/capture margin so the one permitted
-# metrics request observes a new coherent snapshot.  The original cadence
-# deadline remains authoritative and still fails closed if publication stalls.
 FINAL_HEALTH_OBSERVATION_ADVANCE_SECONDS = OBSERVATION_CAPTURE_INTERVAL_SECONDS + 1.0
 MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
 MAXIMUM_PLANNED_FENCE_PREPARATION_SECONDS = 120.0
@@ -113,8 +111,6 @@ def _object(path: Path) -> dict[str, Any]:
 
 
 def _evidence_object(path: Path, *, maximum_bytes: int) -> dict[str, Any]:
-    """Read one bounded generated artifact while retaining finite timing values."""
-
     def finite_float(encoded: str) -> float:
         value = float(encoded)
         if not math.isfinite(value):
@@ -473,8 +469,6 @@ class LatencyHistogram:
 
 
 def operation_plan(cycle: int) -> dict[str, Any]:
-    """Return the deterministic node and transfer schedule for one cycle."""
-
     if cycle < 0:
         raise ValueError("cycle must be non-negative")
     source, target = TRANSFER_PAIRS[cycle % len(TRANSFER_PAIRS)]
@@ -486,8 +480,6 @@ def operation_plan(cycle: int) -> dict[str, Any]:
 
 
 def scheduled_transfer_pair(cycle: int, transfer_every_cycles: int) -> tuple[str, str] | None:
-    """Return the transfer actually scheduled for a workload cycle, if any."""
-
     if cycle < 0:
         raise ValueError("cycle must be non-negative")
     if transfer_every_cycles <= 0:
@@ -527,8 +519,6 @@ def _registry(manifest: ClusterManifest) -> PublicKeyRegistry:
 
 
 class _SoakFaultInjectingExecutorAnchor(ProcessFileExecutorAuthorityAnchor):
-    """Inject one classified post-COMMIT lost reply for the acceptance matrix."""
-
     def __init__(self, state: dict[str, bool]) -> None:
         super().__init__(EXECUTOR_ANCHOR, timeout_s=5)
         self._injection_state = state
@@ -1272,8 +1262,6 @@ def _validate_checkpoint_progression(
     *,
     node: str,
 ) -> None:
-    """Require one authority checkpoint to extend, never splice, its predecessor."""
-
     prior_floor = prior.get("clock_floor_ns")
     current_floor = current.get("clock_floor_ns")
     if (
@@ -1707,8 +1695,6 @@ def _validated_observation(metrics: object, *, node: str) -> dict[str, Any]:
             for field in peer_fields
             - {"durable_retry", "healthy", "last_cycle_ns", "last_error", "running"}
         )
-        # last_cycle_ns is None until the dispatcher's first cycle completes
-        # after startup or a planned restart.
         or (
             peer.get("last_cycle_ns") is not None
             and (type(peer.get("last_cycle_ns")) is not int or peer["last_cycle_ns"] < 0)
@@ -1975,9 +1961,6 @@ def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
         raise RuntimeError(f"{node} returned a malformed bounded audit exporter error: {status!r}")
     if isinstance(last_error, str) and not _allowed_transient_audit_error(last_error):
         raise RuntimeError(f"{node} returned a non-tolerable audit exporter error: {status!r}")
-    # last_success_ns is volatile and resets to None on process start, so an
-    # error before the first acknowledged non-empty batch legitimately reports
-    # no prior success; when present the marker must stay a positive integer.
     if last_success_ns is not None and (
         isinstance(last_success_ns, bool)
         or not isinstance(last_success_ns, int)
@@ -2019,8 +2002,6 @@ def _bounded_audit_exporter(status: object, *, node: str) -> dict[str, Any]:
 
 @dataclass
 class AuditErrorBudget:
-    """Fail live after the single globally tolerated sampled exporter error."""
-
     sample_budget: int = AUDIT_ERROR_SAMPLE_BUDGET
     error_sample_count: int = 0
     error_samples_by_node: dict[str, int] = field(
@@ -2143,8 +2124,6 @@ def _poll_audit_error_recovery(
 
 
 class PlannedNodeUnavailableError(RuntimeError):
-    """Abort one node observation only for an exact orchestrated restart window."""
-
     def __init__(self, window: dict[str, Any]) -> None:
         self.window = window
         super().__init__(
@@ -2154,8 +2133,6 @@ class PlannedNodeUnavailableError(RuntimeError):
 
 
 class HealthObservationError(RuntimeError):
-    """Retain bounded authority diagnostics without replacing the primary failure."""
-
     def __init__(
         self,
         node: str,
@@ -2229,8 +2206,6 @@ def _seal_workload_artifact(
     journal_revision: int,
     maximum_bytes: int = WORKLOAD_ARTIFACT_MAX_BYTES,
 ) -> dict[str, Any]:
-    """Bind one atomic workload artifact to its monotone journal revision."""
-
     if type(journal_revision) is not int or journal_revision <= 0:
         raise ValueError("workload journal revision must be a positive integer")
     if type(maximum_bytes) is not int or maximum_bytes <= 0:
@@ -2374,8 +2349,6 @@ def _planned_restart_window(
     prior_authority_checkpoint: dict[str, Any] | None = None,
     prior_observation: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Return the durable exact restart marker only when it overlaps this observation."""
-
     if not WORKLOAD_RESTART.exists():
         return None
     try:
@@ -2647,8 +2620,6 @@ def _require_planned_lifetime_change(
     prior_observation: dict[str, Any],
     current_authority: dict[str, Any],
 ) -> None:
-    """Bind an observed core lifetime change to its completed durable restart episode."""
-
     try:
         marker = _coordination_object(WORKLOAD_RESTART)
         acknowledgement = _coordination_object(WORKLOAD_RESTART_ACK)
@@ -2941,8 +2912,6 @@ def _health_sample(
                 audit_error_budget is not None and node in audit_error_budget.unresolved_error_nodes
             ):
                 audit_error_budget.mark_recovered(node)
-                # The record must equal the retained sample's elapsed_seconds
-                # exactly, which is rounded to three decimals below.
                 audit_error_recoveries.append(
                     {
                         "elapsed_seconds": round(elapsed_s, 3),
@@ -3007,8 +2976,6 @@ def _health_sample(
 
 
 class HealthSampler:
-    """Observe health on an absolute schedule independent of mixed-workload latency."""
-
     def __init__(
         self,
         *,
@@ -3228,8 +3195,6 @@ class HealthSampler:
         )
 
     def _final_sample_not_before(self, scheduled: float) -> float:
-        """Leave time for one new cache publication before the terminal request."""
-
         with self._lock:
             prior_observations = tuple(self._last_observed_monotonic.values())
         if not prior_observations:
@@ -3281,9 +3246,6 @@ class HealthSampler:
                 f"completed={completed:.6f} deadline={deadline:.6f}"
             )
         with self._lock:
-            # Keep the fully validated raw sample available until every
-            # cross-sample lineage check commits. Any later failure can then be
-            # diagnosed from evidence rather than from a discarded response.
             self._failed_sample = copy.deepcopy(sample)
             for node in NODES:
                 document = sample["nodes"][node]
@@ -3589,8 +3551,6 @@ class HealthSampler:
 
 
 class WorkloadMonitorError(RuntimeError):
-    """Carry structured partial sampler evidence to the CLI failure writer."""
-
     def __init__(self, message: str, *, result: dict[str, Any]) -> None:
         self.result = result
         super().__init__(message)
@@ -4036,8 +3996,6 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
         }
 
     def publish_journal() -> None:
-        """Atomically retain a compact, bounded monitor/cycle checkpoint."""
-
         nonlocal journal_revision
         with journal_lock:
             journal_revision += 1
@@ -4107,15 +4065,13 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
             restart_quiescence_intervals.append(pause)
         elif pause.get("reason") == "partition":
             pause_intervals.append(pause)
-        else:  # pragma: no cover - _wait_if_paused rejects this first.
+        else:  # pragma: no cover
             raise RuntimeError("workload pause reason was not retained")
 
     def request(*request_arguments: Any, **request_options: Any) -> dict[str, Any]:
         health_sampler.raise_if_failed()
         response = client.request(*request_arguments, **request_options)
         health_sampler.raise_if_failed()
-        # A restart pause arriving during a long request is acknowledged at
-        # the first post-response boundary, before another mutation can start.
         wait_for_pause_boundary()
         return response
 
@@ -4443,8 +4399,6 @@ def run_workload(arguments: argparse.Namespace) -> dict[str, Any]:
 
 
 def run_partition_probe(arguments: argparse.Namespace) -> dict[str, Any]:
-    """Create and observe one durable A/B transfer while both proxy links are disabled."""
-
     manifest = _verified_manifest()
     policy = manifest.policies[0]
     client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
@@ -4521,8 +4475,6 @@ def run_partition_probe(arguments: argparse.Namespace) -> dict[str, Any]:
 
 
 def wait_converged(arguments: argparse.Namespace) -> dict[str, Any]:
-    """Wait for all peer, transfer, and audit queues to settle without opening executor state."""
-
     _verified_manifest()
     client = ClusterClient(seed=arguments.seed, retry_timeout_s=arguments.retry_timeout_seconds)
     started = time.monotonic()
@@ -4552,8 +4504,6 @@ def wait_converged(arguments: argparse.Namespace) -> dict[str, Any]:
 
 
 def fence_authority_for_restart(arguments: argparse.Namespace) -> dict[str, Any]:
-    """Fence one exact core lifetime for a host-coordinated planned SIGKILL."""
-
     _verified_manifest()
     if arguments.node not in NODES:
         raise RuntimeError("authority fence node is invalid")
@@ -4637,8 +4587,6 @@ def fence_authority_for_restart(arguments: argparse.Namespace) -> dict[str, Any]
 
 
 def read_authority_status(arguments: argparse.Namespace) -> dict[str, Any]:
-    """Read one exact no-transaction authority status for host restart binding."""
-
     _verified_manifest()
     if arguments.node not in NODES:
         raise RuntimeError("authority status node is invalid")

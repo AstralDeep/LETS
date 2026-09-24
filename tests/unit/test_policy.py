@@ -1,3 +1,8 @@
+"""Tests for policy.py: PolicySpec/MachineSpec round-tripping and content digests,
+dimension/transition ambiguity rejection, the transfer-gap window bound, and
+fail-closed evaluation of Boolean and comparison evidence rules.
+"""
+
 from __future__ import annotations
 
 from dataclasses import replace

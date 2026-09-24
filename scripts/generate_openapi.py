@@ -1,4 +1,6 @@
-"""Regenerate the committed deterministic OpenAPI document."""
+"""Regenerates the committed, deterministic OpenAPI document for src/lets/api.py, run by
+an operator or CI when the API surface changes.
+"""
 
 from __future__ import annotations
 

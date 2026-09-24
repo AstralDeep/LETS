@@ -1,15 +1,6 @@
-"""Standalone frontier and mutation-sensitivity analysis for the LETS model.
-
-This module deliberately leaves :mod:`formal.model_checker` and its retained
-evidence unchanged.  Frontier mode repeats the checker's breadth-first search
-while retaining shortest-depth statistics and probing (without enqueuing) the
-successors at the configured cutoff.  Sensitivity mode layers observation-only
-metadata over the existing state so properties that the compact retained model
-cannot represent directly can still be challenged by isolated mutants.
-
-The analysis is bounded evidence, not a proof.  Resource ceilings and a wall
-clock deadline are mandatory so an accidental parameter increase fails as an
-explicit incomplete analysis instead of consuming unbounded resources.
+"""Frontier and mutation-sensitivity analysis layered over formal/model_checker.py
+without changing it: repeats its BFS to probe cutoff successors, then challenges
+isolated mutants under mandatory resource and time ceilings.
 """
 
 from __future__ import annotations
@@ -195,8 +186,6 @@ def analyze_frontier(
     max_transitions: int = DEFAULT_MAX_TRANSITIONS,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, object]:
-    """Explore through ``bounds.max_depth`` and inspect its unexpanded frontier."""
-
     _validate_resource_limits(max_states, max_transitions, timeout_seconds)
     started = time.monotonic()
     initial = retained.initial_state(bounds)
@@ -709,8 +698,6 @@ def _validate_checkpoints(state: SensitivityState) -> None:
 
 
 def validate_sensitivity(state: SensitivityState, bounds: Bounds) -> None:
-    """Evaluate independent analyzer properties, then the retained invariants."""
-
     _validate_active_ancestors(state)
     _validate_claim_events(state)
     _validate_authorization_events(state)
@@ -741,8 +728,6 @@ def analyze_sensitivity_case(
     max_transitions: int = DEFAULT_MAX_TRANSITIONS,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, object]:
-    """Run one breadth-first baseline or isolated-mutant analysis."""
-
     _validate_resource_limits(max_states, max_transitions, timeout_seconds)
     started = time.monotonic()
     initial = SensitivityState(retained.initial_state(bounds))
@@ -863,8 +848,6 @@ def analyze_sensitivity_suite(
     max_transitions: int = DEFAULT_MAX_TRANSITIONS,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, object]:
-    """Run the passing baseline and every isolated mutant under common bounds."""
-
     selected = sensitivity_bounds() if bounds is None else bounds
     baseline = analyze_sensitivity_case(
         selected,

@@ -1,4 +1,7 @@
-"""Deterministic serialization helpers for hashes and signatures."""
+"""Deterministic canonical JSON and base64url encoding for every hashed or signed LETS
+payload (LETS-CJ/1). Used throughout src/lets and by AstralDeep's and
+AstralProjection's LETS clients for digests and signatures.
+"""
 
 from __future__ import annotations
 
@@ -44,12 +47,6 @@ def _normalize(value: Any) -> Any:
 
 
 def canonical_json(value: Any) -> bytes:
-    """Return stable UTF-8 JSON for protocol objects.
-
-    LETS signed payloads use integers, strings, booleans, and arrays. Keeping
-    that subset avoids cross-runtime floating-point canonicalization traps.
-    """
-
     try:
         return json.dumps(
             _normalize(value),
@@ -67,8 +64,6 @@ def canonical_digest(value: Any) -> str:
 
 
 def strict_json_loads(value: str | bytes | bytearray) -> Any:
-    """Parse the LETS-CJ/1 input subset without lossy or ambiguous extensions."""
-
     def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         result: dict[str, Any] = {}
         for key, item in pairs:
@@ -89,8 +84,7 @@ def strict_json_loads(value: str | bytes | bytearray) -> Any:
         parse_constant=reject_constant,
         parse_float=reject_float,
     )
-    # Reuse the encoder's integer range and Unicode checks before returning a
-    # value that may later enter a digest or signature decision.
+    # Discarded on purpose: validates encoder-only constraints
     canonical_json(parsed)
     return parsed
 
@@ -100,14 +94,6 @@ def b64url_encode(value: bytes) -> str:
 
 
 def b64url_decode(value: str) -> bytes:
-    """Decode the unique, unpadded base64url representation emitted by LETS.
-
-    Python's convenience decoder silently ignores non-alphabet characters.
-    Signed protocol fields must instead have one canonical spelling so a
-    signature string cannot be changed without being rejected at the wire
-    boundary.
-    """
-
     if not isinstance(value, str) or "=" in value:
         raise ValueError("base64url value must be unpadded text")
     try:

@@ -1,4 +1,6 @@
-"""Download a pinned TLC tool locally and reproduce the finite LETS check."""
+"""Downloads a pinned TLC model-checker jar and reproduces the finite LETS formal check
+locally, verifying the jar's digest before use.
+"""
 
 from __future__ import annotations
 
@@ -79,7 +81,6 @@ def _local_jar(tool: dict[str, Any]) -> Path:
         try:
             os.link(temporary, jar)
         except FileExistsError:
-            # Another runner won the no-clobber race; trust it only after verification.
             _verify_jar(jar, tool)
         return jar
     finally:

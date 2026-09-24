@@ -1,4 +1,7 @@
-"""Durable at-least-once peer delivery for a running LETS warden."""
+"""PeerDispatcher: durable, at-least-once delivery of transfer and revocation records to
+other wardens, using client.py's PeerClient and retrying from storage-tracked
+delivery state so a crash between commit and delivery cannot lose work.
+"""
 
 from __future__ import annotations
 
@@ -26,8 +29,6 @@ from lets.timeouts import DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS
 
 
 class PeerTransport(Protocol):
-    """Peer client whose ``close`` must interrupt any in-flight transport operation."""
-
     def accept_transfer(self, voucher: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
     def ingest_revocation(self, revocation: Mapping[str, Any]) -> Mapping[str, Any]: ...
@@ -44,12 +45,6 @@ _EXCEPTION_CLASS = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{0,63}\Z")
 
 
 class PeerDispatcher:
-    """Discover durable peer records and deliver them idempotently until acknowledged.
-
-    Authority records remain in the warden database. ``peer_delivery_state`` stores only
-    retry metadata, so a crash between the authoritative commit and discovery cannot lose work.
-    """
-
     def __init__(
         self,
         service: WardenService,
@@ -124,15 +119,11 @@ class PeerDispatcher:
 
     @staticmethod
     def _exception_class(error: BaseException) -> str:
-        """Return a bounded class token without serializing attacker-controlled text."""
-
         candidate = type(error).__name__
         return candidate if _EXCEPTION_CLASS.fullmatch(candidate) is not None else "UnknownError"
 
     @staticmethod
     def _stored_exception_class(value: object) -> str:
-        """Sanitize both new class-only values and legacy ``Class: message`` rows."""
-
         if not isinstance(value, str):
             return "UnknownError"
         candidate = value.partition(":")[0].strip()
@@ -247,13 +238,8 @@ class PeerDispatcher:
                 )
 
     def _prune_terminal(self) -> None:
-        """Bound the outbox after its durable peer obligations are complete."""
-
         with self._store.capacity_recovery() as transaction:
             connection = transaction.connection
-            # Prune at most one dispatcher batch per transaction.  Prefixes can be
-            # arbitrarily long on a long-lived stream, and compaction must remain a
-            # bounded recovery-lane write even when normal capacity is exhausted.
             connection.execute(
                 """
                 DELETE FROM peer_delivery_state
@@ -322,15 +308,6 @@ class PeerDispatcher:
             )
 
     def _prune_compacted_transfer_history(self) -> None:
-        """Finish physical checkpoint cleanup in bounded local batches.
-
-        The signed stream checkpoint advances ``compacted_through`` atomically,
-        while the first service call deletes at most one maintenance batch.  A
-        peer need not resend an already accepted checkpoint merely to finish
-        non-authoritative row cleanup, so the local dispatcher drains the
-        remaining covered history under the same fixed write budget.
-        """
-
         with self._store.capacity_recovery() as transaction:
             connection = transaction.connection
             connection.execute(
@@ -469,10 +446,6 @@ class PeerDispatcher:
                     raise StorageError(f"unknown durable peer record kind {kind!r}")
             except Exception as error:
                 self._record_attempt(kind, record_id, target, now_ns=now_ns, error=error)
-                # A network/server outage is peer-wide and is bounded to one
-                # transport timeout per cycle. A signed semantic rejection is
-                # stream-local; the SQL query selected only one head from each
-                # stream, so unrelated streams may continue safely.
                 if isinstance(error, (OSError, httpx.TransportError, RemoteUnavailableError)):
                     return
                 continue
@@ -576,8 +549,6 @@ class PeerDispatcher:
                 self._record_status(error=self._exception_class(error))
 
     def run_once(self) -> None:
-        """Run one bounded discovery and delivery cycle."""
-
         if not self._run_lock.acquire(blocking=False):
             return
         try:
@@ -612,8 +583,7 @@ class PeerDispatcher:
 
     def stop(self, *, timeout_s: float | None = None) -> None:
         self._stop.set()
-        # Closing first interrupts an HTTP response that is making slow incremental
-        # progress; per-phase HTTP timeouts alone are not a wall-clock shutdown bound.
+        # Close first - per-phase timeouts alone can't bound shutdown
         for client in self._clients.values():
             try:
                 client.close()

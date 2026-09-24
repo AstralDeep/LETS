@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/distributed_partition.py: deterministic
+weighted scheduling and the partition benchmark matrix's scope and rejection of
+misleading scaled inputs.
+"""
+
 from __future__ import annotations
 
 import csv

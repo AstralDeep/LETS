@@ -1,4 +1,7 @@
-"""Stable exception hierarchy shared by library and transport adapters."""
+"""Shared exception hierarchy (LETSError and its subclasses: ValidationError,
+ConflictError, PolicyError, StorageError, and others) that every LETS module raises
+and that transport adapters map to wire-level problem responses.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +9,6 @@ from typing import ClassVar
 
 
 class LETSError(Exception):
-    """Base class for expected LETS failures."""
-
     code = "lets_error"
 
 
@@ -48,14 +49,6 @@ class StorageError(LETSError):
 
 
 class AuthorityAnchorTransportError(StorageError):
-    """A bounded parent/helper transport failure, never an anchor semantic failure.
-
-    ``ProcessFileAuthorityAnchor`` is the only production source of this error.
-    The structured fields let core storage distinguish a retryable helper
-    transport interruption from a durable-anchor rejection without inspecting
-    exception text.
-    """
-
     code = "authority_anchor_transport_error"
     REASONS = frozenset(
         {

@@ -1,4 +1,7 @@
-"""Build, run, evidence, and stop the real multi-node acceptance cluster."""
+"""Builds, runs, evidences, and tears down the real multi-node LETS acceptance Docker
+cluster, hashing source/runtime inputs and rendering a redacted tracked summary of
+results.
+"""
 
 from __future__ import annotations
 
@@ -117,8 +120,6 @@ def _is_runtime_input(git_path: str) -> bool:
 
 
 def _source_provenance() -> dict[str, Any]:
-    """Describe and hash the exact Git-visible worktree without exposing paths."""
-
     commit = _run(["git", "rev-parse", "--verify", "HEAD"]).stdout.strip()
     git_ref = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
     commit_time = _run(["git", "show", "-s", "--format=%cI", "HEAD"]).stdout.strip()
@@ -372,8 +373,6 @@ def _manifest_digest(
 
 
 def _evidence_start_date(evidence: dict[str, Any]) -> str:
-    """Return the UTC calendar date recorded by an evidence document."""
-
     value = evidence.get("started_at")
     if not isinstance(value, str):
         raise RuntimeError("acceptance evidence started_at must be a timestamp string")
@@ -387,8 +386,6 @@ def _evidence_start_date(evidence: dict[str, Any]) -> str:
 
 
 def _render_tracked_summary(evidence: dict[str, Any]) -> str:
-    """Render curated evidence without logs or per-run identities."""
-
     source = evidence["source"]
     tools = evidence["tools"]
     images = evidence["images"]

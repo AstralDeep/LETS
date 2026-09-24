@@ -1,3 +1,8 @@
+"""Tests for storage/sqlite.py's crash and capacity handling: atomic rollback on
+SQLITE_FULL, per-connection page-count enforcement, and that main-database,
+checkpoint, and WAL growth are reserved together rather than separately.
+"""
+
 from __future__ import annotations
 
 import os

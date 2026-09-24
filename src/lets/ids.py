@@ -1,4 +1,7 @@
-"""Identifier generation and validation at protocol trust boundaries."""
+"""Identifier generation and strict validation for protocol trust boundaries: opaque
+ids, digests, warden ids, and key ids. Called at the edge of api.py, service.py, and
+crypto.py before any untrusted identifier is trusted.
+"""
 
 from __future__ import annotations
 
@@ -13,19 +16,11 @@ _KEY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~:/+-]{0,511}$")
 
 
 def new_id(kind: str) -> str:
-    """Return a collision-resistant, log-friendly opaque identifier."""
-
     require_identifier(kind, field="identifier kind", maximum=32)
     return f"{kind}_{uuid4().hex}"
 
 
 def require_identifier(value: str, *, field: str = "identifier", maximum: int = 512) -> str:
-    """Validate an untrusted protocol identifier without normalizing it.
-
-    Normalizing identifiers can alias distinct signed payloads.  LETS instead
-    rejects surrounding whitespace, control characters, and oversized values.
-    """
-
     if not isinstance(value, str) or not value:
         raise ValidationError(f"{field} must be a non-empty string")
     if len(value) > maximum:
@@ -38,16 +33,12 @@ def require_identifier(value: str, *, field: str = "identifier", maximum: int = 
 
 
 def require_digest(value: str, *, field: str = "digest") -> str:
-    """Validate the canonical SHA-256 wire representation used by LETS."""
-
     if not isinstance(value, str) or _DIGEST_RE.fullmatch(value) is None:
         raise ValidationError(f"{field} must match sha256:<64 lowercase hex characters>")
     return value
 
 
 def require_warden_id(value: str, *, field: str = "warden_id") -> str:
-    """Require a stable ASCII URI-segment and HTTP-header-safe node identifier."""
-
     if not isinstance(value, str) or _WARDEN_ID_RE.fullmatch(value) is None:
         raise ValidationError(
             f"{field} must be 1..128 ASCII URI-unreserved characters, start with "
@@ -57,8 +48,6 @@ def require_warden_id(value: str, *, field: str = "warden_id") -> str:
 
 
 def require_key_id(value: str, *, field: str = "key_id") -> str:
-    """Require an ASCII HTTP-header-safe cryptographic key identifier."""
-
     if not isinstance(value, str) or _KEY_ID_RE.fullmatch(value) is None:
         raise ValidationError(f"{field} must be an ASCII transport-safe key identifier")
     return value

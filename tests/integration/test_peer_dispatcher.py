@@ -1,3 +1,8 @@
+"""Tests for peer.py's PeerDispatcher: exactly-once durable delivery across restart and
+crash windows, fair round-robin scheduling across peers and streams, bounded outbox
+pruning, and shutdown interrupting a blocked in-flight transport call.
+"""
+
 from __future__ import annotations
 
 import threading

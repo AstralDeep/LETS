@@ -1,4 +1,7 @@
-"""Shared, dependency-free evidence helpers for the strengthening experiments."""
+"""Shared, dependency-free evidence helpers — Git/source identity, environment capture,
+latency percentiles, manifest writing — used by every NSDI-strengthening experiment
+runner.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/rollback_matrix.py: the requirement-to-test
+mapping, captured success evidence bundles, and refusal to silently overwrite or hide
+a failing pytest/JUnit run.
+"""
+
 from __future__ import annotations
 
 import json

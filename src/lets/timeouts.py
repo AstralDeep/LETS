@@ -1,4 +1,6 @@
-"""Dependency-free timeout constants shared by CLI and runtime components."""
+"""Dependency-free peer-request timeout constants (default, max, and minimum production
+bounds) shared by cli.py's argument parsing and peer.py's dispatcher.
+"""
 
 DEFAULT_PEER_REQUEST_TIMEOUT_SECONDS = 60
 MAX_PEER_REQUEST_TIMEOUT_SECONDS = 60

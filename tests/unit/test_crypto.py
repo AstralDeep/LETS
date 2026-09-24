@@ -1,3 +1,8 @@
+"""Tests for crypto.py: Ed25519 signer round-tripping, warden-identifier safety in paths
+and headers, atomic no-clobber seed files, and PublicKeyRegistry conflict detection
+and validity enforcement.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

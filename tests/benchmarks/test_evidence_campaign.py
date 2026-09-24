@@ -1,3 +1,9 @@
+"""Tests for the NSDI evidence-campaign packager
+(benchmarks/nsdi_strengthening/evidence_campaign.py): deterministic
+preflight/finalize manifests, exact-artifact-set requirements, and rejection of
+dirty, tampered, or privacy-leaking evidence.
+"""
+
 from __future__ import annotations
 
 import gzip

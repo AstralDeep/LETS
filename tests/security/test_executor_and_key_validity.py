@@ -1,3 +1,8 @@
+"""Tests for executor.py's receipt claims and crypto.py's key-validity checks: one
+winner under concurrent claims, bounded expired-watermark handling, and
+clock-uncertainty-aware validity for peer and manifest keys.
+"""
+
 from __future__ import annotations
 
 import sqlite3

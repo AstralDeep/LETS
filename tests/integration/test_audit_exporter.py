@@ -1,3 +1,8 @@
+"""Tests for the audit archive exporter (src/lets/audit.py): bounded per-cycle publish
+budgets, exactly-once outbox acknowledgement across crashes and sink replacement, and
+recovery from a stalled, rolled-back, or partially published sink.
+"""
+
 from __future__ import annotations
 
 import shutil
@@ -103,8 +108,6 @@ def test_exporter_is_idempotent_and_bounds_published_outbox_rows(tmp_path: Path)
 
 
 class _SlowPublishSink:
-    """Delay publishes so a nanosecond budget expires even on coarse clocks."""
-
     def __init__(self, inner: SQLiteAuditSink) -> None:
         self._inner = inner
 

@@ -1,3 +1,8 @@
+"""Tests for storage/sqlite.py's write hot path: relies on SQLite's own foreign-key
+enforcement instead of a full scan, a startup scan still catches offline corruption,
+and the lease-residual aggregate stays trigger-maintained.
+"""
+
 from __future__ import annotations
 
 import sqlite3

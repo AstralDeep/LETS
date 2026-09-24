@@ -1,3 +1,7 @@
+"""Tests for benchmarks/nsdi_strengthening/implementation_inventory.py: exact file-count
+inventory facts and refusal to silently overwrite existing output.
+"""
+
 from __future__ import annotations
 
 import json

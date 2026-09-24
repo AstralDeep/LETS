@@ -1,4 +1,7 @@
-"""Inventory authorized SSH hosts without retaining addresses or credentials."""
+"""Inventories authorized SSH hosts for the NSDI remote experiments without retaining
+addresses or credentials, feeding remote_matched_host.py and remote_three_host.py
+their host aliases.
+"""
 
 from __future__ import annotations
 
@@ -82,7 +85,7 @@ def _run(client: Any, command: str, *, timeout: float = 30) -> tuple[int, str, s
 def _inventory(credential: Credential) -> dict[str, object]:
     try:
         import paramiko
-    except ImportError as exc:  # pragma: no cover - environment diagnostic
+    except ImportError as exc:  # pragma: no cover
         raise RuntimeError("install Paramiko in the runner environment") from exc
 
     client = paramiko.SSHClient()

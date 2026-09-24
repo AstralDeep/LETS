@@ -1,4 +1,6 @@
-"""Initialize one production-profile node through the public provider CLI."""
+"""Initializes one production-profile LETS node's staged config and manifest through the
+public provider CLI, using src/lets/canonical.py for deterministic serialization.
+"""
 
 from __future__ import annotations
 

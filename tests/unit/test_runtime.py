@@ -1,3 +1,8 @@
+"""Tests for runtime.py's provider loader: it imports only the selected entry point and
+cleans up exactly once, rejects duplicate or wrongly typed providers, and requires
+proof of Ed25519 key possession before production admits a signer.
+"""
+
 from __future__ import annotations
 
 import asyncio

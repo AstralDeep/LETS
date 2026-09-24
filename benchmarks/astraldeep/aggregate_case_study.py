@@ -1,8 +1,6 @@
-"""Validate and aggregate the complete three-mode AstralDeep case study.
-
-The per-mode evidence bundles remain the authority for raw measurements.  This
-module adds a digest-linked, cross-mode index and a descriptive summary without
-claiming manuscript reproduction or inferential statistical support.
+"""Validates and aggregates the three-mode AstralDeep case-study evidence bundles into a
+digest-linked index and descriptive summary, without claiming manuscript reproduction
+or inferential statistics.
 """
 
 from __future__ import annotations
@@ -332,8 +330,6 @@ def _validate_disposition_and_readiness(
 
 
 def _validate_historical_candidate(repository: Path, disposition: Mapping[str, object]) -> None:
-    """Recompute a retained candidate's exact tree partition without requiring HEAD."""
-
     candidate = disposition.get("candidate")
     comparison = disposition.get("comparison")
     if not isinstance(candidate, Mapping) or not isinstance(comparison, Mapping):
@@ -670,8 +666,6 @@ def _revalidate_final_inputs(
     paths: Mapping[str, Path],
     inputs: Mapping[str, Mapping[str, object]],
 ) -> None:
-    """Close the summary-construction window by rehashing every retained leaf."""
-
     _validate_root_layout(root)
     for mode, original in documents.items():
         current = _read_canonical(paths[mode], f"final {mode} manifest")
@@ -692,8 +686,6 @@ def _revalidate_final_inputs(
 
 
 def build_aggregate_documents(root: Path) -> tuple[dict[str, object], dict[str, object]]:
-    """Return validated manifest and summary documents without writing them."""
-
     if _is_reparse_point(root):
         raise capture.EvidenceError("aggregate evidence root must not be a reparse point")
     root = root.resolve(strict=True)
@@ -870,8 +862,6 @@ def _write_pair_exclusive(
 
 
 def aggregate_case_study(root: Path) -> tuple[dict[str, object], dict[str, object]]:
-    """Validate the root and exclusively create its aggregate manifest and summary."""
-
     manifest, summary = build_aggregate_documents(root)
     root = root.resolve(strict=True)
     _write_pair_exclusive(root / "manifest.json", manifest, root / "summary.json", summary)

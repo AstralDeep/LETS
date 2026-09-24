@@ -1,10 +1,6 @@
-"""Vendor-neutral production runtime provider.
-
-This profile keeps secret-key operations outside the LETS process.  It invokes
-one operator-installed helper without a shell, verifies short-lived Ed25519 JWT
-access tokens, and binds the node to independently mounted authority-anchor and
-audit-archive files.  Deployments can replace it with a cloud KMS, PKCS#11,
-SPIFFE, or OIDC provider through the same runtime-provider protocol.
+"""Vendor-neutral production runtime provider: signs via an operator-installed helper
+process (no shell), authenticates short-lived Ed25519 JWTs, and binds independent
+anchor/audit files. Selected through runtime.py's provider loader.
 """
 
 from __future__ import annotations
@@ -126,14 +122,6 @@ def _one_header(request: object, name: str) -> str | None:
 
 
 class CommandEd25519Signer:
-    """Ed25519 signer backed by an operator-controlled helper process.
-
-    The helper receives the exact bytes to sign on standard input and must emit
-    one unpadded base64url 64-byte signature.  No shell is involved.  A helper
-    can therefore bridge LETS to PKCS#11, a cloud KMS, or an HSM sidecar without
-    exposing private material to this process.
-    """
-
     def __init__(
         self,
         *,
@@ -206,8 +194,6 @@ class CommandEd25519Signer:
 
 
 class Ed25519JWTAuthenticator:
-    """Strict short-lived EdDSA JWT authenticator for human/service identities."""
-
     def __init__(
         self,
         *,
@@ -369,8 +355,6 @@ def _command(value: str) -> tuple[str, ...]:
 
 
 def open_runtime(context: RuntimeProviderContext) -> RuntimeBindings:
-    """Create the generic production bindings selected by the runtime loader."""
-
     options = context.options
     missing = _REQUIRED_OPTIONS - options.keys()
     unknown = options.keys() - _REQUIRED_OPTIONS - _OPTIONAL_OPTIONS
@@ -461,14 +445,12 @@ def open_runtime(context: RuntimeProviderContext) -> RuntimeBindings:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Provision the generic provider's independent audit archive explicitly."""
-
     parser = argparse.ArgumentParser(prog="lets-provider")
     subparsers = parser.add_subparsers(dest="command", required=True)
     audit = subparsers.add_parser("audit-init", help="initialize an independent audit archive")
     audit.add_argument("--path", required=True)
     arguments = parser.parse_args(argv)
-    if arguments.command != "audit-init":  # pragma: no cover - argparse owns this boundary
+    if arguments.command != "audit-init":  # pragma: no cover
         parser.error("unsupported provider command")
     path = Path(arguments.path)
     if not path.is_absolute():

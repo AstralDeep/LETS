@@ -1,3 +1,7 @@
+"""Tests for client.py's mTLS support: a real client-certificate request completes
+against a live handler, and a client without its certificate is rejected.
+"""
+
 from __future__ import annotations
 
 import base64

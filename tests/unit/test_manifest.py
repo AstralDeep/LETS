@@ -1,3 +1,8 @@
+"""Tests for manifest.py: content-digest round-tripping against the published wire
+schema, operator signature-threshold enforcement, and rejection of duplicate
+identities, unsafe endpoints, or aliased configuration.
+"""
+
 from __future__ import annotations
 
 import json

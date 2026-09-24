@@ -1,22 +1,6 @@
-"""Replacement matched-path benchmark for AstralDeep final dispatch.
-
-This runner is deliberately *not* presented as a reproduction of the missing
-``20260826T231656Z`` host-control artifact.  It measures the same narrow class
-of operation against the current clean AstralDeep reference composition:
-
-* AstralDeep ``04f04ee93718d2ff681726e2a47a2550a837612d``;
-* AstralPlane ``4a1d990387428436041dd70d9c417e9e86000b6c``; and
-* LETS v1.0.11 ``6245189920c686353c4ced7a208d56ec266f745c``.
-
-The timed enforce path uses the real ``GovernedFinalDispatch`` and gateway
-classes, a real SQLite-backed ``WardenService``, the public receipt verifier,
-the real SQLite replay store, and the process-file executor authority anchor.
-Host binding, Plane effect coordination, and audit persistence are isolated
-in-memory adapters, matching the scope of the historical paper description.
-No HTTP, PostgreSQL, model/provider, or external-tool work is included.
-
-All timing hooks are wrappers or subclasses owned by this benchmark.  The
-runner does not patch AstralDeep or LETS runtime source files.
+"""Benchmarks AstralDeep's final dispatch against pinned AstralDeep/AstralPlane/LETS
+commits, using the real GovernedFinalDispatch, WardenService, and replay-store paths
+behind in-memory host/Plane/audit adapters.
 """
 
 from __future__ import annotations
@@ -80,8 +64,8 @@ SCOPE = "tools:execute"
 Mode = Literal["off", "enforce"]
 
 
-class BenchmarkRefusal(RuntimeError):  # noqa: N818 - refusal is the CLI contract term
-    """A prerequisite or evidence-integrity check failed."""
+class BenchmarkRefusal(RuntimeError):  # noqa: N818
+    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,8 +150,6 @@ def _git_identity(root: Path) -> dict[str, object]:
 
 
 def _harness_repository_identity(source: Path | None = None) -> dict[str, object]:
-    """Describe the harness checkout without requiring a standalone upload to be Git-backed."""
-
     selected = Path(__file__).resolve() if source is None else source.resolve(strict=True)
     try:
         candidate = selected.parents[2]
@@ -217,8 +199,6 @@ def _validate_composition_document(document: object) -> dict[str, object]:
 
 
 def validate_astraldeep_root(root: Path) -> dict[str, object]:
-    """Require the exact clean, initialized replacement composition."""
-
     try:
         selected = root.resolve(strict=True)
     except OSError as exc:
@@ -265,8 +245,6 @@ def validate_astraldeep_root(root: Path) -> dict[str, object]:
 
 
 def _bootstrap_runtime(root: Path) -> SimpleNamespace:
-    """Import only the exact Deep and component trees selected above."""
-
     source_roots = (
         root / "backend",
         root / "components/LETS/src",
@@ -312,8 +290,6 @@ def _bootstrap_runtime(root: Path) -> SimpleNamespace:
 
 
 def _authority_helper_command(runtime: SimpleNamespace) -> tuple[str, ...]:
-    """Launch the helper from the exact source tree even when LETS is not installed."""
-
     try:
         package_file = Path(runtime.lets_package.__file__).resolve(strict=True)
         source_root = package_file.parents[1]
@@ -381,8 +357,6 @@ class _TimedWardenStorage:
 
 
 class _ServiceClient:
-    """Protocol-neutral in-process transport into the real WardenService."""
-
     def __init__(self, service: Any, identity: Any) -> None:
         self._service = service
         self._identity = identity
@@ -408,8 +382,6 @@ class _ServiceClient:
 
 
 class _TimedWardenClient:
-    """Time the complete production-shaped Astral-to-Warden adapter call."""
-
     def __init__(self, inner: Any) -> None:
         self._inner = inner
 
@@ -430,8 +402,6 @@ class _AuditSink:
 
 
 class _Coordinator:
-    """Deterministic in-memory Plane coordinator used only by this benchmark."""
-
     def __init__(self, binding: object) -> None:
         self.binding = binding
         self.counts: dict[str, int] = defaultdict(int)
@@ -845,8 +815,6 @@ def _build_rig(runtime: SimpleNamespace, root: Path, *, budget: int, mode: Mode)
 
 
 def _exclusive(values: Mapping[str, int]) -> dict[str, int]:
-    """Derive a non-overlapping decomposition from explicitly nested spans."""
-
     def get(name: str) -> int:
         return int(values.get(name, 0))
 

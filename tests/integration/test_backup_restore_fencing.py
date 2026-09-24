@@ -1,3 +1,8 @@
+"""Tests that a stale-but-internally-valid recovery bundle (recovery.py) is fenced by
+the live authority anchor (authority.py) before cli.py's restore path replaces any
+live file.
+"""
+
 from __future__ import annotations
 
 import json
@@ -298,10 +303,6 @@ def test_stale_recovery_bundle_is_fenced_before_live_files_are_replaced(
             _recovery_verify(config_path, verify_arguments)
     assert anchor_path.read_bytes() == anchor_before_invalid_candidate
 
-    # A self-consistent, signed candidate ahead of the live anchor must be
-    # rejected before it can publish its additional audit tail into the live
-    # independent archive.  Its local outbox is acknowledged against a separate
-    # archive so every other recovery preflight check passes.
     verified = verify_recovery_bundle(bundle_path)
     ahead_core = tmp_path / "ahead.sqlite3"
     install_verified_artifact(verified.artifacts["core_database"], ahead_core)
@@ -438,7 +439,6 @@ def test_stale_recovery_bundle_is_fenced_before_live_files_are_replaced(
     with pytest.raises(StorageError, match="restore is incomplete"):
         _recovery_backup(config_path, fenced_backup)
 
-    # Repeating the exact command resumes at anchored core admission.
     assert _recovery_restore(config_path, exact_restore_arguments) == 0
     assert _recovery_restore(config_path, exact_restore_arguments) == 0
     restore_journal = json.loads((state / "recovery-restore.json").read_text(encoding="utf-8"))

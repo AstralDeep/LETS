@@ -1,10 +1,6 @@
-"""Run the pinned AstralDeep matched-host replacement benchmark on SSH alias s1.
-
-This controller is deliberately fail closed.  It authenticates the endpoint against
-the retained address and SSH host-key pins, creates a unique private directory below
-the authenticated user's normalized home, and confines every remote write to that
-directory.  The retained results are sanitized replacement evidence, not a recovery
-of the missing historical benchmark artifact.
+"""Fail-closed SSH controller that runs the pinned AstralDeep matched-host benchmark
+(matched_host_path.py) on host alias s1, authenticating against retained
+address/host-key pins and confining every remote write beneath the user's home.
 """
 
 from __future__ import annotations
@@ -73,7 +69,7 @@ DIRECT_REQUIREMENTS = (
 
 
 class RemoteMatchedHostError(RuntimeError):
-    """Raised when a safety or reproducibility condition is not met."""
+    pass
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -109,8 +105,6 @@ def _safe_run_id(value: str | None) -> str:
 
 
 def guarded_remote_child(root: str, *parts: str) -> str:
-    """Build a lexical POSIX child path from safe basename components."""
-
     if (
         not root.startswith("/")
         or posixpath.normpath(root) != root
@@ -188,8 +182,6 @@ def verify_address_pin(credential: Credential, inventory: Mapping[str, object]) 
 
 @dataclass(slots=True)
 class PinnedFingerprintPolicy:
-    """Paramiko missing-host-key policy that accepts only the retained exact pin."""
-
     expected_type: str
     expected_sha256: str
     verified: bool = False
@@ -328,7 +320,7 @@ class RemoteSession:
         if paramiko_module is None:
             try:
                 import paramiko as paramiko_module
-            except ImportError as exc:  # pragma: no cover - environment diagnostic
+            except ImportError as exc:  # pragma: no cover
                 raise RemoteMatchedHostError(
                     "Paramiko is required in the controller environment"
                 ) from exc
@@ -574,8 +566,6 @@ def _redact_ip_literals(value: str, replacement_text: str = "<redacted-ip>") -> 
 
 
 def _collision_free_placeholder(preferred: str, forbidden: Sequence[str], used: set[str]) -> str:
-    """Choose a retained token that cannot itself contain a forbidden value."""
-
     if preferred not in used and all(secret not in preferred for secret in forbidden):
         used.add(preferred)
         return preferred
@@ -792,8 +782,6 @@ def benchmark_command(
     storage: str,
     output: str,
 ) -> str:
-    """Render the fixed replacement benchmark CLI without shell interpolation."""
-
     return (
         f"{_quoted(python)} {_quoted(benchmark)} --astraldeep-root {_quoted(deep)} "
         f"--storage-root {_quoted(storage)} --output {_quoted(output)} "
@@ -1177,8 +1165,6 @@ def run_remote_matched_host(
     uv_sha256: str | None = None,
     session_factory: Any = RemoteSession,
 ) -> dict[str, object]:
-    """Execute the fixed remote run and retain only sanitized evidence."""
-
     selected_run_id = _safe_run_id(run_id)
     output = _preflight_retained(output, overwrite=overwrite)
     credential = load_s1_credential(credentials_path)
@@ -1459,8 +1445,6 @@ def recover_remote_matched_host(
     overwrite: bool = False,
     session_factory: Any = RemoteSession,
 ) -> dict[str, object]:
-    """Retain an already-completed exact run using remote read operations only."""
-
     output = _preflight_retained(output, overwrite=overwrite)
     credential = load_s1_credential(credentials_path)
     inventory = load_s1_inventory(inventory_path)

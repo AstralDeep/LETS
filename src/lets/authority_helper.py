@@ -1,4 +1,7 @@
-"""Internal atomic file-anchor helper used by the production runtime provider."""
+"""Subprocess entry point that performs one authority-anchor file operation per
+invocation, isolating blocking I/O for authority.py's ProcessFileAuthorityAnchor;
+also launched directly by AstralProjection's windows-client.
+"""
 
 from __future__ import annotations
 

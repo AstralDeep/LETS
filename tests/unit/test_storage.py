@@ -1,3 +1,8 @@
+"""Tests for storage/sqlite.py's SQLiteStorage/SQLiteTransaction: schema/migration
+gating, capacity enforcement before SQLITE_FULL, transaction isolation, and the
+lease/receipt/transfer repository behaviors exposed to service.py.
+"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -197,8 +202,6 @@ def test_schema_v1_requires_explicit_transactional_migration(tmp_path: Path) -> 
     current = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
     current.close()
 
-    # Construct the exact version boundary represented by the v1 schema: v2's
-    # expand-only runtime-control objects are absent and both version markers agree.
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("DROP TRIGGER runtime_control_generation_monotonic")
         connection.execute("DROP TRIGGER runtime_control_no_delete")

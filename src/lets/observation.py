@@ -1,4 +1,7 @@
-"""Bounded, cache-only production observation for a running warden."""
+"""Background ObservationPublisher that periodically captures a bounded, verifiable
+health/capacity snapshot without taking the storage authority lane on the request
+path; cli.py exposes it and deploy's soak harness reads it.
+"""
 
 from __future__ import annotations
 
@@ -101,8 +104,6 @@ def _invariant_document(snapshot: InvariantSnapshot) -> dict[str, object]:
 
 
 class ObservationPublisher:
-    """Publish immutable snapshots and serve them without authority admission."""
-
     def __init__(
         self,
         service: WardenService,
@@ -182,8 +183,6 @@ class ObservationPublisher:
         return self._instance_id
 
     def _ordered_wall_time_ns(self) -> int:
-        """Clamp wall-clock rollback while monotonic fields retain exact age."""
-
         candidate = time.time_ns()
         if type(candidate) is not int or candidate < 0:
             raise StorageError("observation wall clock is invalid")
@@ -279,8 +278,6 @@ class ObservationPublisher:
             size_row = size_cursor.fetchone()
             if size_row is None:
                 break
-            # Include every copied variable field, fixed hashes/integers, and a
-            # conservative per-row structural allowance in the byte admission.
             row_bytes = 64 + sum(int(size_row[index]) for index in range(1, 7))
             if row_bytes > OBSERVATION_AUDIT_PAGE_MAX_BYTES:
                 raise StorageError("one audit row exceeds the observation byte bound")
@@ -316,8 +313,6 @@ class ObservationPublisher:
         return head_sequence, head_hash, boundary_hash, rows
 
     def bootstrap_audit(self) -> None:
-        """Perform one streaming complete scan before concurrent workers start."""
-
         if self._bootstrapped:
             raise RuntimeError("observation audit was already bootstrapped")
         verified_sequence, verified_hash = self._service.verify_audit_head(identity=self._identity)
@@ -600,8 +595,6 @@ class ObservationPublisher:
         full_verification: bool,
         fence_deadline: float,
     ) -> Mapping[str, object]:
-        """Verify the exact fenced audit head under terminal authority admission."""
-
         if type(full_verification) is not bool:
             raise ValueError("terminal audit verification mode must be a boolean")
         if not math.isfinite(fence_deadline) or fence_deadline <= time.monotonic():
@@ -696,8 +689,6 @@ class ObservationPublisher:
         full_verification: bool,
         fence_deadline: float,
     ) -> Mapping[str, object]:
-        """Fail the live cache closed if terminal verification cannot prove safety."""
-
         if not self._bootstrapped or self._startup_full_verification_at_ns is None:
             raise RuntimeError("observation audit bootstrap has not completed")
 
@@ -844,9 +835,7 @@ class ObservationPublisher:
             try:
                 self.capture_once()
             except Exception:
-                # A failed bounded attempt relinquishes its reservation and backs
-                # off for one normal interval.  This keeps a broken observer from
-                # starving authority writers while the served cache fails closed.
+                # Back off here so a broken observer can't starve writers
                 continue
 
     def start(self) -> None:
@@ -875,9 +864,7 @@ class ObservationPublisher:
         )
         exceeded_declared_bound = thread.is_alive()
         if exceeded_declared_bound:
-            # A provider or SQLite primitive violated its declared bound. Never
-            # let caller teardown close storage while this producer still owns
-            # the authority lane; wait for ownership to return before escaping.
+            # Don't return while the thread still holds the authority lane
             while thread.is_alive():
                 thread.join(1.0)
         self._thread = None

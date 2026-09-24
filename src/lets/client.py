@@ -1,4 +1,7 @@
-"""Synchronous, retry-disciplined HTTP clients for LETS nodes."""
+"""Blocking HTTP client library for calling a LETS warden: LETSClient for application
+operations and PeerClient for signed inter-warden messages, both retrying only
+idempotent calls. Used by peer.py's dispatcher and by AstralDeep's orchestrator.
+"""
 
 from __future__ import annotations
 
@@ -25,8 +28,6 @@ def _httpx_tls_configuration(
     verify: TLSVerify,
     cert: TLSCertificate | None,
 ) -> tuple[TLSVerify, TLSCertificate | None]:
-    """Build one SSL context so a CA path cannot bypass client-certificate loading."""
-
     context: ssl.SSLContext
     if isinstance(verify, str):
         trust = Path(verify)
@@ -111,8 +112,6 @@ class ProblemDetails:
 
 
 class LETSClientError(Exception):
-    """Base exception for a typed remote RFC 9457 problem."""
-
     def __init__(self, problem: ProblemDetails) -> None:
         self.problem = problem
         super().__init__(f"{problem.code}: {problem.detail}")
@@ -180,8 +179,6 @@ class RetryPolicy:
 
 
 class LETSClient:
-    """Blocking client with bounded retries only for idempotent operations."""
-
     _RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
 
     def __init__(
@@ -588,8 +585,6 @@ JSON_MEDIA_TYPE = "application/json"
 
 
 class PeerClient(LETSClient):
-    """Message-signing warden client; all exposed operations are idempotent."""
-
     def __init__(self, base_url: str, *, signer: PeerSigner, **options: Any) -> None:
         super().__init__(base_url, **options)
         self._signer = signer

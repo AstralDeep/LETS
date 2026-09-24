@@ -1,3 +1,8 @@
+"""Tests for cli.py's argument validation and production admission gates: transport
+security completeness, peer/request deadline bounds, trusted-key requirements before
+serve, and rejection of development-only trust or transport choices.
+"""
+
 from pathlib import Path
 from typing import Any
 

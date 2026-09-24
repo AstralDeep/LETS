@@ -1,4 +1,7 @@
-"""Protocol-neutral lifecycle mapping for systems that create agent replicas."""
+"""Protocol-neutral mapping from a host system's replica lifecycle events to LETS
+authorization calls, via ReplicaAuthorizer and the minimal AuthorizerClient surface a
+host must implement. astraldeep.py specializes this for AstralDeep.
+"""
 
 from __future__ import annotations
 
@@ -14,8 +17,6 @@ WireObject = Mapping[str, Any]
 
 
 class AuthorizerClient(Protocol):
-    """Small public-client surface required by a host-system adapter."""
-
     def issue_root(self, payload: Mapping[str, Any]) -> WireObject: ...
 
     def spawn(self, parent_id: str, payload: Mapping[str, Any]) -> WireObject: ...
@@ -35,8 +36,6 @@ class AuthorizerClient(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ReplicaProfile:
-    """Immutable binding between a host deployment and one LETS policy."""
-
     tenant_id: str
     envelope_id: str
     policy_digest: str
@@ -62,14 +61,6 @@ class ReplicaProfile:
 
 
 class ReplicaAuthorizer:
-    """Map host lifecycle events to LETS without importing the host system.
-
-    The caller supplies its own durable operation identifier as ``request_id``.
-    LETS then makes retries safe across process and network failures. Replica
-    artifacts, secrets, process memory, and owner credentials are intentionally
-    absent from this interface.
-    """
-
     def __init__(self, client: AuthorizerClient, profile: ReplicaProfile) -> None:
         self.client = client
         self.profile = profile

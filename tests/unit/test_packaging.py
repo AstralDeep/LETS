@@ -1,3 +1,5 @@
+"""Tests that the Docker build context excludes runtime secrets and authority state."""
+
 from pathlib import Path
 
 

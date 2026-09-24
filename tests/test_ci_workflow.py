@@ -1,3 +1,8 @@
+"""Tests that the CI workflow file uses only exactly-pinned approved GitHub Actions,
+matches its declared job/trigger/matrix contract, and that coverage tooling and
+benchmark modules can't quietly weaken CI gates.
+"""
+
 import re
 import tomllib
 from collections import Counter

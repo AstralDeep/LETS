@@ -1,3 +1,9 @@
+"""Tests for the production release-soak harness
+(deploy/production/acceptance/materialize.py, soak.py): the independent evidence
+verifier, adversarial authority/workload evaluators gating the recorded soak budget,
+and full schedule coverage.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -4112,8 +4118,6 @@ def test_health_sample_recovers_one_error_inside_only_the_remaining_stall_window
 
     recovered_sample = _health_sample(
         client,  # type: ignore[arg-type]
-        # A non-millisecond-boundary monotonic offset proves the recovery
-        # record and the retained sample share one exact rounded timestamp.
         elapsed_s=22.1239867,
         audit_error_budget=budget,
     )

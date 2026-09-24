@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/matched_host_path.py: exclusive time
+decomposition, median/nearest-rank summary statistics, reference-pin validation, and
+launching the authority helper from exact source without an installed package.
+"""
+
 from __future__ import annotations
 
 import json

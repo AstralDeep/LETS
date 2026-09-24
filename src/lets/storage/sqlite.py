@@ -1,4 +1,7 @@
-"""Durable, transport-neutral SQLite storage for LETS wardens."""
+"""SQLiteStorage/SQLiteTransaction: the durable backend behind service.py's
+WardenService, serializing every write through authority.py's anchor and enforcing
+capacity limits, conservation checks, and the schema in storage/schema.py.
+"""
 
 from __future__ import annotations
 
@@ -76,8 +79,6 @@ _AUTHORITY_RECOVERY_DELAYS_NS = (
 
 
 def _sqlite_error_diagnostic(exc: sqlite3.Error) -> str:
-    """Return bounded SQLite metadata without exposing the raw error text."""
-
     raw_name = getattr(exc, "sqlite_errorname", None)
     error_name = "UNKNOWN"
     if (
@@ -153,8 +154,6 @@ def audit_event_hash(
     payload: bytes,
     created_at_ns: int,
 ) -> bytes:
-    """Hash an audit event with unambiguous, cross-runtime framing."""
-
     previous = _blob(previous_hash, "previous_hash")
     if len(previous) != 32:
         raise ValidationError("previous_hash must contain 32 bytes")
@@ -302,7 +301,6 @@ def _expected_schema_definition_digest() -> bytes:
 def _normalize_dimensions(value: object | None, count: int) -> tuple[Record, ...]:
     if value is None:
         return ()
-    # Dataclasses and other canonicalizable objects are normalized by canonical_json.
     try:
         normalized = json.loads(canonical_json(value).decode("utf-8"))
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -450,12 +448,6 @@ class Storage(Protocol):
 
 
 class SQLiteTransaction:
-    """One explicitly bounded SQLite transaction.
-
-    Instances are created by :class:`SQLiteStorage`; callers must not retain one
-    after its context manager exits.
-    """
-
     __slots__ = ("_closed", "_connection", "_metadata", "_writable")
 
     def __init__(
@@ -542,8 +534,6 @@ class SQLiteTransaction:
             result[field] = _decode_json(result[field], field)
         return result
 
-    # -- Envelope state -------------------------------------------------
-
     def get_warden_state(self) -> Record:
         row = self.fetch_one(
             """
@@ -587,7 +577,6 @@ class SQLiteTransaction:
                 parameters.append(self.pack_vector(value))
         updates.extend(("revision = revision + 1", "updated_at_ns = ?"))
         parameters.append(timestamp)
-        # ``updates`` contains only the fixed column names enumerated above.
         query = (
             f"UPDATE warden_state SET {', '.join(updates)} "  # nosec B608
             "WHERE tenant_id = ? AND envelope_id = ?"
@@ -604,8 +593,6 @@ class SQLiteTransaction:
             self.scope,
         )
         return cast(int, revision)
-
-    # -- Policies -------------------------------------------------------
 
     def insert_policy(
         self,
@@ -715,8 +702,6 @@ class SQLiteTransaction:
         result["payload"] = _decode_json(result["payload"], "policy payload")
         result["active"] = bool(result["active"])
         return result
-
-    # -- Leases ---------------------------------------------------------
 
     def insert_lease(self, lease: Mapping[str, Any]) -> None:
         self._ensure_write()
@@ -847,7 +832,6 @@ class SQLiteTransaction:
         if signature is not None:
             updates.append("signature = ?")
             parameters.append(_blob(signature, "signature", allow_empty=False))
-        # ``updates`` contains only fixed columns selected in this method.
         query = (
             f"UPDATE leases SET {', '.join(updates)} "  # nosec B608
             "WHERE tenant_id = ? AND envelope_id = ? AND lease_id = ?"
@@ -861,8 +845,6 @@ class SQLiteTransaction:
             if expected_sequence is not None:
                 raise ConflictError("lease sequence changed")
             raise NotFoundError(f"lease not found: {lease_id}")
-
-    # -- Idempotency ----------------------------------------------------
 
     def get_idempotency(
         self, scope: str, request_id: str, *, now_ns: int | None = None
@@ -962,8 +944,6 @@ class SQLiteTransaction:
             (*self.scope, _nonnegative_integer(now_ns, "now_ns")),
         )
         return cursor.rowcount
-
-    # -- Receipts and revocations --------------------------------------
 
     def insert_receipt(self, receipt: Mapping[str, Any]) -> None:
         self._ensure_write()
@@ -1138,8 +1118,6 @@ class SQLiteTransaction:
             ),
         )
         return None if row is None else dict(row)
-
-    # -- Transfer streams ----------------------------------------------
 
     def allocate_outgoing_sequence(
         self, target_warden: str, *, updated_at_ns: int, config_epoch: int | None = None
@@ -1330,8 +1308,6 @@ class SQLiteTransaction:
         checkpoint_payload: bytes,
         updated_at_ns: int,
     ) -> int:
-        """Persist a signed checkpoint before removing finalized voucher rows."""
-
         self._ensure_write()
         target = _identifier(target_warden, "target_warden")
         checked_through = _nonnegative_integer(through, "through", positive=True)
@@ -1402,14 +1378,6 @@ class SQLiteTransaction:
         expires_at_ns: int | None = None,
         config_epoch: int | None = None,
     ) -> bool:
-        """Record an accepted inbound sequence and maintain a bounded sparse set.
-
-        Returns ``False`` for an already accepted sequence.  A duplicate whose
-        acknowledgement is still retained must match the original digest.
-        ``inbound_transfer_gaps`` stores accepted out-of-order sequences above
-        the contiguous watermark, matching :class:`~lets.service.WardenService`.
-        """
-
         self._ensure_write()
         source = _identifier(source_warden, "source_warden")
         checked_sequence = _nonnegative_integer(sequence, "sequence", positive=True)
@@ -1549,8 +1517,6 @@ class SQLiteTransaction:
         checkpoint_payload: bytes,
         updated_at_ns: int,
     ) -> int:
-        """Persist a verified source checkpoint before pruning acknowledgement rows."""
-
         self._ensure_write()
         source = _identifier(source_warden, "source_warden")
         checked_through = _nonnegative_integer(through, "through", positive=True)
@@ -1595,8 +1561,6 @@ class SQLiteTransaction:
             (*self.scope, source, checked_through),
         )
         return cursor.rowcount
-
-    # -- Audit and outbox ----------------------------------------------
 
     def audit_sequence(self) -> int:
         value = self.scalar(
@@ -1701,8 +1665,6 @@ class SQLiteTransaction:
         if cursor.rowcount != 1:
             raise NotFoundError(f"audit outbox sequence not found: {sequence}")
 
-    # -- Executor replay ------------------------------------------------
-
     def claim_executor_receipt(
         self,
         *,
@@ -1779,8 +1741,6 @@ class SQLiteTransaction:
 
 
 class SQLiteStorage:
-    """One-envelope SQLite store with crash-safe write transactions."""
-
     def __init__(
         self,
         path: PathLike,
@@ -1837,12 +1797,7 @@ class SQLiteStorage:
         )
         self._authority_anchor = authority_anchor
         self._authority_transaction_lock = threading.RLock()
-        # The condition is the admission queue for every operation serialized by
-        # ``_authority_transaction_lock``.  A due observation capture reserves the
-        # next admission before waiting for the current authority operation to
-        # finish; later normal operations therefore cannot form an RLock convoy in
-        # front of health observation.  The RLock remains the final serialization
-        # primitive (and preserves the historical re-entrant behavior).
+        # Admission queue keeps capture from queuing behind normal ops
         self._authority_admission_condition = threading.Condition()
         self._authority_admission_owner: int | None = None
         self._authority_admission_depth = 0
@@ -1958,8 +1913,6 @@ class SQLiteStorage:
         budget: Sequence[int],
         **options: Any,
     ) -> Self:
-        """Explicitly migrate an existing store after operator approval."""
-
         return cls(path, warden_id, budget, _migrate=True, **options)
 
     @property
@@ -1976,8 +1929,6 @@ class SQLiteStorage:
 
     @property
     def busy_timeout_s(self) -> float:
-        """Maximum time a single SQLite operation waits for a conflicting writer."""
-
         return self._busy_timeout_ms / 1_000
 
     def _connect(self, *, set_wal: bool = False) -> sqlite3.Connection:
@@ -2027,12 +1978,6 @@ class SQLiteStorage:
             raise
 
     def _restrict_file_permissions(self) -> None:
-        """Best-effort POSIX protection for the DB and SQLite sidecars.
-
-        Windows and container operators must provision equivalent directory/file ACLs.
-        SQLite is durable storage, not encryption at rest.
-        """
-
         if os.name == "nt" or self._uri:
             return
         for candidate in (self._path, f"{self._path}-wal", f"{self._path}-shm"):
@@ -2415,13 +2360,6 @@ class SQLiteStorage:
         *,
         reconcile: bool,
     ) -> None:
-        """Check the O(dimensions) ledger equation, optionally rebuilding the lease term.
-
-        Lease triggers maintain ``warden_state.lease_residual``. Normal commits therefore
-        avoid scanning a potentially large lease table. Startup reconciliation performs the
-        full scan once so external/offline corruption of the aggregate cannot hide drift.
-        """
-
         row = connection.execute(
             """
             SELECT free_pool, lease_residual, consumed, transferred_in, transferred_out
@@ -2832,13 +2770,6 @@ class SQLiteStorage:
         self._publish_authority_anchor_status()
 
     def _install_capacity_limits(self, connection: sqlite3.Connection) -> None:
-        """Install the logical main-database ceiling on every connection.
-
-        ``max_page_count`` is connection-local.  Setting it only during genesis
-        silently loses the bound on reopen, so every operational connection must
-        set and verify the same value before it can execute SQL.
-        """
-
         if self._max_database_bytes is None:
             return
         page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
@@ -2876,9 +2807,6 @@ class SQLiteStorage:
         database_bytes = main_database_bytes + wal_bytes + shared_memory_bytes
         reusable_bytes = min(main_database_bytes, free_pages * page_size)
         logical_live_bytes = max(0, page_count - free_pages) * page_size
-        # Retain the historical field for API compatibility, but define it as the
-        # logical live main-database footprint.  WAL/SHM are reported separately;
-        # no stock SQLite pragma imposes a live combined-file byte ceiling.
         effective_database_bytes = logical_live_bytes
         configured_pages = max_page_count if self._max_database_bytes is not None else page_count
         worst_case_wal = (
@@ -2907,11 +2835,7 @@ class SQLiteStorage:
         if self._max_database_bytes is None:
             required_filesystem_free = self._min_free_disk_bytes + reserve_bytes
         else:
-            # A commit first appends dirty pages to WAL.  A later checkpoint may
-            # need to grow the main file while those WAL frames still exist.  Both
-            # allocations (plus WAL-index growth) must fit simultaneously above the
-            # emergency floor; reserving only the WAL can commit a state that can
-            # never be checkpointed on a full filesystem.
+            # WAL growth and checkpoint growth must both fit above the floor
             required_filesystem_free = (
                 self._min_free_disk_bytes
                 + remaining_main_growth
@@ -3003,13 +2927,6 @@ class SQLiteStorage:
         timeout_s: float | None = None,
         cancel_event: threading.Event | None = None,
     ) -> Iterator[None]:
-        """Enter the common authority lane, optionally reserving the next turn.
-
-        Priority admission is intentionally bounded.  Its reservation is removed
-        on timeout or cancellation before the exception escapes, so a stopped
-        observation publisher can never strand normal authority traffic.
-        """
-
         if admission_class not in (0, 1, 2):
             raise ValueError("authority admission class is invalid")
         if timeout_s is not None and (
@@ -3119,9 +3036,6 @@ class SQLiteStorage:
         recovery_baseline: CapacitySnapshot | None = None
         failed = False
         try:
-            # Keep in-process readers, the peer dispatcher, and HTTP handlers behind
-            # the post-COMMIT anchor CAS.  Consequently no signed result or outbox row
-            # from a losing fork can be observed through this storage instance.
             with self._authority_serialized(
                 admission_class=1 if _observation_priority else 0,
                 timeout_s=_admission_timeout_s,
@@ -3147,19 +3061,11 @@ class SQLiteStorage:
                     transaction = SQLiteTransaction(connection, self._metadata, writable=write)
                     yield transaction
                     if write:
-                        # SQLite enforces immediate constraints on each statement and deferred
-                        # constraints at COMMIT because every connection enables foreign_keys.
-                        # A full foreign_key_check is O(database size), so it remains a startup
-                        # and explicit diagnostic instead of running on every write.
                         try:
                             self._assert_local_conservation(
                                 connection, self._metadata, reconcile=False
                             )
                         except InvariantError:
-                            # If a malformed internal transaction violates both conservation and
-                            # a deferred FK, preserve the FK failure that COMMIT would report.
-                            # This diagnostic scan is restricted to the already-failing path; it
-                            # never adds database-size work to a valid commit.
                             if (
                                 connection.execute("PRAGMA foreign_key_check").fetchone()
                                 is not None
@@ -3231,8 +3137,6 @@ class SQLiteStorage:
         return self.transaction(write=True)
 
     def capacity_recovery(self) -> AbstractContextManager[SQLiteTransaction]:
-        """A reserved write lane for bounded deletion/export bookkeeping only."""
-
         return self.transaction(write=True, capacity_recovery=True)
 
     def read(self) -> AbstractContextManager[SQLiteTransaction]:
@@ -3244,8 +3148,6 @@ class SQLiteStorage:
         timeout_s: float,
         cancel_event: threading.Event | None = None,
     ) -> AbstractContextManager[SQLiteTransaction]:
-        """Reserve one bounded, reconciled read for the observation publisher."""
-
         return self.transaction(
             write=False,
             _observation_priority=True,
@@ -3299,8 +3201,6 @@ class SQLiteStorage:
             self._authority_status_snapshot = snapshot
 
     def authority_anchor_status(self) -> dict[str, object]:
-        """Return the last completed bounded core-anchor state without storage admission."""
-
         with self._authority_status_lock:
             snapshot = self._authority_status_snapshot
         return deepcopy(snapshot)
@@ -3316,8 +3216,6 @@ class SQLiteStorage:
         ]
         | None = None,
     ) -> dict[str, object]:
-        """Atomically snapshot and permanently fence this process lifetime."""
-
         if type(full_audit_verification) is not bool:
             raise ValidationError("authority fence audit verification mode must be a boolean")
 
@@ -3361,8 +3259,6 @@ class SQLiteStorage:
                 raise StorageError("authority anchor must be healthy before admission is fenced")
             connection = self._connect()
             try:
-                # Bind the terminal fence to the exact durable head after every
-                # earlier admitted transaction has completed its anchor CAS.
                 self._reconcile_authority_anchor(connection, stage="pre_begin")
                 if time.monotonic() >= fence_deadline:
                     raise StorageError("authority fence exceeded its server deadline")
@@ -3406,8 +3302,6 @@ class SQLiteStorage:
             return dict(cast(Mapping[str, object], strict_json_loads(encoded)))
 
     def authority_checkpoint(self) -> AuthorityCheckpoint:
-        """Return the current checkpoint for explicit external-anchor bootstrap."""
-
         with self.read() as transaction:
             return self._authority_checkpoint(transaction.connection)
 
@@ -3431,30 +3325,20 @@ class SQLiteStorage:
                 connection.close()
 
     def observation_capacity(self, connection: sqlite3.Connection) -> CapacitySnapshot:
-        """Read capacity facts from an already-admitted observation transaction."""
-
         return self._capacity_snapshot(connection)
 
     def observation_checkpoint(self, connection: sqlite3.Connection) -> AuthorityCheckpoint:
-        """Read the externally reconciled core checkpoint from a captured snapshot."""
-
         return self._authority_checkpoint(connection)
 
     @staticmethod
     def expected_schema_definition_digest() -> str:
-        """Return the exact supported sqlite_schema definition digest."""
-
         return f"sha256:{_expected_schema_definition_digest().hex()}"
 
     def observation_schema_definition_digest(self, connection: sqlite3.Connection) -> str:
-        """Verify and bind exact schema definitions inside an observation snapshot."""
-
         self._verify_schema(connection)
         return f"sha256:{sha256(_schema_definition_payload(connection)).hexdigest()}"
 
     def clear_capacity_fault(self) -> CapacitySnapshot:
-        """Clear a sticky SQLITE_FULL fault only after headroom is restored."""
-
         with self._authority_serialized():
             if self._closed:
                 raise StorageError("storage is closed")
@@ -3488,8 +3372,6 @@ class SQLiteStorage:
             return transaction.fetch_all("PRAGMA foreign_key_check")
 
     def verify_conservation(self, *, reconcile: bool = True) -> bool:
-        """Verify local conservation; full reconciliation is intended for diagnostics."""
-
         with self.read() as transaction:
             self._assert_local_conservation(
                 transaction.connection,

@@ -1,11 +1,6 @@
-"""Quantify local-share progress, stranded authority, and a central baseline.
-
-This experiment executes the real LETS warden and executor SQLite paths for
-three logical sites with disjoint stores.  A deterministic connectivity schedule
-isolates site A from a durable centralized counter while every site retains
-access to its local warden and executor.  It is deliberately labelled as a
-single-process, single-host experiment; it does not substitute for independent
-failure domains.
+"""Single-process experiment quantifying local-share progress and stranded authority
+under a simulated network partition, running the real LETS warden/executor SQLite
+paths per site against a central-counter baseline.
 """
 
 from __future__ import annotations
@@ -151,8 +146,6 @@ class Site:
 
 
 class CentralCounter:
-    """A durable serialized counter baseline with idempotent request records."""
-
     def __init__(self, path: Path, budget: int) -> None:
         self.connection = sqlite3.connect(path, isolation_level=None)
         self.connection.execute("PRAGMA journal_mode=WAL")
@@ -760,7 +753,6 @@ def _figure_svg(result: dict[str, object]) -> str:
     parts.append(f'<text x="{x(start) + 8:.1f}" y="153" class="small">partition</text>')
     parts.append(f'<text x="{x(end) + 6:.1f}" y="153" class="small">recovery + transfer</text>')
 
-    # Panel 1: per-site and aggregate completed actions.
     top = panel_tops[0]
     maximum = total
     for site in SITES:
@@ -801,7 +793,6 @@ def _figure_svg(result: dict[str, object]) -> str:
     )
     parts.append(f'<text x="{left - 9}" y="{top + 4}" text-anchor="end" class="small">300</text>')
 
-    # Panel 2: local spendable LETS authority.
     top = panel_tops[1]
     maximum = 120
     for site in SITES:
@@ -822,7 +813,6 @@ def _figure_svg(result: dict[str, object]) -> str:
     )
     parts.append(f'<text x="{left - 9}" y="{top + 4}" text-anchor="end" class="small">120</text>')
 
-    # Panel 3: cumulative denials.
     top = panel_tops[2]
     max_denied = max(
         1,

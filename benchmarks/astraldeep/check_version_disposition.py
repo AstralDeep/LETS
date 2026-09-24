@@ -1,10 +1,6 @@
-"""Compare LETS to signed v1.0.11 and gate case-study result finalization.
-
-``compare`` writes an evidence-backed disposition from a clean candidate tree.
-``gate`` creates a readiness record only for unchanged runtime semantics and a
-validated integration bundle.  A runtime/wire change instead creates a
-separate defect/release handoff and exits non-zero; the v1.0.11 ref is never
-modified by this tool.
+"""Compares the working tree against signed LETS v1.0.11 and gates case-study result
+finalization: an unchanged runtime writes a readiness record, a runtime/wire change
+instead writes a defect/release handoff and exits non-zero.
 """
 
 from __future__ import annotations
@@ -169,8 +165,6 @@ def _comparison_snapshot(repository: Path, candidate_tree: str) -> dict[str, obj
 def compare_version_disposition(
     *, repository: Path, release_anchor_path: Path
 ) -> dict[str, object]:
-    """Return an immutable-tag/tree comparison for one clean candidate commit."""
-
     try:
         repository = repository.resolve(strict=True)
     except OSError as exc:
@@ -415,8 +409,6 @@ def gate_paper_result_finalization(
     readiness_output: Path,
     handoff_output: Path,
 ) -> bool:
-    """Return true only after creating a validated finalization readiness record."""
-
     disposition = read_json_object(disposition_path)
     validate_disposition(disposition)
     repository = repository.resolve(strict=True)

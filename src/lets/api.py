@@ -1,4 +1,7 @@
-"""FastAPI transport for a standalone LETS warden node."""
+"""FastAPI transport for a standalone LETS warden node: authenticates requests via
+src/lets/auth.py, dispatches to the core service, and renders every error as an
+RFC-7807 Problem response instead of FastAPI's default validation model.
+"""
 
 from __future__ import annotations
 
@@ -59,8 +62,6 @@ PositiveTransferSequence = Annotated[int, Path(ge=1)]
 
 
 class ServiceMethodUnavailableError(StorageError):
-    """The configured core does not implement a required node-plane method."""
-
     code = "service_method_unavailable"
 
 
@@ -198,8 +199,6 @@ async def _json_object(request: Request, *, maximum_bytes: int) -> dict[str, Any
 
 
 async def _buffer_bounded_body(request: Request, *, maximum_bytes: int) -> bool:
-    """Buffer at most the configured request bytes before any authenticator runs."""
-
     if request.method not in {"POST", "PUT", "PATCH"}:
         return True
     declared = request.headers.get("content-length")
@@ -208,7 +207,6 @@ async def _buffer_bounded_body(request: Request, *, maximum_bytes: int) -> bool:
             if int(declared) > maximum_bytes:
                 return False
         except ValueError:
-            # The HTTP server normally rejects this first; fail closed if it reaches us.
             return False
     chunks: list[bytes] = []
     total = 0
@@ -268,13 +266,6 @@ def create_app(
     maximum_body_bytes: int = 2 * 1024 * 1024,
     request_body_timeout_s: float = DEFAULT_REQUEST_BODY_TIMEOUT_S,
 ) -> FastAPI:
-    """Build an authenticated LETS API without coupling the core to FastAPI.
-
-    ``peer_tenant_id`` is trusted node configuration, not a value read from a
-    voucher.  It is required whenever peer routes are enabled so the service's
-    tenant-bound ``IdentityContext`` remains transport-derived.
-    """
-
     if maximum_body_bytes <= 0:
         raise ValueError("maximum_body_bytes must be positive")
     if (
@@ -882,9 +873,7 @@ def create_app(
         )
         return _json_response(value)
 
-    # Request bytes are parsed manually so peer signatures cover the exact
-    # representation.  Add the corresponding strict contracts to OpenAPI
-    # explicitly; otherwise FastAPI cannot infer request bodies from Request.
+    # Manual: FastAPI can't infer bodies from raw Request parsing
     schemas: dict[str, dict[str, Any]] = {
         "WardenId": {
             "type": "string",
@@ -2419,8 +2408,6 @@ def create_app(
         components = document.setdefault("components", {})
         component_schemas = components.setdefault("schemas", {})
         component_schemas.update(schemas)
-        # FastAPI's generated validation models describe its default response,
-        # but this application serializes every validation error as Problem.
         component_schemas.pop("HTTPValidationError", None)
         component_schemas.pop("ValidationError", None)
         security_schemes = components.setdefault("securitySchemes", {})

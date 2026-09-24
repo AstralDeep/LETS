@@ -1,8 +1,6 @@
-"""Local conservation checks for a durable LETS warden.
-
-The global envelope invariant is assembled from these local identities.  A
-warden keeps cumulative accepted-in and prepared-out totals so transfer
-records can be compacted without losing the accounting proof.
+"""Local conservation-equation checks a warden uses to prove its ledger is consistent,
+plus assert_nested_expiry for lease nesting. service.py assembles
+ConservationSnapshot's identities into the global envelope invariant.
 """
 
 from __future__ import annotations
@@ -15,15 +13,6 @@ from lets.vector import ResourceVector, add
 
 @dataclass(frozen=True, slots=True)
 class ConservationSnapshot:
-    """The durable terms in one warden's conservation equation.
-
-    ``initial_share + transferred_in`` must equal
-    ``free_pool + residual + consumed + transferred_out``.  Before a prepared
-    transfer is accepted, its amount therefore appears globally as
-    ``transferred_out - transferred_in`` (the in-flight term).  Once accepted,
-    the peer's cumulative inbound total cancels it exactly.
-    """
-
     initial_share: ResourceVector
     transferred_in: ResourceVector
     transferred_out: ResourceVector
@@ -48,14 +37,10 @@ class ConservationSnapshot:
 
     @property
     def available_total(self) -> ResourceVector:
-        """Rights ever made locally available, including accepted transfers."""
-
         return add(self.initial_share, self.transferred_in)
 
     @property
     def accounted_total(self) -> ResourceVector:
-        """Rights currently represented by a durable local ledger category."""
-
         return add(
             add(self.free_pool, self.residual),
             add(self.consumed, self.transferred_out),
@@ -74,8 +59,6 @@ class ConservationSnapshot:
 
 
 def assert_nested_expiry(*, child_expires_at_ns: int, parent_expires_at_ns: int) -> None:
-    """Reject a lease interval that extends past its immediate parent."""
-
     if child_expires_at_ns > parent_expires_at_ns:
         raise InvariantError(
             f"nested expiry violated: child={child_expires_at_ns} > parent={parent_expires_at_ns}"

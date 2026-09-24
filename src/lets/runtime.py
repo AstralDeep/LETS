@@ -1,8 +1,7 @@
-"""Operator-selected runtime identity and signing providers.
-
-The LETS core remains vendor neutral.  Deployments integrate managed Ed25519
-keys and transport identity systems through one explicitly selected Python
-entry point instead of importing provider-specific code into the warden.
+"""Loads exactly one operator-selected runtime provider by entry-point name and admits
+its returned signer/authority bindings as a RuntimeSession. Keeps cli.py
+vendor-neutral; providers/generic.py is the one built-in implementation it can
+select.
 """
 
 from __future__ import annotations
@@ -41,8 +40,6 @@ _OPTION_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 
 @runtime_checkable
 class RuntimeSigner(Protocol):
-    """Ed25519 signer surface required by the warden and peer protocols."""
-
     warden_id: str
     key_id: str
 
@@ -53,8 +50,6 @@ class RuntimeSigner(Protocol):
 
 
 def validate_runtime_provider_name(value: str) -> str:
-    """Validate an installed entry-point name without interpreting import paths."""
-
     if not isinstance(value, str) or _PROVIDER_NAME.fullmatch(value) is None:
         raise ValidationError(
             "runtime provider name must be 1..128 ASCII letters, digits, '.', '_', or '-'"
@@ -65,8 +60,6 @@ def validate_runtime_provider_name(value: str) -> str:
 def validate_runtime_options(
     values: Mapping[str, str] | Iterable[tuple[str, str]],
 ) -> Mapping[str, str]:
-    """Return an immutable, bounded option map and reject duplicate names."""
-
     items = values.items() if isinstance(values, Mapping) else values
     checked: dict[str, str] = {}
     total_size = 0
@@ -108,8 +101,6 @@ def validate_runtime_options(
 
 @dataclass(frozen=True, slots=True)
 class RuntimeProviderContext:
-    """Validated local identity and non-secret configuration supplied to a provider."""
-
     config_path: Path
     database_path: Path
     warden_id: str
@@ -152,12 +143,6 @@ class RuntimeProviderContext:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeBindings:
-    """Resources returned by a runtime-provider entry point.
-
-    ``cleanup`` is synchronous and is invoked exactly once after the command, or
-    immediately if admission of the returned resources fails.
-    """
-
     warden_id: str
     tenant_id: str
     signer: object
@@ -172,8 +157,6 @@ RuntimeProviderFactory: TypeAlias = Callable[[RuntimeProviderContext], RuntimeBi
 
 
 class RuntimeSession:
-    """Validated runtime bindings with idempotent lifecycle cleanup."""
-
     def __init__(
         self,
         *,
@@ -334,13 +317,6 @@ def open_runtime_provider(
     *,
     builtin_factory: RuntimeProviderFactory | None = None,
 ) -> RuntimeSession:
-    """Load exactly one selected provider and admit its returned resources.
-
-    There is deliberately no module-path or dynamic-import fallback.  External
-    implementations must be installed into ``lets.runtime_providers`` and the
-    operator must select the entry-point name.
-    """
-
     checked_name = validate_runtime_provider_name(provider_name)
     if not isinstance(context, RuntimeProviderContext):
         raise ValidationError("runtime provider context has an invalid type")

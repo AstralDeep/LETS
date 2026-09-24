@@ -1,3 +1,9 @@
+"""Tests for benchmarks/nsdi_strengthening/remote_three_host.py and
+remote_three_host_agent.py: guarded remote execution, SSH key pinning, the real
+HMAC-authenticated transfer workload, and the full-factorial benchmark matrix and its
+renderers.
+"""
+
 from __future__ import annotations
 
 import base64

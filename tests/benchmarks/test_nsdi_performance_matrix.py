@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/performance_matrix.py: the durable
+performance matrix retains exclusive raw samples, outputs are complete and
+non-overwritable, and worker counts are bounded by operation count.
+"""
+
 from __future__ import annotations
 
 import csv

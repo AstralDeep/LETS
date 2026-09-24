@@ -1,3 +1,8 @@
+"""Tests that WardenService (service.py) preserves receipt idempotency and audit history
+across reopen and abrupt process exit, including concurrent identical and
+sequence-conflicting requests.
+"""
+
 from __future__ import annotations
 
 import os

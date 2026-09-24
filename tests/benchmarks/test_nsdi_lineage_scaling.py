@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/lineage_scaling.py: tree-node counting for
+spine and complete-tree shapes, the real lineage-depth probe, and machine-readable
+output that refuses accidental overwrite.
+"""
+
 from __future__ import annotations
 
 import csv

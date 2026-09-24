@@ -1,3 +1,7 @@
+# Docker-driven build for the LETS paper (paper-arxiv.tex, paper-nsdi27.tex): renders both PDFs via
+# latexmk, then paper-check enforces page limits, no LaTeX warnings, and anonymized text before
+# submission.
+
 PAPER_IMAGE ?= texlive/texlive:latest-small@sha256:247724c3f35022a6e938044ee7ca5dad87841d14c651e7b22467ea62c1d84597
 PAPER_RENDER_IMAGE ?= minidocks/poppler:latest@sha256:93bc2829f994f5dee3b0927d5b4f3670db72e2b60d5b8544ef34418529cfa4e6
 

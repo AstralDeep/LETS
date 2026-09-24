@@ -1,3 +1,8 @@
+"""Tests for formal/sensitivity_frontier.py: shortest-counterexample depth reporting,
+explicit exhaustion when unseen, the baseline killing every isolated mutant, and
+JSON/Markdown CLI output that refuses silent overwrite.
+"""
+
 from __future__ import annotations
 
 import json

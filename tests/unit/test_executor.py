@@ -1,3 +1,9 @@
+"""Tests for executor.py's ReceiptVerifier and SQLiteReceiptReplayStore: exactly-once
+claims across restart, bounded expiry cleanup, domain-nonce uniqueness,
+sequence-watermark and signature rejection, and clock-uncertainty fail-closed
+behavior.
+"""
+
 from __future__ import annotations
 
 import sqlite3
@@ -164,7 +170,6 @@ def test_executor_expiry_cleanup_is_bounded_and_converges(tmp_path: Path) -> Non
             ),
             lease_id=f"live-lease-{index}",
         )
-        # Re-sign after changing the lease identity.
         receipt = replace(
             receipt,
             signature=b64url_encode(signer.sign(canonical_json(receipt.unsigned_payload()))),

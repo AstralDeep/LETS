@@ -1,3 +1,7 @@
+"""Tests that random generated lifecycle traces against WardenService (service.py)
+conform to conservation and attenuation invariants.
+"""
+
 from __future__ import annotations
 
 import tempfile

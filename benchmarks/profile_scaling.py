@@ -1,4 +1,6 @@
-"""Measure LETS authorization and integrity-scan scaling by database size."""
+"""Measures how LETS authorization and integrity-scan latency scale with database size,
+using benchmarks/run.py's harness.
+"""
 
 from __future__ import annotations
 

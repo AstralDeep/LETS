@@ -1,4 +1,6 @@
-"""Verify signed cluster configuration, register policies, and exec one warden."""
+"""Verifies a signed cluster configuration manifest, registers its policies, and execs
+one LETS warden process, using src/lets/manifest.py and src/lets/service.py.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,8 @@
+"""Tests for integrations/__init__.py: the replica adapter maps root and child
+identities without copying opaque state and enforces profile capability/vector
+bounds, and the AstralDeep profile maps only its declared public scopes.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping

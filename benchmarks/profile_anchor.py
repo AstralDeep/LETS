@@ -1,4 +1,7 @@
-"""A/B test an experimental SQLite keeper connection without changing LETS."""
+"""A/B microbenchmark comparing an experimental SQLite keeper connection against
+baseline, built on benchmarks/run.py's harness without changing LETS runtime
+behavior.
+"""
 
 from __future__ import annotations
 

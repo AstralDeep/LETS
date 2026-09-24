@@ -1,5 +1,7 @@
 #!/app/.venv/bin/python
-"""Test-only command signer proving the generic provider subprocess contract."""
+"""Test-only external command signer proving the generic runtime provider's subprocess
+contract, invoked by materialize.py's acceptance material generation.
+"""
 
 from __future__ import annotations
 

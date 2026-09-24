@@ -1,4 +1,7 @@
-"""Public API for Lineage Escrow Transition Systems (LETS)."""
+"""Public package surface for Lineage Escrow Transition Systems, re-exporting the core
+clock, error, and vector types consumed by src/lets/api.py and external integrators
+such as AstralDeep's LETS driver.
+"""
 
 from lets.clock import Clock, ManualClock, SystemClock
 from lets.errors import (

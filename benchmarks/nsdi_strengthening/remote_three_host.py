@@ -1,12 +1,6 @@
-"""Run a reproducible LETS experiment on three separately booted Linux SSH endpoints.
-
-The experiment creates one real LETS warden SQLite database and one real local
-executor receipt-claim database on each endpoint.  Healthy peer probes and transfer
-messages use a controller byte relay over two SSH sessions because the tested
-high ports are not directly reachable.  The injected fault is a symmetric
-application-path gate at s1 and s2; it is explicitly not a firewall or physical
-network partition.  Every remote write and every temporary/cache location is
-guarded beneath the authenticated SSH user's normalized home directory.
+"""Runs a reproducible three-host LETS partition experiment over SSH: a real warden and
+executor SQLite pair per endpoint, a controller byte-relay for cross-host traffic,
+and an application-path fault gate at s1/s2.
 """
 
 from __future__ import annotations
@@ -112,16 +106,12 @@ _SCENARIO_DISPLAY_VALUES = {
 
 
 def _display_scenario_value(value: object, *, field: str) -> str:
-    """Return the paper-facing label for a stable raw scenario token."""
-
     if not isinstance(value, str) or value not in _SCENARIO_DISPLAY_VALUES:
         raise ValueError(f"unsupported {field} display token: {value!r}")
     return _SCENARIO_DISPLAY_VALUES[value]
 
 
 def _scenario_panel_label(scenario: Mapping[str, object]) -> str:
-    """Describe a scenario without leaking machine-oriented enum spellings."""
-
     placement = _display_scenario_value(scenario.get("placement"), field="placement")
     demand = _display_scenario_value(scenario.get("workload"), field="demand")
     placement = placement.lower().replace(" at ", " ")
@@ -130,8 +120,6 @@ def _scenario_panel_label(scenario: Mapping[str, object]) -> str:
 
 
 class RemoteExperimentError(RuntimeError):
-    """Failure with optional output-safe stage metadata for the CLI envelope."""
-
     def __init__(
         self,
         message: str,
@@ -157,8 +145,6 @@ def sha256_file(path: Path) -> str:
 
 
 def validate_extraction_archive(path: Path, label: str) -> None:
-    """Reject traversal, links, and special members before a remote tar extraction."""
-
     with tarfile.open(path, "r:gz") as archive:
         members = archive.getmembers()
     if not members or any(
@@ -171,8 +157,6 @@ def validate_extraction_archive(path: Path, label: str) -> None:
 
 
 def guarded_remote_child(home: str, *parts: str) -> str:
-    """Return a strict POSIX child path without resolving a shell or symlinks."""
-
     if (
         not home.startswith("/")
         or home == "/"
@@ -202,8 +186,6 @@ def guarded_remote_child(home: str, *parts: str) -> str:
 
 
 def redact_text(value: str, host: Credential, home: str = "") -> str:
-    """Remove the known credential material before a diagnostic can be retained."""
-
     result = value
     for secret in (host.password, host.username, host.host, home):
         if secret:
@@ -217,8 +199,6 @@ def _ssh_key_sha256(key: Any) -> str:
 
 @dataclass(slots=True)
 class PinnedFingerprintPolicy:
-    """Accept an otherwise unknown SSH host only when its inventory pin matches."""
-
     expected_type: str
     expected_sha256: str
     verified: bool = False
@@ -399,7 +379,7 @@ class RemoteHost:
     def connect(self) -> None:
         try:
             import paramiko
-        except ImportError as exc:  # pragma: no cover - environment diagnostic
+        except ImportError as exc:  # pragma: no cover
             raise RemoteExperimentError(
                 "Paramiko is required in the controller environment"
             ) from exc
@@ -686,8 +666,6 @@ def hmac_compare(left: str, right: str) -> bool:
 
 
 def reported_uv_version(output: str) -> str:
-    """Return uv's semantic version while allowing its optional build metadata."""
-
     fields = output.strip().split()
     if len(fields) < 2 or fields[0] != "uv" or re.fullmatch(r"\d+\.\d+\.\d+", fields[1]) is None:
         raise RemoteExperimentError(
@@ -703,8 +681,6 @@ def _make_run_id() -> str:
 
 
 def _origin(host: str, port: int) -> str:
-    """Validate an inventory address without retaining or rendering it in results."""
-
     address = ipaddress.ip_address(host)
     rendered = f"[{address.compressed}]" if address.version == 6 else address.compressed
     return f"http://{rendered}:{port}"
@@ -735,8 +711,6 @@ def _bridge_channels(left: Any, right: Any) -> None:
 
 @contextmanager
 def ssh_loopback_relay(source: RemoteHost, target: RemoteHost) -> Any:
-    """Relay one source-loopback port over two existing Paramiko sessions."""
-
     source_transport = source.client.get_transport()
     target_transport = target.client.get_transport()
     if (
@@ -851,7 +825,7 @@ def _provision_runtime(
             break
         if install_attempts < 3:
             time.sleep(install_attempts)
-    else:  # pragma: no cover - requires repeated remote bootstrap failure
+    else:  # pragma: no cover
         diagnostic = redact_text(error or output, host.credential, host.home)
         raise RemoteExperimentError(
             f"{host.alias} failed during installing pinned CPython after 3 attempts: {diagnostic}",
@@ -1703,8 +1677,6 @@ def _snapshot_map(scenario: Mapping[str, Any], phase: str) -> dict[str, Mapping[
 
 
 def phase_end_rows(result: Mapping[str, Any]) -> list[dict[str, object]]:
-    """Return explicit, cumulative per-site phase endpoints for paper inspection."""
-
     scenarios = result.get("scenarios")
     if not isinstance(scenarios, list):
         raise ValueError("result scenarios must be an array")
@@ -1758,8 +1730,6 @@ def phase_end_rows(result: Mapping[str, Any]) -> list[dict[str, object]]:
 
 
 def phase_end_csv(result: Mapping[str, Any]) -> str:
-    """Render explicit per-site phase endpoints as machine-readable CSV."""
-
     output = io.StringIO(newline="")
     writer = csv.DictWriter(output, fieldnames=PHASE_END_FIELDS, lineterminator="\n")
     writer.writeheader()
@@ -1768,8 +1738,6 @@ def phase_end_csv(result: Mapping[str, Any]) -> str:
 
 
 def phase_end_markdown(result: Mapping[str, Any]) -> str:
-    """Render a compact per-site phase table suitable for paper drafting."""
-
     lines = [
         "# LETS three-endpoint per-site phase endpoints",
         "",
@@ -1812,8 +1780,6 @@ def phase_end_markdown(result: Mapping[str, Any]) -> str:
 
 
 def per_site_timeline_svg(result: Mapping[str, Any]) -> str:
-    """Render deterministic 4-by-3 per-site small multiples on a fixed 0-30 scale."""
-
     scenarios = result.get("scenarios")
     if not isinstance(scenarios, list) or not scenarios:
         raise ValueError("result scenarios must be a non-empty array")
@@ -2173,8 +2139,6 @@ def report_markdown(result: Mapping[str, Any]) -> str:
 
 
 def load_retained_result(path: Path) -> Mapping[str, Any]:
-    """Load only a completed result envelope for credential-free local rendering."""
-
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, Mapping) or payload.get("schema") != SCHEMA:
         raise ValueError("retained result uses an unsupported schema")
@@ -2187,8 +2151,6 @@ def load_retained_result(path: Path) -> Mapping[str, Any]:
 def write_supplemental_outputs(
     result: Mapping[str, Any], output_dir: Path, *, overwrite: bool
 ) -> dict[str, Path]:
-    """Write deterministic supplemental views without mutating the raw result."""
-
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = {
         "per_site_figure": output_dir / PER_SITE_FIGURE_NAME,
@@ -2229,8 +2191,6 @@ def _arguments() -> argparse.Namespace:
 
 
 def failure_envelope(exc: BaseException) -> dict[str, str]:
-    """Return actionable failure metadata without echoing exception text."""
-
     if isinstance(exc, RemoteExperimentError):
         stage = exc.stage or "orchestration"
         reason = exc.reason

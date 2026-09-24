@@ -1,3 +1,8 @@
+"""Tests for executor_authority.py's anchor protecting executor.py's receipt replay
+store: stale or cloned database rejection, one bounded reconciliation deadline,
+transport-fault classification, and that unanchored mode is never entered implicitly.
+"""
+
 from __future__ import annotations
 
 import shutil

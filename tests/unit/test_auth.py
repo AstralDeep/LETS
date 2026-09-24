@@ -1,3 +1,8 @@
+"""Tests for src/lets/auth.py: static-bearer authentication keeps only a digest, and
+SQLite-backed peer-replay nonce claims are durable, atomic, and bounded by schema
+requirements.
+"""
+
 from __future__ import annotations
 
 import sqlite3

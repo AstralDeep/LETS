@@ -1,4 +1,7 @@
 # syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
+# Multi-stage production image for the LETS warden: builds a uv-synced venv, hardens it into a
+# non-root runtime, then layers acceptance and development-acceptance variants with extra deploy
+# scripts.
 
 ARG SOURCE_DATE_EPOCH=0
 
@@ -39,8 +42,7 @@ LABEL org.opencontainers.image.created="${BUILD_DATE}" \
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
-# Keep runtime libraries on reviewed Alpine security fixes until the pinned
-# upstream Python image incorporates them. Never perform an unbounded upgrade.
+# Pinned security backports only — never an unbounded apk upgrade
 RUN apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 libuuid=2.42.3-r1 \
     && rm -rf \
         /usr/local/lib/python3.14/site-packages/pip \

@@ -1,3 +1,8 @@
+"""Tests for formal/model_checker.py and formal/run_tlc.py: the bounded three-warden
+model preserves conservation, a seeded duplicate-credit mutant produces a
+counterexample, and TLC evidence is bound to its exact spec and configuration.
+"""
+
 from __future__ import annotations
 
 import hashlib

@@ -1,4 +1,8 @@
-"""Injectable time sources and explicit uncertainty policy inputs."""
+"""Injectable clock abstraction (SystemClock, ManualClock) carrying an explicit
+synchronization-uncertainty bound. service.py, crypto.py, and executor.py all take a
+Clock instead of reading wall time directly, so tests can drive time
+deterministically.
+"""
 
 from __future__ import annotations
 
@@ -18,8 +22,6 @@ class Clock(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class SystemClock:
-    """Wall clock with a caller-declared synchronization uncertainty."""
-
     declared_uncertainty_ns: int = 0
 
     def __post_init__(self) -> None:
@@ -40,8 +42,6 @@ class SystemClock:
 
 @dataclass(slots=True)
 class ManualClock:
-    """Deterministic clock useful for simulation and host integrations."""
-
     current_ns: int = 0
     declared_uncertainty_ns: int = 0
 

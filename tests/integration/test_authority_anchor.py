@@ -1,3 +1,8 @@
+"""Tests for authority.py's FileAuthorityAnchor and ProcessFileAuthorityAnchor: commit
+tracking across reopen, the bounded helper I/O deadline, transport-fault backoff, and
+fencing stale or divergent database restores.
+"""
+
 from __future__ import annotations
 
 import shutil
@@ -1146,8 +1151,6 @@ def test_external_anchor_rejects_a_stale_but_internally_valid_backup(tmp_path: P
     assert live.authority_checkpoint().audit_sequence == 0
     live.close()
 
-    # The stale copy remains a valid SQLite/LETS database and opens without the
-    # independent witness, which is precisely the rollback hazard being fenced.
     unanchored = _open(stale)
     try:
         assert unanchored.pragma_integrity_check() == ("ok",)
@@ -1380,8 +1383,6 @@ def test_commit_anchor_crash_window_fails_closed_then_recovers_extension(
 
         def reconcile(self, checkpoint: AuthorityCheckpoint, **options: Any) -> None:
             self.calls += 1
-            # initialize, then the transaction's pre-COMMIT check, then fail the
-            # post-COMMIT CAS before the delegate can advance.
             if self.calls == 3:
                 raise StorageError("injected anchor outage")
             self.delegate.reconcile(checkpoint, **options)
@@ -1402,9 +1403,6 @@ def test_commit_anchor_crash_window_fails_closed_then_recovers_extension(
         store.authority_checkpoint()
     store.close()
 
-    # The local COMMIT is durable, but no result escaped the failed context.  On
-    # restart the DB proves a contiguous extension of the independently retained
-    # head, so the anchor advances rather than discarding a committed debit.
     recovered = _open(database, durable)
     try:
         assert recovered.authority_checkpoint().audit_sequence == 0

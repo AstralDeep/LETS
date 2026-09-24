@@ -1,4 +1,6 @@
-"""Reject common secret material and broad copies from the container build context."""
+"""Rejects common secret-material filenames and broad COPY-style build-context copies
+from the LETS Dockerfile, checked by tests/unit/test_production_deployment.py.
+"""
 
 from __future__ import annotations
 

@@ -1,10 +1,6 @@
-"""External monotonic anchors for protected-executor receipt claims.
-
-An executor replay database is crash safe, but a byte-for-byte older copy is
-also internally valid.  This module binds one replay database instance and its
-append-only claim-chain head to a linearizable record outside the database's
-rollback domain.  A claim is not authorized to reach the protected effect until
-that record has acknowledged the committed database head.
+"""Anchors a protected-executor replay database's claim-chain head outside its rollback
+domain, so no claim reaches its effect until the anchor confirms that head. Used by
+lets.executor and AstralDeep's lets_gateway.
 """
 
 from __future__ import annotations
@@ -50,8 +46,6 @@ def _digest(value: object, field: str) -> bytes:
 
 @dataclass(frozen=True, slots=True)
 class ExecutorReplayIdentity:
-    """The exact policy domain owned by one protected-executor replay store."""
-
     audience: str
     tenant_id: str
     envelope_id: str
@@ -82,8 +76,6 @@ class ExecutorReplayIdentity:
 
 @dataclass(frozen=True, slots=True)
 class ExecutorAuthorityCheckpoint:
-    """Identity-bound monotonic summary of committed executor claims."""
-
     identity: ExecutorReplayIdentity
     schema_version: int
     database_instance_id: bytes
@@ -186,8 +178,6 @@ class ExecutorAuthorityCheckpoint:
 
 
 class ExecutorAuthorityAnchor(Protocol):
-    """Linearizable CAS record outside the executor database rollback domain."""
-
     def reconcile(
         self,
         checkpoint: ExecutorAuthorityCheckpoint,
@@ -205,8 +195,6 @@ def _requires_advance(
     *,
     claim_digest_at: Callable[[int], bytes | None],
 ) -> bool:
-    """Validate one local branch and report whether the CAS head must advance."""
-
     if anchored.stable_identity != current.stable_identity:
         raise StorageError("executor authority anchor identity does not match this replay database")
     if current.claim_sequence < anchored.claim_sequence:
@@ -232,15 +220,8 @@ def _requires_advance(
     return True
 
 
+# Must live in a failure/rollback domain independent from the replay database.
 class FileExecutorAuthorityAnchor:
-    """Serialized durable file anchor for executor claim heads.
-
-    The file MUST reside in a failure/rollback domain independent from the
-    replay database.  Production callers should normally use
-    :class:`ProcessFileExecutorAuthorityAnchor`, which adds a hard deadline to
-    otherwise uninterruptible filesystem calls.
-    """
-
     def __init__(self, path: str | os.PathLike[str], *, timeout_s: float = 5.0) -> None:
         self._backend = FileAuthorityAnchor(path, timeout_s=timeout_s)
 
@@ -267,10 +248,6 @@ class FileExecutorAuthorityAnchor:
             raise StorageError("executor authority anchor is malformed") from exc
 
     def _write_executor(self, checkpoint: ExecutorAuthorityCheckpoint, *, exclusive: bool) -> None:
-        # The base writer is deliberately format-agnostic at runtime: it
-        # canonicalizes ``to_dict()``, fsyncs, and performs an atomic durable
-        # move.  Reuse those reviewed durability mechanics without pretending an
-        # executor checkpoint is a warden AuthorityCheckpoint.
         self._backend._write(checkpoint, exclusive=exclusive)  # type: ignore[arg-type]
 
     def reconcile(
@@ -298,8 +275,6 @@ class FileExecutorAuthorityAnchor:
 
 
 class ProcessFileExecutorAuthorityAnchor:
-    """Executor file anchor whose I/O runs behind a killable helper process."""
-
     def __init__(
         self,
         path: str | os.PathLike[str],
@@ -329,8 +304,6 @@ class ProcessFileExecutorAuthorityAnchor:
         return self._backend.path
 
     def close(self) -> None:
-        """Stop the isolated I/O helper; safe to call repeatedly."""
-
         self._backend.close()
 
     def _invoke(self, request: Mapping[str, object], *, deadline: float) -> Mapping[str, Any]:
@@ -465,8 +438,6 @@ class ProcessFileExecutorAuthorityAnchor:
         claim_digest_at: Callable[[int], bytes | None],
         initialize: bool = False,
     ) -> None:
-        """Reconcile and durably confirm within one configured deadline."""
-
         deadline = time.monotonic() + self._timeout_s
         self._reconcile_before_deadline(
             checkpoint,
@@ -497,8 +468,6 @@ class ProcessFileExecutorAuthorityAnchor:
 
 
 def executor_identity_digest(identity: ExecutorReplayIdentity) -> bytes:
-    """Stable diagnostic digest for logs/configuration comparisons."""
-
     return sha256(
         (
             f"{identity.audience}\0{identity.tenant_id}\0"

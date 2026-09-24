@@ -1,3 +1,7 @@
+"""Tests that cli.py's config file publication does not clobber a file written by a
+racing concurrent creator.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

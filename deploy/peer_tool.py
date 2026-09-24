@@ -1,4 +1,6 @@
-"""Invoke or materialize an exact Ed25519-authenticated peer HTTP request."""
+"""CLI to invoke or materialize an Ed25519-authenticated LETS peer HTTP request, signing
+via src/lets/auth.py and src/lets/crypto.py for manual operator use.
+"""
 
 from __future__ import annotations
 

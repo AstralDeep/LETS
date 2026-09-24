@@ -1,4 +1,7 @@
-"""Measure lineage depth/branching costs with disclosed bounded tree shapes."""
+"""Measures LETS lineage depth/branching costs against disclosed bounded tree shapes,
+driving the real policy/service/storage stack and writing CSV/Markdown evidence via
+benchmarks/nsdi_strengthening/common.py.
+"""
 
 from __future__ import annotations
 

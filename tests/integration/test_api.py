@@ -1,3 +1,8 @@
+"""Tests for the LETS ASGI HTTP API (src/lets/api.py) over a real WardenService:
+identity mapping, authority-status/readiness endpoints, peer-signed request handling,
+JSON-boundary and body-timeout enforcement, and OpenAPI contract consistency.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -1450,15 +1455,6 @@ def test_manifest_cli_bootstrap_preloads_peer_trust_policy_and_verified_backup(
 def test_single_warden_manifest_init_config_is_admitted_by_serve_trust_rebuild(
     tmp_path: Path,
 ) -> None:
-    """A one-warden cluster must round-trip init -> serve without hand edits.
-
-    Regression: ``init`` wrote ``peer_endpoints`` only when non-empty, while the
-    serve-time manifest trust rebuild required the key to be a mapping, so every
-    production single-warden config was refused with "configured peer endpoints
-    do not exactly match the signed manifest" until an operator added
-    ``"peer_endpoints": {}`` by hand.
-    """
-
     local_signer = Ed25519Signer.generate("warden-a")
     operator = Ed25519Signer.generate("operator-a")
     seed_path = tmp_path / "local.seed"
@@ -1542,8 +1538,6 @@ def test_single_warden_manifest_init_config_is_admitted_by_serve_trust_rebuild(
     assert config["peer_endpoints"] == {}
     assert config["trusted_peers"] == []
     clock = SystemClock(declared_uncertainty_ns=0)
-    # The serve-time rebuild accepts both the persisted empty map and an older
-    # config that never carried the key.
     proof = b"single-warden-trust"
     for candidate in (config, {k: v for k, v in config.items() if k != "peer_endpoints"}):
         registry = cli_module._manifest_trust_registry(candidate, local_signer, clock=clock)

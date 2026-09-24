@@ -1,4 +1,7 @@
-"""Checked resource-vector arithmetic used by every conservation boundary."""
+"""Checked, fixed-dimension resource-vector arithmetic (add, subtract, comparison,
+SQLite BLOB packing) that every conservation boundary in service.py, invariants.py,
+and storage/sqlite.py builds on.
+"""
 
 from __future__ import annotations
 
@@ -71,8 +74,6 @@ def total(vectors: Iterable[ResourceVector], dimensions: int) -> ResourceVector:
 
 
 def pack(value: ResourceVector) -> bytes:
-    """Encode a vector as a compact, endian-stable SQLite BLOB."""
-
     checked = vector(value)
     if len(checked) > 0xFFFF:
         raise ValidationError("resource vector has too many dimensions")

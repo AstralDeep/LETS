@@ -1,4 +1,7 @@
-"""Run a sustained, chaos-injected soak against one exact production OCI digest."""
+"""Runs a sustained, chaos-injected soak against one pinned production LETS OCI image:
+schedules restarts and partitions, drives the workload CLI, and validates health,
+authority, and audit evidence against target cadence bounds.
+"""
 
 from __future__ import annotations
 
@@ -255,24 +258,9 @@ OBSERVATION_AUDIT_FIELDS = frozenset(
 OBSERVATION_MAX_RESPONSE_BYTES = 20 * 1024
 DEFAULT_RESTART_INTERVAL_SECONDS = 900.0
 MIN_RESTART_EPISODES = len(WARDENS)
-# Calibrated against retained release-soak evidence: fault-free hosted
-# runners paced 10.1-19 seconds of active time per mixed-workload cycle
-# across the v1.0.5 through v1.0.8 runs, so the not-stalled throughput
-# floor must dominate that lawful range with margin. Absolute workload
-# coverage is guaranteed separately by the semantic cycle floor.
+# Calibrated from v1.0.5-v1.0.8 soak evidence (10-19s/cycle)
 TARGET_MAXIMUM_ACTIVE_SECONDS_PER_CYCLE = 25.0
 HEALTH_CADENCE_LIMIT_SECONDS = 15.0
-# The audit-export staleness contract dominates the exporter's fault-free
-# depth-one worst case of 36 seconds: a record that just misses a cycle's
-# batch snapshot waits that cycle's tail (prefix acknowledgement, one
-# in-flight publish, and batch acknowledgement at up to five seconds each),
-# one poll interval, and the next cycle's archive head, prefix
-# acknowledgement, its own publish, and batch acknowledgement. Deeper
-# backlogs drain through continuation cycles that skip the head fetch and
-# prefix acknowledgement, so their staleness is bounded by publish
-# throughput; sustained per-operation latencies near the five-second
-# deadlines are storage degradation and fail closed here by design. This
-# bound is deliberately decoupled from the health cadence limit.
 AUDIT_EXPORT_STALL_LIMIT_SECONDS = 40.0
 MAXIMUM_PLANNED_RESTART_SECONDS = 30.0
 PLANNED_FENCE_ATTEMPT_SECONDS = 95.0
@@ -639,8 +627,6 @@ class SoakConfiguration:
 
 
 class WorkloadExitedError(RuntimeError):
-    """Carry a prematurely exited workload's diagnostics into failure evidence."""
-
     def __init__(self, *, context: str, returncode: int, stdout: str, stderr: str) -> None:
         self.returncode = returncode
         self.stdout = stdout
@@ -652,8 +638,6 @@ class WorkloadExitedError(RuntimeError):
 
 
 class WorkloadTimeoutError(RuntimeError):
-    """The host-side workload CLI outlived its exact monotonic deadline."""
-
     def __init__(self, *, deadline_monotonic: float, observed_monotonic: float) -> None:
         self.deadline_monotonic = deadline_monotonic
         self.observed_monotonic = observed_monotonic
@@ -664,8 +648,6 @@ class WorkloadTimeoutError(RuntimeError):
 
 
 class FinalVerificationError(RuntimeError):
-    """Carry a failed terminal capture after its partial result was persisted."""
-
     def __init__(self, result: dict[str, Any], *, returncode: int) -> None:
         self.result = result
         self.returncode = returncode
@@ -734,8 +716,6 @@ def minimum_health_sample_count(configuration: SoakConfiguration) -> int:
 
 
 def chaos_start_shutdown_margin_seconds(configuration: SoakConfiguration) -> float:
-    """Reserve enough live workload time for an in-flight cycle or restart handshake."""
-
     maximum_cycle_latency = min(
         MAXIMUM_CYCLE_LATENCY_SECONDS,
         configuration.retry_timeout_seconds + 30.0,
@@ -749,8 +729,6 @@ def chaos_start_shutdown_margin_seconds(configuration: SoakConfiguration) -> flo
 
 
 def may_start_chaos_episode(configuration: SoakConfiguration, *, elapsed_s: float) -> bool:
-    """Keep the workload alive long enough to durably acknowledge a new fault episode."""
-
     return configuration.duration_seconds - elapsed_s > chaos_start_shutdown_margin_seconds(
         configuration
     )
@@ -759,8 +737,6 @@ def may_start_chaos_episode(configuration: SoakConfiguration, *, elapsed_s: floa
 def _next_restart_deadline(
     *, prior_deadline: float, interval_s: float, completed_at: float
 ) -> float:
-    """Keep restart cadence anchored without allowing delayed episodes to bunch together."""
-
     minimum_gap = min(30.0, interval_s / 4)
     return max(prior_deadline + interval_s, completed_at + minimum_gap)
 
@@ -797,8 +773,6 @@ def _valid_authority_status(
     terminal: bool = False,
     executor: bool = False,
 ) -> TypeGuard[dict[str, Any]]:
-    """Validate the exact bounded authenticated authority evidence contract."""
-
     expected_fields = EXECUTOR_AUTHORITY_STATUS_FIELDS if executor else AUTHORITY_STATUS_FIELDS
     if not isinstance(value, dict) or set(value) != expected_fields:
         return False
@@ -1075,8 +1049,6 @@ def _sha256_json(value: dict[str, Any]) -> str:
 
 
 def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[str, Any]]:
-    """Independently validate one retained cache document for offline release evidence."""
-
     if not isinstance(value, dict) or set(value) != (
         OBSERVATION_IMMUTABLE_FIELDS | OBSERVATION_DYNAMIC_FIELDS
     ):
@@ -1446,10 +1418,6 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
                 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", peer["last_error"]) is not None
             )
         )
-        # Volatile peer health is the exact runtime conjunction: with running
-        # pinned True above, healthy requires a completed cycle and no volatile
-        # error. Before the first cycle finishes after startup or a planned
-        # restart, last_cycle_ns is legitimately None and healthy is False.
         and peer.get("healthy")
         is (peer.get("last_cycle_ns") is not None and peer.get("last_error") is None)
         and (
@@ -1492,9 +1460,6 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
                 and peer["durable_retry"].get("target_warden") in set(WARDENS) - {node}
             )
         )
-        # A volatile cycle error may outlive its durable failed row once
-        # delivery or supersession clears it, so durable_retry binds to
-        # failed_records rather than last_error.
         and (peer.get("durable_retry") is None) is (peer["failed_records"] == 0)
         and isinstance(exporter, dict)
         and set(exporter) == exporter_fields
@@ -1544,9 +1509,6 @@ def _valid_observation_snapshot(value: object, *, node: str) -> TypeGuard[dict[s
         and exporter.get("healthy")
         is (exporter.get("last_error") is None and exporter.get("archive_reconciled") is True)
         and (exporter.get("last_error") is None or exporter.get("archive_reconciled") is False)
-        # last_success_ns is volatile and resets to None on process start, so a
-        # transient error before the first non-empty acknowledged batch
-        # legitimately reports no prior success.
         and value.get("ready") is (exporter.get("healthy") is True and peer.get("healthy") is True)
     )
 
@@ -1656,8 +1618,6 @@ def evaluate_restart_evidence(
     restart_quiescence_intervals: object,
     workload_started_monotonic: float,
 ) -> dict[str, Any]:
-    """Bind each cadence exclusion to one exact host-executed planned restart."""
-
     if (
         not isinstance(restarts, list)
         or not isinstance(restart_quiescence_intervals, list)
@@ -2154,8 +2114,6 @@ def evaluate_health_cadence(
     interval_seconds: float,
     restart_evidence: dict[str, Any],
 ) -> dict[str, Any]:
-    """Prove real per-node observations cover every non-excluded 15-second window."""
-
     if (
         not isinstance(samples, list)
         or not samples
@@ -2319,10 +2277,6 @@ def evaluate_health_cadence(
                     return {"passed": False, "reason": "unavailable node lacks an exact restart"}
                 actual_planned.append(node)
                 unavailable_counts[node] += 1
-                # The exact armed marker must be observed while its restart
-                # window overlaps this health attempt. The validation above
-                # already proves that overlap; the request itself need not
-                # straddle the acknowledgement's start instant.
                 if planned.get("state") == "armed":
                     acknowledged_unavailable_restart_ids.add(cast(str, restart_id))
                 continue
@@ -2477,8 +2431,6 @@ def evaluate_pause_evidence(
     restart_evidence: dict[str, Any],
     workload_start: object,
 ) -> dict[str, Any]:
-    """Cross-bind workload pause records to conservative host-authorized intervals."""
-
     pause_intervals = result.get("pause_intervals")
     restart_intervals = result.get("restart_quiescence_intervals")
     if (
@@ -2749,8 +2701,6 @@ def evaluate_authority_evidence(
     restarts: object,
     verification: object,
 ) -> dict[str, Any]:
-    """Reconstruct every terminal authority lifetime and the global fault budget."""
-
     def failed(reason: str) -> dict[str, Any]:
         return {"passed": False, "reason": reason}
 
@@ -4753,10 +4703,6 @@ def _harvest_failure_artifacts(
     expected_run_id: str,
     workload_start: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-    """Boundedly retain strict scenario artifacts before its volume is removed."""
-
-    # Critical workload identity and journals are read first. Optional marker
-    # volume can never consume their bounded harvest allowance.
     paths = {
         "start": WORKLOAD_START_PATH,
         "workload_journal": WORKLOAD_JOURNAL_PATH,
@@ -5774,9 +5720,6 @@ def _arm_restart_window(
         process = harness.run(command, timeout=30)
         marker = json.loads(process.stdout)
     except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
-        # docker-exec can lose its response after the rename and directory fsync.
-        # Recover only the exact durable marker; a missing/partial marker fails
-        # before authority admission can be fenced or the process can be killed.
         marker = _scenario_result(
             harness,
             WORKLOAD_RESTART_PATH,
@@ -5884,8 +5827,6 @@ print(json.dumps(document,allow_nan=False,separators=(',',':'),sort_keys=True))
         process = harness.run(command, timeout=remaining)
         completed_marker = json.loads(process.stdout)
     except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
-        # A completed marker may already be durable even when docker-exec loses
-        # its response.  Re-read that exact file within the same host deadline.
         read_remaining = completion_deadline_monotonic - time.monotonic()
         if read_remaining <= 0:
             raise RuntimeError(
@@ -6317,8 +6258,6 @@ def _failed_workload_container_listing(
     *,
     timeout: float,
 ) -> tuple[str, str] | None:
-    """Return the exact named one-off workload only; reject ambiguous Docker output."""
-
     name = harness.workload_container
     if CONTAINER_NAME.fullmatch(name) is None:
         raise RuntimeError("refusing to inspect an invalid workload container name")
@@ -6353,8 +6292,6 @@ def _remove_failed_workload_container(
     timeout: float = FAILURE_COMMAND_TIMEOUT_SECONDS,
     result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Fail closed around removal of the exact Compose one-off workload container."""
-
     name = harness.workload_container
     cleanup_result = {} if result is None else result
     cleanup_result.update(
@@ -6710,8 +6647,6 @@ def _read_restarted_authority(
     deadline_monotonic: float,
     workload: subprocess.Popen[str],
 ) -> dict[str, Any]:
-    """Fetch authenticated no-transaction status for the exact replacement lifetime."""
-
     def remaining() -> float:
         value = deadline_monotonic - time.monotonic()
         if value <= 0:
@@ -6775,8 +6710,6 @@ def _stamp_fenced_restart_acknowledgement(
     target_identity: dict[str, Any],
     workload: subprocess.Popen[str],
 ) -> dict[str, Any]:
-    """CAS the authoritative 30s ACK only after exact terminal proof and reinspection."""
-
     marker = cast(dict[str, Any], armed["marker"])
     prepared = cast(dict[str, Any], armed["acknowledgement"])
     terminal_result = cast(dict[str, Any], authority_fence["result"])
@@ -6873,8 +6806,6 @@ print(json.dumps(published,allow_nan=False,separators=(',',':'),sort_keys=True))
         if isinstance(candidate, dict):
             acknowledged = candidate
     except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
-        # A lost docker-exec response may follow a durable successful CAS.  Re-read
-        # the same revision; no kill is authorized until the exact binding returns.
         acknowledged = _wait_restart_acknowledgement(
             harness,
             marker=marker,
@@ -7430,10 +7361,6 @@ def run_soak(
                     configuration,
                     elapsed_s=pre_arm_elapsed,
                 ):
-                    # Resource and identity checks deliberately happen before the
-                    # workload acknowledges the bounded restart window.  If they
-                    # consumed the shutdown margin, leave the node untouched and
-                    # do not create a marker which the host can no longer honor.
                     next_restart = float("inf")
                     continue
                 _require_workload_running(
@@ -7582,8 +7509,6 @@ def run_soak(
             raise RuntimeError(
                 f"soak workload failed ({workload.returncode})\n{workload_stdout}{workload_stderr}"
             )
-        # Retain and validate the successful workload before any later recovery,
-        # terminal verification, fence, or cleanup can fail.
         workload_result = _scenario_result(harness, "/scenario/soak-workload.json")
         validated_workload_result = _validated_workload_artifact(
             workload_result,
@@ -7791,8 +7716,6 @@ def run_soak(
         )
         return evidence
     except Exception as error:
-        # Stop and collect the host CLI first, then retain the scenario volume's
-        # structured journal before any container/volume cleanup can begin.
         secondary_errors: list[dict[str, str]] = []
         try:
             workload_status = _failed_workload_status(
@@ -7954,9 +7877,6 @@ def run_soak(
                     timeout=FAILURE_LOG_TIMEOUT_SECONDS,
                 )
 
-        # Durably publish the primary error and harvested hashes before any
-        # operation may remove the scenario volume. If this write fails, retain
-        # every resource instead of destroying the only remaining evidence.
         precleanup_published = harvest_checkpoint_published
         try:
             precleanup_evidence: dict[str, Any] = {

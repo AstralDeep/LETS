@@ -1,3 +1,7 @@
+"""Tests for vector.py: checked add/subtract round-tripping, canonical binary encoding,
+and fail-closed rejection of overflow, underflow, and dimension-mismatched input.
+"""
+
 from __future__ import annotations
 
 import pytest

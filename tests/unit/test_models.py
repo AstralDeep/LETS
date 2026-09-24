@@ -1,3 +1,8 @@
+"""Tests for models.py: IdentityContext, LeaseGrant, TransferVoucher/Ack, and
+BranchRevocation round-trip their wire representation and reject expired, malformed,
+or self/zero transfers.
+"""
+
 from __future__ import annotations
 
 from dataclasses import replace

@@ -1,8 +1,6 @@
-"""Run and retain the focused LETS rollback/clone evidence matrix.
-
-This runner deliberately invokes existing tests without changing LETS runtime
-behavior.  It records the exact selectors, environment, Git state, JUnit XML,
-and complete pytest stdout/stderr in an operator-selected output directory.
+"""Runs the focused LETS rollback/clone test selectors via pytest and records exact Git
+state, JUnit XML, and stdout/stderr as evidence, without changing LETS runtime
+behavior.
 """
 
 from __future__ import annotations
@@ -120,7 +118,7 @@ LIMITATIONS = (
 
 
 class EvidenceError(RuntimeError):
-    """The runner could not produce a complete evidence bundle."""
+    pass
 
 
 def _utc_now() -> str:
@@ -258,8 +256,6 @@ def _mapping_document() -> list[dict[str, object]]:
 
 
 def run_evidence(output_dir: Path, *, overwrite: bool = False) -> int:
-    """Run the matrix, publish its evidence, and return a process exit code."""
-
     output_dir = output_dir.resolve()
     git_state = _git_state()
     _prepare_output(output_dir, overwrite=overwrite)

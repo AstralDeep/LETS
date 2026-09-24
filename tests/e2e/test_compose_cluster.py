@@ -1,4 +1,7 @@
-"""Hard acceptance: real wardens, real HTTP, durable state, and injected faults."""
+"""Tests for the full docker-compose LETS cluster: three warden processes over real HTTP
+with durable state and injected Toxiproxy faults, verifying fault recovery and
+cross-node conservation.
+"""
 
 from __future__ import annotations
 
@@ -221,8 +224,6 @@ def _sum_vectors(vectors: Sequence[Sequence[int]]) -> tuple[int, ...]:
 
 
 def test_real_three_node_fault_recovery_and_conservation(tmp_path: Path) -> None:
-    """Exercise the production service across three independent OS processes."""
-
     scenario: dict[str, Any] = {"schema": "lets.acceptance-scenario/v1"}
     infos: dict[str, dict[str, Any]] = {}
     keys: dict[str, dict[str, Any]] = {}

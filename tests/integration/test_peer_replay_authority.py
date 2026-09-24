@@ -1,3 +1,7 @@
+"""Tests that a peer nonce claim advances authority.py's anchor and that a stale core
+database fails closed until it reconciles (service.py, storage).
+"""
+
 from __future__ import annotations
 
 import shutil
@@ -87,8 +91,6 @@ def test_peer_claim_commit_before_anchor_fails_closed_then_reconciles(
 
         def reconcile(self, checkpoint: AuthorityCheckpoint, **options: Any) -> None:
             self.calls += 1
-            # Fail only once the claimed nonce's signed audit record is present,
-            # which is necessarily the post-COMMIT anchor CAS.
             if checkpoint.audit_sequence == 0:
                 raise StorageError("injected replay-anchor outage")
             self.delegate.reconcile(checkpoint, **options)

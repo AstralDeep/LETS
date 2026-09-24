@@ -1,4 +1,6 @@
-"""Measure invariant-snapshot latency as the durable lease table grows."""
+"""Measures LETS invariant-snapshot latency as the durable lease table grows, using
+benchmarks/run.py's harness against the real storage and service layers.
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/remote_cluster.py: remote-cluster credential
+loading accepts only the exact schema and rejects missing, unexpected, or duplicate
+keys.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

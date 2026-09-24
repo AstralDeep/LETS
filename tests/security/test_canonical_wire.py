@@ -1,3 +1,8 @@
+"""Tests for canonical.py's LETS-CJ/1 wire format: rejection of floating-point and
+out-of-range integers, fixed Unicode/control-character handling, and cross-language
+canonicalization test vectors.
+"""
+
 from __future__ import annotations
 
 import json
@@ -41,7 +46,6 @@ def test_lets_cj_has_fixed_unicode_control_and_int64_vectors() -> None:
             '"min":-9223372036854775808,"\ue000":"private","\U0001f600":"astral"}'
         ).encode()
     )
-    # LETS-CJ/1 does not normalize Unicode: signed identifiers remain byte-distinct.
     assert canonical_json({"é": 1}) != canonical_json({"e\u0301": 1})
 
 

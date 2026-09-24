@@ -1,10 +1,6 @@
-"""Run LETS microbenchmarks without installing anything outside ``.venv``.
-
-The production measurements exercise the public service and executor APIs with
-their default SQLite ``WAL``/``synchronous=FULL`` durability.  The SQLite-only
-diagnostics intentionally compare batching and ``synchronous=NORMAL``; they are
-labelled non-production because neither changes LETS runtime semantics or
-defaults.
+"""Core LETS microbenchmark harness (authorize, transfer, executor claims, concurrency)
+reused by benchmarks/profile_*.py; production measurements keep default
+WAL/synchronous=FULL durability apart from labelled non-production diagnostics.
 """
 
 from __future__ import annotations
@@ -54,8 +50,6 @@ class LatencySummary:
 
 
 def _percentile(sorted_values: Sequence[int], percentile: float) -> int:
-    """Return a nearest-rank percentile for a non-empty sorted sequence."""
-
     rank = max(1, (len(sorted_values) * int(percentile * 100) + 99) // 100)
     return sorted_values[min(rank - 1, len(sorted_values) - 1)]
 
@@ -264,7 +258,6 @@ def _transfer_benchmarks(directory: Path, iterations: int, warmup: int) -> list[
             if index >= warmup:
                 measured.append((prepared - start, accepted - prepared, finalized - accepted))
         wall_ns = time.perf_counter_ns() - wall_start
-        # Remove warm-up time from throughput by using the sum of measured stage durations.
         measured_wall_ns = sum(sum(stage) for stage in measured)
         names = ("prepare", "accept", "finalize")
         results = [
@@ -385,7 +378,6 @@ def _executor_benchmarks(directory: Path, iterations: int, warmup: int) -> list[
     )
     verify_samples, verify_wall = _time_calls(verify_calls)
 
-    # Claims use every receipt exactly once; the warm-up claims are intentionally durable too.
     for receipt in receipts[:warmup]:
         verifier.verify_and_claim(receipt)
     claim_calls = (

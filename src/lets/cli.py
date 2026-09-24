@@ -1,4 +1,7 @@
-"""Command-line bootstrap and server entry point for a LETS warden node."""
+"""CLI for a LETS warden: config init, serve, backup/restore, and schema migration.
+Wires runtime.py's provider loader, service.py's WardenService, and storage/sqlite.py
+into a running node or offline recovery command.
+"""
 
 from __future__ import annotations
 
@@ -75,19 +78,11 @@ _GENERIC_PROVIDER_SQLITE_WRITES_PER_PEER_REQUEST = Decimal(2)
 
 
 def _sqlite_wal_reset_safe(version: tuple[int, ...]) -> bool:
-    """Return whether SQLite includes the upstream 2026 WAL-reset fix.
-
-    SQLite fixed the issue in 3.51.3 and published maintained-branch
-    backports as 3.50.7 and 3.44.6.  Intermediate release branches without a
-    published fixed build remain unsafe for concurrent WAL-mode production.
-    """
-
     normalized = tuple(version[:3]) + (0,) * max(0, 3 - len(version))
     current = cast(tuple[int, int, int], normalized[:3])
     if (3, 51, 3) <= current < (3, 52, 0):
         return True
-    # SQLite withdrew the 3.52 line because of an unrelated expression-index
-    # compatibility defect.  The corrected successor line starts at 3.53.0.
+    # SQLite withdrew 3.52.x; the fix resumes at 3.53.0
     if current >= (3, 53, 0):
         return True
     if (3, 50, 7) <= current < (3, 51, 0):
@@ -419,15 +414,6 @@ def _local_path(config_path: Path, config: Mapping[str, Any], name: str) -> Path
 
 
 def _database_path(config_path: Path, config: Mapping[str, Any]) -> Path:
-    """Resolve the authority database path admitted by the runtime configuration.
-
-    Development nodes keep every artifact project-local.  Production provisioning
-    deliberately stages an immutable configuration whose database path is an
-    absolute path inside the separately mounted state domain.  Admit that form only
-    when the configuration explicitly selects an external runtime provider; the
-    built-in seed/static-bearer runtime retains the project-local boundary.
-    """
-
     raw = Path(_required_text(config, "database"))
     if not raw.is_absolute():
         return _local_path(config_path, config, "database")
@@ -496,8 +482,6 @@ def _finish_initialization(
     node_endpoints: dict[str, str] | None,
     peer_endpoints: dict[str, str],
 ) -> int:
-    """Create local artifacts only after the selected provider has been admitted."""
-
     if len(local_share) != len(budget):
         raise ValidationError("local_share must have the same dimensions as budget")
     if any(local > total for local, total in zip(local_share, budget, strict=True)):
@@ -626,10 +610,7 @@ def _finish_initialization(
         config["allow_insecure_manifest"] = bool(arguments.allow_insecure_manifest)
     if node_endpoints is not None:
         config["endpoints"] = node_endpoints
-    # Always persist the peer map — an empty mapping is the explicit,
-    # serve-admissible statement that this is a single-warden cluster.
-    # (Omitting the key made a production single-warden config fail the
-    # serve-time "peer endpoints exactly match the signed manifest" check.)
+    # Persist even if empty; serve requires the key present
     config["peer_endpoints"] = dict(peer_endpoints)
     _atomic_json(resolved, config)
 
@@ -853,7 +834,6 @@ def _initialize(config_path: Path, arguments: argparse.Namespace) -> int:
         options=provider_options,
         production=arguments.production,
     )
-    # Provider admission occurs before directory creation or any local artifact.
     with open_runtime_provider(provider_name, context) as runtime:
         return finish(runtime.signer, runtime.authority_anchor)
 
@@ -986,8 +966,6 @@ def _runtime_configuration(
         option_pairs = (*configured_options.items(), *override_pairs)
     else:
         selected_provider = validate_runtime_provider_name(provider_override)
-        # Options belong to a provider.  A deliberate provider override does not
-        # inherit options configured for a different implementation.
         option_pairs = (
             (*configured_options.items(), *override_pairs)
             if not configured or selected_provider == configured_provider
@@ -1067,8 +1045,6 @@ def _validate_peer_trust(
     *,
     local_warden_id: str,
 ) -> None:
-    """Reject outbound authority routes that cannot yield a verifiable acknowledgement."""
-
     if local_warden_id in peer_endpoints:
         raise ValidationError("peer_endpoints must not contain the local warden")
     for warden_id in sorted(peer_endpoints):
@@ -1129,8 +1105,6 @@ def _manifest_trust_registry(
     *,
     clock: Clock,
 ) -> PublicKeyRegistry:
-    """Rebuild peer trust from the operator-signed manifest on every serve."""
-
     from lets.manifest import ClusterManifest
 
     if "manifest_digest" not in config:
@@ -1275,9 +1249,6 @@ def _manifest_trust_registry(
         for warden in manifest.wardens
         if warden.warden_id != signer.warden_id
     }
-    # A config written before the key was always persisted may omit it; a
-    # missing map means "no peers", which is only admissible when the signed
-    # manifest declares no other wardens.
     configured_endpoints = config.get("peer_endpoints", {})
     if (
         not isinstance(configured_endpoints, Mapping)
@@ -1503,8 +1474,6 @@ def _recovery_workspace(
     state_directory: Path,
     production: bool,
 ) -> Path:
-    """Admit an explicit backup-domain workspace without creating it."""
-
     requested = Path(os.path.abspath(path))
     requested_junction = getattr(requested, "is_junction", lambda: False)
     workspace = requested.resolve()
@@ -1532,7 +1501,7 @@ def _recovery_backup(config_path: Path, arguments: argparse.Namespace) -> int:
     if arguments.production:
         _validate_production_state_admission(config)
     lock_path = resolved.parent / ".node.lock"
-    with node_process_lock(lock_path):  # noqa: SIM117 - lock must precede provider startup
+    with node_process_lock(lock_path):  # noqa: SIM117
         with _open_runtime(
             resolved,
             config,
@@ -1691,9 +1660,7 @@ def _verify_current_bundle(
                 config,
                 signer=runtime.signer,
                 database_override=candidate_core,
-                # Never expose an unverified candidate to a mutating anchor CAS.
-                # Full integrity, conservation, audit, and checkpoint validation
-                # must complete before any external authority comparison.
+                # Never expose an unverified candidate to the anchor CAS
                 authority_anchor=None,
             )
             try:
@@ -1719,12 +1686,7 @@ def _verify_current_bundle(
                         raise StorageError(
                             "recovery bundle does not exactly match the current authority anchor"
                         )
-                # Archive publication is deliberately last.  A cryptographically
-                # valid but stale/ahead/forked candidate must not be able to write
-                # into the independent audit archive before the live anchor has
-                # admitted its exact checkpoint.  Plain `recovery verify` remains
-                # entirely non-mutating; backup and restore are the only repair
-                # paths.
+                # Archive publish must follow anchor admission, not precede it
                 if runtime.audit_sink is None:
                     if production:
                         raise ValidationError(
@@ -1789,8 +1751,6 @@ def _restore_headroom_preflight(
     replacement_bytes: int,
     workspace: Path,
 ) -> dict[str, int | bool]:
-    """Admit peak copy-on-restore bytes before journal or quarantine mutation."""
-
     preserved_bytes = 0
     for candidate in (core, Path(f"{core}-wal"), Path(f"{core}-shm")):
         if not candidate.exists():
@@ -1925,8 +1885,6 @@ def _recovery_restore(config_path: Path, arguments: argparse.Namespace) -> int:
         raise ValidationError("--confirm-warden-id does not match the configured warden")
     lock_path = resolved.parent / ".node.lock"
     with node_process_lock(lock_path):
-        # Restore always requires the production-capable provider and its live,
-        # independent anchor, even if the original bundle came from development.
         bundle, checks = _verify_current_bundle(
             resolved=resolved,
             config=config,
@@ -2026,9 +1984,6 @@ def _recovery_restore(config_path: Path, arguments: argparse.Namespace) -> int:
                 phase=phase,
             )
         if phase == "CORE_INSTALLED":
-            # A second provider/anchor admission occurs only after the core file is
-            # durable. Peer replay authority lives in this same anchored database.
-            # Failure leaves the journal incomplete, so serve remains fenced.
             with _open_runtime(resolved, config, arguments, production=True) as runtime:
                 restored = _storage(
                     resolved,
@@ -2343,8 +2298,6 @@ def _verify_migration_bundle(
 def _pre_anchor_authority_fingerprint(
     database: Path, *, immutable: bool = False
 ) -> tuple[object, ...]:
-    """Bind the schema-1 authority fields that MIGRATION_2 must not change."""
-
     try:
         with closing(
             sqlite3.connect(
@@ -2404,9 +2357,6 @@ def _resume_migrated_database(
                 raise ValidationError(
                     "pristine expansion authority state differs from the verified schema-1 backup"
                 )
-            # MIGRATION_2 installed its exact expand-only genesis but the process
-            # died before the separately audited drain.  No production serve can
-            # pass the still-missing anchor.  Complete the drain idempotently now.
             status = service.set_runtime_mode(
                 request_id=f"migration-resume-{secrets.token_hex(16)}",
                 identity=identity,
@@ -2626,7 +2576,6 @@ def _migrate(config_path: Path, arguments: argparse.Namespace) -> int:
                     identity=_bundle_identity(config, runtime.signer),
                     authority_checkpoint=None,
                 )
-                # Mandatory post-publication verification precedes the first source write.
                 bundle = _verify_migration_bundle(
                     bundle.root,
                     resolved=resolved,
@@ -2642,9 +2591,6 @@ def _migrate(config_path: Path, arguments: argparse.Namespace) -> int:
                 phase="BACKUP_VERIFIED",
             )
 
-            # Schema 1 predates external anchors.  Migrate and drain while the node
-            # process lock excludes serving, then explicitly bootstrap the provider
-            # anchor at the complete schema-2/drained head.
             migrated = _migrate_storage(core, config, runtime.signer)
             try:
                 service, identity = _operator_service(config, runtime.signer, migrated)
@@ -3116,8 +3062,6 @@ def _is_loopback(host: str) -> bool:
 
 
 def _validate_production_state_admission(config: Mapping[str, Any]) -> None:
-    """Require durable production trust and capacity inputs for offline commands."""
-
     if config.get("allow_insecure_manifest") is not False:
         raise ValidationError("production requires a manifest admitted without insecure HTTP")
     for field in ("manifest", "manifest_digest", "operator_trust"):
@@ -3146,8 +3090,6 @@ def _validate_production_admission(
     provider_name: str,
     provider_options: Mapping[str, str] | None = None,
 ) -> None:
-    """Reject development trust and transport choices before opening resources."""
-
     if provider_name == BUILTIN_RUNTIME_PROVIDER:
         raise ValidationError(
             "--production rejects the built-in file signer and static bearer authenticator"
@@ -3310,7 +3252,6 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
             authority_anchor=runtime.authority_anchor,
         )
         try:
-            # Deep scans are a one-time admission gate. Request-path readiness remains bounded.
             integrity = store.pragma_integrity_check()
             foreign_keys = store.pragma_foreign_key_check()
             if integrity != ("ok",) or foreign_keys:
@@ -3369,8 +3310,6 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                     peer_dispatcher=dispatcher,
                     audit_exporter=audit_exporter,
                 )
-                # This complete signature/hash scan is a startup admission gate.
-                # Recurring captures copy only a bounded incremental tail.
                 observation.bootstrap_audit()
 
                 async def cached_ready() -> bool:
@@ -3481,10 +3420,6 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
 
 
 def _serve(config_path: Path, arguments: argparse.Namespace) -> int:
-    """Hold the node process lock for the complete server lifetime."""
-
-    # Preserve deterministic argument errors without creating a lock directory
-    # for a missing configuration path.
     if (arguments.tls_cert is None) != (arguments.tls_key is None):
         raise ValidationError("--tls-cert and --tls-key must be supplied together")
     if arguments.client_ca is not None and arguments.tls_cert is None:
@@ -3546,5 +3481,5 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 2
 
 
-if __name__ == "__main__":  # pragma: no cover - installed script is the normal entry point
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

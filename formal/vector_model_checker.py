@@ -1,13 +1,6 @@
-"""Bounded explicit-state checker for two-dimensional LETS resources.
-
-This module is intentionally independent from :mod:`formal.model_checker`.  It
-models two resource dimensions, attenuated delegation, heterogeneous action
-costs, and two-phase inter-warden transfers.  The normal transition relation is
-checked after every edge for component-wise conservation and spendable bounds.
-
-The included mutant charges a ``(1, 5)`` action by subtracting ``(1, 0)`` from
-the lease while still adding ``(1, 5)`` to consumed resources.  Breadth-first
-search therefore returns a shortest vector-accounting counterexample.
+"""Bounded explicit-state checker for two-dimensional LETS resource vectors —
+delegation, heterogeneous costs, two-phase transfers — verifying conservation and
+spendable bounds after every edge, with a seeded mutant for counterexample search.
 """
 
 from __future__ import annotations
@@ -87,8 +80,6 @@ class Edge:
 
 
 class ModelViolationError(ValueError):
-    """A named safety-property violation in a candidate state."""
-
     def __init__(self, property_name: str, message: str) -> None:
         super().__init__(message)
         self.property_name = property_name
@@ -145,13 +136,6 @@ def spendable_total(state: State) -> Vector:
 
 
 def validate_state(state: State, bounds: Bounds) -> None:
-    """Assert all modeled invariants for ``state``.
-
-    Conservation is checked before the spendable bound so the deliberately
-    incorrect debit is classified as a conservation error rather than merely a
-    downstream bound failure.
-    """
-
     vectors = [*state.free, state.consumed, state.in_flight]
     vectors.extend(lease.allocation for lease in state.leases)
     vectors.extend(lease.residual for lease in state.leases)
@@ -235,8 +219,6 @@ def _with_free(state: State, warden: int, value: Vector) -> tuple[Vector, Vector
 
 
 def normal_successors(state: State, bounds: Bounds) -> Iterator[Edge]:
-    """Yield deterministic normal transitions from ``state``."""
-
     if len(state.leases) < bounds.max_leases:
         for warden in range(2):
             for allocation in ROOT_ALLOCATIONS:
@@ -406,12 +388,6 @@ def normal_successors(state: State, bounds: Bounds) -> Iterator[Edge]:
 
 
 def mutant_successors(state: State) -> Iterator[Edge]:
-    """Yield the isolated cross-dimension debit fault.
-
-    The rotate action costs ``(1, 5)``.  This mutant subtracts only ``(1, 0)``
-    from residual while adding the full cost to consumed resources.
-    """
-
     full_cost = (1, 5)
     incorrect_debit = (1, 0)
     for lease in state.leases:
@@ -501,8 +477,6 @@ def _trace(
 
 
 def explore(bounds: Bounds, *, include_mutant: bool) -> dict[str, object]:
-    """Run deterministic BFS and return machine-readable evidence."""
-
     start = initial_state(bounds)
     validate_state(start, bounds)
     queue: deque[State] = deque([start])

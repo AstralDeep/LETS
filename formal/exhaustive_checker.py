@@ -1,9 +1,6 @@
-"""Exhaustive state-space checker for the abstract LETS conservation kernel.
-
-The checker explores local issuance, recursive spawn, consumption, closure,
-expiry/reclamation, transfer preparation, transfer acceptance, and duplicate
-acceptance.  It deliberately abstracts away signatures and HSM labels; those
-are covered by unit tests in the executable reference implementation.
+"""Exhaustive state-space checker for the abstract LETS conservation kernel: explores
+issuance, spawn, consumption, closure, expiry, and transfer prep/accept, abstracting
+away signatures and HSM labels.
 """
 
 from __future__ import annotations
@@ -69,7 +66,6 @@ def replace_lease(state: State, changed: Lease) -> tuple[Lease, ...]:
 
 
 def successors(state: State) -> Iterable[tuple[str, State]]:
-    # Issue a root lease from either warden.
     if len(state.leases) < MAX_LEASES:
         for warden in (0, 1):
             if state.pools[warden] > 0:
@@ -92,7 +88,6 @@ def successors(state: State) -> Iterable[tuple[str, State]]:
                     ),
                 )
 
-    # Recursive spawn partitions one unit from a parent.
     if len(state.leases) < MAX_LEASES:
         for parent in state.leases:
             if parent.active and parent.residual > 0:
@@ -120,7 +115,6 @@ def successors(state: State) -> Iterable[tuple[str, State]]:
                     ),
                 )
 
-    # Consume one right.
     for lease in state.leases:
         if lease.active and lease.residual > 0:
             changed = Lease(lease.lease_id, lease.warden, lease.parent_id, lease.residual - 1, True)
@@ -139,7 +133,6 @@ def successors(state: State) -> Iterable[tuple[str, State]]:
                 ),
             )
 
-    # Close/reclaim returns the residual exactly once to the local pool.
     for lease in state.leases:
         if lease.active:
             pools = list(state.pools)
@@ -160,7 +153,6 @@ def successors(state: State) -> Iterable[tuple[str, State]]:
                 ),
             )
 
-    # At most one transfer is modeled. It moves a pool right, not a lease right.
     if not state.transfer_prepared:
         for source, target in ((0, 1), (1, 0)):
             if state.pools[source] > 0:
@@ -198,7 +190,6 @@ def successors(state: State) -> Iterable[tuple[str, State]]:
             ),
         )
     else:
-        # Duplicate delivery is an idempotent self-loop. We record but do not enqueue it.
         yield "duplicate_accept", state
 
 

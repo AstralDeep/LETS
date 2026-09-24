@@ -1,10 +1,6 @@
-"""Fail-closed preparation and finalization for a clean evidence campaign.
-
-The remote runners intentionally own credential handling.  This module has no
-credential option and never copies a credential file into an evidence bundle.
-It prepares a new ignored (or out-of-tree) staging directory, then binds the
-finished artifacts, exact source commit, and paper inputs with deterministic
-manifests.
+"""Fail-closed staging and sealing of an evidence campaign: binds finished remote-runner
+artifacts, the exact source commit, and paper inputs into deterministic manifests,
+never handling or copying credential files.
 """
 
 from __future__ import annotations
@@ -194,7 +190,7 @@ _REQUIRED_PAPER_INPUTS = frozenset(
 
 
 class CampaignError(RuntimeError):
-    """Raised when a clean evidence campaign invariant is not satisfied."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -244,8 +240,6 @@ def _git(repository: Path, *arguments: str, allow_failure: bool = False) -> str 
 
 
 def _committed_file(repository: Path, commit: str, relative: str) -> bytes:
-    """Read a file from the committed tree, never from an uncommitted worktree."""
-
     try:
         completed = subprocess.run(
             ["git", "show", f"{commit}:{relative}"],
@@ -292,8 +286,6 @@ def _clean_git_identity(repository: Path, expected_commit: str) -> GitIdentity:
         "--ignore-submodules=none",
     )
     if status:
-        # Do not echo paths: an accidentally untracked credential filename must
-        # not be copied into campaign diagnostics.
         raise CampaignError("repository index and worktree must be completely clean")
     tree = _git(repository, "rev-parse", "--verify", "HEAD^{tree}")
     branch = _git(repository, "branch", "--show-current")
@@ -343,8 +335,6 @@ def _write_new(path: Path, content: bytes) -> None:
 
 
 def preflight_campaign(*, repository: Path, staging_root: Path, expected_commit: str) -> Path:
-    """Create a new clean-campaign staging root and immutable preflight record."""
-
     root = _repository_root(repository)
     identity = _clean_git_identity(root, expected_commit)
     staging = _validate_staging_location(root, staging_root)
@@ -373,8 +363,6 @@ def preflight_campaign(*, repository: Path, staging_root: Path, expected_commit:
 def compress_matched_host_result(
     *, repository: Path, staging_root: Path, expected_commit: str
 ) -> Path:
-    """Losslessly replace the large retained matched-host JSON with deterministic gzip."""
-
     root = _repository_root(repository)
     identity = _clean_git_identity(root, expected_commit)
     staging = staging_root.resolve(strict=True)
@@ -509,8 +497,6 @@ def _validated_campaign_binding(value: str) -> str:
 
 
 def _validate_paper_campaign_binding(paper_input_root: Path, campaign_binding: str) -> None:
-    """Require one unambiguous paper-to-campaign seal and no author TODOs."""
-
     expected = _validated_campaign_binding(campaign_binding)
     evidence_path = paper_input_root.resolve(strict=True) / "evidence.tex"
     try:
@@ -556,8 +542,6 @@ def _reject_sensitive_path(relative: Path) -> None:
 
 
 def _validate_text_artifact_privacy(relative: str, content: bytes) -> None:
-    """Reject local Windows paths from retained text without inspecting binaries."""
-
     lowered = relative.lower()
     if lowered.endswith(".gz"):
         try:
@@ -573,7 +557,6 @@ def _validate_text_artifact_privacy(relative: str, content: bytes) -> None:
     except UnicodeDecodeError as error:
         raise CampaignError(f"staged text artifact is not valid UTF-8: {relative}") from error
     if _WINDOWS_ABSOLUTE_PATH.search(text):
-        # Do not echo the matched value: the path itself is what must not leak.
         raise CampaignError(f"local absolute path retained in staged text artifact: {relative}")
 
 
@@ -1505,8 +1488,6 @@ def _render_campaign_manifests(
 
 
 def _remove_created_campaign_file(path: Path, expected_content: bytes) -> None:
-    """Remove only a file created by this finalization attempt and still unchanged."""
-
     try:
         if _read_regular_file(path) == expected_content:
             path.unlink()
@@ -1522,8 +1503,6 @@ def finalize_campaign(
     expected_commit: str,
     campaign_binding: str,
 ) -> tuple[Path, Path, Path]:
-    """Validate and seal staged evidence without modifying a prior bundle."""
-
     root = _repository_root(repository)
     expected = _expected_commit(expected_commit)
     identity = _clean_git_identity(root, expected)
@@ -1544,8 +1523,6 @@ def finalize_campaign(
         identity=identity,
         campaign_binding=binding,
     )
-    # Re-read every source, paper, and evidence input before materializing any
-    # manifest.  This catches drift during the first complete validation pass.
     _require(
         _render_campaign_manifests(
             repository=root,
@@ -1583,7 +1560,6 @@ def finalize_campaign(
             == rendered,
             "campaign inputs changed before the final seal",
         )
-        # MANIFEST.json is published last and is the only seal consumers trust.
         _write_new(manifest_path, top_level_bytes)
         created.append((manifest_path, top_level_bytes))
         allowed[MANIFEST_NAME] = top_level_bytes
@@ -1600,8 +1576,6 @@ def finalize_campaign(
             "campaign inputs changed after the final seal",
         )
     except BaseException:
-        # A failed attempt must not leave a valid-looking MANIFEST.json (or
-        # partial companion manifests) behind.
         for path, content in reversed(created):
             _remove_created_campaign_file(path, content)
         raise

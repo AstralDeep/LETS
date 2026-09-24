@@ -1,3 +1,8 @@
+"""Adversarial tests for service.py's transfer protocol: duplicate and reordered
+vouchers stay exactly-once across restart, and sequence numbers and signatures are
+bound to one specific voucher.
+"""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -110,7 +115,6 @@ def test_duplicate_and_reordered_vouchers_remain_exactly_once_across_restart(
         assert ack_one.contiguous_watermark == 2
         assert target.invariant_snapshot(identity=_identity("auditor")).free_pool == (10,)
         with pytest.raises(ReplayError, match="admission window"):
-            # Sequence 3 is valid; moving it beyond the configured sparse window is not.
             far = _resign(replace(vouchers[2], sequence=7), source_signer)
             target.accept_transfer(identity=peer_identity, voucher=far)
     finally:

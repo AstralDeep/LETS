@@ -1,8 +1,6 @@
-"""Crash-durable, authority-safe recovery bundle primitives.
-
-Recovery bundles deliberately contain a *copy* of the authority checkpoint, not
-the independent monotonic authority anchor itself.  Restore admission must
-reconcile the bundled database against the live provider-owned anchor.
+"""Crash-durable recovery-bundle primitives: create, verify, and install a backup, plus
+the per-node process lock. Bundles carry only a copy of the authority checkpoint;
+cli.py reconciles restore against the live anchor before admitting one.
 """
 
 from __future__ import annotations
@@ -38,8 +36,6 @@ RECOVERY_METADATA_HEADROOM_BYTES: Final = 1_048_576
 
 @dataclass(frozen=True, slots=True)
 class ArtifactDigest:
-    """One exact regular-file binding in a recovery bundle."""
-
     path: str
     bytes: int
     sha256: str
@@ -50,8 +46,6 @@ class ArtifactDigest:
 
 @dataclass(frozen=True, slots=True)
 class VerifiedBundle:
-    """A fully hash- and SQLite-verified bundle."""
-
     root: Path
     source_schema_version: int
     identity: Mapping[str, object]
@@ -87,12 +81,6 @@ def _fsync_file(path: Path) -> None:
 
 
 def _fsync_directory(path: Path) -> None:
-    """Flush a directory entry where the host exposes POSIX directory fsync.
-
-    Windows durable renames use ``MOVEFILE_WRITE_THROUGH`` in
-    :func:`_durable_move`; Windows does not expose directory fsync via Python.
-    """
-
     if os.name == "nt":
         return
     descriptor = -1
@@ -112,8 +100,6 @@ def require_filesystem_headroom(
     required_bytes: int,
     operation: str,
 ) -> int:
-    """Fail before recovery mutation unless an existing directory has exact headroom."""
-
     if (
         isinstance(required_bytes, bool)
         or not isinstance(required_bytes, int)
@@ -178,8 +164,6 @@ def _copy_regular_file(source: Path, destination: Path, *, maximum: int | None =
 
 
 def copy_sqlite_snapshot(source: Path, destination: Path) -> None:
-    """Create and fsync one SQLite online-backup snapshot."""
-
     _require_regular_file(source, label="SQLite source")
     if destination.exists():
         raise ValidationError(f"SQLite backup destination already exists: {destination}")
@@ -204,8 +188,6 @@ def sqlite_diagnostics(
     expected_schema_version: int | None = None,
     foreign_keys: bool,
 ) -> dict[str, object]:
-    """Verify an immutable bundle database without creating or mutating it."""
-
     _require_regular_file(path, label="bundled SQLite database")
     uri = f"{path.resolve().as_uri()}?mode=ro&immutable=1"
     try:
@@ -238,8 +220,6 @@ def sqlite_diagnostics(
 
 @contextmanager
 def node_process_lock(path: Path) -> Iterator[None]:
-    """Hold the per-node process lock, failing instead of waiting indefinitely."""
-
     lock_path = path.resolve()
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -303,8 +283,6 @@ def create_recovery_bundle(
     identity: Mapping[str, object],
     authority_checkpoint: Mapping[str, object] | None,
 ) -> VerifiedBundle:
-    """Create an exclusive recovery directory and publish it with a durable rename."""
-
     final = destination.resolve()
     if final.exists():
         raise ValidationError(f"recovery bundle destination already exists: {final}")
@@ -388,8 +366,6 @@ def _bounded_manifest(path: Path) -> Mapping[str, Any]:
 
 
 def verify_recovery_bundle(destination: Path) -> VerifiedBundle:
-    """Verify exact artifact membership, hashes, and each declared SQLite database."""
-
     requested = Path(os.path.abspath(destination))
     is_junction = getattr(requested, "is_junction", lambda: False)
     if requested.is_symlink() or is_junction() or not requested.is_dir():
@@ -510,13 +486,6 @@ def install_verified_artifact(
     *,
     expected: ArtifactDigest | None = None,
 ) -> None:
-    """Copy one artifact and atomically replace its destination.
-
-    When ``expected`` comes from a previously verified bundle manifest, the
-    installed bytes are checked against that immutable authority instead of a
-    second observation of a potentially changing source path.
-    """
-
     _require_regular_file(source, label="recovery publication source")
     requested_target = Path(os.path.abspath(destination))
     target_junction = getattr(requested_target, "is_junction", lambda: False)
@@ -550,8 +519,6 @@ def install_verified_artifact(
 
 
 def preserve_and_remove_artifact(source: Path, destination: Path) -> None:
-    """Idempotently copy a sidecar to quarantine, then durably remove its source."""
-
     requested_target = Path(os.path.abspath(destination))
     if requested_target.exists():
         _require_regular_file(
@@ -589,8 +556,6 @@ def preserve_and_remove_artifact(source: Path, destination: Path) -> None:
 
 
 def create_recovery_quarantine(quarantine: Path, *, workspace: Path) -> Path:
-    """Create and durably publish one empty direct-child quarantine directory."""
-
     root = Path(os.path.abspath(quarantine))
     boundary = workspace.resolve()
     if root.parent.resolve() != boundary:
@@ -611,8 +576,6 @@ def remove_recovery_quarantine(
     workspace: Path,
     expected_names: frozenset[str],
 ) -> None:
-    """Remove one fully admitted quarantine with an exact, non-recursive allow-list."""
-
     requested = Path(os.path.abspath(quarantine))
     requested_junction = getattr(requested, "is_junction", lambda: False)
     if requested.is_symlink() or requested_junction():
@@ -656,8 +619,6 @@ def remove_recovery_quarantine(
 
 
 def read_sqlite_header(path: Path) -> tuple[int, int]:
-    """Return ``(application_id, user_version)`` without creating a database."""
-
     _require_regular_file(path, label="SQLite database")
     try:
         with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as connection:

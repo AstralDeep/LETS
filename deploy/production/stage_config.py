@@ -1,4 +1,6 @@
-"""Stage a generated LETS config as an immutable production runtime input."""
+"""Stages a generated LETS config as an immutable, exclusively-created, read-only
+production runtime input via src/lets/canonical.py's deterministic serialization.
+"""
 
 from __future__ import annotations
 
@@ -86,8 +88,6 @@ def stage_config(
     *,
     database_path: PurePosixPath = DEFAULT_DATABASE_PATH,
 ) -> Path:
-    """Create one exclusive, fsynced, read-only config outside writable state."""
-
     source_file = _regular_file(source, "generated config")
     if not database_path.is_absolute() or database_path != DEFAULT_DATABASE_PATH:
         raise ValueError(

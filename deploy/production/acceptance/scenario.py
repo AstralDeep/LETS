@@ -1,4 +1,7 @@
-"""Exercise mTLS, JWT, partition, restart, and convergence inside the cluster network."""
+"""Drives the production-profile acceptance scenario inside the cluster network:
+mTLS/JWT checks, executor replay rejection, partition/restart recovery, and
+convergence, against src/lets/cli.py-started nodes.
+"""
 
 from __future__ import annotations
 
@@ -213,8 +216,6 @@ def security_phase() -> None:
 
 
 def executor_phase() -> None:
-    """Prove the production executor rejects duplicate and stale replay state."""
-
     manifest = ClusterManifest.load(TRUST / "manifest.json")
     operator = _object(TRUST / "operator.json")
     operator_key_id = operator.get("key_id")

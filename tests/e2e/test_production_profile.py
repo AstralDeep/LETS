@@ -1,4 +1,6 @@
-"""Opt-in execution gate for the hardened production-profile topology."""
+"""Tests that opt in to run the hardened production-profile topology end to end; skipped
+unless explicitly enabled.
+"""
 
 from __future__ import annotations
 

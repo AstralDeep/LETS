@@ -1,4 +1,7 @@
-"""Durable audit outbox export with idempotent sink semantics."""
+"""Durable audit-outbox exporter with idempotent sink semantics: SQLiteAuditSink
+archives records locally while AuditExporter retries publishing them to an
+operator-provided AuditSink, used by src/lets/cli.py and src/lets/observation.py.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ from lets.ids import require_identifier, require_warden_id
 from lets.storage import SQLiteStorage, audit_event_hash
 from lets.vector import MAX_RESOURCE
 
-_ARCHIVE_APPLICATION_ID = 0x4C455441  # ASCII "LETA"
+_ARCHIVE_APPLICATION_ID = 0x4C455441
 _ARCHIVE_SCHEMA_VERSION = 2
 _SAFE_ERROR_CLASS = frozenset(
     {
@@ -33,8 +36,6 @@ _SAFE_ERROR_CLASS = frozenset(
 
 
 def _observation_error_token(error: BaseException) -> str:
-    """Return a bounded, non-secret error classification for cached observations."""
-
     current: BaseException | None = error
     seen: set[int] = set()
     for _ in range(4):
@@ -52,8 +53,6 @@ def _observation_error_token(error: BaseException) -> str:
 
 
 def _sqlite_storage_error(message: str, exc: sqlite3.Error) -> StorageError:
-    """Return a stable error with bounded SQLite diagnostics, not raw messages."""
-
     error_name = getattr(exc, "sqlite_errorname", None)
     error_code = getattr(exc, "sqlite_errorcode", None)
     details: list[str] = []
@@ -166,13 +165,6 @@ class AuditArchiveHead:
 
 
 class AuditSink(Protocol):
-    """An idempotent, durable sink keyed by warden/envelope/sequence.
-
-    Providers SHOULD return or raise within their documented deadline.  The
-    exporter nevertheless enforces its own deadline so a defective remote sink
-    cannot keep node readiness green or prevent process shutdown indefinitely.
-    """
-
     def publish(self, record: AuditExportRecord) -> None: ...
 
     def head(
@@ -187,8 +179,6 @@ class AuditSink(Protocol):
 
 
 class SQLiteAuditSink:
-    """Independent SQLite archive used by single-host and sidecar deployments."""
-
     def __init__(self, path: str | os.PathLike[str], *, _create: bool = False) -> None:
         self._path = Path(path).resolve()
         reserved = False
@@ -510,8 +500,6 @@ class SQLiteAuditSink:
 
 
 class AuditExporter:
-    """Retrying outbox worker; sink publish precedes local acknowledgement."""
-
     def __init__(
         self,
         store: SQLiteStorage,
@@ -648,17 +636,8 @@ class AuditExporter:
         ]
         return core_head, records
 
+    # One transaction: a crash leaves the whole prefix pending
     def _acknowledge_batch(self, records: Sequence[AuditExportRecord]) -> None:
-        """Acknowledge one sink-committed prefix in one authority transaction.
-
-        Every record has already reached the idempotent archive before this
-        method runs.  Keeping the local acknowledgements in one transaction
-        preserves that ordering while avoiding one authority reconciliation
-        round trip per record.  A crash before this transaction commits leaves
-        the entire published prefix pending; the next run repairs it from the
-        archive head.
-        """
-
         if not records:
             return
         now_ns = time.time_ns()
@@ -712,14 +691,6 @@ class AuditExporter:
                     )
 
     def _acknowledge_archive_prefix(self, head: AuditArchiveHead) -> bool:
-        """Repair a bounded sink-commit/local-ack prefix.
-
-        A restored archive can be far ahead of local outbox acknowledgements.
-        Updating or pruning that entire prefix in one emergency transaction can
-        exhaust the reserved WAL headroom needed to recover.  Each call therefore
-        touches at most one exporter batch and reports whether repair is complete.
-        """
-
         now_ns = time.time_ns()
         with self._store.capacity_recovery() as transaction:
             mismatch = transaction.connection.execute(
@@ -870,12 +841,6 @@ class AuditExporter:
     def run_once(self) -> int:
         exported = 0
         last_exported_sequence: int | None = None
-        # The budget window is measured from cycle start but can only take
-        # effect between publishes; the archive-head call, each in-flight
-        # publish, and the acknowledgement transactions keep their own
-        # deadlines. When the budget expires the sink-committed prefix is
-        # acknowledged and the remainder carries over to an immediate
-        # follow-up cycle.
         publish_deadline = time.monotonic() + self._publish_budget_s
         continuation_head = self._continuation_head
         self._continuation_head = None
@@ -883,12 +848,6 @@ class AuditExporter:
             self._backlog_remaining = False
         try:
             if continuation_head is not None:
-                # An immediate continuation follows this process's own
-                # successful batch acknowledgement, so the archive head is the
-                # acknowledged record just committed; skipping the head fetch
-                # and prefix acknowledgement keeps backlog drain
-                # publish-throughput-bound. Every fresh cycle still refetches
-                # the head, preserving archive rollback detection.
                 archive_head: AuditArchiveHead | None = continuation_head
                 archive_prefix_reconciled = True
                 core_head, records = self._core_batch(archive_head)
@@ -911,10 +870,6 @@ class AuditExporter:
                 last_exported_sequence = record.sequence
                 if time.monotonic() >= publish_deadline:
                     break
-            # Continue immediately when this cycle was truncated by the
-            # budget or its snapshot filled the batch, since either signals
-            # more pending work; a record committed mid-cycle into a
-            # non-full batch waits at most one poll interval.
             backlog_pending = (
                 len(published_records) < len(records) or len(records) == self._batch_size
             )
@@ -986,8 +941,6 @@ class AuditExporter:
         if thread.is_alive():
             raise StorageError("audit exporter did not stop within its deadline")
         self._thread = None
-        # A stopped interval is not a sub-second continuation window; the
-        # next cycle must refetch the archive head.
         self._continuation_head = None
 
     def durable_status(
@@ -1035,8 +988,6 @@ class AuditExporter:
         }
 
     def observation_volatile_status(self) -> dict[str, object]:
-        """Return volatile status without exposing sink-controlled exception text."""
-
         with self._status_lock:
             last_success_ns = self._last_success_ns
             stalled_for_s = max(0.0, time.monotonic() - self._last_progress_monotonic)

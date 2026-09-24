@@ -1,10 +1,6 @@
-"""Home-scoped development agent for the three-host Linux experiment.
-
-This module is uploaded separately from the tracked LETS source archive.  It
-uses the real LETS service, SQLite storage, and executor receipt-claim paths,
-but its small authenticated HTTP transport is only an experiment harness.  In
-particular, the link gate below injects an *application-path* partition; it is
-not a kernel firewall or a physical network partition.
+"""Home-scoped HTTP agent uploaded to each NSDI three-host node: runs the real LETS
+service, storage, and executor paths behind a small authenticated transport, its link
+gate simulating the partition remote_three_host.py drives.
 """
 
 from __future__ import annotations
@@ -176,8 +172,6 @@ class AgentConfig:
 
 
 class NodeState:
-    """One real local warden and one real local executor claim database."""
-
     def __init__(self, config: AgentConfig) -> None:
         self.config = config
         self.clock = SystemClock()
@@ -597,7 +591,7 @@ class Handler(BaseHTTPRequestHandler):
     server: AgentServer
 
     def log_message(self, _format: str, *_args: object) -> None:
-        # The default includes client IPs.  Never put addresses into the agent log.
+        # Suppressed: default access log would include client IPs
         return
 
     def _authorized(self) -> bool:
@@ -750,8 +744,6 @@ class Handler(BaseHTTPRequestHandler):
 def serve(config_path: Path) -> None:
     config = AgentConfig.load(config_path)
     state = NodeState(config)
-    # Only SSH-local loopback is exposed. Cross-host experiment traffic reaches
-    # this listener through the controller's two-session SSH byte relay.
     server = AgentServer(("127.0.0.1", config.port), Handler)
     server.state = state
     try:

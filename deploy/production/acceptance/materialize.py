@@ -1,4 +1,7 @@
-"""Create ephemeral PKI, trust, JWT, and external-signer acceptance material."""
+"""Creates ephemeral PKI, trust bundles, JWT material, and an external-signer helper for
+production-profile LETS acceptance runs, writing signed manifests via
+src/lets/manifest.py.
+"""
 
 from __future__ import annotations
 

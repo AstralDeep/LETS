@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/remote_matched_host.py: SSH host-key pinning,
+guarded remote paths, exclusive SFTP upload, and sanitizing addresses/users/secrets
+out of retained benchmark evidence and recovery scans.
+"""
+
 from __future__ import annotations
 
 import base64

@@ -1,3 +1,8 @@
+"""Tests for cli.py's recovery and migration commands: exact headroom accounting,
+crash-window resumability of sidecar quarantine and schema migration, and that
+production init/serve require an external provider and signed manifest.
+"""
+
 from __future__ import annotations
 
 import json
@@ -126,8 +131,6 @@ def test_sidecar_quarantine_resume_closes_both_crash_windows(
     payload = (suffix.encode("ascii") + b"-durable-sidecar") * 64
     sidecar.write_bytes(payload)
 
-    # Crash after quarantine publication but before source unlink: both files
-    # are present. Exact equality permits the resumable unlink; drift fences.
     install_verified_artifact(sidecar, preserved)
     preserve_and_remove_artifact(sidecar, preserved)
     assert not sidecar.exists()
@@ -137,8 +140,6 @@ def test_sidecar_quarantine_resume_closes_both_crash_windows(
         preserve_and_remove_artifact(sidecar, preserved)
     sidecar.unlink()
 
-    # Crash after unlink but before its directory fsync: retry sees the durable
-    # quarantine copy and absent source and converges without changing bytes.
     second_sidecar = Path(f"{state / 'second.sqlite3'}{suffix}")
     second_preserved = quarantine / second_sidecar.name
     second_sidecar.write_bytes(payload)
@@ -468,7 +469,6 @@ def test_recovery_bundle_rejects_tampering_and_unlisted_files(tmp_path: Path) ->
         "warden.sqlite3",
     }
 
-    # A source changed after manifest verification must never be published.
     core_artifact = bundle.root / "warden.sqlite3"
     original_core = core_artifact.read_bytes()
     core_artifact.chmod(stat.S_IREAD | stat.S_IWRITE)
@@ -484,8 +484,6 @@ def test_recovery_bundle_rejects_tampering_and_unlisted_files(tmp_path: Path) ->
     core_artifact.write_bytes(original_core)
     core_artifact.chmod(stat.S_IREAD)
 
-    # Schema-2 bundles reject mixed legacy replay authority artifacts. Replay
-    # protection is part of the anchored core database after cutover.
     install_verified_artifact(replay, bundle.root / "peer-replay.sqlite3")
     with pytest.raises(ValidationError, match="unlisted"):
         verify_recovery_bundle(bundle.root)
@@ -598,8 +596,6 @@ def test_schema_migration_resume_converges_after_post_commit_anchor_failure(
     assert read_sqlite_header(core)[1] == 1
     assert not backup.exists()
 
-    # The current peer envelope is valid for at most twice the 30-second skew
-    # window. This exact fixture expires at +30 seconds.
     monkeypatch.setattr(cli_module.time, "time", lambda: float(migration_now_s + 31))
     original_set_runtime_mode = WardenService.set_runtime_mode
     injected = False
@@ -639,10 +635,6 @@ def test_schema_migration_resume_converges_after_post_commit_anchor_failure(
         def read_current(self) -> AuthorityCheckpoint:
             return self.delegate.read_current()
 
-    # Once the schema-1 peer envelope validity window has elapsed, migration
-    # binds the exact frozen legacy artifact and floor without an unbounded
-    # nonce import. A crash after that core COMMIT but before anchor bootstrap
-    # leaves a resumable DATABASE_MIGRATED journal.
     selected_anchor[0] = FailAnchorBootstrapOnce(FileAuthorityAnchor(anchor_path))
     with pytest.raises(StorageError, match="after replay import before anchor"):
         _migrate(config_path, resume)
@@ -659,8 +651,6 @@ def test_schema_migration_resume_converges_after_post_commit_anchor_failure(
         == "COMPLETE"
     )
 
-    # Repeating a completed resume is an idempotent anchor reconciliation and
-    # never reinitializes authority or activates the node.
     anchor_before = anchor_path.read_bytes()
     assert _migrate(config_path, resume) == 0
     assert anchor_path.read_bytes() == anchor_before

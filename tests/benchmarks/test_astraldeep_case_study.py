@@ -1,3 +1,8 @@
+"""Tests for the AstralDeep case-study benchmark harness (benchmarks/astraldeep/):
+execution-identity binding, clean-checkout provenance requirements, the full scenario
+matrix, and fail-closed rejection of fabricated or malformed evidence.
+"""
+
 from __future__ import annotations
 
 import copy

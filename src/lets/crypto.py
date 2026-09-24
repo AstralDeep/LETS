@@ -1,4 +1,7 @@
-"""Ed25519 signing identities and peer trust registry."""
+"""Ed25519 signing identities and the PublicKeyRegistry trust map that validates a
+warden's keys against a declared validity interval. executor.py and peer.py build
+their trust checks on this registry; cli.py loads warden keys through it.
+"""
 
 from __future__ import annotations
 
@@ -21,8 +24,6 @@ from lets.vector import MAX_RESOURCE
 
 
 class Ed25519Signer:
-    """Stable warden signing identity backed by a 32-byte private seed."""
-
     def __init__(self, warden_id: str, private_key: SigningKey) -> None:
         self.warden_id = require_warden_id(warden_id)
         self._private_key = private_key
@@ -84,11 +85,6 @@ class Ed25519Signer:
         *,
         overwrite: bool = False,
     ) -> None:
-        """Atomically write a raw seed for development/bootstrap use.
-
-        Production deployments should inject a hardware or external key provider.
-        """
-
         destination = Path(path).resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
         if destination.exists() and not overwrite:
@@ -120,8 +116,6 @@ class Ed25519Signer:
 
 
 class PublicKeyRegistry:
-    """Explicit `(warden_id, key_id)` trust map with conflict detection."""
-
     def __init__(self, *, clock: Clock | None = None) -> None:
         self._clock = SystemClock() if clock is None else clock
         self._keys: dict[
@@ -197,16 +191,12 @@ class PublicKeyRegistry:
             return False
 
     def key_validity(self, warden_id: str, key_id: str) -> tuple[int | None, int | None]:
-        """Return the configured half-open validity interval for one trusted key."""
-
         entry = self._keys.get((warden_id, key_id))
         if entry is None:
             raise SignatureError(f"untrusted key {(warden_id, key_id)!r}")
         return entry[2], entry[3]
 
     def require_current(self, warden_id: str, key_id: str) -> None:
-        """Fail unless the full declared clock interval is inside the key interval."""
-
         entry = self._keys.get((warden_id, key_id))
         if entry is None:
             raise SignatureError(f"untrusted key {(warden_id, key_id)!r}")
@@ -216,8 +206,6 @@ class PublicKeyRegistry:
             )
 
     def require_current_warden(self, warden_id: str) -> None:
-        """Fail unless a warden has at least one currently valid verification key."""
-
         checked = require_warden_id(warden_id)
         if not any(
             identity[0] == checked and self._entry_is_current(entry)
@@ -255,13 +243,6 @@ class PublicKeyRegistry:
         return entry[0]
 
     def trust_digest(self) -> bytes:
-        """Canonical digest of every admitted key, identity, and validity bound.
-
-        Protected executors bind this value into their external replay anchor so
-        a restored verifier cannot substitute key bytes or silently widen trust
-        while retaining the same warden identifiers.
-        """
-
         keys = [
             {
                 "warden_id": warden_id,

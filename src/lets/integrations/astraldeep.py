@@ -1,4 +1,7 @@
-"""Thin AstralDeep profile with no imports from the AstralDeep repository."""
+"""AstralDeep-specific LETS policy profile: maps Astral tool scopes to LETS policy names
+via AstralDeepAuthorizer, built on integrations/ports.py's ReplicaAuthorizer without
+importing anything from the AstralDeep repository.
+"""
 
 from __future__ import annotations
 
@@ -25,8 +28,6 @@ ASTRAL_TOOL_SCOPES = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class AstralDeepProfile:
-    """Explicit mapping from Astral scopes into declared LETS policy names."""
-
     scope_capabilities: Mapping[str, str]
     scope_transitions: Mapping[str, str]
 
@@ -42,14 +43,6 @@ class AstralDeepProfile:
 
 
 class AstralDeepAuthorizer:
-    """Translate already-mediated Astral lifecycle/tool events into LETS calls.
-
-    AstralDeep remains responsible for human identity, RFC 8693 attenuation,
-    owner isolation, PHI/egress policy, confirmations, and its own audit chain.
-    This adapter adds quantitative lineage escrow; it does not replace or
-    weaken any Astral gate.
-    """
-
     def __init__(self, authorizer: ReplicaAuthorizer, profile: AstralDeepProfile) -> None:
         self.authorizer = authorizer
         self.profile = profile

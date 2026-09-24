@@ -1,13 +1,6 @@
-"""Measure LETS durable-path cost across delay, concurrency, and storage matrices.
-
-The runner deliberately stays below any host integration.  Enforce-mode samples
-exercise the real :class:`SQLiteStorage`, :class:`WardenService`,
-:class:`ReceiptVerifier`, and :class:`SQLiteReceiptReplayStore`; off-mode samples
-execute the identical synthetic actuator without an authorization or claim.
-
-Each measured worker owns an independent lease while all workers in a trial
-share one warden database and one executor replay database.  Raw observations
-are retained so every reported percentile can be independently recomputed.
+"""Measures LETS durable-path cost across delay, concurrency, and storage matrices,
+exercising the real SQLiteStorage/WardenService/ReceiptVerifier stack in enforce mode
+against an identical synthetic actuator in off mode.
 """
 
 from __future__ import annotations
@@ -603,8 +596,6 @@ def run_matrix(
     storage_roots: Sequence[Path],
     configuration: MatrixConfiguration,
 ) -> dict[str, Any]:
-    """Execute a complete matrix and return a JSON-serializable evidence document."""
-
     _validate_configuration(configuration)
     if not storage_roots:
         raise ValueError("at least one storage root is required")
@@ -749,8 +740,6 @@ def write_outputs(
     *,
     overwrite: bool = False,
 ) -> tuple[Path, Path, Path]:
-    """Write JSON, raw CSV, and Markdown, refusing replacement by default."""
-
     targets = (output / OUTPUT_JSON, output / OUTPUT_CSV, output / OUTPUT_MARKDOWN)
     existing = [path for path in targets if path.exists()]
     if existing and not overwrite:

@@ -1,14 +1,6 @@
-"""External monotonic authority anchors for stale-state fencing.
-
-The LETS database is internally crash safe, but a byte-for-byte older backup is
-also internally valid.  An authority anchor lives outside that backup domain and
-records the latest committed audit/state head.  A warden checks the anchor before
-and after every transaction, so an older restored database cannot silently revive
-previously consumed capacity.
-
-The file implementation is suitable when the file is placed on independently
-protected durable storage.  Higher-assurance deployments can implement the same
-protocol with a hardware monotonic counter or conditional remote record.
+"""Monotonic authority anchor that fences stale-but-valid database restores outside
+SQLite's rollback domain. storage/sqlite.py and cli.py check it around every
+transaction; blocking file I/O runs in a killable helper process.
 """
 
 from __future__ import annotations
@@ -41,8 +33,6 @@ _MOVEFILE_WRITE_THROUGH = 0x8
 
 
 def _durable_move(source: str, target: Path, *, exclusive: bool) -> None:
-    """Publish one already-fsynced file with durable directory-entry semantics."""
-
     if os.name == "nt":
         ctypes = importlib.import_module("ctypes")
 
@@ -92,8 +82,6 @@ def _digest(value: object, field: str) -> bytes:
 
 @dataclass(frozen=True, slots=True)
 class AuthorityCheckpoint:
-    """A monotonic, identity-bound summary of committed authority state."""
-
     warden_id: str
     tenant_id: str
     envelope_id: str
@@ -228,15 +216,6 @@ class AuthorityCheckpoint:
 
 
 class AuthorityAnchor(Protocol):
-    """Linearizable CAS state outside the database rollback domain.
-
-    Implementations MUST serialize contenders, compare the durable head inside
-    that serialization boundary, and advance it atomically.  A check followed by
-    an unconditional write is not a conforming implementation.  Reconciliation
-    is synchronous and MUST either complete or raise within the deployment's
-    configured authority-anchor timeout; an unbounded remote call is invalid.
-    """
-
     def reconcile(
         self,
         checkpoint: AuthorityCheckpoint,
@@ -246,9 +225,7 @@ class AuthorityAnchor(Protocol):
         allow_schema_upgrade: bool = False,
     ) -> None: ...
 
-    def read_current(self) -> AuthorityCheckpoint:
-        """Return the durable head without advancing it, within the same timeout."""
-        ...
+    def read_current(self) -> AuthorityCheckpoint: ...
 
 
 def _require_identity(anchored: AuthorityCheckpoint, current: AuthorityCheckpoint) -> None:
@@ -263,8 +240,6 @@ def _requires_advance(
     audit_hash_at: Callable[[int], bytes | None],
     allow_schema_upgrade: bool,
 ) -> bool:
-    """Validate an anchored head and report whether its CAS record must advance."""
-
     _require_identity(anchored, checkpoint)
     schema_upgrade = checkpoint.schema_version != anchored.schema_version
     if checkpoint.schema_version < anchored.schema_version:
@@ -306,13 +281,6 @@ def _requires_advance(
 
 
 class FileAuthorityAnchor:
-    """Atomic, cross-process serialized authority anchor stored in one file.
-
-    The containing directory must be in an independent, non-rollback failure
-    domain.  Copying this file into the same snapshot as the warden database
-    defeats stale-restore detection.
-    """
-
     def __init__(self, path: str | os.PathLike[str], *, timeout_s: float = 5.0) -> None:
         self._path = Path(path).resolve()
         if self._path == self._path.parent:
@@ -463,14 +431,6 @@ class _HelperSpawnAttempt:
 
 
 class ProcessFileAuthorityAnchor:
-    """File anchor whose blocking I/O is isolated behind a killable helper.
-
-    Ordinary file APIs cannot cancel a stuck read or ``fsync``.  Production
-    callers therefore execute each lock/read/CAS operation in a short-lived
-    helper process and enforce one total reconciliation deadline in the parent.
-    The helper uses the same atomic file format as :class:`FileAuthorityAnchor`.
-    """
-
     def __init__(
         self,
         path: str | os.PathLike[str],
@@ -577,8 +537,6 @@ class ProcessFileAuthorityAnchor:
                 process.stdout.close()
 
     def close(self) -> None:
-        """Stop the isolated I/O helper; safe to call more than once."""
-
         self._cancel_spawn()
         with self._process_lock:
             self._stop_helper()
@@ -586,8 +544,6 @@ class ProcessFileAuthorityAnchor:
 
     @staticmethod
     def _dispose_unadopted_helper(process: subprocess.Popen[bytes]) -> None:
-        """Best-effort cleanup owned by the daemon spawn worker."""
-
         with suppress(OSError):
             if process.stdin is not None:
                 process.stdin.close()
@@ -621,7 +577,7 @@ class ProcessFileAuthorityAnchor:
                 stderr=subprocess.DEVNULL,
                 bufsize=0,
             )
-        except BaseException as exc:  # relayed to the owning caller
+        except BaseException as exc:
             error = exc
         with attempt.lock:
             attempt.process = process
@@ -691,7 +647,7 @@ class ProcessFileAuthorityAnchor:
             if error is not None:
                 attempt.cancelled = True
                 attempt.decision.set()
-            elif process is None:  # pragma: no cover - internal invariant
+            elif process is None:  # pragma: no cover
                 attempt.cancelled = True
                 attempt.decision.set()
                 raise RuntimeError("authority anchor helper spawn returned no result")
@@ -930,9 +886,7 @@ class ProcessFileAuthorityAnchor:
             operation=operation,
             request_flushed=request_flushed,
             mutation_uncertain=mutation_uncertain,
-            # This check runs after _invoke has released the helper lock.  A
-            # concurrent caller may already have replaced the helper epoch, so
-            # attributing mutable process metadata here would be misleading.
+            # Lock already released; a newer helper epoch may exist now
             process=None,
         )
 
@@ -1059,13 +1013,6 @@ class ProcessFileAuthorityAnchor:
         return checkpoint
 
     def _confirm_before_deadline(self, checkpoint: AuthorityCheckpoint, *, deadline: float) -> None:
-        """Durably rewrite an exact head after an uncertain mutating reply.
-
-        A plain read cannot prove that a helper completed the file and directory
-        durability barriers before its response was lost.  ``confirm`` performs
-        an exact compare and repeats those barriers while holding the file lock.
-        """
-
         response = self._invoke(
             {"operation": "confirm", "checkpoint": checkpoint.to_dict()},
             deadline=deadline,
@@ -1093,8 +1040,6 @@ class ProcessFileAuthorityAnchor:
         initialize: bool = False,
         allow_schema_upgrade: bool = False,
     ) -> None:
-        """Reconcile and durably confirm within one configured absolute deadline."""
-
         deadline = time.monotonic() + self._timeout_s
         self._reconcile_before_deadline(
             checkpoint,

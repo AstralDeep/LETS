@@ -1,4 +1,7 @@
-"""Immutable, content-addressed LETS policy and state-machine definitions."""
+"""Content-addressed, immutable policy and state-machine definitions (PolicySpec,
+MachineSpec) plus the fail-closed EvidenceRule expression evaluator. service.py
+registers and enforces these; manifest.py and api.py reference policy digests.
+"""
 
 from __future__ import annotations
 
@@ -25,8 +28,6 @@ MAX_TRANSFER_GAP_WINDOW = 1_048_576
 
 
 class _EvidenceResult(Enum):
-    """Internal three-valued result for fail-closed evidence composition."""
-
     ALLOW = auto()
     DENY = auto()
     INVALID = auto()
@@ -61,8 +62,6 @@ class ResourceDimension:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceRule:
-    """Closed, non-executable evidence expression tree."""
-
     op: str
     path: str | None = None
     value: Any = field(default=_MISSING, repr=False)
@@ -289,14 +288,6 @@ def _evidence_result(
     subject_id: str,
     audience: str,
 ) -> _EvidenceResult:
-    """Evaluate one validated rule without collapsing invalid input into denial.
-
-    Collapsing ``INVALID`` to ``DENY`` inside the expression tree is unsafe:
-    ``not DENY`` becomes an authorization.  Invalid results therefore propagate
-    through every Boolean combinator and are converted to denial only at the
-    public boundary.
-    """
-
     if expression.op in _BOOLEAN_OPS:
         results = tuple(
             _evidence_result(
@@ -405,8 +396,6 @@ def evaluate_evidence(
     subject_id: str,
     audience: str,
 ) -> bool:
-    """Evaluate the closed expression language; malformed input fails closed."""
-
     if rule is None:
         return True
     try:
@@ -414,9 +403,7 @@ def evaluate_evidence(
         facts = {} if evidence is None else evidence
         if not isinstance(expression, EvidenceRule) or not isinstance(facts, dict):
             return False
-        # Reject a malformed fact anywhere in the supplied evidence object.  The
-        # HTTP boundary already guarantees LETS-CJ/1, while direct embeddings get
-        # the same fail-closed behavior instead of path-dependent validation.
+        # Discarded call: fails closed on any malformed fact first
         canonical_json(facts)
         result = _evidence_result(
             expression,

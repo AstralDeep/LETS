@@ -1,3 +1,8 @@
+"""Tests for benchmarks/nsdi_strengthening/vector_workload.py: heterogeneous
+multidimensional policy costs and that the real vector workload conserves each
+resource dimension while retaining its debit.
+"""
+
 from __future__ import annotations
 
 import csv

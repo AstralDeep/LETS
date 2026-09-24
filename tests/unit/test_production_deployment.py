@@ -1,3 +1,8 @@
+"""Tests for deploy/production/ hardening tooling: pinned nonroot images, compose
+network/mount isolation across rollback domains, filesystem headroom accounting, and
+rejection of symlinked or interpreter-controlled security inputs.
+"""
+
 from __future__ import annotations
 
 import ast
@@ -43,8 +48,6 @@ def _release_soak_verifier_script() -> str:
 
 
 def _release_soak_verifier_namespace() -> dict[str, Any]:
-    """Load only the workflow's independent verifier helpers into empty globals."""
-
     tree = ast.parse(_release_soak_verifier_script())
     assignments = {
         "authority_counter_fields",

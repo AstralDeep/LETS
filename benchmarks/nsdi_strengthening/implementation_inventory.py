@@ -1,4 +1,6 @@
-"""Generate an exact, evidence-linked implementation and TCB source inventory."""
+"""Generates an exact, evidence-linked implementation and TCB source inventory for LETS,
+writing JSON and Markdown reports from Git-tracked file records.
+"""
 
 from __future__ import annotations
 
@@ -222,8 +224,6 @@ def _fact(root: Path, specification: Mapping[str, Any]) -> dict[str, object]:
 
 
 def generate_inventory(root: Path | None = None) -> dict[str, object]:
-    """Return exact source counts and verified implementation facts."""
-
     repository = Path(__file__).resolve().parents[2] if root is None else root.resolve(strict=True)
     source_root = repository / "src" / "lets"
     if not source_root.is_dir():

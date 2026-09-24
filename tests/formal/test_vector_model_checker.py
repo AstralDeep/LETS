@@ -1,3 +1,8 @@
+"""Tests for formal/vector_model_checker.py: baseline coverage of vector actions and
+invariants, shortest counterexample for a cross-dimension mutant, and JSON/Markdown
+CLI output that refuses silent overwrite.
+"""
+
 import json
 from pathlib import Path
 
