@@ -47,7 +47,9 @@ CI_TOOL_INSTALL = (
     "uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt"
 )
 CHANGED_COVERAGE_REPORT = "--format json:changed-coverage-report.json"
-CHANGED_COVERAGE_BASE = "BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}"
+CHANGED_COVERAGE_BASE = (
+    "BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base_sha }}"
+)
 CHANGED_COVERAGE_GATE = (
     '.ci-tools/bin/diff-cover coverage.xml --compare-branch "$BASE_SHA" '
     "--diff-range-notation '..' --fail-under=90 --format json:changed-coverage-report.json "
@@ -126,6 +128,10 @@ def _assert_ci_contract(text: str) -> None:
     assert trigger_names == EXPECTED_TRIGGERS
     push = re.search(r"(?ms)^  push:\s*\n(?P<body>(?: {4}.*\n?)*)", triggers)
     assert push is not None and re.search(r"(?m)^    branches: \[main\]$", push["body"])
+    dispatch = re.search(r"(?ms)^  workflow_dispatch:\s*\n(?P<body>(?: {4}.*\n?)*)", triggers)
+    assert dispatch is not None
+    assert re.search(r"(?m)^      base_sha:$", dispatch["body"])
+    assert re.search(r"(?m)^        required: true$", dispatch["body"])
 
     permissions = _top_level_block(text, "permissions")
     permission_pairs = dict(re.findall(r"(?m)^  ([A-Za-z0-9_-]+):\s*(\S+)\s*$", permissions))

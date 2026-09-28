@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Exact base commit for changed-line coverage on a manual run
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -40,7 +45,7 @@ jobs:
         run: uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt
       - name: Enforce and record changed executable-line coverage against the pull-request or pushed base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base_sha }}
         run: |
           set -euo pipefail
           if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || "$BASE_SHA" =~ ^0{40}$ ]]; then
