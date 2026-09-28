@@ -46,6 +46,11 @@ REQUIRED_NEEDS = {"quality", "test", "distributed-acceptance"}
 CI_TOOL_INSTALL = (
     "uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt"
 )
+CHANGED_COVERAGE_REPORT = "--format json:changed-coverage-report.json"
+CHANGED_COVERAGE_DECISION = (
+    "run: .ci-tools/bin/python scripts/check_changed_coverage.py "
+    "--report changed-coverage-report.json --compare-branch origin/main "
+)
 
 
 def _top_level_block(text: str, key: str) -> str:
@@ -135,9 +140,23 @@ def _assert_ci_contract(text: str) -> None:
     threshold = re.search(r"--fail-under=([0-9]+)", changed_coverage)
     assert threshold is not None and int(threshold.group(1)) >= 90
     assert "--omit" not in changed_coverage
+    assert changed_coverage.endswith(f" {CHANGED_COVERAGE_REPORT}")
     assert quality.index(tool_environment) < quality.index(CI_TOOL_INSTALL)
     assert quality.index(CI_TOOL_INSTALL) < quality.index(changed_coverage)
     assert "uv run --frozen diff-cover" not in quality
+
+    assert quality.count("scripts/check_changed_coverage.py") == 1
+    decision = next(
+        (line.strip() for line in quality.splitlines() if "check_changed_coverage.py" in line),
+        None,
+    )
+    assert decision is not None
+    assert decision.startswith(CHANGED_COVERAGE_DECISION)
+    decision_threshold = re.search(r" --fail-under ([0-9]+) ", decision)
+    assert decision_threshold is not None and int(decision_threshold.group(1)) >= 90
+    assert decision.endswith(" --output changed-coverage-decision.json")
+    assert quality.index(changed_coverage) < quality.index(decision)
+    assert quality.index(decision) < quality.index("run: uv build")
 
     required = jobs["required"]
     assert re.search(r"(?m)^    if: \$\{\{ always\(\) \}\}$", required)
@@ -188,6 +207,11 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         ('          - os: ubuntu-latest\n            python: "3.13"', ""),
         ("--fail-under=90", "--fail-under=89"),
         ("--require-hashes", "--no-verify-hashes"),
+        (" --format json:changed-coverage-report.json", ""),
+        ("--fail-under 90", "--fail-under 89"),
+        (".ci-tools/bin/python scripts/", "python3 scripts/"),
+        ("scripts/check_changed_coverage.py", "scripts/generate_openapi.py"),
+        ("--output changed-coverage-decision.json", "--output /dev/null"),
         ("needs.test.result", "needs.quality.result"),
         ("timeout-minutes: 30", "timeout-minutes: 45"),
         ("timeout-minutes: 5", "timeout-minutes: 15"),
@@ -200,6 +224,11 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         "supported-matrix",
         "changed-coverage-threshold",
         "changed-coverage-hashes",
+        "changed-coverage-report",
+        "changed-coverage-decision-threshold",
+        "changed-coverage-decision-isolation",
+        "changed-coverage-decision-step",
+        "changed-coverage-decision-record",
         "aggregate-dependency",
         "job-timeout-budget",
         "required-timeout-budget",

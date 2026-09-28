@@ -26,6 +26,10 @@ image together; the Git tag is the package version prefixed with `v`.
 
 - Removed the mandatory production soak from release qualification, together with its harness,
   verifier and tests; image promotion now depends on production acceptance only.
+- CI now records its changed-line coverage decision. A change with no executable lines in the
+  measured packages produces an explicit not-applicable record naming the merge-base, candidate
+  commit, and changed paths instead of passing silently, and a change with measurable lines still
+  fails below 90%.
 
 ## [1.0.11] - 2026-08-21
 

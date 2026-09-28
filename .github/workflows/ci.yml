@@ -39,7 +39,9 @@ jobs:
       - name: Install changed-coverage tooling from the immutable lock
         run: uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt
       - name: Enforce changed executable-line coverage
-        run: .ci-tools/bin/diff-cover coverage.xml --compare-branch origin/main --fail-under=90
+        run: .ci-tools/bin/diff-cover coverage.xml --compare-branch origin/main --fail-under=90 --format json:changed-coverage-report.json
+      - name: Record the changed-coverage decision, including an explicit not-applicable outcome
+        run: .ci-tools/bin/python scripts/check_changed_coverage.py --report changed-coverage-report.json --compare-branch origin/main --fail-under 90 --output changed-coverage-decision.json
       - run: uv build
 
   test:

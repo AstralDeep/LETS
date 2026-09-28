@@ -10,6 +10,8 @@ __pycache__/
 .coverage.*
 htmlcov/
 coverage.xml
+changed-coverage-report.json
+changed-coverage-decision.json
 
 # Python environments and packaging
 .venv/
