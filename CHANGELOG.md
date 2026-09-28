@@ -14,6 +14,11 @@ image together; the Git tag is the package version prefixed with `v`.
   with "configured peer endpoints do not exactly match the signed manifest" (found while
   commissioning the AstralDeep sandbox warden, 2026-08-23).
 
+### Changed
+
+- Removed the mandatory production soak from release qualification, together with its harness,
+  verifier and tests; image promotion now depends on production acceptance only.
+
 ## [1.0.11] - 2026-08-21
 
 ### Changed
