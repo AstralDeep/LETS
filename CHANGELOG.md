@@ -5,6 +5,8 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.0.12] - 2026-09-28
+
 ### Added
 
 - A separate NSDI evidence scope record, `results/nsdi-evidence-scope-2026-09-28.json`, records
@@ -12,6 +14,10 @@ image together; the Git tag is the package version prefixed with `v`.
   commits changed each path, and whether behavior changed. The sealed bundles are unchanged; the
   only drift in `formal/sensitivity_frontier.py` is docstring removal, which leaves its analysis
   identical.
+- Research tooling outside the shipped package: the AstralDeep case-study harness
+  (`benchmarks/astraldeep/`), the NSDI reproducibility harnesses (`benchmarks/nsdi_strengthening/`),
+  and the formal analyzers `formal/sensitivity_frontier.py` and `formal/vector_model_checker.py`,
+  with their sealed evidence bundles and scope records under `results/`.
 
 ### Fixed
 
@@ -36,6 +42,34 @@ image together; the Git tag is the package version prefixed with `v`.
   `--help` description explicitly instead of reusing their module docstring, and the production
   Compose files open with a short header. Tools whose bytes are bound by sealed NSDI evidence are
   unchanged.
+- Refreshed the image and build inputs: the pinned Python 3.14 Alpine base digest, the
+  libcrypto3/libssl3 3.5.8-r0 and libuuid 2.42.3-r1 security backports, the acceptance image's
+  openssl 3.5.8-r0, uv 0.12.19, and the uv_build 0.12.18 build backend. The locked core, server,
+  and client dependency closure is unchanged; only the development tools hypothesis, mypy, and ruff
+  moved.
+- CI verifies the signed v1.0.11 comparison anchor before tests, requires every owner gate through
+  one aggregate, and caps each job at 30 minutes. The repository is governed by the LETS
+  constitution v1.0.0, and its source follows the self-documenting convention; that conversion
+  changed docstrings and comments only.
+
+### Compatibility, migration, and rollback
+
+- The wire contracts (`lets.receipt/v1`, `lets.lease-grant/v1`, `lets.manifest/v1`), `API_VERSION`
+  `v1` and the HTTP API, the warden storage schema (version 2), and the executor replay schema
+  (version 5) are unchanged from v1.0.11. The committed `protocol/openapi.yaml` differs from
+  v1.0.11 only in `info.version`, and the public client, executor, authorizer, and receipt exports
+  and the AstralDeep tool scope profile are unchanged.
+- No data, schema, or configuration migration is required. `init` now always writes
+  `peer_endpoints`, and `serve` also accepts a config that omits it when the signed manifest names
+  no other warden. LETS v1 still forbids a mixed-version cluster, so upgrade through the documented
+  drain, stop-the-world replacement, verification, and activation procedure.
+- The approved binary rollback target is the promoted v1.0.11 image
+  `ghcr.io/astraldeep/lets@sha256:73f6b442df0a849f1d8cf6e13e29ff8b23bf515aae2d34cfc56bac7ccc60774c`,
+  which is compatible with v1.0.12 state because no storage, replay, or audit schema changed. Drain
+  and stop the whole cluster, redeploy that digest to every node, and verify and activate it
+  through the same procedure. v1.0.11 refuses a single-warden config that omits `peer_endpoints`,
+  so restage such a config with an explicit empty map before rolling back. Never move or reuse a
+  signed tag.
 
 ## [1.0.11] - 2026-08-21
 
@@ -724,7 +758,8 @@ image together; the Git tag is the package version prefixed with `v`.
   Roll back deployment configuration or binaries only while their schema/protocol compatibility is
   proven, otherwise recover forward with a patch release.
 
-[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.11...HEAD
+[Unreleased]: https://github.com/AstralDeep/LETS/compare/v1.0.12...HEAD
+[1.0.12]: https://github.com/AstralDeep/LETS/compare/v1.0.11...v1.0.12
 [1.0.11]: https://github.com/AstralDeep/LETS/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/AstralDeep/LETS/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/AstralDeep/LETS/compare/v1.0.8...v1.0.9

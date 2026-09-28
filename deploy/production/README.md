@@ -439,9 +439,9 @@ cluster before restoring traffic. Do not restore a database behind its monotonic
 v1.0.1 through v1.0.9 tags were never promoted and are not rollback artifacts; v1.0.0 lacks later
 production defenses. The v1.0.10 GitHub release published package and local acceptance assets but
 did not promote an OCI image. Therefore v1.0.11 has no approved earlier binary rollback target.
-Recover forward with a patch release unless future release notes explicitly name a compatible
-published digest. A restore is admitted only while fenced and only when the live anchor proves the
-bundle cannot resurrect spent authority.
+Recover forward with a patch release unless the release notes explicitly name a compatible
+published digest; the v1.0.12 notes name the promoted v1.0.11 digest. A restore is admitted only
+while fenced and only when the live anchor proves the bundle cannot resurrect spent authority.
 
 ## Provider integration boundary
 

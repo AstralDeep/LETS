@@ -288,10 +288,11 @@ inspect every node while still drained, then activate only after the cluster is 
 v1.0.1 through v1.0.9 tags are unpromoted candidates, not approved rollback artifacts, and v1.0.0
 lacks later production defenses. The v1.0.10 GitHub release published package and local acceptance
 assets but did not promote an OCI image. Consequently v1.0.11 has no approved earlier binary
-rollback target: fence affected nodes and recover forward with a patch release. A database rollback
-additionally requires fencing the old and new node instances and proving that no authority
-transition committed after the backup. `recovery restore` reconciles against the live monotonic
-anchor and fails closed when that proof is absent.
+rollback target: fence affected nodes and recover forward with a patch release. The v1.0.12 release
+notes name the promoted v1.0.11 image digest as its approved, schema-compatible rollback target. A
+database rollback additionally requires fencing the old and new node instances and proving that no
+authority transition committed after the backup. `recovery restore` reconciles against the live
+monotonic anchor and fails closed when that proof is absent.
 
 Treat the staged `LETS_CONFIG_FILE` as a release input. Do not edit it in place. If an approved
 upgrade changes provider options or another configuration field, stage an exclusive new file with
