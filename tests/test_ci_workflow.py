@@ -18,7 +18,7 @@ CI_TOOL_INPUT_PATH = ROOT / "tooling" / "python-ci" / "requirements.in"
 CI_TOOL_LOCK_PATH = ROOT / "tooling" / "python-ci" / "requirements.lock.txt"
 
 CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-SETUP_UV_ACTION = "astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4"
+SETUP_UV_ACTION = "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7"
 UPLOAD_ACTION = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 APPROVED_ACTIONS = {
     "actions/checkout": CHECKOUT_ACTION.partition("@")[2],
@@ -104,6 +104,7 @@ def _assert_ci_contract(text: str) -> None:
         block = jobs[job_name]
         assert block.count(CHECKOUT_ACTION) == 1
         assert block.count("fetch-depth: 0") == 1
+        assert "timeout-minutes: 30" in block
 
     anchor_command = (
         "python -m benchmarks.astraldeep.check_version_disposition verify-anchor --repository ."
@@ -140,6 +141,7 @@ def _assert_ci_contract(text: str) -> None:
 
     required = jobs["required"]
     assert re.search(r"(?m)^    if: \$\{\{ always\(\) \}\}$", required)
+    assert "timeout-minutes: 5" in required
     needs = set(re.findall(r"(?m)^      - ([A-Za-z0-9_-]+)$", required))
     assert needs == REQUIRED_NEEDS
     for dependency in REQUIRED_NEEDS:
@@ -187,6 +189,8 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         ("--fail-under=90", "--fail-under=89"),
         ("--require-hashes", "--no-verify-hashes"),
         ("needs.test.result", "needs.quality.result"),
+        ("timeout-minutes: 30", "timeout-minutes: 45"),
+        ("timeout-minutes: 5", "timeout-minutes: 15"),
     ],
     ids=[
         "pull-request-trigger",
@@ -197,6 +201,8 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         "changed-coverage-threshold",
         "changed-coverage-hashes",
         "aggregate-dependency",
+        "job-timeout-budget",
+        "required-timeout-budget",
     ],
 )
 def test_ci_contract_rejects_gate_weakening(old: str, new: str) -> None:
