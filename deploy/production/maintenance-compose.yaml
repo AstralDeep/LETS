@@ -1,3 +1,5 @@
+# Networkless maintenance container that inspects, backs up, verifies, and restores a stopped
+# warden's mounted state, as docs/release.md and deploy/production/README.md describe.
 name: lets-production-maintenance
 
 services:

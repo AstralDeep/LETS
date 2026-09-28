@@ -1,3 +1,5 @@
+# Networkless one-shot container that initializes a new warden's audit archive and node state
+# before first start, as deploy/production/README.md describes.
 name: lets-production-provision
 
 services:

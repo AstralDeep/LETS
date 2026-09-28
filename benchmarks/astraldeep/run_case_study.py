@@ -921,7 +921,12 @@ def _is_ignored_output(repository_root: Path, output_root: Path) -> bool:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the fixed AstralDeep and LETS case-study scenario matrix against the exact Deep "
+            "driver."
+        )
+    )
     parser.add_argument("--mode", required=True, choices=MODES)
     parser.add_argument(
         "--evidence-class",

@@ -81,7 +81,12 @@ def find_violations(repository: Path) -> tuple[str, ...]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Reject secret-like files and broad COPY instructions in the LETS container build "
+            "context."
+        )
+    )
     parser.add_argument(
         "repository",
         nargs="?",

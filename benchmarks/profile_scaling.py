@@ -121,7 +121,11 @@ def profile_scaling(workspace: Path, counts: tuple[int, ...]) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Measure how LETS authorization and integrity-scan latency scale with database size."
+        )
+    )
     parser.add_argument("--counts", type=int, nargs="+", default=(10, 100, 500, 1_000))
     parser.add_argument(
         "--output",

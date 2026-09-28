@@ -708,7 +708,11 @@ def write_results(result: dict[str, Any], output: Path) -> tuple[Path, Path]:
 
 
 def _arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run the LETS authorization, transfer, executor-claim, and concurrency microbenchmarks."
+        )
+    )
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=10)
     parser.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))

@@ -130,7 +130,9 @@ def profile_invariants(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Measure LETS invariant-snapshot latency as the durable lease table grows."
+    )
     parser.add_argument("--counts", type=int, nargs="+", default=(10, 100, 1_000))
     parser.add_argument("--samples", type=int, default=100)
     parser.add_argument(

@@ -869,7 +869,9 @@ def aggregate_case_study(root: Path) -> tuple[dict[str, object], dict[str, objec
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Validate and aggregate the three-mode AstralDeep case-study evidence bundles."
+    )
     parser.add_argument("--evidence-root", required=True, type=Path)
     return parser
 

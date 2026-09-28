@@ -163,7 +163,11 @@ def profile_anchor(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compare an experimental SQLite keeper connection with the baseline authorization path."
+        )
+    )
     parser.add_argument("--trials", type=int, default=4)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--warmup", type=int, default=10)

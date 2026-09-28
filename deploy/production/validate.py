@@ -1145,7 +1145,9 @@ def validate_environment(values: Mapping[str, str]) -> tuple[str, ...]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Validate a fail-closed LETS production Compose environment."
+    )
     parser.add_argument("--env-file", required=True, type=Path)
     arguments = parser.parse_args(argv)
     try:

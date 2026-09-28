@@ -1,3 +1,5 @@
+# Three-warden production-profile acceptance topology built from the Dockerfile's
+# production-acceptance target and driven by deploy/production/run_acceptance.py.
 name: lets-production-acceptance
 
 x-build: &build

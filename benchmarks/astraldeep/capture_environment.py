@@ -1108,7 +1108,9 @@ def _repository_argument(value: str) -> tuple[str, Path]:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description="Capture and validate exact-revision AstralDeep and LETS case-study evidence."
+    )
     parser.add_argument("--run-manifest", required=True, type=Path)
     parser.add_argument("--composition", required=True, type=Path)
     parser.add_argument("--runtime-identities", required=True, type=Path)

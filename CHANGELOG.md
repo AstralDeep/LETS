@@ -30,6 +30,10 @@ image together; the Git tag is the package version prefixed with `v`.
   measured packages produces an explicit not-applicable record naming the merge-base, candidate
   commit, and changed paths instead of passing silently, and a change with measurable lines still
   fails below 90%.
+- The production deployment, case-study, benchmark, and TLC command-line tools state their
+  `--help` description explicitly instead of reusing their module docstring, and the production
+  Compose files open with a short header. Tools whose bytes are bound by sealed NSDI evidence are
+  unchanged.
 
 ## [1.0.11] - 2026-08-21
 

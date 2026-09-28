@@ -141,7 +141,11 @@ def stage_config(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Stage a generated LETS config as an immutable, read-only production runtime input."
+        )
+    )
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--destination", required=True, type=Path)
     arguments = parser.parse_args(argv)

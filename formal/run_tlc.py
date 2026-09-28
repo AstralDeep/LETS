@@ -195,7 +195,12 @@ def run_tlc(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Fetch the pinned TLC jar, verify its digest, and reproduce the finite LETS model "
+            "check."
+        )
+    )
     parser.add_argument(
         "--meta-directory",
         type=Path,

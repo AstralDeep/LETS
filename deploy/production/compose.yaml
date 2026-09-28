@@ -1,3 +1,5 @@
+# Runs one hardened LETS warden per failure domain from an immutable image digest, the staged
+# config, and mTLS secrets; deploy/production/README.md and docs/release.md operate it.
 name: lets-production
 
 services:

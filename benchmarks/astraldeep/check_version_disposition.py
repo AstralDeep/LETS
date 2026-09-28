@@ -503,7 +503,12 @@ def _is_ignored(repository: Path, path: Path) -> bool:
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=(
+            "Verify the signed LETS v1.0.11 anchor, compare a candidate with it, or gate "
+            "case-study result finalization."
+        )
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     verify_anchor = subparsers.add_parser(
         "verify-anchor", help="verify the exact local signed v1.0.11 Git anchor"
