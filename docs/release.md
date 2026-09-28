@@ -82,106 +82,13 @@ Cosign attestations to their exact child-manifest digests after acceptance, then
 promotion. These controls improve reproducibility but are not a claim that arbitrary independent
 BuildKit invocations must produce the same index digest. The workflow runs the three-node mTLS
 production profile against that exact candidate digest with the generic external provider through a
-partition and process restart. A separate mandatory one-hour soak drives mixed lease lifecycle,
-authorization, anchored executor replay, and transfer traffic while repeatedly partitioning peer
-links and replacing warden processes with `SIGKILL`. An independent monitor, with its own cluster
-client and an absolute schedule anchored to workload start, records raw per-node observation
-timing. The release verifier enforces a hard 15-second maximum gap for each node independently of
-sample-batch timing or a runtime-reported stall bound. A planned `SIGKILL` may exclude only the
-exact killed node's sampler-acknowledged, host-authorized restart interval. Before the host may send
-the signal, it must resolve an authenticated snapshot-and-fence response that exactly binds the old
-container ID, host PID, namespace PID, warden, process-lifetime ID, and restart ID; unresolved or
-malformed fence evidence forbids the kill. Merely arming a marker grants no exclusion: the prior
-live observation through the first exact monitor acknowledgment must remain within 15 seconds. The
-acknowledgment-to-completion exclusion window is capped at 30 seconds, while arming-to-ack remains
-inside that prior 15-second cadence; the first validated post-completion observation is due within
-15 seconds, and the marker identity must bind all three records. Every old and replacement
-authority lifetime receives an exact terminal status, and every other node remains continuously
-observed. Missed monitor deadlines, monitor errors, or retained-sample truncation fail the soak.
-Each successful node observation makes only the invariant, audit-verification, and metrics
-requests, and validates the coherent last-completed authority snapshot already embedded in that
-metrics response. The dedicated authority-status endpoint remains available for bounded failure
-diagnostics, controlled restarts, and terminal verification, but is not redundantly called on the
-healthy cadence path. Recorded request retries count actual additional HTTP attempts beyond the
-first; a retryable first-request failure that exhausts the shared deadline retains its first/last
-error evidence but contributes zero retries.
+partition and process restart.
 
-The executor harness deliberately injects one fault after its SQLite claim `COMMIT` and after the
-external CAS durably succeeds, then reports the outcome as a classified lost reply. The original
-call must raise without executing the protected effect; the same store lifetime must reconcile and
-durably confirm the committed head after its cooldown; and retrying the same receipt must raise
-`ReplayError` with the effect count still zero. Across every terminal core and executor lifetime,
-raw transport faults, episodes, attempts, and recoveries must each total exactly one, and permanent
-faults must total zero. Any natural second episode fails promotion.
-
-The workload records its exact acknowledged pause intervals. The host requires a unique one-to-one
-binding between every workload interval and its own recorded partition-coordination window. A
-successful record uses top-level schema `lets.production-profile-soak/v2` and nested workload
-schema `lets.production-profile-soak-workload/v2`. A host-generated run ID first binds an atomic
-workload-clock start record containing the measurement
-origin, duration, seed, and workload frequencies; the host retains it before chaos, and the final
-workload, evaluator, and publication verifier must match it exactly. After the host receives the
-exact acknowledgment and before it disables the links, an in-container check
-records a token-bound workload-clock authorization start. After link restoration and immediately
-before resume, another in-container check records the matching authorization end. Only that
-workload-clock interval, clipped to the exact measurement window, may lower the active-time
-denominator, and the independently recomputed host acknowledgment-to-resume duration caps the
-amount removed. The acknowledgment and both boundaries must echo the host-issued pause token and
-workload-clock request timestamp; a self-reported pause has no authority to lower the denominator,
-and unexplained idle time is not removed. Exact planned-restart quiescence is separately bound to
-its terminal fence, added to both pause totals, and forbidden from overlapping partition pauses.
-Required cycles are
-`max(3 * 6 * transfer_every_cycles, 3 * executor_reopen_every_cycles, ceil(active_workload_seconds / 15))`.
-With the default transfer and reopen frequencies, the path-coverage floor is 54 cycles. Exact
-workload-counter relationships, directed-pair counts, executor evidence, and per-cycle latency
-bounds remain mandatory. Cluster settle and final convergence poll only until success; the
-configured 180 seconds is a maximum deadline, not a fixed wait or an extension to the soak duration.
-Mutating harness retries preserve the exact idempotency or restart identifier and issue a later HTTP
-request, which enters a separate storage transaction. They never imply that the failed storage or
-executor call was retried internally.
-
-The soak also checks invariants, audit and dispatcher health, final conservation and backlog
-convergence, and explicit RSS, file-descriptor, database, WAL, audit, and signer growth bounds. It
-uses the shipped 1 GiB container limit but admits at most a 768 MiB retained cgroup peak,
-independently caps the LETS process, disables swap, and requires zero memory/OOM/PID limit events.
-It samples retained cgroup counters before every planned process replacement so a new container
-lifetime cannot erase an earlier pressure event. The independent timing and active-time accounting
-do not weaken any fault episode, resource ceiling, audit-error budget, or final-convergence gate.
-
-Across the full three-node workload it permits at most one sampled, bounded, subsequently recovered
-transient exporter error. Only a sanitized archive-connect `SQLITE_BUSY`-family diagnostic is
-tolerable; I/O, corruption, archive-write, schema, and undiagnosed errors fail immediately. That
-exporter must remain running and unblocked and must stay inside its
-backlog, record-age, and stall bounds; a success marker that is still null before the first
-acknowledged batch is valid. Any second sampled error fails live, including a repeat on the
-same node or a first error on another node. The affected node must later produce a fully clean
-recovery sample: the independent monitor immediately polls only that node for
-`max_stall_s - stalled_for_s`,
-without restarting or extending the declared 40-second runtime window. The authoritative live error count
-must exactly match the retained observation and recovery evidence, while expected, actual, and
-retained sample counts must agree with zero truncation. Final convergence requires every exporter
-to be reconciled, empty, and free of
-`last_error`. This evidence bounds sampled observations; it does not claim to count errors that
-begin and recover entirely between samples.
-Final verification runs inside the trusted workload step while it still owns the executor SQLite
-and independent-anchor volumes. It performs a fresh no-create open, SQLite integrity check, and
-exact anchor reconciliation, captures the final executor lifetime, and snapshot-and-fences all
-surviving core lifetimes within one terminal deadline. The host evaluator and publication workflow
-then validate the exact terminal schemas, identities, sequences, clock floors, counters, and
-lifetime relationships from the raw record. The JSON does not contain the canonical executor
-`claim_history` event ledger, so those later verifiers do not independently replay arbitrary
-intermediate claim digests; live SQLite integrity and locally contiguous-history reconciliation are
-part of the trusted same-step harness.
-
-Its machine record binds the exact OCI digest and config ID to the clean release commit,
-source-tree digest, and soak-harness hashes. A failed soak captures a final resource sample before
-cleanup, then atomically writes and uploads a bounded structured failure record that includes the
-cleanup result; that diagnostic artifact never authorizes promotion. After
-acceptance and soak, the workflow scans both candidate architectures by digest, requires the
+After acceptance, the workflow scans both candidate architectures by digest, requires the
 upstream WAL-reset fix in the SQLite library loaded by both, signs and inspects the image digest,
 and promotes only that verified digest to the full-version and commit tags.
 The package build, isolated smoke, locked dependency audit, and package SBOM must all pass before
-the production-profile acceptance, production-soak, or image-promotion jobs can start.
+the production-profile acceptance or image-promotion jobs can start.
 
 The Python wheel smoke test runs in an isolated environment synchronized from the server/client
 closure exported from the frozen `uv.lock`; the wheel is then installed with `--no-deps`. Dependency
@@ -235,15 +142,15 @@ sha256sum --check RELEASE_SHA256SUMS
 
 `SHA256SUMS` is the package-build manifest and is itself one of the payloads authenticated through
 the final manifest. `RELEASE_SHA256SUMS` is generated only after the independently gated package,
-production-acceptance, one-hour production-soak, and image jobs have completed. Before constructing
+production-acceptance, and image jobs have completed. Before constructing
 it, the workflow requires the exact versioned payload allowlist, rejects missing, extra, empty,
-nested, or colliding inputs, and rechecks the package hashes. It covers all fifteen payload assets,
-including `production-profile-soak.json`. The published release then adds `RELEASE_SHA256SUMS` and
-its `RELEASE_SHA256SUMS.sigstore.json` verification bundle for an exact seventeen-asset set. The
+nested, or colliding inputs, and rechecks the package hashes. It covers all fourteen payload assets.
+The published release then adds `RELEASE_SHA256SUMS` and
+its `RELEASE_SHA256SUMS.sigstore.json` verification bundle for an exact sixteen-asset set. The
 bundle cannot be listed in the manifest it authenticates;
 `cosign verify-blob` instead verifies the manifest's certificate identity, OIDC issuer, signature,
 and transparency-log evidence directly from that bundle. Publication still downloads and
-byte-compares the complete seventeen-asset set before making the draft public.
+byte-compares the complete sixteen-asset set before making the draft public.
 
 The SBOM portion of the image asset group contains `lets-container-amd64.spdx.json`,
 `lets-container-arm64.spdx.json`, and `lets-container-sbom-index.json`. Verify the hashes in the

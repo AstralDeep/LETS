@@ -1,6 +1,6 @@
 """Background ObservationPublisher that periodically captures a bounded, verifiable
 health/capacity snapshot without taking the storage authority lane on the request
-path; cli.py exposes it and deploy's soak harness reads it.
+path; cli.py exposes it locally and api.py serves it over HTTP for deploy's acceptance scenario.
 """
 
 from __future__ import annotations
