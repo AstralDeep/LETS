@@ -21,26 +21,31 @@ uv run mypy src/lets
 uv run lets --help
 ```
 
-Pull-request CI measures both the runtime package and the executable Astral case-study harness,
-then uses the standalone, hash-locked CI tooling environment to require at least 90% coverage of
-executable lines changed from `origin/main`. Reproduce that gate from a full-history checkout:
+CI measures both the runtime package and the executable Astral case-study harness, then uses the
+standalone, hash-locked CI tooling environment to require at least 90% coverage of executable
+lines changed since a base commit: the pull request's base, or for a push to `main` the commit the
+push replaced. The step fails closed when that base is missing, is not a 40-hex SHA, is the
+all-zero SHA, or is absent from the full-history checkout. Reproduce it against the merge base
+with `origin/main`:
 
 ```powershell
 uv run pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=xml:coverage.xml
 uv venv --python 3.14 .ci-tools
 uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt
-& .\.ci-tools\Scripts\diff-cover.exe coverage.xml --compare-branch origin/main --fail-under=90 `
-  --format json:changed-coverage-report.json
+$base = git merge-base origin/main HEAD
+& .\.ci-tools\Scripts\diff-cover.exe coverage.xml --compare-branch $base `
+  --diff-range-notation '..' --fail-under=90 --format json:changed-coverage-report.json
 & .\.ci-tools\Scripts\python.exe scripts\check_changed_coverage.py `
-  --report changed-coverage-report.json --compare-branch origin/main --fail-under 90 `
+  --report changed-coverage-report.json --base-sha $base --fail-under 90 `
   --output changed-coverage-decision.json
 ```
 
-`scripts/check_changed_coverage.py` prints and writes the decision. It records `pass` or `fail`
-against the threshold whenever the diff has measurable lines, and an explicit `not-applicable`
-decision, naming the merge-base and candidate commits and every changed path, when the diff has
-no executable lines in the measured packages. It rejects a report produced for a different
-comparison or whose totals are inconsistent.
+`scripts/check_changed_coverage.py` prints and writes the decision, naming the base and candidate
+commits and every changed path. It records `pass` or `fail` against the threshold whenever the
+diff has measurable lines, and an explicit `not-applicable` decision when the diff has no
+executable lines in the measured packages. CI runs it even when `diff-cover` fails, so a failing
+decision is recorded too, and still fails the step. The recorder rejects a report produced for a
+different comparison or whose totals are inconsistent.
 
 `diff-cover` and its transitive dependencies are exact-pinned with artifact hashes in
 `tooling/python-ci/requirements.lock.txt`. They are absent from LETS package metadata,

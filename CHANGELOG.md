@@ -26,10 +26,12 @@ image together; the Git tag is the package version prefixed with `v`.
 
 - Removed the mandatory production soak from release qualification, together with its harness,
   verifier and tests; image promotion now depends on production acceptance only.
-- CI now records its changed-line coverage decision. A change with no executable lines in the
-  measured packages produces an explicit not-applicable record naming the merge-base, candidate
-  commit, and changed paths instead of passing silently, and a change with measurable lines still
-  fails below 90%.
+- CI gates changed-line coverage against the pull request's base commit or, for a push to `main`,
+  the commit the push replaced; a push previously compared `origin/main` with itself and measured
+  nothing. The step fails closed unless that base is a 40-hex, non-zero commit in the checkout, and
+  it records every decision with the base and candidate commits and the changed paths: pass or
+  fail against the 90% threshold, or an explicit not-applicable record, instead of a silent pass,
+  when a change has no executable lines in the measured packages.
 - The production deployment, case-study, benchmark, and TLC command-line tools state their
   `--help` description explicitly instead of reusing their module docstring, and the production
   Compose files open with a short header. Tools whose bytes are bound by sealed NSDI evidence are

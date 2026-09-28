@@ -38,10 +38,21 @@ jobs:
         run: uv venv --python 3.14 .ci-tools
       - name: Install changed-coverage tooling from the immutable lock
         run: uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt
-      - name: Enforce changed executable-line coverage
-        run: .ci-tools/bin/diff-cover coverage.xml --compare-branch origin/main --fail-under=90 --format json:changed-coverage-report.json
-      - name: Record the changed-coverage decision, including an explicit not-applicable outcome
-        run: .ci-tools/bin/python scripts/check_changed_coverage.py --report changed-coverage-report.json --compare-branch origin/main --fail-under 90 --output changed-coverage-decision.json
+      - name: Enforce and record changed executable-line coverage against the pull-request or pushed base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || "$BASE_SHA" =~ ^0{40}$ ]]; then
+            echo "::error::changed coverage requires a 40-hex non-zero base SHA, not '$BASE_SHA'"
+            exit 1
+          fi
+          git cat-file -e "${BASE_SHA}^{commit}"
+          rm -f changed-coverage-report.json changed-coverage-decision.json
+          diff_cover_status=0
+          .ci-tools/bin/diff-cover coverage.xml --compare-branch "$BASE_SHA" --diff-range-notation '..' --fail-under=90 --format json:changed-coverage-report.json || diff_cover_status=$?
+          .ci-tools/bin/python scripts/check_changed_coverage.py --report changed-coverage-report.json --base-sha "$BASE_SHA" --fail-under 90 --output changed-coverage-decision.json
+          exit "$diff_cover_status"
       - run: uv build
 
   test:

@@ -1,12 +1,13 @@
 """Turns the JSON report of the hash-locked diff-cover run in .github/workflows/ci.yml into a
-recorded changed-line coverage decision: pass at or above the threshold, fail below it, or an
-explicit not-applicable outcome naming the compared revisions and changed paths.
+recorded changed-line coverage decision against one validated base commit: pass or fail against
+the threshold, or an explicit not-applicable outcome naming both revisions and changed paths.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -15,6 +16,8 @@ from fractions import Fraction
 from pathlib import Path
 
 DECISION_SCHEMA = "lets.changed-coverage-decision/v1"
+_COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+_ZERO_SHA = "0" * 40
 
 
 class CoverageDecisionError(RuntimeError):
@@ -41,10 +44,24 @@ def _git(repository: Path, *arguments: str) -> str:
     return completed.stdout
 
 
-def changed_paths(repository: Path, compare_branch: str) -> list[str]:
+def base_revision(repository: Path, value: str) -> str:
+    if _COMMIT_SHA.fullmatch(value) is None or value == _ZERO_SHA:
+        raise CoverageDecisionError(
+            f"base revision {value!r} is not a 40-hex commit SHA other than the all-zero SHA"
+        )
+    try:
+        resolved = _git(repository, "rev-parse", "--verify", f"{value}^{{commit}}").strip()
+    except CoverageDecisionError as error:
+        raise CoverageDecisionError(f"base commit {value} is not in this checkout") from error
+    if resolved != value:
+        raise CoverageDecisionError(f"base revision {value} is not a commit")
+    return value
+
+
+def changed_paths(repository: Path, base_sha: str) -> list[str]:
     paths: set[str] = set()
     for arguments in (
-        ("diff", "--name-only", "-z", f"{compare_branch}...HEAD"),
+        ("diff", "--name-only", "-z", f"{base_sha}..HEAD"),
         ("diff", "--name-only", "-z", "--cached"),
         ("diff", "--name-only", "-z"),
     ):
@@ -59,14 +76,14 @@ def _count(report: Mapping[str, object], key: str) -> int:
     return value
 
 
-def load_report(path: Path, compare_branch: str) -> CoverageReport:
+def load_report(path: Path, base_sha: str) -> CoverageReport:
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise CoverageDecisionError(f"diff-cover report is unreadable: {error}") from error
     if not isinstance(report, dict):
         raise CoverageDecisionError("diff-cover report is not a JSON object")
-    expected_diff = f"{compare_branch}...HEAD, staged and unstaged changes"
+    expected_diff = f"{base_sha}..HEAD, staged and unstaged changes"
     if report.get("diff_name") != expected_diff:
         raise CoverageDecisionError(
             f"diff-cover report compares {report.get('diff_name')!r}, not {expected_diff!r}"
@@ -86,7 +103,6 @@ def load_report(path: Path, compare_branch: str) -> CoverageReport:
 def decide(
     report: CoverageReport,
     *,
-    compare_branch: str,
     fail_under: int,
     base_sha: str,
     candidate_sha: str,
@@ -99,7 +115,6 @@ def decide(
         "base_sha": base_sha,
         "candidate_sha": candidate_sha,
         "changed_paths": list(changed),
-        "compare_branch": compare_branch,
         "fail_under": fail_under,
         "measured_lines": report.measured_lines,
         "measured_paths": list(report.measured_paths),
@@ -137,12 +152,12 @@ def _threshold(value: str) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Record the changed-line coverage decision from a diff-cover JSON report, "
-            "including an explicit not-applicable outcome."
+            "Record the changed-line coverage decision from a diff-cover JSON report against a "
+            "base commit, including an explicit not-applicable outcome."
         )
     )
     parser.add_argument("--report", type=Path, required=True)
-    parser.add_argument("--compare-branch", required=True)
+    parser.add_argument("--base-sha", required=True)
     parser.add_argument("--fail-under", type=_threshold, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repository", type=Path, default=Path("."))
@@ -152,16 +167,15 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
-        report = load_report(arguments.report, arguments.compare_branch)
-        base_sha = _git(arguments.repository, "merge-base", arguments.compare_branch, "HEAD")
-        candidate_sha = _git(arguments.repository, "rev-parse", "HEAD")
+        base_sha = base_revision(arguments.repository, arguments.base_sha)
+        report = load_report(arguments.report, base_sha)
+        candidate_sha = _git(arguments.repository, "rev-parse", "HEAD").strip()
         decision = decide(
             report,
-            compare_branch=arguments.compare_branch,
             fail_under=arguments.fail_under,
-            base_sha=base_sha.strip(),
-            candidate_sha=candidate_sha.strip(),
-            changed=changed_paths(arguments.repository, arguments.compare_branch),
+            base_sha=base_sha,
+            candidate_sha=candidate_sha,
+            changed=changed_paths(arguments.repository, base_sha),
         )
     except CoverageDecisionError as error:
         print(f"changed-coverage decision failed: {error}", file=sys.stderr)

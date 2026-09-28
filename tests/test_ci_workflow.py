@@ -47,9 +47,38 @@ CI_TOOL_INSTALL = (
     "uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt"
 )
 CHANGED_COVERAGE_REPORT = "--format json:changed-coverage-report.json"
+CHANGED_COVERAGE_BASE = "BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}"
+CHANGED_COVERAGE_GATE = (
+    '.ci-tools/bin/diff-cover coverage.xml --compare-branch "$BASE_SHA" '
+    "--diff-range-notation '..' --fail-under=90 --format json:changed-coverage-report.json "
+    "|| diff_cover_status=$?"
+)
 CHANGED_COVERAGE_DECISION = (
-    "run: .ci-tools/bin/python scripts/check_changed_coverage.py "
-    "--report changed-coverage-report.json --compare-branch origin/main "
+    ".ci-tools/bin/python scripts/check_changed_coverage.py "
+    '--report changed-coverage-report.json --base-sha "$BASE_SHA" '
+)
+CHANGED_COVERAGE_STEP = "\n".join(
+    (
+        "      - name: Enforce and record changed executable-line coverage against the "
+        "pull-request or pushed base",
+        "        env:",
+        f"          {CHANGED_COVERAGE_BASE}",
+        "        run: |",
+        "          set -euo pipefail",
+        '          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ || "$BASE_SHA" =~ ^0{40}$ ]]; then',
+        '            echo "::error::changed coverage requires a 40-hex non-zero base SHA, not '
+        "'$BASE_SHA'\"",
+        "            exit 1",
+        "          fi",
+        '          git cat-file -e "${BASE_SHA}^{commit}"',
+        "          rm -f changed-coverage-report.json changed-coverage-decision.json",
+        "          diff_cover_status=0",
+        f"          {CHANGED_COVERAGE_GATE}",
+        f"          {CHANGED_COVERAGE_DECISION}--fail-under 90 "
+        "--output changed-coverage-decision.json",
+        '          exit "$diff_cover_status"',
+        "",
+    )
 )
 
 
@@ -135,16 +164,18 @@ def _assert_ci_contract(text: str) -> None:
         None,
     )
     assert changed_coverage is not None
-    assert changed_coverage.startswith("run: .ci-tools/bin/diff-cover ")
-    assert "--compare-branch origin/main" in changed_coverage
+    assert changed_coverage.startswith(".ci-tools/bin/diff-cover coverage.xml ")
+    assert '--compare-branch "$BASE_SHA"' in changed_coverage
+    assert "--diff-range-notation '..'" in changed_coverage
     threshold = re.search(r"--fail-under=([0-9]+)", changed_coverage)
     assert threshold is not None and int(threshold.group(1)) >= 90
     assert "--omit" not in changed_coverage
-    assert changed_coverage.endswith(f" {CHANGED_COVERAGE_REPORT}")
+    assert CHANGED_COVERAGE_REPORT in changed_coverage
     assert quality.index(tool_environment) < quality.index(CI_TOOL_INSTALL)
     assert quality.index(CI_TOOL_INSTALL) < quality.index(changed_coverage)
     assert "uv run --frozen diff-cover" not in quality
 
+    assert quality.count(CHANGED_COVERAGE_BASE) == 1
     assert quality.count("scripts/check_changed_coverage.py") == 1
     decision = next(
         (line.strip() for line in quality.splitlines() if "check_changed_coverage.py" in line),
@@ -155,6 +186,8 @@ def _assert_ci_contract(text: str) -> None:
     decision_threshold = re.search(r" --fail-under ([0-9]+) ", decision)
     assert decision_threshold is not None and int(decision_threshold.group(1)) >= 90
     assert decision.endswith(" --output changed-coverage-decision.json")
+    assert quality.count(CHANGED_COVERAGE_STEP) == 1
+    assert quality.index(CHANGED_COVERAGE_BASE) < quality.index(changed_coverage)
     assert quality.index(changed_coverage) < quality.index(decision)
     assert quality.index(decision) < quality.index("run: uv build")
 
@@ -212,6 +245,15 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         (".ci-tools/bin/python scripts/", "python3 scripts/"),
         ("scripts/check_changed_coverage.py", "scripts/generate_openapi.py"),
         ("--output changed-coverage-decision.json", "--output /dev/null"),
+        ("github.event.pull_request.base.sha || github.event.before", "github.event.before"),
+        (" || github.event.before", ""),
+        ('--compare-branch "$BASE_SHA"', "--compare-branch origin/main"),
+        ("--diff-range-notation '..'", "--diff-range-notation '...'"),
+        ('--base-sha "$BASE_SHA"', "--base-sha origin/main"),
+        ("^[0-9a-f]{40}$", "^[0-9a-f]+$"),
+        (' || "$BASE_SHA" =~ ^0{40}$', ""),
+        ('git cat-file -e "${BASE_SHA}^{commit}"', "true"),
+        ('exit "$diff_cover_status"', "exit 0"),
         ("needs.test.result", "needs.quality.result"),
         ("timeout-minutes: 30", "timeout-minutes: 45"),
         ("timeout-minutes: 5", "timeout-minutes: 15"),
@@ -229,6 +271,15 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         "changed-coverage-decision-isolation",
         "changed-coverage-decision-step",
         "changed-coverage-decision-record",
+        "changed-coverage-pull-request-base",
+        "changed-coverage-pushed-base",
+        "changed-coverage-compared-base",
+        "changed-coverage-exact-range",
+        "changed-coverage-decision-base",
+        "changed-coverage-base-shape",
+        "changed-coverage-zero-base",
+        "changed-coverage-base-present",
+        "changed-coverage-gate-status",
         "aggregate-dependency",
         "job-timeout-budget",
         "required-timeout-budget",
