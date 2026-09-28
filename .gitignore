@@ -108,3 +108,6 @@ Desktop.ini
 # Docker/local orchestration overrides
 compose.override.yaml
 docker-compose.override.yml
+
+# Coding-agent local state; Spec Kit Claude skills are installed per machine
+.claude/
