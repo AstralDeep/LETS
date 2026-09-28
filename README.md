@@ -29,8 +29,8 @@ moving host authorization or secrets into LETS.
 - a typed HTTP client, CLI/bootstrap workflow, three-node Docker topology, and fault/e2e tests;
 - a host-neutral replica adapter plus an AstralDeep profile that imports no AstralDeep internals.
 
-The original in-memory research kernel and draft manuscript are retained under `prototype/` and
-`paper/original-draft.pdf`; they are not the production runtime.
+The original in-memory research kernel is retained under `prototype/`; it is not the production
+runtime. Manuscripts are kept outside this repository.
 
 ## Safety model
 
@@ -219,23 +219,28 @@ lease's capability/residual/state, evidence rules, and the executor's receipt po
 | `formal/` | bounded model and trace-conformance tooling |
 | `benchmarks/` | reproducible workloads and profiling harnesses |
 | `docs/` | architecture, threat model, operations, ADRs, and integrations |
-| `paper/` | reproducible LaTeX source and rebuilt manuscript |
+| `results/` | sealed research evidence bundles and their separate scope records |
+| `scripts/` | OpenAPI regeneration and the CI changed-coverage decision recorder |
 | `prototype/` | preserved pre-runtime research kernel; not imported by `lets` |
 
 ## Verification
 
 ```powershell
-uv run ruff check src tests
-uv run mypy src
-uv run pytest
-uv run pytest --cov=lets --cov-report=term-missing
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy src
+uv run --frozen pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=term-missing
 ```
 
 The committed coverage gate is a measured 74% branch-aware regression floor for the current
 runtime; it is not presented as a substitute for the fault, adversarial, and bounded-state checks.
+CI also requires at least 90% coverage of changed executable lines and records an explicit
+not-applicable decision for a change that has none; `docs/development.md` shows how to reproduce
+it.
 
-Paper and artifact reproduction commands are documented in `paper/README.md` and the root
-`Makefile` after the runtime evidence is regenerated.
+Research evidence lives under `results/`: each sealed bundle is never edited, and later
+corrections are separate scope records beside it. The root `Makefile` renders and checks a local,
+untracked manuscript build under `paper/submission/`.
 
 ## Current boundaries
 

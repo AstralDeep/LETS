@@ -4,7 +4,7 @@
 **Primary venue fit:** AAMAS 2027, Engineering and Analysis of Multiagent Systems (EMAS)
 **Secondary venue path:** USENIX Security / IEEE S&P only after adding a substantially stronger adversarial implementation, formal security model, and distributed evaluation
 **Date of novelty audit:** 8 August 2026
-**Companion artifacts:** `paper.tex`, `references.bib`, `literature_matrix.csv`, `citation_verification.csv`, `prototype/`, `formal/`, `results/`, and `figures/`
+**Companion artifacts in this repository:** `docs/research/literature-matrix.csv`, `docs/research/citation-verification.csv`, `prototype/`, `formal/`, and `results/`. The audit-time manuscript (`paper.tex`, `references.bib`, and `figures/`) is not part of this repository; manuscripts are kept outside it.
 
 ## Executive decision
 
@@ -21,7 +21,7 @@ The selected contribution is deliberately narrower than several initially attrac
 3. branch revocation with a quantified bound on disconnected post-revocation effects; and
 4. HSM-mediated, reasoner-independent execution in which sensor evidence may enable a transition but cannot create authority.
 
-This is a plausible AAMAS systems paper if the next two months produce a real multi-warden implementation, a physical or emulated sensor workload, competitive baselines, adversarial schedules, and a stronger formal validation. The present package contains a functioning reference kernel, eight unit tests, an exhaustive finite-state checker, a finite TLA+ specification, diagrams, and preliminary simulations. Those results establish feasibility; they are not yet sufficient for a top-tier acceptance.
+This is a plausible AAMAS systems paper if the next two months produce a real multi-warden implementation, a physical or emulated sensor workload, competitive baselines, adversarial schedules, and a stronger formal validation. At the time of this audit, the package contained a functioning reference kernel (now `prototype/`), eight unit tests, an exhaustive finite-state checker, a finite TLA+ specification, diagrams, and preliminary simulations. Those results established feasibility; they were not yet sufficient for a top-tier acceptance.
 
 ---
 
@@ -487,7 +487,7 @@ Revoked or expired-but-not-reclaimed lease residual remains in the lease term un
 5. **Revocation-exposure theorem.** For branch `b`, resource dimension `j`, remaining branch rights `R_bj`, maximum effective consumption rate `ρ_j`, maximum remaining nested lease duration `T_b`, and clock/propagation uncertainty `ε`, post-revocation consumption is bounded by `min(R_bj, ρ_j(T_b + ε))` under complete mediation.
 6. **Impossibility proposition.** A disconnected subject cannot simultaneously retain unrestricted availability and receive immediate revocation in an asynchronous system without an online oracle. Finite leases convert the impossibility into a bounded-exposure design choice.
 
-The current exhaustive checker validates a finite scalar kernel, not the complete timed or cryptographic model. The TLA+ file is a formal artifact but has not been reported as TLC-checked in this package.
+At the time of this audit, the exhaustive checker validated a finite scalar kernel, not the complete timed or cryptographic model, and the TLA+ file had not been TLC-checked. The repository now also retains a bounded exhaustive TLC check of `formal/LETS.tla` in `formal/evidence/tlc-check.json`; it is bounded checking, not proof.
 
 ## 19. Algorithms and protocol concepts
 
@@ -651,7 +651,7 @@ A full active-subtree migration protocol, Byzantine wardens, privacy-preserving 
 
 # Part 4 — Manuscript artifact
 
-The complete editable manuscript is `paper.tex`; the compiled version is `paper.pdf`. It includes:
+At the time of this audit, the complete editable manuscript was `paper.tex`, compiled as `paper.pdf`. Neither is part of this repository, because manuscripts are kept outside it. It included:
 
 - title and abstract;
 - introduction and claim taxonomy;
