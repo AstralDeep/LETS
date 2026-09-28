@@ -5,6 +5,14 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Added
+
+- A separate NSDI evidence scope record, `results/nsdi-evidence-scope-2026-09-28.json`, records
+  where the tree now differs from the source digests sealed in both NSDI evidence bundles, which
+  commits changed each path, and whether behavior changed. The sealed bundles are unchanged; the
+  only drift in `formal/sensitivity_frontier.py` is docstring removal, which leaves its analysis
+  identical.
+
 ### Fixed
 
 - Single-warden clusters round-trip `init` → `serve --production` without hand edits: `init` now
