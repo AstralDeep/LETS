@@ -7,7 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "pr-ci-notifications.yml"
 ACTION = "AstralDeep/astraldeep.github.io/actions/pr-ci@f1930907e1f702e341fe03f73e102e156ec3e36e"
-NAMES = ["ci","security"]
+NAMES = ["ci", "security"]
+
 
 def assert_contract(text):
     assert re.search(r"(?m)^permissions: \{\}$", text)
@@ -15,7 +16,9 @@ def assert_contract(text):
     assert re.findall(r"(?m)^    if: (.*)$", text) == ["github.ref == 'refs/heads/main'"]
     assert re.findall(r"(?m)^    timeout-minutes: (\d+)$", text) == ["5"]
     assert re.findall(r"(?m)^      (\S+): (read|write)$", text) == [
-        ("actions", "read"), ("issues", "write"), ("pull-requests", "write")
+        ("actions", "read"),
+        ("issues", "write"),
+        ("pull-requests", "write"),
     ]
     assert re.findall(r"(?m)^      - uses: (\S+)$", text) == [ACTION]
     assert not re.search(r"(?m)^\s*(?:- )?(?:run|secrets|env|id-token|contents|environment):", text)
@@ -23,7 +26,9 @@ def assert_contract(text):
     assert "  cancel-in-progress: false\n" in text
     triggers = text.split("on:\n", 1)[1].split("permissions:", 1)[0]
     assert re.findall(r"(?m)^  ([\w-]+):$", triggers) == [
-        "workflow_run", "schedule", "workflow_dispatch"
+        "workflow_run",
+        "schedule",
+        "workflow_dispatch",
     ]
     assert "    workflows: [" + ", ".join("'" + name + "'" for name in NAMES) + "]\n" in triggers
     assert "    types: [completed]\n" in triggers
@@ -33,6 +38,7 @@ def assert_contract(text):
         "          dry-run: ${{ github.event_name == 'workflow_dispatch'"
         " && inputs.dry_run || false }}\n"
     ) in text
+
 
 class PrCiNotificationsTests(unittest.TestCase):
     def test_reviewed_controller_has_only_notification_authority(self):
@@ -62,6 +68,7 @@ class PrCiNotificationsTests(unittest.TestCase):
                 self.assertNotEqual(text, text.replace(old, new))
                 with self.assertRaises(AssertionError):
                     assert_contract(text.replace(old, new))
+
 
 if __name__ == "__main__":
     unittest.main()
