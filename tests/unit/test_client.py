@@ -100,3 +100,60 @@ def test_client_total_deadline_interrupts_retry_backoff(failure: str) -> None:
 def test_client_rejects_unbounded_response_configuration(options: dict[str, int]) -> None:
     with pytest.raises(ValueError):
         LETSClient("https://warden.test", **options)
+
+
+@pytest.mark.parametrize("payload", [b"[]", b"null", b"42", b'"string"'])
+def test_client_rejects_non_object_root_envelopes(payload: bytes) -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, content=payload, request=request)
+    )
+    client = LETSClient(
+        "https://warden.test",
+        transport=transport,
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.code == "invalid_envelope"
+    finally:
+        client.close()
+
+
+def test_client_rejects_empty_and_redirect_responses() -> None:
+    # Empty 204
+    transport_204 = httpx.MockTransport(
+        lambda request: httpx.Response(204, request=request)
+    )
+    client_204 = LETSClient(
+        "https://warden.test",
+        transport=transport_204,
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client_204.info()
+        assert raised.value.problem.code == "empty_response"
+    finally:
+        client_204.close()
+
+    # 302 Redirect
+    transport_302 = httpx.MockTransport(
+        lambda request: httpx.Response(
+            302,
+            headers={"location": "https://other.test"},
+            content=b'{"ok": true}',
+            request=request,
+        )
+    )
+    client_302 = LETSClient(
+        "https://warden.test",
+        transport=transport_302,
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client_302.info()
+        assert raised.value.problem.code == "redirect_rejected"
+    finally:
+        client_302.close()

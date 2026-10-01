@@ -376,10 +376,33 @@ class LETSClient:
                     )
                 if response.is_error:
                     raise _problem_error(response, response_content)
+                if 300 <= response.status_code < 400:
+                    detail = f"unexpected redirect status {response.status_code} for {path}"
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:redirect_rejected",
+                            title="Redirect Rejected",
+                            status=502,
+                            detail=detail,
+                            instance=path,
+                            code="redirect_rejected",
+                            request_id=response.headers.get("x-request-id"),
+                        )
+                    )
                 if response.status_code == 204 or not response_content:
-                    return None
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:empty_response",
+                            title="Empty Response",
+                            status=502,
+                            detail=f"the remote node returned an empty response body for {path}",
+                            instance=path,
+                            code="empty_response",
+                            request_id=response.headers.get("x-request-id"),
+                        )
+                    )
                 try:
-                    return _response_json(response, response_content)
+                    parsed = _response_json(response, response_content)
                 except (ValueError, UnicodeDecodeError) as exc:
                     raise RemoteValidationError(
                         ProblemDetails(
@@ -392,6 +415,20 @@ class LETSClient:
                             request_id=response.headers.get("x-request-id"),
                         )
                     ) from exc
+                if not isinstance(parsed, Mapping):
+                    root_type = type(parsed).__name__
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:invalid_envelope",
+                            title="Invalid Response Envelope",
+                            status=502,
+                            detail=f"the remote node returned non-object root {root_type}",
+                            instance=path,
+                            code="invalid_envelope",
+                            request_id=response.headers.get("x-request-id"),
+                        )
+                    )
+                return parsed
             finally:
                 watchdog.cancel()
                 watchdog.join()

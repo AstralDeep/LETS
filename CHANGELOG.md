@@ -5,6 +5,13 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Security
+
+- `LETSClient` now validates response status codes and root payload types before returning typed
+  mappings to caller code. Empty responses (204 or empty content), 3xx redirect status codes, and
+  non-object JSON roots (`list`, `int`, `null`, `string`) now raise typed `RemoteValidationError`
+  failures instead of returning raw non-Mapping primitives through `typing.cast`.
+
 ## [1.0.12] - 2026-09-28
 
 ### Added
