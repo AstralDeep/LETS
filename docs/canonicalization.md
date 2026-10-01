@@ -26,7 +26,8 @@ keys is not a conforming LETS parser.
 
 Datetime values supplied to the Python canonicalization API must be timezone-aware and must have a
 non-`None` `utcoffset()`. A timezone-naive datetime is rejected rather than interpreted using the
-machine's local timezone. Aware datetimes continue to be normalized to UTC with six fractional
+machine's local timezone; rejection raises `ValueError`. Aware datetimes continue to be normalized
+to UTC with six fractional
 second digits before encoding. This is a compatibility change for callers that previously passed
 naive datetimes; they must attach the intended timezone explicitly.
 

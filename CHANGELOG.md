@@ -15,7 +15,8 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Security
 
-- `canonical_json` now strictly rejects timezone-naive `datetime` objects. Previously, naive
+- `canonical_json` and `canonical_digest` now reject timezone-naive `datetime` objects with
+  `ValueError`, including `tzinfo` instances whose `utcoffset()` is `None`. Previously, naive
   datetime values were implicitly converted via `.astimezone(UTC)`, interpreting them in the host
   machine's local ambient timezone and producing different canonical serialized bytes and
   cryptographic signatures across environments. Timezone-aware datetimes with non-None offsets

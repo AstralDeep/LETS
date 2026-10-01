@@ -150,6 +150,37 @@ def test_lets_cj_rejects_non_string_object_keys_instead_of_aliasing_them() -> No
         canonical_json({1: "integer", "1": "text"})
 
 
+def test_lets_cj_datetime_timezone_handling() -> None:
+    naive = datetime(2026, 1, 1, 12, 0, 0)
+    with pytest.raises(ValueError, match="timezone-naive"):
+        canonical_json({"nested": [{"deep": [naive]}]})
+
+    @dataclass
+    class EventRecord:
+        timestamp: datetime
+        name: str
+
+    with pytest.raises(ValueError, match="timezone-naive"):
+        canonical_json({"event": EventRecord(naive, "unanchored")})
+
+    utc_dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    est_dt = datetime(2026, 1, 1, 7, 0, 0, tzinfo=timezone(timedelta(hours=-5)))
+    tokyo_dt = datetime(2026, 1, 1, 21, 0, 0, tzinfo=timezone(timedelta(hours=9)))
+
+    expected = b'{"when":"2026-01-01T12:00:00.000000Z"}'
+    assert canonical_json({"when": utc_dt}) == expected
+    assert canonical_json({"when": est_dt}) == expected
+    assert canonical_json({"when": tokyo_dt}) == expected
+
+    aware_record = EventRecord(utc_dt, "anchored")
+    assert canonical_json({"event": aware_record}) == (
+        b'{"event":{"name":"anchored","timestamp":"2026-01-01T12:00:00.000000Z"}}'
+    )
+
+    micro_dt = datetime(2026, 6, 15, 10, 20, 30, 123456, tzinfo=UTC)
+    assert canonical_json({"t": micro_dt}) == b'{"t":"2026-06-15T10:20:30.123456Z"}'
+
+
 def test_base64url_decoder_rejects_alternate_spellings() -> None:
     encoded = b64url_encode(b"signed bytes")
     assert b64url_decode(encoded) == b"signed bytes"
