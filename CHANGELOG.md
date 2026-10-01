@@ -5,6 +5,11 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Added
+
+- Bounty issue `/claim` comments receive automatic guidance with a prefilled reservation
+  form or their existing assignment status.
+
 ## [1.0.12] - 2026-09-28
 
 ### Added
