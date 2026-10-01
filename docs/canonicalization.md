@@ -21,6 +21,12 @@ Implementations must parse integers losslessly before checking the signed 64-bit
 parser that silently rounds large values, accepts non-finite numbers, or keeps one of two duplicate
 keys is not a conforming LETS parser.
 
+Datetime values supplied to the Python canonicalization API must be timezone-aware and must have a
+non-`None` `utcoffset()`. A timezone-naive datetime is rejected rather than interpreted using the
+machine's local timezone. Aware datetimes continue to be normalized to UTC with six fractional
+second digits before encoding. This is a compatibility change for callers that previously passed
+naive datetimes; they must attach the intended timezone explicitly.
+
 ## Conformance vectors
 
 ```text

@@ -22,6 +22,8 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, Enum):
         return _normalize(value.value)
     if isinstance(value, datetime):
+        if value.utcoffset() is None:
+            raise ValueError("canonical JSON datetimes must be timezone-aware")
         return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
     if isinstance(value, bytes):
         return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")

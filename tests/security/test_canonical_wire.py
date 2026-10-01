@@ -16,6 +16,8 @@ from lets.canonical import b64url_decode, b64url_encode, canonical_json, strict_
 from lets.errors import ValidationError
 from lets.models import Receipt, TransferVoucher
 from lets.vector import MAX_RESOURCE
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta, timezone
 
 
 @pytest.mark.parametrize("value", [0.0, -0.0, 1.5, math.inf, -math.inf, math.nan])
@@ -125,3 +127,48 @@ def test_published_cross_language_canonicalization_vectors() -> None:
     for encoded in vectors["invalid_base64url"]:
         with pytest.raises(ValueError):
             b64url_decode(encoded)
+
+
+@dataclass(frozen=True)
+class NestedRecord:
+    occurred_at: datetime
+
+
+def test_aware_equivalent_instants_have_identical_canonical_bytes() -> None:
+    utc_value = datetime(2025, 3, 30, 1, 30, tzinfo=UTC)
+    offset_value = datetime(
+        2025,
+        3,
+        30,
+        3,
+        30,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    assert canonical_json(utc_value) == canonical_json(offset_value)
+
+
+def test_timezone_naive_datetime_is_rejected() -> None:
+    with pytest.raises((TypeError, ValueError)):
+        canonical_json(datetime(2025, 1, 1, 12, 0))
+
+
+def test_nested_dataclass_timezone_naive_datetime_is_rejected() -> None:
+    with pytest.raises((TypeError, ValueError)):
+        canonical_json(NestedRecord(datetime(2025, 1, 1, 12, 0)))
+
+
+def test_aware_dst_boundary_datetime_is_normalized_deterministically() -> None:
+    before_transition = datetime(2025, 3, 30, 1, 30, tzinfo=UTC)
+    after_transition = datetime(
+        2025,
+        3,
+        30,
+        3,
+        30,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    assert canonical_json({"occurred_at": before_transition}) == canonical_json(
+        {"occurred_at": after_transition}
+    )
