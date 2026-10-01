@@ -10,7 +10,7 @@ The profile is:
 - object keys are strings, sorted by Unicode scalar value, with no Unicode normalization;
 - arrays preserve order; protocol sets are converted to explicitly sorted arrays before signing;
 - values are JSON null, booleans, strings, signed 64-bit integers, arrays, and objects;
-- datetime values, when accepted by an implementation's serializer, must be timezone-aware with
+- Python datetime input values must be timezone-aware with
   a non-None UTC offset and are normalized to UTC with microsecond precision ending in `Z`;
   timezone-naive datetimes are rejected to prevent ambient host timezone dependence;
 - floats, NaN, infinities, non-string keys, duplicate JSON keys, and lone Unicode surrogates are

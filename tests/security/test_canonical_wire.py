@@ -1,6 +1,5 @@
-"""Tests for canonical.py's LETS-CJ/1 wire format: rejection of floating-point and
-out-of-range integers, fixed Unicode/control-character handling, and cross-language
-canonicalization test vectors.
+"""Tests canonical.py's LETS-CJ/1 wire format and deterministic datetime normalization.
+Published conformance vectors bind encoding, digests, Unicode, and integer constraints.
 """
 
 from __future__ import annotations
@@ -8,13 +7,22 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
+from struct import pack
+from zoneinfo import ZoneInfo
 
 import pytest
 
-from lets.canonical import b64url_decode, b64url_encode, canonical_json, strict_json_loads
+from lets.canonical import (
+    b64url_decode,
+    b64url_encode,
+    canonical_digest,
+    canonical_json,
+    strict_json_loads,
+)
 from lets.errors import ValidationError
 from lets.models import Receipt, TransferVoucher
 from lets.vector import MAX_RESOURCE
@@ -25,8 +33,41 @@ class _DateTimePayload:
     timestamp: datetime
 
 
-def test_lets_cj_rejects_timezone_naive_datetime() -> None:
-    naive_dt = datetime(2026, 1, 1, 12, 0, 0)
+class _MissingOffsetTimezone(tzinfo):
+    def utcoffset(self, dt: datetime | None) -> None:
+        return None
+
+    def dst(self, dt: datetime | None) -> None:
+        return None
+
+    def tzname(self, dt: datetime | None) -> None:
+        return None
+
+
+def _new_york_2026_timezone() -> ZoneInfo:
+    transitions = (
+        int(datetime(2026, 3, 8, 7, tzinfo=UTC).timestamp()),
+        int(datetime(2026, 11, 1, 6, tzinfo=UTC).timestamp()),
+    )
+    tzif = (
+        b"TZif\x00"
+        + b"\x00" * 15
+        + pack(">6I", 0, 0, 0, 2, 2, 8)
+        + pack(">2i", *transitions)
+        + bytes((1, 0))
+        + pack(">iBB", -18000, 0, 0)
+        + pack(">iBB", -14400, 1, 4)
+        + b"EST\x00EDT\x00"
+    )
+    return ZoneInfo.from_file(BytesIO(tzif), key="America/New_York")
+
+
+@pytest.mark.parametrize("zone", [None, _MissingOffsetTimezone()])
+def test_lets_cj_rejects_timezone_naive_datetime(zone: tzinfo | None) -> None:
+    naive_dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=zone)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        canonical_json(naive_dt)
+
     with pytest.raises(ValueError, match="timezone-aware"):
         canonical_json({"timestamp": naive_dt})
 
@@ -35,6 +76,9 @@ def test_lets_cj_rejects_timezone_naive_datetime() -> None:
 
     with pytest.raises(ValueError, match="timezone-aware"):
         canonical_json(_DateTimePayload(timestamp=naive_dt))
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        canonical_digest({"nested": [{"event": _DateTimePayload(timestamp=naive_dt)}]})
 
 
 def test_lets_cj_accepts_and_normalizes_timezone_aware_datetime() -> None:
@@ -48,6 +92,26 @@ def test_lets_cj_accepts_and_normalizes_timezone_aware_datetime() -> None:
     assert canonical_json({"timestamp": negative_offset_dt}) == expected
     assert canonical_json(_DateTimePayload(timestamp=utc_dt)) == expected
     assert canonical_json(_DateTimePayload(timestamp=offset_dt)) == expected
+
+
+@pytest.mark.parametrize(
+    ("wall_clock", "expected"),
+    [
+        ((2026, 3, 8, 1, 59, 59, 999999, 0), "2026-03-08T06:59:59.999999Z"),
+        ((2026, 3, 8, 3, 0, 0, 0, 0), "2026-03-08T07:00:00.000000Z"),
+        ((2026, 11, 1, 1, 30, 0, 0, 0), "2026-11-01T05:30:00.000000Z"),
+        ((2026, 11, 1, 1, 30, 0, 0, 1), "2026-11-01T06:30:00.000000Z"),
+    ],
+)
+def test_lets_cj_normalizes_dst_transition_and_fold(
+    wall_clock: tuple[int, int, int, int, int, int, int, int], expected: str
+) -> None:
+    local_dt = datetime(*wall_clock[:7], tzinfo=_new_york_2026_timezone(), fold=wall_clock[7])
+    assert canonical_json(local_dt) == f'"{expected}"'.encode()
+    assert canonical_json({"events": [{"timestamp": local_dt}]}) == (
+        f'{{"events":[{{"timestamp":"{expected}"}}]}}'.encode()
+    )
+    assert canonical_digest(local_dt) == canonical_digest(local_dt.astimezone(UTC))
 
 
 @pytest.mark.parametrize("value", [0.0, -0.0, 1.5, math.inf, -math.inf, math.nan])
