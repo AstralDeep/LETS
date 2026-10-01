@@ -55,15 +55,41 @@ def test_lets_cj_rejects_non_string_object_keys_instead_of_aliasing_them() -> No
 
 
 def test_lets_cj_datetime_timezone_handling() -> None:
-    from datetime import UTC, datetime, timezone, timedelta
-    from zoneinfo import ZoneInfo
+    from dataclasses import dataclass
+    from datetime import UTC, datetime, timedelta, timezone, tzinfo
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-    # 1. Reject timezone-naive datetime
+    # 1. Reject timezone-naive datetime (top-level, nested in lists/dicts, and inside dataclass)
     naive = datetime(2026, 1, 1, 12, 0, 0)
     with pytest.raises(ValueError, match="timezone-naive"):
         canonical_json({"when": naive})
+    with pytest.raises(ValueError, match="timezone-naive"):
+        canonical_json({"nested": [{"deep": [naive]}]})
 
-    # 2. Equivalent aware instants produce identical canonical output
+    @dataclass
+    class EventRecord:
+        timestamp: datetime
+        name: str
+
+    with pytest.raises(ValueError, match="timezone-naive"):
+        canonical_json({"event": EventRecord(naive, "unanchored")})
+
+    # 2. Reject tzinfo instance whose utcoffset() returns None
+    class NoneOffsetTz(tzinfo):
+        def utcoffset(self, dt: datetime | None) -> timedelta | None:
+            return None
+
+        def tzname(self, dt: datetime | None) -> str | None:
+            return "NoneTz"
+
+        def dst(self, dt: datetime | None) -> timedelta | None:
+            return None
+
+    none_offset_dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=NoneOffsetTz())
+    with pytest.raises(ValueError, match="timezone-naive"):
+        canonical_json({"when": none_offset_dt})
+
+    # 3. Equivalent aware instants produce identical canonical output across timezones
     utc_dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
     est_dt = datetime(2026, 1, 1, 7, 0, 0, tzinfo=timezone(timedelta(hours=-5)))
     tokyo_dt = datetime(2026, 1, 1, 21, 0, 0, tzinfo=timezone(timedelta(hours=9)))
@@ -73,21 +99,32 @@ def test_lets_cj_datetime_timezone_handling() -> None:
     assert canonical_json({"when": est_dt}) == expected
     assert canonical_json({"when": tokyo_dt}) == expected
 
-    # 3. Microseconds preserved and formatted with trailing Z
+    # 4. Aware datetime in nested structures and dataclasses
+    aware_record = EventRecord(utc_dt, "anchored")
+    assert canonical_json({"event": aware_record}) == b'{"event":{"name":"anchored","timestamp":"2026-01-01T12:00:00.000000Z"}}'
+
+    # 5. Microseconds preserved with fixed 6 digits and trailing Z
     micro_dt = datetime(2026, 6, 15, 10, 20, 30, 123456, tzinfo=UTC)
     assert canonical_json({"t": micro_dt}) == b'{"t":"2026-06-15T10:20:30.123456Z"}'
 
-    # 4. DST transition edge case (e.g. America/New_York)
+    # 6. Real DST transition boundary and PEP 495 fold handling (America/New_York)
     try:
         ny_tz = ZoneInfo("America/New_York")
-        # Standard time (UTC-5)
-        dt_std = datetime(2026, 1, 15, 12, 0, 0, tzinfo=ny_tz)
-        assert canonical_json({"t": dt_std}) == b'{"t":"2026-01-15T17:00:00.000000Z"}'
-        # Daylight saving time (UTC-4)
-        dt_dst = datetime(2026, 7, 15, 12, 0, 0, tzinfo=ny_tz)
-        assert canonical_json({"t": dt_dst}) == b'{"t":"2026-07-15T16:00:00.000000Z"}'
-    except Exception:
-        pass
+    except ZoneInfoNotFoundError:
+        pytest.skip("America/New_York timezone database not available")
+
+    # Spring-forward transition (UTC-5 -> UTC-4): 01:59:59.999999 -> 03:00:00
+    spring_before = datetime(2026, 3, 8, 1, 59, 59, 999999, tzinfo=ny_tz)
+    spring_after = datetime(2026, 3, 8, 3, 0, 0, tzinfo=ny_tz)
+    assert canonical_json({"t": spring_before}) == b'{"t":"2026-03-08T06:59:59.999999Z"}'
+    assert canonical_json({"t": spring_after}) == b'{"t":"2026-03-08T07:00:00.000000Z"}'
+
+    # Fall-back ambiguous wall time transition with PEP 495 fold:
+    # 01:30 occurs twice on 2026-11-01: fold=0 (EDT, UTC-4) vs fold=1 (EST, UTC-5)
+    fall_fold0 = datetime(2026, 11, 1, 1, 30, 0, tzinfo=ny_tz, fold=0)
+    fall_fold1 = datetime(2026, 11, 1, 1, 30, 0, tzinfo=ny_tz, fold=1)
+    assert canonical_json({"t": fall_fold0}) == b'{"t":"2026-11-01T05:30:00.000000Z"}'
+    assert canonical_json({"t": fall_fold1}) == b'{"t":"2026-11-01T06:30:00.000000Z"}'
 
 
 def test_base64url_decoder_rejects_alternate_spellings() -> None:

@@ -10,6 +10,15 @@ image together; the Git tag is the package version prefixed with `v`.
 - Bounty issue `/claim` comments receive automatic guidance with a prefilled reservation
   form or their existing assignment status.
 
+### Changed
+
+- **Breaking change (canonicalization / signing input)**: `canonical_json` and `canonical_digest`
+  now strictly reject timezone-naive `datetime` objects and `tzinfo` instances without a non-None
+  `utcoffset()` with `ValueError`. Previously, naive datetimes were implicitly converted to UTC using
+  the process-local system timezone via `astimezone(UTC)`, which could produce diverging canonical
+  bytes, signatures, and digests across machines configured in different local timezones. Callers
+  must explicitly provide timezone-aware datetimes with valid offsets (issue #69).
+
 ## [1.0.12] - 2026-09-28
 
 ### Added
