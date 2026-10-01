@@ -1,4 +1,5 @@
 """MCP (Model Context Protocol) integration profile and authorizer for LETS.
+
 Provides protocol-neutral mapping of host-verified tool execution to stable
 request IDs, transition/evidence bindings, executor audiences, and receipt claims.
 
@@ -12,12 +13,11 @@ import hashlib
 import json
 import threading
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any
 
 from lets.errors import PolicyError, ValidationError
-from lets.ids import require_digest, require_identifier
-from lets.integrations.ports import AuthorizerClient, WireObject
+from lets.integrations.ports import AuthorizerClient
 
 # Pinned MCP Specification Revision
 MCP_SPEC_REVISION = "2024-11-05"
@@ -26,16 +26,18 @@ MCP_SPEC_REVISION = "2024-11-05"
 @dataclass(frozen=True)
 class MCPProfile:
     """Configuration profile for MCP authorizer boundaries."""
+
     expected_audience: str
     expected_tenant: str
     spec_version: str = MCP_SPEC_REVISION
     enforce_confirmation_gate: bool = True
-    allowed_tools: Optional[List[str]] = None
+    allowed_tools: list[str] | None = None
 
 
 @dataclass
 class MCPToolInvocationReceipt:
     """Cryptographic claim and receipt for verified tool execution."""
+
     request_id: str
     tool_name: str
     args_digest: str
@@ -62,14 +64,14 @@ class MCPAuthorizer:
         self._client = authorizer_client
         self._profile = profile
         self._lock = threading.Lock()
-        self._receipts: Dict[str, MCPToolInvocationReceipt] = {}
+        self._receipts: dict[str, MCPToolInvocationReceipt] = {}
 
     def _compute_digest(self, payload: Mapping[str, Any]) -> str:
         serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
-    def discover_tools(self, tools_manifest: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Discovery without authority: returns tool metadata without issuing authorization tokens."""
+    def discover_tools(self, tools_manifest: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Discovery without authority: returns metadata without issuing authorization tokens."""
         discovered = []
         for t in tools_manifest:
             tool_name = t.get("name", "")
@@ -78,7 +80,7 @@ class MCPAuthorizer:
                     "name": tool_name,
                     "description": t.get("description", ""),
                     "input_schema": t.get("input_schema", {}),
-                    "authorized": False
+                    "authorized": False,
                 })
         return discovered
 
@@ -89,15 +91,17 @@ class MCPAuthorizer:
         tool_args: Mapping[str, Any],
         audience: str,
         tenant: str,
-        host_confirmed: bool = True
+        host_confirmed: bool = True,
     ) -> MCPToolInvocationReceipt:
         """Evaluates host permission gate and creates an at-most-once invocation receipt."""
         with self._lock:
             # 1. Tenant and Audience boundary check
             if audience != self._profile.expected_audience:
-                raise PolicyError(f"Mismatched audience: expected {self._profile.expected_audience}, got {audience}")
+                msg = f"Mismatched audience: expected {self._profile.expected_audience}, got {audience}"
+                raise PolicyError(msg)
             if tenant != self._profile.expected_tenant:
-                raise PolicyError(f"Mismatched tenant: expected {self._profile.expected_tenant}, got {tenant}")
+                msg = f"Mismatched tenant: expected {self._profile.expected_tenant}, got {tenant}"
+                raise PolicyError(msg)
 
             # 2. Scope / Tool allowlist check
             if self._profile.allowed_tools and tool_name not in self._profile.allowed_tools:
@@ -113,9 +117,13 @@ class MCPAuthorizer:
             if request_id in self._receipts:
                 existing = self._receipts[request_id]
                 if existing.args_digest != args_digest:
-                    raise ValidationError(f"Changed arguments detected on identical request ID: {request_id}")
+                    raise ValidationError(
+                        f"Changed arguments detected on identical request ID: {request_id}"
+                    )
                 if existing.executed:
-                    raise PolicyError(f"Duplicate invocation: request {request_id} has already executed.")
+                    raise PolicyError(
+                        f"Duplicate invocation: request {request_id} has already executed."
+                    )
                 return existing
 
             receipt = MCPToolInvocationReceipt(
@@ -126,7 +134,7 @@ class MCPAuthorizer:
                 audience=audience,
                 tenant=tenant,
                 verified=False,
-                executed=False
+                executed=False,
             )
             self._receipts[request_id] = receipt
             return receipt
@@ -141,7 +149,9 @@ class MCPAuthorizer:
             if receipt.cancelled:
                 raise PolicyError(f"Cannot claim cancelled request: {request_id}")
             if receipt.executed:
-                raise PolicyError(f"Duplicate invocation: request {request_id} already claimed and executed.")
+                raise PolicyError(
+                    f"Duplicate invocation: request {request_id} already claimed and executed."
+                )
             if receipt.args_digest != args_digest:
                 raise ValidationError("Effect digest mismatch during verify_and_claim.")
 
