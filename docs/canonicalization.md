@@ -10,6 +10,7 @@ The profile is:
 - object keys are strings, sorted by Unicode scalar value, with no Unicode normalization;
 - arrays preserve order; protocol sets are converted to explicitly sorted arrays before signing;
 - values are JSON null, booleans, strings, signed 64-bit integers, arrays, and objects;
+- datetime values must be timezone-aware (naive datetimes are rejected); normalized to UTC with microsecond precision and 'Z' suffix;
 - floats, NaN, infinities, non-string keys, duplicate JSON keys, and lone Unicode surrogates are
   rejected;
 - output has no insignificant whitespace, uses UTF-8, escapes controls as JSON requires, and uses
