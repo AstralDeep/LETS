@@ -7,6 +7,9 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Added
 
+- Current-head CI failure replies for PR authors and maintainer review notifications
+  after both CI and security workflows pass. First-time run approval remains manual.
+
 - Bounty issue `/claim` comments receive automatic guidance with a prefilled reservation
   form or their existing assignment status.
 
