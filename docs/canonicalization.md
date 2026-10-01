@@ -10,7 +10,9 @@ The profile is:
 - object keys are strings, sorted by Unicode scalar value, with no Unicode normalization;
 - arrays preserve order; protocol sets are converted to explicitly sorted arrays before signing;
 - values are JSON null, booleans, strings, signed 64-bit integers, arrays, and objects;
-- Python `datetime` input objects must be timezone-aware with a non-None UTC offset (naive datetimes are rejected with `ValueError`); they are serialized as normalized UTC ISO 8601 strings with microsecond precision and 'Z' suffix;
+- Python datetime input values must be timezone-aware with
+  a non-None UTC offset and are normalized to UTC with microsecond precision ending in `Z`;
+  timezone-naive datetimes are rejected to prevent ambient host timezone dependence;
 - floats, NaN, infinities, non-string keys, duplicate JSON keys, and lone Unicode surrogates are
   rejected;
 - output has no insignificant whitespace, uses UTF-8, escapes controls as JSON requires, and uses
@@ -21,6 +23,13 @@ The profile is:
 Implementations must parse integers losslessly before checking the signed 64-bit bound. A JSON
 parser that silently rounds large values, accepts non-finite numbers, or keeps one of two duplicate
 keys is not a conforming LETS parser.
+
+Datetime values supplied to the Python canonicalization API must be timezone-aware and must have a
+non-`None` `utcoffset()`. A timezone-naive datetime is rejected rather than interpreted using the
+machine's local timezone; rejection raises `ValueError`. Aware datetimes continue to be normalized
+to UTC with six fractional
+second digits before encoding. This is a compatibility change for callers that previously passed
+naive datetimes; they must attach the intended timezone explicitly.
 
 ## Conformance vectors
 

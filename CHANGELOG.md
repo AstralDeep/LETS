@@ -10,14 +10,17 @@ image together; the Git tag is the package version prefixed with `v`.
 - Bounty issue `/claim` comments receive automatic guidance with a prefilled reservation
   form or their existing assignment status.
 
-### Changed
+### Security
 
-- **Breaking change (canonicalization / signing input)**: `canonical_json` and `canonical_digest`
-  now strictly reject timezone-naive `datetime` objects and `tzinfo` instances without a non-None
-  `utcoffset()` with `ValueError`. Previously, naive datetimes were implicitly converted to UTC using
-  the process-local system timezone via `astimezone(UTC)`, which could produce diverging canonical
-  bytes, signatures, and digests across machines configured in different local timezones. Callers
-  must explicitly provide timezone-aware datetimes with valid offsets (issue #69).
+- `canonical_json` and `canonical_digest` now reject timezone-naive `datetime` objects with
+  `ValueError`, including `tzinfo` instances whose `utcoffset()` is `None`. Previously, naive
+  datetime values were implicitly converted via `.astimezone(UTC)`, interpreting them in the host
+  machine's local ambient timezone and producing different canonical serialized bytes and
+  cryptographic signatures across environments. Timezone-aware datetimes with non-None offsets
+  remain supported and deterministically normalized to UTC with microsecond precision.
+  This is a compatibility change for callers supplying naive datetimes: attach the intended
+  timezone explicitly before canonical signing or digest calculation. LETS-CJ/1 JSON wire bytes
+  and the published conformance vectors are unchanged.
 
 ## [1.0.12] - 2026-09-28
 

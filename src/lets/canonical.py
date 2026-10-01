@@ -23,7 +23,10 @@ def _normalize(value: Any) -> Any:
         return _normalize(value.value)
     if isinstance(value, datetime):
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("canonical JSON rejects timezone-naive datetime values; provide an explicit timezone")
+            raise ValueError(
+                "canonical JSON requires timezone-aware datetime values; "
+                "timezone-naive datetime values depend on host timezone and are rejected"
+            )
         return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
     if isinstance(value, bytes):
         return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
