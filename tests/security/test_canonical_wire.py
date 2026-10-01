@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 
@@ -16,6 +18,36 @@ from lets.canonical import b64url_decode, b64url_encode, canonical_json, strict_
 from lets.errors import ValidationError
 from lets.models import Receipt, TransferVoucher
 from lets.vector import MAX_RESOURCE
+
+
+@dataclass
+class _DateTimePayload:
+    timestamp: datetime
+
+
+def test_lets_cj_rejects_timezone_naive_datetime() -> None:
+    naive_dt = datetime(2026, 1, 1, 12, 0, 0)
+    with pytest.raises(ValueError, match="timezone-aware"):
+        canonical_json({"timestamp": naive_dt})
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        canonical_json([naive_dt])
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        canonical_json(_DateTimePayload(timestamp=naive_dt))
+
+
+def test_lets_cj_accepts_and_normalizes_timezone_aware_datetime() -> None:
+    utc_dt = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+    offset_dt = datetime(2026, 1, 1, 20, 0, 0, tzinfo=timezone(timedelta(hours=8)))
+    negative_offset_dt = datetime(2026, 1, 1, 7, 0, 0, tzinfo=timezone(timedelta(hours=-5)))
+
+    expected = b'{"timestamp":"2026-01-01T12:00:00.000000Z"}'
+    assert canonical_json({"timestamp": utc_dt}) == expected
+    assert canonical_json({"timestamp": offset_dt}) == expected
+    assert canonical_json({"timestamp": negative_offset_dt}) == expected
+    assert canonical_json(_DateTimePayload(timestamp=utc_dt)) == expected
+    assert canonical_json(_DateTimePayload(timestamp=offset_dt)) == expected
 
 
 @pytest.mark.parametrize("value", [0.0, -0.0, 1.5, math.inf, -math.inf, math.nan])

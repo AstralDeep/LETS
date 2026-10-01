@@ -5,6 +5,14 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Security
+
+- `canonical_json` now strictly rejects timezone-naive `datetime` objects. Previously, naive
+  datetime values were implicitly converted via `.astimezone(UTC)`, interpreting them in the host
+  machine's local ambient timezone and producing different canonical serialized bytes and
+  cryptographic signatures across environments. Timezone-aware datetimes with non-None offsets
+  remain supported and deterministically normalized to UTC with microsecond precision.
+
 ## [1.0.12] - 2026-09-28
 
 ### Added
