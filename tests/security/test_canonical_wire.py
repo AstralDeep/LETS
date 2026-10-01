@@ -221,3 +221,48 @@ def test_published_cross_language_canonicalization_vectors() -> None:
     for encoded in vectors["invalid_base64url"]:
         with pytest.raises(ValueError):
             b64url_decode(encoded)
+
+
+@dataclass(frozen=True)
+class NestedRecord:
+    occurred_at: datetime
+
+
+def test_aware_equivalent_instants_have_identical_canonical_bytes() -> None:
+    utc_value = datetime(2025, 3, 30, 1, 30, tzinfo=UTC)
+    offset_value = datetime(
+        2025,
+        3,
+        30,
+        3,
+        30,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    assert canonical_json(utc_value) == canonical_json(offset_value)
+
+
+def test_timezone_naive_datetime_is_rejected() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        canonical_json(datetime(2025, 1, 1, 12, 0))
+
+
+def test_nested_dataclass_timezone_naive_datetime_is_rejected() -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        canonical_json(NestedRecord(datetime(2025, 1, 1, 12, 0)))
+
+
+def test_aware_datetime_offsets_normalize_across_date_boundaries() -> None:
+    utc_value = datetime(2025, 3, 29, 23, 30, tzinfo=UTC)
+    offset_value = datetime(
+        2025,
+        3,
+        30,
+        1,
+        30,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    expected = b'{"occurred_at":"2025-03-29T23:30:00.000000Z"}'
+    assert canonical_json({"occurred_at": utc_value}) == expected
+    assert canonical_json(NestedRecord(offset_value)) == expected
