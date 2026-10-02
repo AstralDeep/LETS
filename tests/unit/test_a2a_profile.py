@@ -69,6 +69,9 @@ class ServiceClient:
     fail_revoke: int = 0
     lose_spawn_reply: int = 0
     lose_close_reply: int = 0
+    fail_spawn: int = 0
+    fail_close: int = 0
+    during_spawn: Callable[[], None] | None = None
 
     def _acting(self, lease_id: str | None) -> IdentityContext:
         subject = "host" if lease_id is None else self.subjects[lease_id]
@@ -92,6 +95,9 @@ class ServiceClient:
         return grant.to_dict()
 
     def spawn(self, parent_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        if self.fail_spawn:
+            self.fail_spawn -= 1
+            raise TimeoutError("spawn never reached the warden")
         self.calls.append("spawn")
         grant = self.service.spawn(
             request_id=payload["request_id"],
@@ -104,6 +110,9 @@ class ServiceClient:
             policy_digest=payload.get("policy_digest"),
         )
         self.subjects[grant.lease_id] = grant.subject_id
+        if self.during_spawn is not None:
+            hook, self.during_spawn = self.during_spawn, None
+            hook()
         if self.lose_spawn_reply:
             self.lose_spawn_reply -= 1
             raise TimeoutError("spawn committed but the reply was lost")
@@ -133,6 +142,9 @@ class ServiceClient:
         raise NotImplementedError
 
     def close_lease(self, lease_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        if self.fail_close:
+            self.fail_close -= 1
+            raise ConflictError("close did not reach the warden")
         self.calls.append("close")
         snapshot = self.service.close(
             request_id=payload["request_id"],
@@ -717,3 +729,127 @@ def test_cancel_resumes_a_failed_descendant_cascade(rig: Rig) -> None:
     mirrored = rig.profile.get_task(DELEGATOR, "child-1")
     assert (mirrored.state, mirrored.reason) == (TaskState.CANCELED, "parent_canceled")
     assert rig.client.calls.count("revoke") == 1
+
+
+def _delegate_as(identity: IdentityContext, rig: Rig, parent: TaskKey, task_id: str) -> Any:
+    return rig.profile.delegate(
+        identity,
+        parent_key=parent,
+        task_id=task_id,
+        context_id="ctx-1",
+        content=CONTENT,
+        subject_id="agent-2",
+        allocation=(1,),
+        capabilities={"worker.act"},
+        ttl_ns=100,
+    )
+
+
+def test_denied_delegate_does_not_recover_a_pending_parent(rig: Rig) -> None:
+    rig.client.fail_spawn = 1
+    with pytest.raises(TimeoutError):
+        rig.admit()
+    key = TaskKey(TENANT, "client-a", "task-1")
+    leases = len(rig.client.subjects)
+
+    intruder = IdentityContext("intruder", TENANT, frozenset())
+    with pytest.raises(PolicyError, match="executing subject"):
+        _delegate_as(intruder, rig, key, "stolen")
+    assert len(rig.client.subjects) == leases
+    pending = rig.ledger.get(key)
+    assert pending is not None and pending.lease_id == ""
+
+    child = _delegate_as(DELEGATOR, rig, key, "child-1")
+    assert child.lease_id and len(rig.client.subjects) == leases + 2
+
+
+def test_unknown_executor_does_not_recover_a_pending_task(rig: Rig) -> None:
+    rig.client.fail_spawn = 1
+    with pytest.raises(TimeoutError):
+        rig.admit()
+    key = TaskKey(TENANT, "client-a", "task-1")
+    leases = len(rig.client.subjects)
+
+    with pytest.raises(PolicyError, match="no audience binding"):
+        rig.profile.authorize_effect(
+            _client_identity(),
+            task_id="task-1",
+            effect_id="e-1",
+            transition="act",
+            verified_executor_id="spiffe://exec/unknown",
+        )
+    assert len(rig.client.subjects) == leases
+    pending = rig.ledger.get(key)
+    assert pending is not None and pending.lease_id == ""
+
+    receipt = rig.effect()
+    assert receipt["executor_audience"] == "executor-a"
+    assert len(rig.client.subjects) == leases + 1
+
+
+def test_delegation_is_refused_once_completion_starts(rig: Rig) -> None:
+    parent = rig.admit()
+    rig.client.fail_close = 1
+    with pytest.raises(ConflictError, match="close did not reach"):
+        rig.profile.complete_task(_client_identity(), "task-1")
+    leases = len(rig.client.subjects)
+    with pytest.raises(PolicyError, match="not accepting delegation"):
+        _delegate_as(DELEGATOR, rig, parent.key, "late-child")
+    assert len(rig.client.subjects) == leases
+    assert rig.ledger.get(TaskKey(TENANT, "agent-1", "late-child")) is None
+
+    done = rig.profile.complete_task(_client_identity(), "task-1")
+    assert done.state is TaskState.COMPLETED
+
+
+def test_delegation_is_refused_when_completion_started_during_recovery(rig: Rig) -> None:
+    rig.client.fail_spawn = 2
+    with pytest.raises(TimeoutError):
+        rig.admit()
+    with pytest.raises(TimeoutError):
+        rig.profile.complete_task(_client_identity(), "task-1")
+    key = TaskKey(TENANT, "client-a", "task-1")
+    pending = rig.ledger.get(key)
+    assert pending is not None and pending.completion_requested and pending.lease_id == ""
+    leases = len(rig.client.subjects)
+
+    with pytest.raises(PolicyError, match="not accepting delegation"):
+        _delegate_as(DELEGATOR, rig, key, "late-child")
+    assert len(rig.client.subjects) == leases
+
+
+def test_effect_recovery_rechecks_cancellation_before_issuing_authority(rig: Rig) -> None:
+    rig.client.fail_spawn = 1
+    with pytest.raises(TimeoutError):
+        rig.admit()
+    rig.client.fail_revoke = 1
+
+    def cancel_during_recovery() -> None:
+        with pytest.raises(ConflictError, match="transient revoke"):
+            rig.profile.cancel_task(_client_identity(), "task-1")
+
+    rig.client.during_spawn = cancel_during_recovery
+    with pytest.raises(PolicyError, match="not accepting new effects"):
+        rig.effect()
+    assert "authorize" not in rig.client.calls
+    interrupted = rig.profile.get_task(_client_identity(), "task-1")
+    assert interrupted.cancel_requested and interrupted.state is not TaskState.CANCELED
+
+    canceled = rig.profile.cancel_task(_client_identity(), "task-1")
+    assert canceled.state is TaskState.CANCELED
+
+
+def test_effect_recovery_rechecks_completion_before_issuing_authority(rig: Rig) -> None:
+    rig.client.fail_spawn = 1
+    with pytest.raises(TimeoutError):
+        rig.admit()
+    rig.client.fail_close = 1
+
+    def complete_during_recovery() -> None:
+        with pytest.raises(ConflictError, match="close did not reach"):
+            rig.profile.complete_task(_client_identity(), "task-1")
+
+    rig.client.during_spawn = complete_during_recovery
+    with pytest.raises(PolicyError, match="not accepting new effects"):
+        rig.effect()
+    assert "authorize" not in rig.client.calls

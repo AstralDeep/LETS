@@ -275,11 +275,12 @@ class A2ATaskProfile:
         parent = self.ledger.get(parent_key)
         if parent is None:
             raise _not_found()
-        parent = self._ensure_lease(parent)
         if parent.subject_id != identity.subject_id:
             raise PolicyError("only the parent task's executing subject may delegate")
-        if parent.state in TERMINAL_STATES or parent.cancel_requested:
-            raise PolicyError("parent task is not accepting delegation")
+        refusal = "parent task is not accepting delegation"
+        self._accepting(parent_key, refusal)
+        self._ensure_lease(parent)
+        parent = self._accepting(parent_key, refusal)
         return self._admit(
             identity,
             task_id=task_id,
@@ -340,6 +341,18 @@ class A2ATaskProfile:
         if identity.tenant_id != self.authorizer.profile.tenant_id:
             raise PolicyError("identity tenant does not match the configured LETS tenant")
         return identity
+
+    def _accepting(self, key: TaskKey, refusal: str) -> TaskRecord:
+        def gate(current: TaskRecord) -> TaskRecord:
+            if (
+                current.state in TERMINAL_STATES
+                or current.cancel_requested
+                or current.completion_requested
+            ):
+                raise PolicyError(refusal)
+            return current
+
+        return self.ledger.update(key, gate)
 
     def _ensure_lease(self, record: TaskRecord) -> TaskRecord:
         if record.lease_id or record.state in TERMINAL_STATES:
@@ -410,14 +423,11 @@ class A2ATaskProfile:
     ) -> WireObject:
         record = self._owned(identity, task_id)
         require_identifier(effect_id, field="effect id")
-        if (
-            record.state in TERMINAL_STATES
-            or record.cancel_requested
-            or record.completion_requested
-        ):
-            raise PolicyError("task is not accepting new effects")
-        record = self._ensure_lease(record)
+        refusal = "task is not accepting new effects"
+        self._accepting(record.key, refusal)
         audience = self.audiences.resolve(verified_executor_id)
+        self._ensure_lease(record)
+        record = self._accepting(record.key, refusal)
         try:
             receipt = self.authorizer.authorize_effect(
                 request_id=derive_id("effect", record.key, record.context_id, effect_id),

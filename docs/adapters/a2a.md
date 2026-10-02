@@ -108,6 +108,25 @@ and does not change task state.
   checked against the admission digest held in the ledger, including after a lost spawn reply
   and after a denied admission.
 
+## Lifecycle admission
+
+`delegate` and `authorize_effect` run in a fixed order so that a denied call causes no warden
+side effect:
+
+1. Verify identity and tenant, and look up the task.
+2. Check what needs no warden call: the delegating subject (delegation) or the executor
+   audience binding (effects).
+3. Pass the lifecycle gate: an atomic ledger update that refuses if the task is terminal,
+   `cancel_requested` or `completion_requested`.
+4. Only then resume a pending admission, which may perform the idempotent spawn.
+5. Pass the gate again on the refreshed record before delegating or requesting a receipt.
+
+Delegation is refused as soon as completion starts, including while a pending admission is
+being recovered. The gate narrows the race with cancellation and completion but does not
+remove it: a receipt requested just before cancellation persists is still a pre-revocation
+receipt, with the guarantees described below. The ledger's `update` must be atomic for the
+gate to hold.
+
 ## Delegation and expiry
 
 `delegate` spawns beneath the parent task's lease. LETS rejects capabilities outside the
@@ -193,6 +212,9 @@ to the LETS database schema. `examples/a2a_host.py` shows the method-dispatch se
 - operations resume a pending admission; denied admission becomes `REJECTED`
 - `COMPLETED` published only after `close` succeeds; cancel wins over an unfinished completion
 - cancel on an already canceled parent resumes a failed descendant cascade
+- denied delegation or effect leaves no warden allocation when recovering a pending admission
+- delegation refused once completion starts, including during recovery
+- effect recovery rechecks cancellation and completion before issuing authority
 - duplicate delivery: one spawn, same receipt, executor replay refused
 - reconnect and status lookup; foreign task hidden; terminal subscribe refused
 - changed content, context and authority conflicts with no second lease

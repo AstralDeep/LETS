@@ -18,6 +18,8 @@ image together; the Git tag is the package version prefixed with `v`.
   `tests/unit/test_a2a_profile.py`; `examples/a2a_host.py` shows the dispatch seam.
   Identity is bound to the configured tenant, admission is recorded before the spawn, `COMPLETED`
   is published only after `close` succeeds, and cancellation resumes a failed descendant cascade.
+  Delegation and effect requests authorize the caller before resuming a pending admission, and
+  check lifecycle intent atomically on the refreshed record.
 
 ## [1.0.12] - 2026-09-28
 
