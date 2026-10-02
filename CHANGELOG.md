@@ -5,6 +5,17 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Fixed
+
+- The HTTP client rejects invalid numeric configuration deterministically before creating any
+  transport: boolean, fractional, non-finite, or unrepresentably large attempt counts, byte
+  limits, timeouts, and retry backoffs raise `TypeError` or `ValueError` at construction, and
+  the total deadline is rejected when it exceeds the platform's timeout limit.
+  `Retry-After` handling honors RFC 9110 delay-seconds (arbitrary precision, capped at the
+  configured maximum) and the standard HTTP-date forms, including leap seconds and the RFC 850
+  two-digit-year rule, with malformed or non-finite headers falling back to a bounded delay
+  independent of the process locale.
+
 ### Added
 
 - Current-head CI failure replies for PR authors and maintainer review notifications
