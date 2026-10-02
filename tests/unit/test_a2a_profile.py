@@ -67,6 +67,8 @@ class ServiceClient:
     subjects: dict[str, str] = field(default_factory=dict)
     calls: list[str] = field(default_factory=list)
     fail_revoke: int = 0
+    lose_spawn_reply: int = 0
+    lose_close_reply: int = 0
 
     def _acting(self, lease_id: str | None) -> IdentityContext:
         subject = "host" if lease_id is None else self.subjects[lease_id]
@@ -102,6 +104,9 @@ class ServiceClient:
             policy_digest=payload.get("policy_digest"),
         )
         self.subjects[grant.lease_id] = grant.subject_id
+        if self.lose_spawn_reply:
+            self.lose_spawn_reply -= 1
+            raise TimeoutError("spawn committed but the reply was lost")
         return grant.to_dict()
 
     def authorize(self, lease_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -134,6 +139,9 @@ class ServiceClient:
             identity=self._acting(lease_id),
             lease_id=lease_id,
         )
+        if self.lose_close_reply:
+            self.lose_close_reply -= 1
+            raise TimeoutError("close committed but the reply was lost")
         return snapshot.to_dict()
 
     def revoke_branch(self, lease_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -151,13 +159,24 @@ class ServiceClient:
 
 
 @dataclass
+class FlakyLedger(InMemoryTaskLedger):
+    fail_key: TaskKey | None = None
+
+    def update(self, key: TaskKey, mutate: Callable[[TaskRecord], TaskRecord]) -> TaskRecord:
+        if key == self.fail_key:
+            self.fail_key = None
+            raise RuntimeError("ledger unavailable")
+        return super().update(key, mutate)
+
+
+@dataclass
 class Rig:
     profile: A2ATaskProfile
     client: ServiceClient
     service: WardenService
     clock: ManualClock
     registry: PublicKeyRegistry
-    ledger: InMemoryTaskLedger
+    ledger: FlakyLedger
     root_lease_id: str
     tmp: Path
 
@@ -233,7 +252,7 @@ def rig(tmp_path: Path) -> Iterator[Rig]:
         ),
     )
     root = replicas.provision(request_id="root", replica_id="host", allocation=(100,), ttl_ns=2_000)
-    ledger = InMemoryTaskLedger()
+    ledger = FlakyLedger()
     profile = A2ATaskProfile(
         replicas,
         ledger,
@@ -558,3 +577,143 @@ def test_delegation_requires_a_live_known_parent(rig: Rig) -> None:
     rig.profile.cancel_task(_client_identity(), "task-1")
     with pytest.raises(PolicyError, match="not accepting delegation"):
         delegate(parent.key)
+
+
+def test_identity_is_bound_to_the_configured_tenant(rig: Rig) -> None:
+    parent = rig.admit()
+    foreign = IdentityContext("agent-1", "other-tenant", frozenset())
+    spawns = rig.client.calls.count("spawn")
+    with pytest.raises(PolicyError, match="configured LETS tenant"):
+        rig.profile.delegate(
+            foreign,
+            parent_key=parent.key,
+            task_id="stolen",
+            context_id="ctx-1",
+            content=CONTENT,
+            subject_id="agent-2",
+            allocation=(1,),
+            capabilities={"worker.act"},
+            ttl_ns=100,
+        )
+    with pytest.raises(PolicyError, match="configured LETS tenant"):
+        rig.profile.admit(
+            foreign,
+            task_id="foreign-task",
+            context_id="ctx-1",
+            content=CONTENT,
+            subject_id="agent-2",
+            parent_lease_id=rig.root_lease_id,
+            allocation=(1,),
+            capabilities={"worker.act"},
+            ttl_ns=100,
+        )
+    with pytest.raises(PolicyError, match="configured LETS tenant"):
+        rig.profile.get_task(foreign, "task-1")
+    assert rig.client.calls.count("spawn") == spawns
+    assert rig.ledger.get(TaskKey("other-tenant", "agent-1", "stolen")) is None
+
+
+def test_delegation_cannot_name_a_parent_in_another_tenant(rig: Rig) -> None:
+    parent = rig.admit()
+    with pytest.raises(A2AProfileError) as error:
+        rig.profile.delegate(
+            DELEGATOR,
+            parent_key=TaskKey("other-tenant", parent.key.principal, parent.key.task_id),
+            task_id="child-x",
+            context_id="ctx-1",
+            content=CONTENT,
+            subject_id="agent-2",
+            allocation=(1,),
+            capabilities={"worker.act"},
+            ttl_ns=100,
+        )
+    assert error.value.code == -32001
+
+
+def test_lost_spawn_reply_keeps_the_original_content_binding(rig: Rig) -> None:
+    rig.client.lose_spawn_reply = 1
+    with pytest.raises(TimeoutError):
+        rig.admit()
+    pending = rig.ledger.get(TaskKey(TENANT, "client-a", "task-1"))
+    assert pending is not None and pending.lease_id == ""
+
+    changed = {"message": {"messageId": "m-1", "parts": [{"text": "something else"}]}}
+    with pytest.raises(ConflictError, match="different content"):
+        rig.admit(content=changed)
+    assert rig.ledger.get(pending.key) == pending
+
+    recovered = rig.admit()
+    assert recovered.lease_id and recovered.admission_digest == pending.admission_digest
+    assert len(rig.client.subjects) == 2
+    assert rig.admit() == recovered
+
+
+def test_operations_resume_a_pending_admission(rig: Rig) -> None:
+    rig.client.lose_spawn_reply = 1
+    with pytest.raises(TimeoutError):
+        rig.admit()
+    canceled = rig.profile.cancel_task(_client_identity(), "task-1")
+    assert canceled.state is TaskState.CANCELED and canceled.lease_id
+    assert len(rig.client.subjects) == 2
+
+
+def test_denied_admission_is_rejected_and_keeps_its_binding(rig: Rig) -> None:
+    with pytest.raises(PolicyError):
+        rig.admit(capabilities={"worker.act", "worker.audit", "worker.extra"})
+    rejected = rig.profile.get_task(_client_identity(), "task-1")
+    assert (rejected.state, rejected.reason) == (TaskState.REJECTED, "admission_denied")
+    with pytest.raises(ConflictError):
+        rig.admit()
+
+
+def test_completed_is_published_only_after_close_succeeds(rig: Rig) -> None:
+    rig.admit()
+    rig.effect()
+    rig.client.lose_close_reply = 1
+    with pytest.raises(TimeoutError):
+        rig.profile.complete_task(_client_identity(), "task-1")
+    pending = rig.profile.get_task(_client_identity(), "task-1")
+    assert pending.state is TaskState.WORKING and pending.completion_requested
+    with pytest.raises(PolicyError, match="not accepting"):
+        rig.effect(effect_id="after-complete")
+
+    done = rig.profile.complete_task(_client_identity(), "task-1")
+    assert done.state is TaskState.COMPLETED and not done.completion_requested
+    assert rig.profile.complete_task(_client_identity(), "task-1") == done
+
+
+def test_cancel_wins_over_an_unfinished_completion(rig: Rig) -> None:
+    rig.admit()
+    rig.client.lose_close_reply = 1
+    with pytest.raises(TimeoutError):
+        rig.profile.complete_task(_client_identity(), "task-1")
+    canceled = rig.profile.cancel_task(_client_identity(), "task-1")
+    assert canceled.state is TaskState.CANCELED
+    with pytest.raises(ConflictError, match="canceled"):
+        rig.profile.complete_task(_client_identity(), "task-1")
+
+
+def test_cancel_resumes_a_failed_descendant_cascade(rig: Rig) -> None:
+    parent = rig.admit()
+    child = rig.profile.delegate(
+        DELEGATOR,
+        parent_key=parent.key,
+        task_id="child-1",
+        context_id="ctx-1",
+        content=CONTENT,
+        subject_id="agent-2",
+        allocation=(10,),
+        capabilities={"worker.act"},
+        ttl_ns=1_000,
+    )
+    rig.ledger.fail_key = child.key
+    with pytest.raises(RuntimeError, match="ledger unavailable"):
+        rig.profile.cancel_task(_client_identity(), "task-1")
+    assert rig.profile.get_task(_client_identity(), "task-1").state is TaskState.CANCELED
+    assert rig.profile.get_task(DELEGATOR, "child-1").state is not TaskState.CANCELED
+
+    again = rig.profile.cancel_task(_client_identity(), "task-1")
+    assert again.state is TaskState.CANCELED
+    mirrored = rig.profile.get_task(DELEGATOR, "child-1")
+    assert (mirrored.state, mirrored.reason) == (TaskState.CANCELED, "parent_canceled")
+    assert rig.client.calls.count("revoke") == 1

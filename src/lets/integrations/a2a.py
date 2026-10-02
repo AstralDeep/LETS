@@ -86,6 +86,11 @@ class TaskRecord:
     reason: str | None = None
     revoked_at_ns: int | None = None
     receipt_horizon_ns: int = 0
+    completion_requested: bool = False
+    parent_lease_id: str = ""
+    allocation: ResourceVector = ()
+    capabilities: frozenset[str] = frozenset()
+    ttl_ns: int = 0
 
 
 class TaskLedger(Protocol):
@@ -264,10 +269,14 @@ class A2ATaskProfile:
         capabilities: Iterable[str],
         ttl_ns: int,
     ) -> TaskRecord:
+        identity = self._verified(identity)
+        if parent_key.tenant_id != identity.tenant_id:
+            raise _not_found()
         parent = self.ledger.get(parent_key)
         if parent is None:
             raise _not_found()
-        if parent.subject_id != _identity(identity).subject_id:
+        parent = self._ensure_lease(parent)
+        if parent.subject_id != identity.subject_id:
             raise PolicyError("only the parent task's executing subject may delegate")
         if parent.state in TERMINAL_STATES or parent.cancel_requested:
             raise PolicyError("parent task is not accepting delegation")
@@ -298,7 +307,7 @@ class A2ATaskProfile:
         capabilities: Iterable[str],
         ttl_ns: int,
     ) -> TaskRecord:
-        identity = _identity(identity)
+        identity = self._verified(identity)
         require_identifier(task_id, field="task id")
         require_identifier(context_id, field="context id")
         capabilities = frozenset(capabilities)
@@ -311,27 +320,58 @@ class A2ATaskProfile:
             capabilities=capabilities,
             ttl_ns=ttl_ns,
         )
-        existing = self.ledger.get(key)
-        if existing is not None:
-            return self._same_admission(existing, context_id, digest)
-        # a crash after spawn and before the insert is safe: the request id is derived
-        grant = self.authorizer.replicate(
-            request_id=derive_id("spawn", key, context_id),
-            parent_lease_id=parent_lease_id,
-            replica_id=subject_id,
-            allocation=allocation,
-            capabilities=capabilities,
-            ttl_ns=ttl_ns,
-        )
-        record = TaskRecord(
+        pending = TaskRecord(
             key=key,
             context_id=context_id,
             subject_id=subject_id,
-            lease_id=str(grant["lease_id"]),
+            lease_id="",
             admission_digest=digest,
             parent=parent,
+            parent_lease_id=parent_lease_id,
+            allocation=tuple(allocation),
+            capabilities=capabilities,
+            ttl_ns=ttl_ns,
         )
-        return self._same_admission(self.ledger.put_if_absent(record), context_id, digest)
+        bound = self._same_admission(self.ledger.put_if_absent(pending), context_id, digest)
+        return self._ensure_lease(bound)
+
+    def _verified(self, identity: IdentityContext) -> IdentityContext:
+        identity = _identity(identity)
+        if identity.tenant_id != self.authorizer.profile.tenant_id:
+            raise PolicyError("identity tenant does not match the configured LETS tenant")
+        return identity
+
+    def _ensure_lease(self, record: TaskRecord) -> TaskRecord:
+        if record.lease_id or record.state in TERMINAL_STATES:
+            return record
+        try:
+            grant = self.authorizer.replicate(
+                request_id=derive_id("spawn", record.key, record.context_id),
+                parent_lease_id=record.parent_lease_id,
+                replica_id=record.subject_id,
+                allocation=record.allocation,
+                capabilities=record.capabilities,
+                ttl_ns=record.ttl_ns,
+            )
+        except (PolicyError, ValidationError, ExpiredError):
+            self._reject(record.key)
+            raise
+        lease_id = str(grant["lease_id"])
+
+        def bind(current: TaskRecord) -> TaskRecord:
+            if current.lease_id:
+                return current
+            return replace(current, lease_id=lease_id)
+
+        return self.ledger.update(record.key, bind)
+
+    def _reject(self, key: TaskKey) -> None:
+        def reject(current: TaskRecord) -> TaskRecord:
+            if current.lease_id or current.state in TERMINAL_STATES:
+                return current
+            return replace(current, state=TaskState.REJECTED, reason="admission_denied")
+
+        self.ledger.update(key, reject)
 
     @staticmethod
     def _same_admission(record: TaskRecord, context_id: str, digest: str) -> TaskRecord:
@@ -351,7 +391,7 @@ class A2ATaskProfile:
         return record
 
     def _owned(self, identity: IdentityContext, task_id: str) -> TaskRecord:
-        identity = _identity(identity)
+        identity = self._verified(identity)
         record = self.ledger.get(TaskKey(identity.tenant_id, identity.subject_id, task_id))
         if record is None:
             raise _not_found()
@@ -370,8 +410,13 @@ class A2ATaskProfile:
     ) -> WireObject:
         record = self._owned(identity, task_id)
         require_identifier(effect_id, field="effect id")
-        if record.state in TERMINAL_STATES or record.cancel_requested:
+        if (
+            record.state in TERMINAL_STATES
+            or record.cancel_requested
+            or record.completion_requested
+        ):
             raise PolicyError("task is not accepting new effects")
+        record = self._ensure_lease(record)
         audience = self.audiences.resolve(verified_executor_id)
         try:
             receipt = self.authorizer.authorize_effect(
@@ -408,19 +453,30 @@ class A2ATaskProfile:
     def complete_task(self, identity: IdentityContext, task_id: str) -> TaskRecord:
         record = self._owned(identity, task_id)
 
-        def done(current: TaskRecord) -> TaskRecord:
+        def begin(current: TaskRecord) -> TaskRecord:
             if current.state is TaskState.COMPLETED:
                 return current
             if current.state in TERMINAL_STATES or current.cancel_requested:
                 raise ConflictError("task is canceled, canceling, or already failed")
-            return replace(current, state=TaskState.COMPLETED)
+            return replace(current, completion_requested=True)
 
-        updated = self.ledger.update(record.key, done)
+        started = self.ledger.update(record.key, begin)
+        if started.state is TaskState.COMPLETED:
+            return started
+        started = self._ensure_lease(started)
         self.authorizer.close(
-            updated.lease_id,
-            request_id=derive_id("close", updated.key, updated.context_id),
+            started.lease_id,
+            request_id=derive_id("close", started.key, started.context_id),
         )
-        return updated
+
+        def finish(current: TaskRecord) -> TaskRecord:
+            if current.state is TaskState.COMPLETED:
+                return current
+            if current.state in TERMINAL_STATES or current.cancel_requested:
+                raise ConflictError("task is canceled, canceling, or already failed")
+            return replace(current, state=TaskState.COMPLETED, completion_requested=False)
+
+        return self.ledger.update(started.key, finish)
 
     def cancel_task(
         self,
@@ -440,7 +496,9 @@ class A2ATaskProfile:
 
         marked = self.ledger.update(record.key, intent)
         if marked.state is TaskState.CANCELED:
+            self._cascade(marked.key)
             return marked
+        marked = self._ensure_lease(marked)
         revocation = self.authorizer.revoke(
             marked.lease_id,
             request_id=derive_id("cancel", marked.key, marked.context_id),

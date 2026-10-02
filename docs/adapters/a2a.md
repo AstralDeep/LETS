@@ -41,6 +41,11 @@ Identity is created at the transport boundary (OIDC, mTLS, SPIFFE) as an `Identi
 and is passed to the profile as a separate argument. It is never read from the A2A JSON body.
 Passing anything other than an `IdentityContext` raises `ValidationError`.
 
+The identity's tenant must equal the tenant configured on the `ReplicaAuthorizer` profile, or
+every operation raises `PolicyError`. Delegation also requires the parent task key to be in the
+caller's tenant, so a subject with the same name in another tenant cannot borrow a parent's
+authority.
+
 | A2A input | Trusted? | Used for |
 | :-- | :-- | :-- |
 | Caller identity | Only as an `IdentityContext` from the host authenticator | `TaskKey(tenant, principal, task_id)` and every derived ID |
@@ -66,7 +71,7 @@ same LETS `request_id` and nonce, so retries are exact. A different principal us
 | `GetTask` | `get_task` | none | Reconnect and status lookup read the ledger |
 | `SubscribeToTask` | `subscribe` | none | Terminal task: `UnsupportedOperationError` (spec 3.1.6) |
 | `CancelTask` | `cancel_task` | `revoke_branch` | See "Cancellation versus revocation" |
-| Successful finish | `complete_task` | `close` | Cancellation requested first wins |
+| Successful finish | `complete_task` | `close` | `COMPLETED` is published only after `close` succeeds; cancellation requested first wins |
 
 ## State mapping
 
@@ -74,11 +79,12 @@ same LETS `request_id` and nonce, so retries are exact. A different principal us
 | :-- | :-- |
 | `TASK_STATE_SUBMITTED` | Admitted, no effect authorized yet |
 | `TASK_STATE_WORKING` | At least one receipt issued |
-| `TASK_STATE_COMPLETED` | `complete_task` won the ledger race and the lease was closed |
+| `TASK_STATE_COMPLETED` | `complete_task` closed the lease and then won the ledger race |
+| `TASK_STATE_REJECTED` (`admission_denied`) | LETS refused the spawn: attenuation, residual, expiry or validation |
 | `TASK_STATE_CANCELED` | `cancel_task` revoked the lease branch |
 | `TASK_STATE_FAILED` (`authority_expired`) | The lease or a parent expired while authorizing an effect |
 
-`INPUT_REQUIRED`, `AUTH_REQUIRED` and `REJECTED` are not produced. `AUTH_REQUIRED` means the
+`INPUT_REQUIRED` and `AUTH_REQUIRED` are not produced. `AUTH_REQUIRED` means the
 agent needs more credentials from the client, which is not what lease expiry means.
 Lease renewal is a host choice through `ReplicaAuthorizer.renew`; the profile does not renew.
 
@@ -88,14 +94,19 @@ and does not change task state.
 ## Duplicate delivery, retries and reconnects
 
 - **Duplicate `SendMessage`.** The ledger returns the existing record. LETS sees one `spawn`.
-  If the host crashed after the LETS spawn but before the ledger insert, the retry re-sends the
-  same derived `request_id` and LETS returns the original grant.
+- **Admission is recorded before the spawn.** The ledger first stores the immutable admission
+  digest and spawn parameters in a pending record (`put_if_absent`, which must be atomic), then
+  spawns, then binds the lease ID. If the reply is lost after LETS committed the spawn, the
+  retry re-sends the same derived `request_id` and receives the original grant. A retry with
+  changed content conflicts instead of inheriting that grant. Every later operation on a
+  pending record resumes the same idempotent spawn first.
 - **Duplicate effect request.** The same `effect_id` returns the same signed receipt.
 - **Reconnect.** `get_task` and `subscribe` read the host ledger. A task owned by another
   principal returns `TaskNotFoundError`, indistinguishable from a missing task.
 - **Changed request content.** Reusing a `taskId` with different message content, a different
   context, or different lease parameters raises `ConflictError` before any LETS call. This is
-  checked against an admission digest held in the ledger.
+  checked against the admission digest held in the ledger, including after a lost spawn reply
+  and after a denied admission.
 
 ## Delegation and expiry
 
@@ -119,15 +130,23 @@ These are different operations that the profile sequences.
 `cancel_task` does this in order:
 
 1. In one atomic ledger update, set `cancel_requested`. From here the host refuses new effects.
-   A concurrent `complete_task` now fails with `ConflictError`; if completion committed first,
-   `cancel_task` raises `TaskNotCancelableError` (`-32002`).
+   A concurrent `complete_task` now fails with `ConflictError`; if `COMPLETED` was published
+   first, `cancel_task` raises `TaskNotCancelableError` (`-32002`). A completion that has
+   started but not published `COMPLETED` loses to cancellation.
 2. Call `revoke_branch`. LETS then refuses any further `authorize` on that lease branch.
 3. Atomically record `TASK_STATE_CANCELED` and `revoked_at_ns`, and mirror the state to
    delegated child records.
 
 If step 2 fails, the task remains `cancel_requested`. Retrying `cancel_task` is safe because the
 revocation request ID is derived. A repeated cancel of an already canceled task returns it
-unchanged (spec 3.3.1: cancel is idempotent).
+unchanged (spec 3.3.1: cancel is idempotent). It also re-runs the descendant mirroring, so a
+cascade that failed part-way is completed by retrying `cancel_task` on the parent.
+
+## Completion
+
+`complete_task` records `completion_requested`, which makes the host refuse new effects, then
+calls `close`, then publishes `TASK_STATE_COMPLETED`. If the close fails or its reply is lost,
+the task is not terminal and retrying `complete_task` repeats the idempotent `close`.
 
 ### What cancellation does not guarantee
 
@@ -169,6 +188,11 @@ to the LETS database schema. `examples/a2a_host.py` shows the method-dispatch se
 
 - pinned revision and projected task metadata
 - ID derivation bound to verified identity; asserted JSON identity ignored and rejected
+- tenant binding for admit, delegate, status lookup, and cross-tenant parent keys
+- lost spawn reply: changed content conflicts, original content recovers the original grant
+- operations resume a pending admission; denied admission becomes `REJECTED`
+- `COMPLETED` published only after `close` succeeds; cancel wins over an unfinished completion
+- cancel on an already canceled parent resumes a failed descendant cascade
 - duplicate delivery: one spawn, same receipt, executor replay refused
 - reconnect and status lookup; foreign task hidden; terminal subscribe refused
 - changed content, context and authority conflicts with no second lease

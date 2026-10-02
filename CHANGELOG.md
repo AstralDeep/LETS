@@ -16,6 +16,8 @@ image together; the Git tag is the package version prefixed with `v`.
   unchanged. Cancellation is documented separately from lease revocation and does not claim
   instant offline revocation or exactly-once effects. See `docs/adapters/a2a.md`; fixtures are in
   `tests/unit/test_a2a_profile.py`; `examples/a2a_host.py` shows the dispatch seam.
+  Identity is bound to the configured tenant, admission is recorded before the spawn, `COMPLETED`
+  is published only after `close` succeeds, and cancellation resumes a failed descendant cascade.
 
 ## [1.0.12] - 2026-09-28
 
