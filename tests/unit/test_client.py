@@ -283,9 +283,10 @@ def test_parse_retry_after_rfc850_leap_second_and_past_century() -> None:
     leap_now = datetime(2016, 12, 31, 23, 59, 0, tzinfo=UTC)
     assert LETSClient._parse_retry_after("Saturday, 31-Dec-16 23:59:60 GMT", leap_now) == 60.0
     now = datetime(2026, 10, 2, 12, 0, 0, tzinfo=UTC)
-    assert LETSClient._parse_retry_after("Sunday, 06-Nov-94 08:49:37 GMT", now) == (
-        datetime(1994, 11, 6, 8, 49, 37, tzinfo=UTC) - now
-    ).total_seconds()
+    assert (
+        LETSClient._parse_retry_after("Sunday, 06-Nov-94 08:49:37 GMT", now)
+        == (datetime(1994, 11, 6, 8, 49, 37, tzinfo=UTC) - now).total_seconds()
+    )
 
 
 def test_parse_retry_after_rfc850_century_window() -> None:
