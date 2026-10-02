@@ -7,6 +7,15 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Added
 
+- An optional Model Context Protocol (MCP) integration profile,
+  `lets.integrations.mcp` (`lets.mcp-profile/v1`), pinned to MCP specification
+  revision `2024-11-05` with optional SDK dependency `mcp >= 1.0.0`. It maps
+  host-verified tool operations to stable request IDs, canonical LETS-CJ/1
+  argument and effect digests, durable executor replay claims, and host
+  confirmation gates, providing at-most-once authorization with host-managed
+  transport and IAM. Fixtures are in `tests/integration/test_mcp_integration.py`;
+  documentation in `docs/mcp_integration.md`. Closes #71.
+
 - Bounty issue `/claim` comments receive automatic guidance with a prefilled reservation
   form or their existing assignment status.
 
