@@ -5,12 +5,14 @@ idempotent calls. Used by peer.py's dispatcher and by AstralDeep's orchestrator.
 
 from __future__ import annotations
 
-import email.utils
+import math
+import re
 import ssl
 import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Self, cast
 from urllib.parse import quote
@@ -165,6 +167,22 @@ def _problem_error(response: httpx.Response, content: bytes | None = None) -> LE
     return exception_type(problem)
 
 
+def _require_int(name: str, value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{name} must be an integer, not boolean or float")
+
+
+def _require_finite_real(name: str, value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a real number, not boolean or other type")
+    try:
+        converted = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{name} must be finite") from exc
+    if not math.isfinite(converted):
+        raise ValueError(f"{name} must be finite")
+
+
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     max_attempts: int = 3
@@ -172,10 +190,55 @@ class RetryPolicy:
     maximum_backoff_s: float = 1.0
 
     def __post_init__(self) -> None:
+        _require_int("max_attempts", self.max_attempts)
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be at least one")
+        _require_finite_real("initial_backoff_s", self.initial_backoff_s)
+        _require_finite_real("maximum_backoff_s", self.maximum_backoff_s)
         if self.initial_backoff_s < 0 or self.maximum_backoff_s < 0:
             raise ValueError("retry backoff values must be non-negative")
+
+
+_IMF_FIXDATE_RE = re.compile(
+    r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-3][0-9]) "
+    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{4}) "
+    r"([0-2][0-9]):([0-5][0-9]):([0-5][0-9]|60) GMT$"
+)
+_RFC850_DATE_RE = re.compile(
+    r"^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), ([0-3][0-9])-"
+    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-([0-9]{2}) "
+    r"([0-2][0-9]):([0-5][0-9]):([0-5][0-9]|60) GMT$"
+)
+_ASCTIME_DATE_RE = re.compile(
+    r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) "
+    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?: ([1-9])|([0-3][0-9])) "
+    r"([0-2][0-9]):([0-5][0-9]):([0-5][0-9]|60) ([0-9]{4})$"
+)
+
+_MONTH_MAP = {
+    "Jan": 1,
+    "Feb": 2,
+    "Mar": 3,
+    "Apr": 4,
+    "May": 5,
+    "Jun": 6,
+    "Jul": 7,
+    "Aug": 8,
+    "Sep": 9,
+    "Oct": 10,
+    "Nov": 11,
+    "Dec": 12,
+}
+
+_WEEKDAY_INDEX = {
+    "Mon": 0,
+    "Tue": 1,
+    "Wed": 2,
+    "Thu": 3,
+    "Fri": 4,
+    "Sat": 5,
+    "Sun": 6,
+}
 
 
 class LETSClient:
@@ -198,8 +261,12 @@ class LETSClient:
     ) -> None:
         if client is not None and transport is not None:
             raise ValueError("pass either client or transport, not both")
+        _require_finite_real("total_timeout_s", total_timeout_s)
         if total_timeout_s <= 0:
             raise ValueError("total_timeout_s must be positive")
+        if total_timeout_s > threading.TIMEOUT_MAX:
+            raise ValueError("total_timeout_s must not exceed the platform timeout limit")
+        _require_int("max_response_bytes", max_response_bytes)
         if max_response_bytes < 1 or max_response_bytes > 16_777_216:
             raise ValueError("max_response_bytes must be between 1 and 16777216")
         headers = {"accept": JSON_MEDIA_TYPE}
@@ -266,20 +333,106 @@ class LETSClient:
         return bytes(content)
 
     @staticmethod
-    def _retry_delay(response: httpx.Response | None, fallback: float, maximum: float) -> float:
-        if response is None:
-            return min(fallback, maximum)
-        retry_after = response.headers.get("retry-after")
-        if retry_after is None:
-            return min(fallback, maximum)
-        try:
-            return min(max(float(retry_after), 0.0), maximum)
-        except ValueError:
+    def _parse_retry_after(value: str, now: datetime) -> float | None:
+        if value.isdigit() and value.isascii():
             try:
-                retry_time = email.utils.parsedate_to_datetime(retry_after).timestamp()
+                return float(int(value))
+            except (ValueError, OverflowError):
+                return math.inf
+
+        m_imf = _IMF_FIXDATE_RE.match(value)
+        if m_imf:
+            wk_s, day_s, mon_s, yr_s, hr_s, min_s, sec_s = m_imf.groups()
+            year = int(yr_s)
+            if year < 1900:
+                return None
+            sec = int(sec_s)
+            try:
+                dt = datetime(
+                    year,
+                    _MONTH_MAP[mon_s],
+                    int(day_s),
+                    int(hr_s),
+                    int(min_s),
+                    min(sec, 59),
+                    tzinfo=UTC,
+                )
+                if _WEEKDAY_INDEX[wk_s] != dt.weekday():
+                    return None
+                if sec == 60:
+                    dt += timedelta(seconds=1)
+                return (dt - now).total_seconds()
             except (TypeError, ValueError, OverflowError):
-                return min(fallback, maximum)
-            return min(max(retry_time - time.time(), 0.0), maximum)
+                return None
+
+        m_rfc850 = _RFC850_DATE_RE.match(value)
+        if m_rfc850:
+            wk_s, day_s, mon_s, yr2_s, hr_s, min_s, sec_s = m_rfc850.groups()
+            sec = int(sec_s)
+            try:
+                calendar_dt = datetime(
+                    (now.year // 100) * 100 + int(yr2_s),
+                    _MONTH_MAP[mon_s],
+                    int(day_s),
+                    int(hr_s),
+                    int(min_s),
+                    min(sec, 59),
+                    tzinfo=UTC,
+                )
+                effective_dt = calendar_dt + timedelta(seconds=1 if sec == 60 else 0)
+                # RFC 9110 §5.6.7: values more than 50 years ahead mean the past century.
+                try:
+                    future_threshold = now.replace(year=now.year + 50)
+                except ValueError:
+                    future_threshold = now.replace(year=now.year + 50, day=28)
+                if effective_dt > future_threshold:
+                    calendar_dt = calendar_dt.replace(year=calendar_dt.year - 100)
+                    effective_dt = effective_dt.replace(year=effective_dt.year - 100)
+                if _WEEKDAY_INDEX[wk_s[:3]] != calendar_dt.weekday():
+                    return None
+                return (effective_dt - now).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                return None
+
+        m_asc = _ASCTIME_DATE_RE.match(value)
+        if m_asc:
+            wk_s, mon_s, day_sp, day_2d, hr_s, min_s, sec_s, yr_s = m_asc.groups()
+            year = int(yr_s)
+            if year < 1900:
+                return None
+            sec = int(sec_s)
+            try:
+                dt = datetime(
+                    year,
+                    _MONTH_MAP[mon_s],
+                    int(day_sp if day_sp is not None else day_2d),
+                    int(hr_s),
+                    int(min_s),
+                    min(sec, 59),
+                    tzinfo=UTC,
+                )
+                if _WEEKDAY_INDEX[wk_s] != dt.weekday():
+                    return None
+                if sec == 60:
+                    dt += timedelta(seconds=1)
+                return (dt - now).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                return None
+
+        return None
+
+    @staticmethod
+    def _retry_delay(response: httpx.Response | None, fallback: float, maximum: float) -> float:
+        safe_fallback = min(fallback, maximum)
+        if response is None:
+            return safe_fallback
+        header = response.headers.get("retry-after")
+        if header is None:
+            return safe_fallback
+        delay = LETSClient._parse_retry_after(header.strip(), datetime.now(UTC))
+        if delay is None:
+            return safe_fallback
+        return min(max(delay, 0.0), maximum)
 
     def _request(
         self,
