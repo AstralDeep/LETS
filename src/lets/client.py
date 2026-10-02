@@ -6,6 +6,7 @@ idempotent calls. Used by peer.py's dispatcher and by AstralDeep's orchestrator.
 from __future__ import annotations
 
 import email.utils
+import math
 import ssl
 import threading
 import time
@@ -172,10 +173,28 @@ class RetryPolicy:
     maximum_backoff_s: float = 1.0
 
     def __post_init__(self) -> None:
+        if isinstance(self.max_attempts, bool) or not isinstance(self.max_attempts, int):
+            raise TypeError("max_attempts must be an integer")
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be at least one")
-        if self.initial_backoff_s < 0 or self.maximum_backoff_s < 0:
-            raise ValueError("retry backoff values must be non-negative")
+
+        if isinstance(self.initial_backoff_s, bool) or not isinstance(
+            self.initial_backoff_s, (int, float)
+        ):
+            raise TypeError("initial_backoff_s must be a number")
+        if not math.isfinite(self.initial_backoff_s):
+            raise ValueError("initial_backoff_s must be finite")
+        if self.initial_backoff_s < 0:
+            raise ValueError("initial_backoff_s must be non-negative")
+
+        if isinstance(self.maximum_backoff_s, bool) or not isinstance(
+            self.maximum_backoff_s, (int, float)
+        ):
+            raise TypeError("maximum_backoff_s must be a number")
+        if not math.isfinite(self.maximum_backoff_s):
+            raise ValueError("maximum_backoff_s must be finite")
+        if self.maximum_backoff_s < 0:
+            raise ValueError("maximum_backoff_s must be non-negative")
 
 
 class LETSClient:
@@ -198,8 +217,12 @@ class LETSClient:
     ) -> None:
         if client is not None and transport is not None:
             raise ValueError("pass either client or transport, not both")
-        if total_timeout_s <= 0:
-            raise ValueError("total_timeout_s must be positive")
+        if isinstance(total_timeout_s, bool) or not isinstance(total_timeout_s, (int, float)):
+            raise TypeError("total_timeout_s must be a number")
+        if not math.isfinite(total_timeout_s) or total_timeout_s <= 0:
+            raise ValueError("total_timeout_s must be a finite positive number")
+        if isinstance(max_response_bytes, bool) or not isinstance(max_response_bytes, int):
+            raise TypeError("max_response_bytes must be an integer")
         if max_response_bytes < 1 or max_response_bytes > 16_777_216:
             raise ValueError("max_response_bytes must be between 1 and 16777216")
         headers = {"accept": JSON_MEDIA_TYPE}
@@ -229,7 +252,7 @@ class LETSClient:
             self._client = client
         self._retry = retry or RetryPolicy()
         self._sleep = sleep
-        self._total_timeout_s = total_timeout_s
+        self._total_timeout_s = float(total_timeout_s)
         self._max_response_bytes = max_response_bytes
         self._request_lock = threading.Lock()
         self._closed = False
@@ -273,13 +296,21 @@ class LETSClient:
         if retry_after is None:
             return min(fallback, maximum)
         try:
-            return min(max(float(retry_after), 0.0), maximum)
+            val = float(retry_after)
+            if not math.isfinite(val):
+                return min(fallback, maximum)
+            return min(max(val, 0.0), maximum)
         except ValueError:
             try:
                 retry_time = email.utils.parsedate_to_datetime(retry_after).timestamp()
+                if not math.isfinite(retry_time):
+                    return min(fallback, maximum)
+                delay = retry_time - time.time()
+                if not math.isfinite(delay):
+                    return min(fallback, maximum)
+                return min(max(delay, 0.0), maximum)
             except (TypeError, ValueError, OverflowError):
                 return min(fallback, maximum)
-            return min(max(retry_time - time.time(), 0.0), maximum)
 
     def _request(
         self,
@@ -290,9 +321,24 @@ class LETSClient:
         idempotent: bool,
         peer_signer: PeerSigner | None = None,
     ) -> Any:
-        with self._request_lock:
+        start_time = time.monotonic()
+        deadline = start_time + self._total_timeout_s
+
+        def deadline_error() -> httpx.TimeoutException:
+            return httpx.TimeoutException("LETS request exceeded its total wall-clock deadline")
+
+        acquire_timeout = max(0.0, deadline - time.monotonic())
+        if not self._request_lock.acquire(timeout=acquire_timeout):
+            raise deadline_error()
+
+        try:
             if self._closed:
                 raise RuntimeError("LETS client is closed")
+
+            remaining_time = deadline - time.monotonic()
+            if remaining_time <= 0:
+                raise deadline_error()
+
             body = b"" if payload is None else canonical_json(payload)
             base_headers = {"content-type": JSON_MEDIA_TYPE} if payload is not None else {}
             backoff = self._retry.initial_backoff_s
@@ -300,10 +346,7 @@ class LETSClient:
             response_content = b""
             active_client = self._client
             deadline_fired = threading.Event()
-            deadline = time.monotonic() + self._total_timeout_s
-
-            def deadline_error() -> httpx.TimeoutException:
-                return httpx.TimeoutException("LETS request exceeded its total wall-clock deadline")
+            current_response: list[httpx.Response] = []
 
             def wait_for_retry(delay: float) -> None:
                 remaining = deadline - time.monotonic()
@@ -322,9 +365,16 @@ class LETSClient:
 
             def abort_at_deadline() -> None:
                 deadline_fired.set()
-                active_client.close()
+                if self._owns_client:
+                    active_client.close()
+                else:
+                    if current_response and not current_response[0].is_closed:
+                        try:
+                            current_response[0].close()
+                        except Exception:
+                            pass
 
-            watchdog = threading.Timer(self._total_timeout_s, abort_at_deadline)
+            watchdog = threading.Timer(remaining_time, abort_at_deadline)
             watchdog.daemon = True
             watchdog.start()
             try:
@@ -344,21 +394,26 @@ class LETSClient:
                     try:
                         with active_client.stream(
                             method, path, content=body, headers=headers
-                        ) as response:
+                        ) as resp:
+                            current_response.append(resp)
                             if (
                                 idempotent
-                                and response.status_code in self._RETRYABLE_STATUS
+                                and resp.status_code in self._RETRYABLE_STATUS
                                 and attempt < self._retry.max_attempts
                             ):
                                 delay = self._retry_delay(
-                                    response,
+                                    resp,
                                     backoff,
                                     self._retry.maximum_backoff_s,
                                 )
+                                current_response.clear()
                             else:
+                                response = resp
                                 response_content = self._read_bounded(response, deadline_fired)
+                                current_response.clear()
                                 break
                     except httpx.TransportError as error:
+                        current_response.clear()
                         if deadline_fired.is_set():
                             raise deadline_error() from error
                         if not idempotent or attempt == self._retry.max_attempts:
@@ -397,10 +452,13 @@ class LETSClient:
                 watchdog.join()
                 if (
                     deadline_fired.is_set()
+                    and self._owns_client
                     and self._client_factory is not None
                     and not self._closed
                 ):
                     self._client = self._client_factory()
+        finally:
+            self._request_lock.release()
 
     @staticmethod
     def _id(value: object) -> str:
