@@ -192,3 +192,7 @@ Treat standards as composable profiles rather than reimplementing them inside LE
 
 Discovery is not authorization. A capability is usable only after intersecting the advertised
 surface, host policy, LETS lease capability/residual, receipt audience policy, and executor trust.
+
+For A2A, the optional `lets.integrations.a2a` adapter supplies an executable task and delegation
+profile (admission, delegated child leases, retries, cancellation) pinned to A2A v1.0.1. It keeps
+task storage in the host, not in LETS. See [A2A task and delegation profile](adapters/a2a.md).

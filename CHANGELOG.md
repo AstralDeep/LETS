@@ -12,6 +12,17 @@ image together; the Git tag is the package version prefixed with `v`.
 
 - Bounty issue `/claim` comments receive automatic guidance with a prefilled reservation
   form or their existing assignment status.
+- An optional A2A task and delegation profile, `lets.integrations.a2a` (`lets.a2a-profile/v1`),
+  pinned to A2A v1.0.1. It maps verified host identities and task/context/operation IDs to
+  deterministic LETS request IDs, delegated child leases, retries, cancellation and terminal
+  effects, with host-owned task storage behind a `TaskLedger` protocol. LETS core storage is
+  unchanged. Cancellation is documented separately from lease revocation and does not claim
+  instant offline revocation or exactly-once effects. See `docs/adapters/a2a.md`; fixtures are in
+  `tests/unit/test_a2a_profile.py`; `examples/a2a_host.py` shows the dispatch seam.
+  Identity is bound to the configured tenant, admission is recorded before the spawn, `COMPLETED`
+  is published only after `close` succeeds, and cancellation resumes a failed descendant cascade.
+  Delegation and effect requests authorize the caller before resuming a pending admission, and
+  check lifecycle intent atomically on the refreshed record.
 
 ### Security
 
