@@ -57,13 +57,15 @@ class AstralDeepAuthorizer:
         ttl_ns: int | None = None,
     ) -> WireObject:
         capabilities = self._capabilities(declared_scopes)
-        return self.authorizer.provision(
+        response = self.authorizer.provision(
             request_id=operation_id,
             replica_id=agent_id,
             allocation=allocation,
             capabilities=capabilities,
             ttl_ns=ttl_ns,
         )
+        self._validate_response(response)
+        return response
 
     def replicate_agent(
         self,
@@ -77,7 +79,7 @@ class AstralDeepAuthorizer:
         expected_sequence: int | None = None,
     ) -> WireObject:
         capabilities = self._capabilities(declared_scopes)
-        return self.authorizer.replicate(
+        response = self.authorizer.replicate(
             request_id=operation_id,
             parent_lease_id=parent_lease_id,
             replica_id=agent_id,
@@ -86,6 +88,8 @@ class AstralDeepAuthorizer:
             ttl_ns=ttl_ns,
             expected_sequence=expected_sequence,
         )
+        self._validate_response(response)
+        return response
 
     def authorize_tool(
         self,
@@ -101,7 +105,7 @@ class AstralDeepAuthorizer:
     ) -> WireObject:
         if declared_scope not in self.profile.scope_transitions:
             raise PolicyError(f"AstralDeep scope {declared_scope!r} is not mapped by this profile")
-        return self.authorizer.authorize_effect(
+        response = self.authorizer.authorize_effect(
             request_id=operation_id,
             lease_id=lease_id,
             transition=self.profile.scope_transitions[declared_scope],
@@ -111,6 +115,12 @@ class AstralDeepAuthorizer:
             expected_state=expected_state,
             expected_sequence=expected_sequence,
         )
+        self._validate_response(response)
+        return response
+
+    def _validate_response(self, response: WireObject) -> None:
+        if getattr(response, "status", None) != "success":
+            raise PolicyError(f"AstralDeep authorization failed: {getattr(response, 'error', 'unknown error')}")
 
     def _capabilities(
         self,
