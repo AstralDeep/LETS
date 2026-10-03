@@ -632,6 +632,67 @@ def test_response_contract_module_matches_the_committed_openapi_document() -> No
     assert TARGET_MODULE.read_text(encoding="utf-8") == expected
 
 
+def test_generator_tracks_nullability_through_references_and_unions() -> None:
+    from scripts.generate_response_contract import build_rules
+
+    document = {
+        "paths": {
+            "/v1/example": {
+                "get": {
+                    "responses": {
+                        "200": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/Example"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "Example": {
+                    "type": "object",
+                    "required": [
+                        "plain",
+                        "aliased_nullable",
+                        "union_nullable",
+                        "anynull_nullable",
+                        "aliased_string",
+                        "const_null",
+                        "const_text",
+                        "degenerate_cycle",
+                        "selfref_cycle",
+                    ],
+                    "properties": {
+                        "plain": {"type": "string"},
+                        "aliased_nullable": {"$ref": "#/components/schemas/NullableString"},
+                        "union_nullable": {"oneOf": [{"type": "string"}, {"type": "null"}]},
+                        "anynull_nullable": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        "aliased_string": {"$ref": "#/components/schemas/PlainString"},
+                        "const_null": {"const": None},
+                        "const_text": {"const": "lets.example/v1"},
+                        "degenerate_cycle": {"$ref": "#/components/schemas/Example"},
+                        "selfref_cycle": {"$ref": "#/components/schemas/SelfRef"},
+                    },
+                },
+                "NullableString": {"type": ["string", "null"]},
+                "PlainString": {"type": "string"},
+                "SelfRef": {"$ref": "#/components/schemas/SelfRef"},
+            }
+        },
+    }
+    variant = build_rules(document)["GET /v1/example"]["variants"][0]
+    assert variant["required_non_null"] == [
+        "plain",
+        "aliased_string",
+        "const_text",
+        "degenerate_cycle",
+    ]
+
+
 def test_client_rejects_ambiguous_response_contract_tables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "lets.client.RESPONSE_CONTRACT",

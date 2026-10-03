@@ -198,8 +198,7 @@ _CONTRACT_JSON: Final[str] = """\
           "transport_recovery_attempts",
           "transport_recoveries",
           "unresolved_transport_faults",
-          "permanent_faults",
-          "first_fault"
+          "permanent_faults"
         ]
       }
     ]

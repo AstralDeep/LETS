@@ -64,30 +64,69 @@ def _resolve_schema(
     return resolved
 
 
-def _required_non_null(schema: dict[str, Any], required: list[str]) -> list[str]:
+def _admits_null(
+    property_schema: dict[str, Any],
+    components: dict[str, dict[str, Any]],
+    seen: frozenset[str],
+) -> bool:
+    """Whether a property schema admits JSON null, resolving references and unions.
+
+    Only provable constraints are enforced: an unresolvable or cyclic reference is treated
+    as nullable rather than inventing a rule the contract does not state.
+    """
+    reference = property_schema.get("$ref")
+    if isinstance(reference, str):
+        name = reference.rsplit("/", 1)[-1]
+        if name in seen:
+            return True
+        resolved = components.get(name)
+        if not isinstance(resolved, dict):
+            return True
+        return _admits_null(resolved, components, seen | {name})
+    alternatives: list[Any] | None = None
+    for keyword in ("oneOf", "anyOf"):
+        candidates = property_schema.get(keyword)
+        if isinstance(candidates, list):
+            alternatives = candidates
+            break
+    if alternatives is not None:
+        return any(
+            isinstance(option, dict) and _admits_null(option, components, seen)
+            for option in alternatives
+        )
+    if "const" in property_schema:
+        return property_schema["const"] is None
+    declared = property_schema.get("type")
+    if declared is None:
+        return True
+    types = declared if isinstance(declared, list) else [declared]
+    return "null" in types
+
+
+def _required_non_null(
+    schema: dict[str, Any],
+    required: list[str],
+    components: dict[str, dict[str, Any]],
+) -> list[str]:
     """Required fields whose documented type does not admit JSON null."""
     properties = schema.get("properties", {})
-    non_null: list[str] = []
-    for name in required:
-        property_schema = properties.get(name)
-        if not isinstance(property_schema, dict) or "$ref" in property_schema:
-            non_null.append(name)
-            continue
-        declared = property_schema.get("type")
-        types = declared if isinstance(declared, list) else [declared]
-        if "null" not in types:
-            non_null.append(name)
-    return non_null
+    return [
+        name
+        for name in required
+        if not _admits_null(properties.get(name, {}), components, frozenset())
+    ]
 
 
-def _object_variant(schema: dict[str, Any]) -> dict[str, Any]:
+def _object_variant(
+    schema: dict[str, Any], components: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     root_type = schema.get("type")
     if root_type != "object":
         raise ValueError(f"response schema variant has unsupported root type {root_type!r}")
     required = list(schema.get("required", []))
     return {
         "required": required,
-        "required_non_null": _required_non_null(schema, required),
+        "required_non_null": _required_non_null(schema, required, components),
         "consts": {
             name: property_schema["const"]
             for name, property_schema in schema.get("properties", {}).items()
@@ -104,7 +143,7 @@ def _response_variants(
     alternatives = resolved.get("oneOf")
     if isinstance(alternatives, list):
         variants = [
-            _object_variant(_resolve_schema(option, components))
+            _object_variant(_resolve_schema(option, components), components)
             for option in alternatives
             if isinstance(option, dict)
         ]
@@ -113,7 +152,7 @@ def _response_variants(
         return "object", variants
     root = resolved.get("type", "")
     if root == "object":
-        return "object", [_object_variant(resolved)]
+        return "object", [_object_variant(resolved, components)]
     if root == "array":
         return "array", []
     raise ValueError(f"response schema has unsupported root type {root!r}")
