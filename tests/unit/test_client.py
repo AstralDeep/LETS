@@ -1,9 +1,12 @@
 """Tests for client.py's response handling: oversize responses are rejected without full
-buffering, and a total deadline interrupts a slow drip response or retry backoff.
+buffering, a total deadline interrupts a slow drip response or retry backoff, and success
+responses honor the committed response-envelope contract (status, root type, required and
+constant fields) before any typed mapping reaches the caller.
 """
 
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
@@ -422,5 +425,270 @@ def test_client_preserves_idempotent_only_retries(failure_mode: str) -> None:
         with pytest.raises((RemoteUnavailableError, httpx.ConnectError)):
             client._request("POST", "/v1/transition", payload={"test": True}, idempotent=False)
         assert calls == 1
+    finally:
+        client.close()
+
+
+_INFO_DOCUMENT: dict[str, Any] = {
+    "api_version": "v1",
+    "protocol": "lets/1",
+    "warden_id": "warden-a",
+}
+
+
+def _receipt_document() -> dict[str, Any]:
+    """A contract-conforming Receipt as documented for POST lease transitions."""
+    return {
+        "type": "lets.receipt/v1",
+        "tenant_id": "tenant-a",
+        "envelope_id": "envelope-a",
+        "config_epoch": 1,
+        "receipt_id": "receipt-a",
+        "request_id": "request-a",
+        "warden_id": "warden-a",
+        "key_id": "key-a",
+        "policy_id": "policy-a",
+        "policy_version": "1",
+        "policy_digest": "policy-digest",
+        "machine_digest": "machine-digest",
+        "lease_id": "lease-a",
+        "lineage_id": "lineage-a",
+        "subject_id": "subject-a",
+        "executor_audience": "executor-a",
+        "transition": "quiesce",
+        "source_state": "active",
+        "target_state": "quiesced",
+        "cost": [1],
+        "resulting_sequence": 1,
+        "evidence_digest": None,
+        "nonce": "nonce-a",
+        "issued_at_ns": 1,
+        "expires_at_ns": 2,
+        "signature": "signature-a",
+    }
+
+
+def _static_json_client(status: int, *, content: bytes = b"", json_body: Any = None) -> LETSClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if json_body is not None:
+            return httpx.Response(status, json=json_body, request=request)
+        return httpx.Response(status, content=content, request=request)
+
+    return LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(handler),
+        retry=RetryPolicy(max_attempts=1),
+    )
+
+
+@pytest.mark.parametrize("body", [b"[]", b"null", b"42"])
+def test_client_rejects_non_object_info_envelope(body: bytes) -> None:
+    client = _static_json_client(200, content=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.code == "invalid_response"
+        assert raised.value.problem.status == 502
+        assert raised.value.problem.instance == "/v1/info"
+    finally:
+        client.close()
+
+
+def test_client_rejects_empty_success_body() -> None:
+    client = _static_json_client(200, content=b"")
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.code == "invalid_response"
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [(302, b""), (203, json.dumps(_INFO_DOCUMENT).encode())],
+)
+def test_client_rejects_success_status_outside_the_contract(status: int, body: bytes) -> None:
+    client = _static_json_client(status, content=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.code == "invalid_response"
+    finally:
+        client.close()
+
+
+def test_client_rejects_info_envelope_missing_required_field() -> None:
+    body = {"api_version": "v1", "warden_id": "warden-a"}
+    client = _static_json_client(200, json_body=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "protocol" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_rejects_null_required_field() -> None:
+    body = {**_INFO_DOCUMENT, "warden_id": None}
+    client = _static_json_client(200, json_body=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "warden_id" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_rejects_unknown_contract_version() -> None:
+    body = {**_INFO_DOCUMENT, "api_version": "v9"}
+    client = _static_json_client(200, json_body=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "api_version" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_accepts_contract_conforming_info_document() -> None:
+    client = _static_json_client(200, json_body=_INFO_DOCUMENT)
+    try:
+        assert client.info() == _INFO_DOCUMENT
+    finally:
+        client.close()
+
+
+def test_client_rejects_malformed_receipt() -> None:
+    missing_signature = _receipt_document()
+    del missing_signature["signature"]
+    cases = [
+        missing_signature,
+        {**_receipt_document(), "signature": None},
+        {**_receipt_document(), "type": "lets.receipt/v2"},
+    ]
+    for body in cases:
+        client = _static_json_client(200, json_body=body)
+        try:
+            with pytest.raises(RemoteValidationError) as raised:
+                client.authorize(
+                    "lease-a",
+                    {"executor_audience": "executor-a", "request_id": "request-a"},
+                )
+            assert raised.value.problem.code == "invalid_response"
+        finally:
+            client.close()
+
+
+def test_client_accepts_contract_conforming_receipt_for_encoded_lease_paths() -> None:
+    client = _static_json_client(200, json_body=_receipt_document())
+    try:
+        result = client.authorize(
+            "lease/a b", {"executor_audience": "executor-a", "request_id": "request-a"}
+        )
+        assert result["receipt_id"] == "receipt-a"
+    finally:
+        client.close()
+
+
+def test_client_requires_object_root_on_undocumented_health_paths() -> None:
+    failing = _static_json_client(200, content=b"[]")
+    try:
+        with pytest.raises(RemoteValidationError):
+            failing.liveness()
+    finally:
+        failing.close()
+    passing = _static_json_client(200, json_body={"status": "live"})
+    try:
+        assert passing.liveness() == {"status": "live"}
+    finally:
+        passing.close()
+
+
+def test_client_envelope_rule_ignores_the_query_string() -> None:
+    passing = _static_json_client(200, json_body={"records": []})
+    try:
+        assert passing.audit()["records"] == []
+    finally:
+        passing.close()
+    failing = _static_json_client(200, content=b"42")
+    try:
+        with pytest.raises(RemoteValidationError):
+            failing.audit()
+    finally:
+        failing.close()
+
+
+def test_response_contract_module_matches_the_committed_openapi_document() -> None:
+    from scripts.generate_response_contract import (
+        OPENAPI_DOCUMENT,
+        TARGET_MODULE,
+        build_rules,
+        render_module,
+    )
+
+    document = json.loads(OPENAPI_DOCUMENT.read_text(encoding="utf-8"))
+    expected = render_module(build_rules(document))
+    assert TARGET_MODULE.read_text(encoding="utf-8") == expected
+
+
+def test_client_rejects_ambiguous_response_contract_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "lets.client.RESPONSE_CONTRACT",
+        {
+            "GET /v1/info": {"statuses": [200], "root": "object", "variants": []},
+            "GET /v1/{name}": {"statuses": [200], "root": "object", "variants": []},
+        },
+    )
+    client = _static_json_client(200, json_body=_INFO_DOCUMENT)
+    try:
+        with pytest.raises(RuntimeError, match="ambiguous response contract match"):
+            client.info()
+    finally:
+        client.close()
+
+
+def test_client_enforces_array_root_rules_from_the_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lets.client.RESPONSE_CONTRACT",
+        {"GET /v1/info": {"statuses": [200], "root": "array", "variants": []}},
+    )
+    rejecting = _static_json_client(200, json_body=_INFO_DOCUMENT)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            rejecting.info()
+        assert "JSON array" in raised.value.problem.detail
+    finally:
+        rejecting.close()
+    accepting = _static_json_client(200, content=b"[1]")
+    try:
+        assert accepting.info() == [1]
+    finally:
+        accepting.close()
+
+
+def test_client_rejects_responses_matching_no_documented_variant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lets.client.RESPONSE_CONTRACT",
+        {
+            "GET /v1/info": {
+                "statuses": [200],
+                "root": "object",
+                "variants": [
+                    {"required": ["protocol"], "required_non_null": ["protocol"], "consts": {}},
+                    {"required": ["warden_id"], "required_non_null": [], "consts": {}},
+                ],
+            }
+        },
+    )
+    client = _static_json_client(200, json_body={"unrelated": True})
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "matches none of the 2 documented envelope variants" in raised.value.problem.detail
     finally:
         client.close()

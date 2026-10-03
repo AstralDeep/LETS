@@ -637,7 +637,33 @@ def test_sync_client_retries_idempotent_calls_only_and_maps_problems() -> None:
                 },
                 request=request,
             )
-        return httpx.Response(201, json={"lease_id": "lease-1"}, request=request)
+        return httpx.Response(
+            201,
+            json={
+                "type": "lets.lease-grant/v1",
+                "tenant_id": "tenant-1",
+                "envelope_id": "envelope-1",
+                "config_epoch": 1,
+                "lease_id": "lease-1",
+                "lineage_id": "lineage-1",
+                "parent_id": None,
+                "subject_id": "subject-1",
+                "warden_id": "warden-1",
+                "allocation": [1],
+                "capabilities": ["capability"],
+                "policy_id": "policy-1",
+                "policy_version": "1",
+                "policy_digest": "policy-digest",
+                "machine_digest": "machine-digest",
+                "ancestor_path": [],
+                "branch_epoch": 1,
+                "issued_at_ns": 1,
+                "expires_at_ns": 2,
+                "key_id": "key-1",
+                "signature": "signature-1",
+            },
+            request=request,
+        )
 
     client = LETSClient(
         "https://node.test",

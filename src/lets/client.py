@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 import httpx
 
+from lets._response_contract import RESPONSE_CONTRACT
 from lets.auth import PeerSigner, sign_peer_headers
 from lets.canonical import canonical_json, strict_json_loads
 
@@ -165,6 +166,124 @@ def _problem_error(response: httpx.Response, content: bytes | None = None) -> LE
     else:
         exception_type = LETSClientError
     return exception_type(problem)
+
+
+_UNDOCUMENTED_SUCCESS_VARIANT: dict[str, Any] = {
+    "required": [],
+    "required_non_null": [],
+    "consts": {},
+}
+
+
+def _invalid_response_error(
+    response: httpx.Response, path: str, detail: str
+) -> RemoteValidationError:
+    return RemoteValidationError(
+        ProblemDetails(
+            type="urn:lets:problem:invalid_response",
+            title="Invalid LETS Response",
+            status=502,
+            detail=detail,
+            instance=path,
+            code="invalid_response",
+            request_id=response.headers.get("x-request-id"),
+        )
+    )
+
+
+def _match_response_rule(method: str, path: str) -> dict[str, Any] | None:
+    """Resolve the committed contract rule for a concrete request path, if it is documented."""
+    template_path = path.split("?", 1)[0]
+    segments = template_path.split("/")
+    matches: list[dict[str, Any]] = []
+    for key, rule in RESPONSE_CONTRACT.items():
+        rule_method, _, template = key.partition(" ")
+        if rule_method != method:
+            continue
+        template_segments = template.split("/")
+        if len(template_segments) != len(segments):
+            continue
+        if all(
+            segment == template_segment
+            or (template_segment.startswith("{") and template_segment.endswith("}") and segment)
+            for segment, template_segment in zip(segments, template_segments, strict=True)
+        ):
+            matches.append(rule)
+    if len(matches) > 1:
+        raise RuntimeError(f"ambiguous response contract match for {method} {path}")
+    return matches[0] if matches else None
+
+
+def _envelope_violation(parsed: Mapping[str, Any], variant: dict[str, Any]) -> str | None:
+    """Describe the first way a JSON object fails one documented envelope variant, or None."""
+    missing = [name for name in variant["required"] if name not in parsed]
+    if missing:
+        return f"the response is missing required field(s) {', '.join(missing)}"
+    nulls = [name for name in variant["required_non_null"] if parsed[name] is None]
+    if nulls:
+        return f"the response sets required field(s) {', '.join(nulls)} to null"
+    for name, expected in variant["consts"].items():
+        if name not in parsed or parsed[name] != expected:
+            return (
+                f"the response sets field {name!r} to {parsed.get(name)!r} "
+                f"where the contract requires {expected!r}"
+            )
+    return None
+
+
+def _validate_response_envelope(
+    method: str, path: str, response: httpx.Response, parsed: Any
+) -> None:
+    """Enforce the committed success contract before the caller consumes the mapping."""
+    rule = _match_response_rule(method, path)
+    if rule is None:
+        statuses = [200]
+        root = "object"
+        variants = [_UNDOCUMENTED_SUCCESS_VARIANT]
+    else:
+        statuses = rule["statuses"]
+        root = rule["root"]
+        variants = rule["variants"]
+    template = path.split("?", 1)[0]
+    if response.status_code not in statuses:
+        allowed = " or ".join(str(code) for code in statuses)
+        raise _invalid_response_error(
+            response,
+            path,
+            f"the remote node answered HTTP {response.status_code} where the contract allows "
+            f"{allowed} for {method} {template}",
+        )
+    if root == "object" and not isinstance(parsed, Mapping):
+        raise _invalid_response_error(
+            response,
+            path,
+            f"the remote node returned a {type(parsed).__name__} where the contract requires "
+            f"a JSON object for {method} {template}",
+        )
+    if root == "array" and not isinstance(parsed, list):
+        raise _invalid_response_error(
+            response,
+            path,
+            f"the remote node returned a {type(parsed).__name__} where the contract requires "
+            f"a JSON array for {method} {template}",
+        )
+    if not variants:
+        return
+    violations = [
+        reason
+        for reason in (_envelope_violation(parsed, variant) for variant in variants)
+        if reason is not None
+    ]
+    if len(violations) < len(variants):
+        return
+    if len(variants) == 1:
+        raise _invalid_response_error(response, path, f"{violations[0]} for {method} {template}")
+    raise _invalid_response_error(
+        response,
+        path,
+        f"the response matches none of the {len(variants)} documented envelope variants for "
+        f"{method} {template}: {violations[0]}",
+    )
 
 
 def _require_int(name: str, value: object) -> None:
@@ -529,22 +648,16 @@ class LETSClient:
                     )
                 if response.is_error:
                     raise _problem_error(response, response_content)
-                if response.status_code == 204 or not response_content:
-                    return None
                 try:
-                    return _response_json(response, response_content)
+                    parsed = _response_json(response, response_content)
                 except (ValueError, UnicodeDecodeError) as exc:
-                    raise RemoteValidationError(
-                        ProblemDetails(
-                            type="urn:lets:problem:invalid_response",
-                            title="Invalid LETS Response",
-                            status=502,
-                            detail="the remote node returned a non-JSON success response",
-                            instance=path,
-                            code="invalid_response",
-                            request_id=response.headers.get("x-request-id"),
-                        )
+                    raise _invalid_response_error(
+                        response,
+                        path,
+                        "the remote node returned a non-JSON success response",
                     ) from exc
+                _validate_response_envelope(method, path, response, parsed)
+                return parsed
             finally:
                 watchdog.cancel()
                 watchdog.join()
