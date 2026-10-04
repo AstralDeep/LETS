@@ -5,6 +5,11 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Changed
+
+- Retire bounty reservation replies. The community points bot credits the PR author after
+  a successful merge into `main` closes an approved bounty; no claim or assignment is required.
+
 ### Fixed
 
 - The HTTP client rejects invalid numeric configuration deterministically before creating any
@@ -21,8 +26,6 @@ image together; the Git tag is the package version prefixed with `v`.
 - Current-head CI failure replies for PR authors and maintainer review notifications
   after both CI and security workflows pass. First-time run approval remains manual.
 
-- Bounty issue `/claim` comments receive automatic guidance with a prefilled reservation
-  form or their existing assignment status.
 - An optional A2A task and delegation profile, `lets.integrations.a2a` (`lets.a2a-profile/v1`),
   pinned to A2A v1.0.1. It maps verified host identities and task/context/operation IDs to
   deterministic LETS request IDs, delegated child leases, retries, cancellation and terminal
