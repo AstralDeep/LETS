@@ -6,7 +6,7 @@ bounds, and the AstralDeep profile maps only its declared public scopes.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -178,4 +178,46 @@ def test_astraldeep_profile_rejects_unknown_or_incomplete_scope_maps() -> None:
         AstralDeepProfile(
             scope_capabilities={"tools:read": "capability"},
             scope_transitions={},
+        )
+
+
+def test_astraldeep_authorizer_rejects_non_object_response() -> None:
+    class NonObjectClient:
+        def issue_root(self, payload: Mapping[str, Any]) -> Any:
+            del payload
+            return "not-a-mapping"
+
+    adapter = AstralDeepAuthorizer(
+        _replicas(cast(RecordingClient, NonObjectClient())),
+        AstralDeepProfile(
+            scope_capabilities={"tools:read": "astral.tools.read"},
+            scope_transitions={"tools:read": "read"},
+        ),
+    )
+    with pytest.raises(PolicyError, match="not an object"):
+        adapter.provision_agent(
+            operation_id="op-1",
+            agent_id="agent-1",
+            declared_scopes={"tools:read"},
+        )
+
+
+def test_astraldeep_authorizer_rejects_response_with_error() -> None:
+    class ErrorClient:
+        def issue_root(self, payload: Mapping[str, Any]) -> Any:
+            del payload
+            return {"error": "quota exhausted"}
+
+    adapter = AstralDeepAuthorizer(
+        _replicas(cast(RecordingClient, ErrorClient())),
+        AstralDeepProfile(
+            scope_capabilities={"tools:read": "astral.tools.read"},
+            scope_transitions={"tools:read": "read"},
+        ),
+    )
+    with pytest.raises(PolicyError, match="quota exhausted"):
+        adapter.provision_agent(
+            operation_id="op-1",
+            agent_id="agent-1",
+            declared_scopes={"tools:read"},
         )

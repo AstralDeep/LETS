@@ -7,6 +7,12 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Fixed
 
+- `LETSClient` validates successful response status codes, root object types, and documented
+  required fields and discriminators against the OpenAPI specification before returning
+  typed mappings. Redirect (3xx), empty, non-JSON, wrong-root, and malformed responses raise
+  `RemoteValidationError`, and `AstralDeepAuthorizer` validates mapping responses without
+  failing on signed grant and receipt envelopes.
+
 - The HTTP client rejects invalid numeric configuration deterministically before creating any
   transport: boolean, fractional, non-finite, or unrepresentably large attempt counts, byte
   limits, timeouts, and retry backoffs raise `TypeError` or `ValueError` at construction, and

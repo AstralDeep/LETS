@@ -119,8 +119,10 @@ class AstralDeepAuthorizer:
         return response
 
     def _validate_response(self, response: WireObject) -> None:
-        if getattr(response, "status", None) != "success":
-            raise PolicyError(f"AstralDeep authorization failed: {getattr(response, 'error', 'unknown error')}")
+        if not isinstance(response, Mapping):
+            raise PolicyError("AstralDeep authorization failed: response is not an object")
+        if "error" in response:
+            raise PolicyError(f"AstralDeep authorization failed: {response['error']}")
 
     def _capabilities(
         self,

@@ -5,6 +5,8 @@ idempotent calls. Used by peer.py's dispatcher and by AstralDeep's orchestrator.
 
 from __future__ import annotations
 
+import functools
+import json
 import math
 import re
 import ssl
@@ -14,7 +16,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Self, cast
+from typing import Any, NamedTuple, Self, cast
 from urllib.parse import quote
 
 import httpx
@@ -442,6 +444,7 @@ class LETSClient:
         payload: Mapping[str, Any] | None = None,
         idempotent: bool,
         peer_signer: PeerSigner | None = None,
+        endpoint_template: str | None = None,
     ) -> Any:
         with self._request_lock:
             if self._closed:
@@ -529,10 +532,35 @@ class LETSClient:
                     )
                 if response.is_error:
                     raise _problem_error(response, response_content)
+                if response.is_redirect or 300 <= response.status_code < 400:
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:invalid_response",
+                            title="Invalid LETS Response",
+                            status=502,
+                            detail=(
+                                "the remote node returned an unexpected redirect status "
+                                f"{response.status_code}"
+                            ),
+                            instance=path,
+                            code="invalid_response",
+                            request_id=response.headers.get("x-request-id"),
+                        )
+                    )
                 if response.status_code == 204 or not response_content:
-                    return None
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:invalid_response",
+                            title="Invalid LETS Response",
+                            status=502,
+                            detail="the remote node returned an empty response",
+                            instance=path,
+                            code="invalid_response",
+                            request_id=response.headers.get("x-request-id"),
+                        )
+                    )
                 try:
-                    return _response_json(response, response_content)
+                    data = _response_json(response, response_content)
                 except (ValueError, UnicodeDecodeError) as exc:
                     raise RemoteValidationError(
                         ProblemDetails(
@@ -545,6 +573,30 @@ class LETSClient:
                             request_id=response.headers.get("x-request-id"),
                         )
                     ) from exc
+                template = endpoint_template or path.split("?")[0]
+                contract = _contract_map().get((method.upper(), template))
+                if contract is not None and response.status_code not in contract.allowed_statuses:
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:invalid_response",
+                            title="Invalid LETS Response",
+                            status=502,
+                            detail=(
+                                "the remote node returned unexpected status "
+                                f"{response.status_code} for {path}"
+                            ),
+                            instance=path,
+                            code="invalid_response",
+                            request_id=response.headers.get("x-request-id"),
+                        )
+                    )
+                return self._validate_contract(
+                    data,
+                    method=method,
+                    template=template,
+                    instance=path,
+                    request_id=response.headers.get("x-request-id"),
+                )
             finally:
                 watchdog.cancel()
                 watchdog.join()
@@ -565,35 +617,158 @@ class LETSClient:
         if not isinstance(request_id, str) or not request_id:
             raise ValueError("an idempotent mutation requires a non-empty request_id")
 
+    def _validate_contract(
+        self,
+        result: Any,
+        *,
+        method: str,
+        template: str,
+        instance: str,
+        request_id: str | None = None,
+    ) -> Mapping[str, Any]:
+        if not isinstance(result, Mapping):
+            raise RemoteValidationError(
+                ProblemDetails(
+                    type="urn:lets:problem:invalid_response",
+                    title="Invalid LETS Response",
+                    status=502,
+                    detail=f"the remote node returned a non-object response for {instance}",
+                    instance=instance,
+                    code="invalid_response",
+                    request_id=request_id,
+                )
+            )
+        contract = _contract_map().get((method.upper(), template))
+        if contract is not None:
+            for field in contract.required_fields:
+                if field not in result or result[field] is None:
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:invalid_response",
+                            title="Invalid LETS Response",
+                            status=502,
+                            detail=(
+                                f"the remote response for {instance} is missing required field "
+                                f"'{field}'"
+                            ),
+                            instance=instance,
+                            code="invalid_response",
+                            request_id=request_id,
+                        )
+                    )
+            for field, expected in contract.const_fields:
+                if (field in contract.required_fields or field in result) and result.get(
+                    field
+                ) != expected:
+                    raise RemoteValidationError(
+                        ProblemDetails(
+                            type="urn:lets:problem:invalid_response",
+                            title="Invalid LETS Response",
+                            status=502,
+                            detail=(
+                                f"the remote response for {instance} has invalid {field}: "
+                                f"expected '{expected}'"
+                            ),
+                            instance=instance,
+                            code="invalid_response",
+                            request_id=request_id,
+                        )
+                    )
+        return result
+
+    def _validate_mapping(
+        self, result: Any, path: str, required_fields: tuple[str, ...] = ()
+    ) -> Mapping[str, Any]:
+        if not isinstance(result, Mapping):
+            raise RemoteValidationError(
+                ProblemDetails(
+                    type="urn:lets:problem:invalid_response",
+                    title="Invalid LETS Response",
+                    status=502,
+                    detail=f"the remote node returned a non-object response for {path}",
+                    instance=path,
+                    code="invalid_response",
+                    request_id=None,
+                )
+            )
+        for field in required_fields:
+            if field not in result or result[field] is None:
+                raise RemoteValidationError(
+                    ProblemDetails(
+                        type="urn:lets:problem:invalid_response",
+                        title="Invalid LETS Response",
+                        status=502,
+                        detail=(
+                            f"the remote response for {path} is missing required field '{field}'"
+                        ),
+                        instance=path,
+                        code="invalid_response",
+                        request_id=None,
+                    )
+                )
+        return result
+
     def liveness(self) -> Mapping[str, Any]:
-        return cast(Mapping[str, Any], self._request("GET", "/health/live", idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request("GET", "/health/live", idempotent=True, endpoint_template="/health/live"),
+        )
 
     def readiness(self) -> Mapping[str, Any]:
-        return cast(Mapping[str, Any], self._request("GET", "/health/ready", idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request(
+                "GET", "/health/ready", idempotent=True, endpoint_template="/health/ready"
+            ),
+        )
 
     def info(self) -> Mapping[str, Any]:
-        return cast(Mapping[str, Any], self._request("GET", "/v1/info", idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request("GET", "/v1/info", idempotent=True, endpoint_template="/v1/info"),
+        )
 
     def keys(self) -> Mapping[str, Any]:
-        return cast(Mapping[str, Any], self._request("GET", "/v1/keys", idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request("GET", "/v1/keys", idempotent=True, endpoint_template="/v1/keys"),
+        )
 
     def create_envelope(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         return cast(
             Mapping[str, Any],
-            self._request("POST", "/v1/envelopes", payload=payload, idempotent=True),
+            self._request(
+                "POST",
+                "/v1/envelopes",
+                payload=payload,
+                idempotent=True,
+                endpoint_template="/v1/envelopes",
+            ),
         )
 
     def register_policy(self, policy: Mapping[str, Any]) -> Mapping[str, Any]:
         return cast(
             Mapping[str, Any],
-            self._request("POST", "/v1/policies", payload=policy, idempotent=True),
+            self._request(
+                "POST",
+                "/v1/policies",
+                payload=policy,
+                idempotent=True,
+                endpoint_template="/v1/policies",
+            ),
         )
 
     def issue_root(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         self._idempotent_payload(payload)
         return cast(
             Mapping[str, Any],
-            self._request("POST", "/v1/roots", payload=payload, idempotent=True),
+            self._request(
+                "POST",
+                "/v1/roots",
+                payload=payload,
+                idempotent=True,
+                endpoint_template="/v1/roots",
+            ),
         )
 
     def spawn(self, parent_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -605,6 +780,7 @@ class LETSClient:
                 f"/v1/leases/{self._id(parent_id)}/children",
                 payload=payload,
                 idempotent=True,
+                endpoint_template="/v1/leases/{parent_id}/children",
             ),
         )
 
@@ -619,6 +795,7 @@ class LETSClient:
                 f"/v1/leases/{self._id(lease_id)}/transitions",
                 payload=payload,
                 idempotent=True,
+                endpoint_template="/v1/leases/{lease_id}/transitions",
             ),
         )
 
@@ -631,6 +808,7 @@ class LETSClient:
                 f"/v1/leases/{self._id(lease_id)}/renew",
                 payload=payload,
                 idempotent=True,
+                endpoint_template="/v1/leases/{lease_id}/renew",
             ),
         )
 
@@ -645,6 +823,7 @@ class LETSClient:
                 f"/v1/leases/{self._id(lease_id)}/{operation}",
                 payload=payload,
                 idempotent=True,
+                endpoint_template=f"/v1/leases/{{lease_id}}/{operation}",
             ),
         )
 
@@ -660,7 +839,12 @@ class LETSClient:
     def lease(self, lease_id: str) -> Mapping[str, Any]:
         return cast(
             Mapping[str, Any],
-            self._request("GET", f"/v1/leases/{self._id(lease_id)}", idempotent=True),
+            self._request(
+                "GET",
+                f"/v1/leases/{self._id(lease_id)}",
+                idempotent=True,
+                endpoint_template="/v1/leases/{lease_id}",
+            ),
         )
 
     def revoke_branch(self, lease_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -672,6 +856,7 @@ class LETSClient:
                 f"/v1/branches/{self._id(lease_id)}/revoke",
                 payload=payload,
                 idempotent=True,
+                endpoint_template="/v1/branches/{lease_id}/revoke",
             ),
         )
 
@@ -679,41 +864,94 @@ class LETSClient:
         return cast(
             Mapping[str, Any],
             self._request(
-                "POST", "/v1/maintenance/reclaim", payload=payload or {}, idempotent=True
+                "POST",
+                "/v1/maintenance/reclaim",
+                payload=payload or {},
+                idempotent=True,
+                endpoint_template="/v1/maintenance/reclaim",
             ),
         )
 
     def runtime_status(self) -> Mapping[str, Any]:
         return cast(
             Mapping[str, Any],
-            self._request("GET", "/v1/maintenance/runtime", idempotent=True),
+            self._request(
+                "GET",
+                "/v1/maintenance/runtime",
+                idempotent=True,
+                endpoint_template="/v1/maintenance/runtime",
+            ),
         )
 
     def set_runtime_mode(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         self._idempotent_payload(payload)
         return cast(
             Mapping[str, Any],
-            self._request("POST", "/v1/maintenance/runtime", payload=payload, idempotent=True),
+            self._request(
+                "POST",
+                "/v1/maintenance/runtime",
+                payload=payload,
+                idempotent=True,
+                endpoint_template="/v1/maintenance/runtime",
+            ),
         )
 
     def invariants(self) -> Mapping[str, Any]:
-        return cast(Mapping[str, Any], self._request("GET", "/v1/invariants", idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request(
+                "GET",
+                "/v1/invariants",
+                idempotent=True,
+                endpoint_template="/v1/invariants",
+            ),
+        )
 
     def metrics(self) -> Mapping[str, Any]:
-        return cast(Mapping[str, Any], self._request("GET", "/v1/metrics", idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request(
+                "GET",
+                "/v1/metrics",
+                idempotent=True,
+                endpoint_template="/v1/metrics",
+            ),
+        )
 
     def audit(self, *, after_sequence: int = -1, limit: int = 100) -> Mapping[str, Any]:
         path = f"/v1/audit?after_sequence={after_sequence}&limit={limit}"
-        return cast(Mapping[str, Any], self._request("GET", path, idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request(
+                "GET",
+                path,
+                idempotent=True,
+                endpoint_template="/v1/audit",
+            ),
+        )
 
     def verify_audit(self) -> Mapping[str, Any]:
-        return cast(Mapping[str, Any], self._request("GET", "/v1/audit/verify", idempotent=True))
+        return cast(
+            Mapping[str, Any],
+            self._request(
+                "GET",
+                "/v1/audit/verify",
+                idempotent=True,
+                endpoint_template="/v1/audit/verify",
+            ),
+        )
 
     def prepare_transfer(self, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         self._idempotent_payload(payload)
         return cast(
             Mapping[str, Any],
-            self._request("POST", "/v1/transfers/prepare", payload=payload, idempotent=True),
+            self._request(
+                "POST",
+                "/v1/transfers/prepare",
+                payload=payload,
+                idempotent=True,
+                endpoint_template="/v1/transfers/prepare",
+            ),
         )
 
     def create_transfer_checkpoint(
@@ -730,8 +968,70 @@ class LETSClient:
                 f"/v1/transfers/{self._id(target_warden)}/checkpoints",
                 payload=payload,
                 idempotent=True,
+                endpoint_template="/v1/transfers/{target_warden}/checkpoints",
             ),
         )
+
+
+class _EndpointContract(NamedTuple):
+    allowed_statuses: frozenset[int]
+    required_fields: tuple[str, ...]
+    const_fields: tuple[tuple[str, str], ...]
+
+
+@functools.cache
+def _contract_map() -> dict[tuple[str, str], _EndpointContract]:
+    contract_file = Path(__file__).resolve().parents[2] / "protocol" / "openapi.yaml"
+    contracts: dict[tuple[str, str], _EndpointContract] = {
+        ("GET", "/health/live"): _EndpointContract(frozenset({200}), (), ()),
+        ("GET", "/health/ready"): _EndpointContract(frozenset({200}), (), ()),
+    }
+    if not contract_file.is_file():
+        return contracts
+    try:
+        spec = json.loads(contract_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return contracts
+    schemas = spec.get("components", {}).get("schemas", {})
+    for path, methods in spec.get("paths", {}).items():
+        if not isinstance(methods, Mapping):
+            continue
+        for method, op in methods.items():
+            if not isinstance(op, Mapping):
+                continue
+            resps = op.get("responses", {})
+            if not isinstance(resps, Mapping):
+                continue
+            allowed = frozenset(int(c) for c in resps if c.isdigit() and c.startswith("2"))
+            if not allowed:
+                continue
+            success_code = next((str(c) for c in (200, 201) if str(c) in resps), None)
+            req_fields: tuple[str, ...] = ()
+            const_fields: list[tuple[str, str]] = []
+            if success_code is not None:
+                content = resps[success_code].get("content", {}).get("application/json", {})
+                schema_ref = content.get("schema", {}).get("$ref")
+                if schema_ref and isinstance(schema_ref, str):
+                    sname = schema_ref.rsplit("/", 1)[-1]
+                    s = schemas.get(sname, {})
+                    if isinstance(s, Mapping):
+                        if sname == "LeaseGrant":
+                            req_fields = ("lease_id",)
+                        elif sname == "LeaseSnapshot":
+                            req_fields = ("type", "grant")
+                        elif sname == "Receipt":
+                            req_fields = ("type", "receipt_id", "signature")
+                        else:
+                            req_fields = tuple(s.get("required", ()))
+                        props = s.get("properties", {})
+                        if isinstance(props, Mapping):
+                            for pname, pval in props.items():
+                                if isinstance(pval, Mapping) and "const" in pval:
+                                    const_fields.append((pname, str(pval["const"])))
+            contracts[(method.upper(), path)] = _EndpointContract(
+                allowed, req_fields, tuple(const_fields)
+            )
+    return contracts
 
 
 JSON_MEDIA_TYPE = "application/json"
@@ -742,7 +1042,13 @@ class PeerClient(LETSClient):
         super().__init__(base_url, **options)
         self._signer = signer
 
-    def _signed_post(self, path: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _signed_post(
+        self,
+        path: str,
+        payload: Mapping[str, Any],
+        *,
+        endpoint_template: str | None = None,
+    ) -> Mapping[str, Any]:
         return cast(
             Mapping[str, Any],
             self._request(
@@ -751,6 +1057,7 @@ class PeerClient(LETSClient):
                 payload=payload,
                 idempotent=True,
                 peer_signer=self._signer,
+                endpoint_template=endpoint_template,
             ),
         )
 
@@ -759,6 +1066,7 @@ class PeerClient(LETSClient):
             "/v1/transfers/"
             f"{self._id(voucher['source_warden'])}/{self._id(voucher['sequence'])}/accept",
             voucher,
+            endpoint_template="/v1/transfers/{source_warden}/{sequence}/accept",
         )
 
     def finalize_transfer(self, acknowledgement: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -767,10 +1075,19 @@ class PeerClient(LETSClient):
             f"{self._id(acknowledgement['target_warden'])}/"
             f"{self._id(acknowledgement['sequence'])}/finalize",
             acknowledgement,
+            endpoint_template="/v1/transfers/{target_warden}/{sequence}/finalize",
         )
 
     def ingest_revocation(self, revocation: Mapping[str, Any]) -> Mapping[str, Any]:
-        return self._signed_post("/v1/peer/revocations", revocation)
+        return self._signed_post(
+            "/v1/peer/revocations",
+            revocation,
+            endpoint_template="/v1/peer/revocations",
+        )
 
     def ingest_transfer_checkpoint(self, checkpoint: Mapping[str, Any]) -> Mapping[str, Any]:
-        return self._signed_post("/v1/peer/transfer-checkpoints", checkpoint)
+        return self._signed_post(
+            "/v1/peer/transfer-checkpoints",
+            checkpoint,
+            endpoint_template="/v1/peer/transfer-checkpoints",
+        )

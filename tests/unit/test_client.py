@@ -1,5 +1,6 @@
 """Tests for client.py's response handling: oversize responses are rejected without full
-buffering, and a total deadline interrupts a slow drip response or retry backoff.
+buffering, and a total deadline interrupts a slow drip response or retry backoff. Response
+envelopes, discriminators, and redirects are validated against OpenAPI contracts.
 """
 
 from __future__ import annotations
@@ -422,5 +423,232 @@ def test_client_preserves_idempotent_only_retries(failure_mode: str) -> None:
         with pytest.raises((RemoteUnavailableError, httpx.ConnectError)):
             client._request("POST", "/v1/transition", payload={"test": True}, idempotent=False)
         assert calls == 1
+    finally:
+        client.close()
+
+
+def test_client_info_accepts_valid_document_and_rejects_missing_or_invalid_fields() -> None:
+    valid_doc = {"api_version": "v1", "protocol": "lets/1", "warden_id": "warden-a"}
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, json=valid_doc, request=req)),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        assert client.info() == valid_doc
+    finally:
+        client.close()
+
+    for invalid in [
+        {"api_version": "v1", "protocol": "lets/1"},
+        {"protocol": "lets/1", "warden_id": "warden-a"},
+        {"api_version": "v1", "warden_id": "warden-a"},
+        {"api_version": "v2", "protocol": "lets/1", "warden_id": "warden-a"},
+        {"api_version": "v1", "protocol": "lets/2", "warden_id": "warden-a"},
+    ]:
+        client = LETSClient(
+            "https://warden.test",
+            transport=httpx.MockTransport(
+                lambda req, d=invalid: httpx.Response(200, json=d, request=req)
+            ),
+            retry=RetryPolicy(max_attempts=1),
+        )
+        try:
+            with pytest.raises(RemoteValidationError):
+                client.info()
+        finally:
+            client.close()
+
+
+def test_client_keys_accepts_valid_and_rejects_missing_fields() -> None:
+    valid_keys = {"warden_id": "warden-a", "keys": [{"key_id": "k1", "algorithm": "Ed25519"}]}
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(200, json=valid_keys, request=req)
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        assert client.keys() == valid_keys
+    finally:
+        client.close()
+
+    for invalid in [{"warden_id": "warden-a"}, {"keys": []}]:
+        client = LETSClient(
+            "https://warden.test",
+            transport=httpx.MockTransport(
+                lambda req, d=invalid: httpx.Response(200, json=d, request=req)
+            ),
+            retry=RetryPolicy(max_attempts=1),
+        )
+        try:
+            with pytest.raises(RemoteValidationError):
+                client.keys()
+        finally:
+            client.close()
+
+
+def test_client_authorize_accepts_valid_and_rejects_malformed_receipt() -> None:
+    valid_receipt = {"type": "lets.receipt/v1", "receipt_id": "r-1", "signature": "sig-1"}
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(200, json=valid_receipt, request=req)
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    payload = {"request_id": "req-1", "executor_audience": "aud-1", "nonce": "n-1"}
+    try:
+        assert client.authorize("lease-1", payload) == valid_receipt
+    finally:
+        client.close()
+
+    for invalid in [
+        {"type": "lets.receipt/v1", "receipt_id": "r-1"},
+        {"type": "lets.receipt/v1", "signature": "sig-1"},
+        {"type": "lets.receipt/v2", "receipt_id": "r-1", "signature": "sig-1"},
+        {"receipt_id": "r-1", "signature": "sig-1"},
+    ]:
+        client = LETSClient(
+            "https://warden.test",
+            transport=httpx.MockTransport(
+                lambda req, d=invalid: httpx.Response(200, json=d, request=req)
+            ),
+            retry=RetryPolicy(max_attempts=1),
+        )
+        try:
+            with pytest.raises(RemoteValidationError):
+                client.authorize("lease-1", payload)
+        finally:
+            client.close()
+
+
+def test_client_audit_and_verify_accept_valid_and_reject_malformed() -> None:
+    valid_audit = {"records": [{"seq": 1}]}
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(200, json=valid_audit, request=req)
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        assert client.audit() == valid_audit
+    finally:
+        client.close()
+
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(200, json={"audit": []}, request=req)
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError):
+            client.audit()
+    finally:
+        client.close()
+
+    valid_verify = {"valid": True}
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(200, json=valid_verify, request=req)
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        assert client.verify_audit() == valid_verify
+    finally:
+        client.close()
+
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(200, json={"verified": True}, request=req)
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError):
+            client.verify_audit()
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("status_code", [301, 302, 307, 308])
+def test_client_rejects_redirect_responses(status_code: int) -> None:
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(
+                status_code,
+                headers={"Location": "https://other.test/v1/info"},
+                request=req,
+            )
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.status == 502
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("response_args", [(204, b""), (200, b""), (200, b"   ")])
+def test_client_rejects_empty_responses(response_args: tuple[int, bytes]) -> None:
+    status_code, content = response_args
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(status_code, content=content, request=req)
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError):
+            client.info()
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize(
+    "wrong_content",
+    [b"[]", b"[1, 2, 3]", b"42", b'"success"', b"null", b"true"],
+)
+def test_client_rejects_wrong_root_type(wrong_content: bytes) -> None:
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda req: httpx.Response(
+                200,
+                content=wrong_content,
+                headers={"content-type": "application/json"},
+                request=req,
+            )
+        ),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError):
+            client.info()
+    finally:
+        client.close()
+
+
+def test_client_rejects_unexpected_status_codes() -> None:
+    valid_doc = {"api_version": "v1", "protocol": "lets/1", "warden_id": "warden-a"}
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(lambda req: httpx.Response(201, json=valid_doc, request=req)),
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(RemoteValidationError):
+            client.info()
     finally:
         client.close()
