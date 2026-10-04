@@ -1,19 +1,6 @@
 """Generate the client-side response-envelope contract from the committed OpenAPI document.
 
-The HTTP client validates every success response against the committed API contract before
-handing a typed mapping to the caller. To avoid a hand-written schema that can silently
-diverge from ``protocol/openapi.yaml``, this script derives the per-endpoint rules (allowed
-success status codes, JSON root type, and per-variant required fields, non-nullable required
-fields, and constant discriminator fields) from the committed document and renders them into
-``src/lets/_response_contract.py``.
-
-Usage::
-
-    uv run python scripts/generate_response_contract.py           # regenerate
-    uv run python scripts/generate_response_contract.py --check   # verify only, exit 1 if stale
-
-The script is stdlib-only and imports nothing from the package, so it also runs in CI
-sandboxes and in the sentinel unit test.
+The HTTP client validates success responses against the derived rules to prevent divergence.
 """
 
 from __future__ import annotations
@@ -31,12 +18,9 @@ TARGET_MODULE = REPOSITORY_ROOT / "src" / "lets" / "_response_contract.py"
 HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete"})
 MAX_LINE_LENGTH = 100
 
-MODULE_TEMPLATE = '''"""Generated client-side response-envelope rules. DO NOT EDIT BY HAND.
+MODULE_TEMPLATE = '''"""Generated client-side response-envelope rules; do not edit by hand.
 
-Regenerate with ``uv run python scripts/generate_response_contract.py`` after changing the
-committed API contract in ``protocol/openapi.yaml``. The rules are embedded as JSON so the
-module text is stable under formatting tools and the client can import it without the
-server extras.
+Regenerate with scripts/generate_response_contract.py after modifying protocol/openapi.yaml.
 """
 
 from __future__ import annotations
@@ -69,11 +53,6 @@ def _admits_null(
     components: dict[str, dict[str, Any]],
     seen: frozenset[str],
 ) -> bool:
-    """Whether a property schema admits JSON null, resolving references and unions.
-
-    Only provable constraints are enforced: an unresolvable or cyclic reference is treated
-    as nullable rather than inventing a rule the contract does not state.
-    """
     reference = property_schema.get("$ref")
     if isinstance(reference, str):
         name = reference.rsplit("/", 1)[-1]
@@ -108,7 +87,6 @@ def _required_non_null(
     required: list[str],
     components: dict[str, dict[str, Any]],
 ) -> list[str]:
-    """Required fields whose documented type does not admit JSON null."""
     properties = schema.get("properties", {})
     return [
         name
@@ -124,21 +102,27 @@ def _object_variant(
     if root_type != "object":
         raise ValueError(f"response schema variant has unsupported root type {root_type!r}")
     required = list(schema.get("required", []))
+    not_schema = schema.get("not", {})
+    excluded = (
+        list(not_schema.get("required", []))
+        if isinstance(not_schema, dict) and isinstance(not_schema.get("required"), list)
+        else []
+    )
     return {
-        "required": required,
-        "required_non_null": _required_non_null(schema, required, components),
         "consts": {
             name: property_schema["const"]
             for name, property_schema in schema.get("properties", {}).items()
             if isinstance(property_schema, dict) and "const" in property_schema
         },
+        "excluded": excluded,
+        "required": required,
+        "required_non_null": _required_non_null(schema, required, components),
     }
 
 
 def _response_variants(
     schema: dict[str, Any], components: dict[str, dict[str, Any]]
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Return the JSON root type and the documented envelope variants for one response."""
     resolved = _resolve_schema(schema, components)
     alternatives = resolved.get("oneOf")
     if isinstance(alternatives, list):
@@ -159,7 +143,6 @@ def _response_variants(
 
 
 def build_rules(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Derive the response rules keyed by ``"METHOD /path-template"`` from an OpenAPI document."""
     components = document.get("components", {}).get("schemas", {})
     rules: dict[str, dict[str, Any]] = {}
     for path, path_item in document.get("paths", {}).items():
@@ -195,7 +178,6 @@ def build_rules(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def render_module(rules: dict[str, dict[str, Any]]) -> str:
-    """Render the deterministic module text for the given rules."""
     body = json.dumps(rules, indent=2, sort_keys=True, ensure_ascii=False)
     module = MODULE_TEMPLATE.replace("{body}", body)
     oversized = [
@@ -211,7 +193,12 @@ def render_module(rules: dict[str, dict[str, Any]]) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate the client-side response-envelope contract from the "
+            "committed OpenAPI document."
+        )
+    )
     parser.add_argument(
         "--check",
         action="store_true",

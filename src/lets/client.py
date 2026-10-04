@@ -169,9 +169,10 @@ def _problem_error(response: httpx.Response, content: bytes | None = None) -> LE
 
 
 _UNDOCUMENTED_SUCCESS_VARIANT: dict[str, Any] = {
+    "consts": {},
+    "excluded": [],
     "required": [],
     "required_non_null": [],
-    "consts": {},
 }
 
 
@@ -192,7 +193,6 @@ def _invalid_response_error(
 
 
 def _match_response_rule(method: str, path: str) -> dict[str, Any] | None:
-    """Resolve the committed contract rule for a concrete request path, if it is documented."""
     template_path = path.split("?", 1)[0]
     segments = template_path.split("/")
     matches: list[dict[str, Any]] = []
@@ -215,7 +215,9 @@ def _match_response_rule(method: str, path: str) -> dict[str, Any] | None:
 
 
 def _envelope_violation(parsed: Mapping[str, Any], variant: dict[str, Any]) -> str | None:
-    """Describe the first way a JSON object fails one documented envelope variant, or None."""
+    excluded = [name for name in variant.get("excluded", []) if name in parsed]
+    if excluded:
+        return f"the response contains excluded field(s) {', '.join(excluded)}"
     missing = [name for name in variant["required"] if name not in parsed]
     if missing:
         return f"the response is missing required field(s) {', '.join(missing)}"
@@ -234,7 +236,6 @@ def _envelope_violation(parsed: Mapping[str, Any], variant: dict[str, Any]) -> s
 def _validate_response_envelope(
     method: str, path: str, response: httpx.Response, parsed: Any
 ) -> None:
-    """Enforce the committed success contract before the caller consumes the mapping."""
     rule = _match_response_rule(method, path)
     if rule is None:
         statuses = [200]

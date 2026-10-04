@@ -1,9 +1,6 @@
-"""Generated client-side response-envelope rules. DO NOT EDIT BY HAND.
+"""Generated client-side response-envelope rules; do not edit by hand.
 
-Regenerate with ``uv run python scripts/generate_response_contract.py`` after changing the
-committed API contract in ``protocol/openapi.yaml``. The rules are embedded as JSON so the
-module text is stable under formatting tools and the client can import it without the
-server extras.
+Regenerate with scripts/generate_response_contract.py after modifying protocol/openapi.yaml.
 """
 
 from __future__ import annotations
@@ -21,6 +18,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "records"
         ],
@@ -38,6 +36,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "valid"
         ],
@@ -58,6 +57,7 @@ _CONTRACT_JSON: Final[str] = """\
           "api_version": "v1",
           "protocol": "lets/1"
         },
+        "excluded": [],
         "required": [
           "api_version",
           "protocol",
@@ -79,6 +79,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "tenant_id",
           "envelope_id",
@@ -116,6 +117,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "warden_id",
           "keys"
@@ -137,6 +139,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.lease-snapshot/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "grant",
@@ -166,6 +169,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "enabled",
           "state",
@@ -211,6 +215,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "mode",
           "generation",
@@ -239,6 +244,7 @@ _CONTRACT_JSON: Final[str] = """\
           "max_age_ns": 15000000000,
           "schema": "lets.observation-snapshot/v1"
         },
+        "excluded": [],
         "required": [
           "audit_exporter",
           "audit_outbox",
@@ -326,6 +332,9 @@ _CONTRACT_JSON: Final[str] = """\
       },
       {
         "consts": {},
+        "excluded": [
+          "schema"
+        ],
         "required": [],
         "required_non_null": []
       }
@@ -341,6 +350,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.branch-revocation/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -380,6 +390,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "tenant_id",
           "envelope_id",
@@ -419,6 +430,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.lease-snapshot/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "grant",
@@ -450,6 +462,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.lease-snapshot/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "grant",
@@ -481,6 +494,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.lease-snapshot/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "grant",
@@ -512,6 +526,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.lease-snapshot/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "grant",
@@ -543,6 +558,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.receipt/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -611,6 +627,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.lease-grant/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -669,6 +686,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "schema": "lets.authority-admission-fence/v1"
         },
+        "excluded": [],
         "required": [
           "schema",
           "restart_id",
@@ -702,6 +720,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "reclaimed"
         ],
@@ -719,6 +738,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "mode",
           "generation",
@@ -746,6 +766,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.branch-revocation/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -787,6 +808,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.transfer-checkpoint/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -822,6 +844,7 @@ _CONTRACT_JSON: Final[str] = """\
     "variants": [
       {
         "consts": {},
+        "excluded": [],
         "required": [
           "policy_digest"
         ],
@@ -841,6 +864,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.lease-grant/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -899,6 +923,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.transfer-voucher/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -946,6 +971,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.transfer-ack/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -989,6 +1015,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.transfer-checkpoint/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",
@@ -1026,6 +1053,7 @@ _CONTRACT_JSON: Final[str] = """\
         "consts": {
           "type": "lets.transfer-ack/v1"
         },
+        "excluded": [],
         "required": [
           "type",
           "tenant_id",

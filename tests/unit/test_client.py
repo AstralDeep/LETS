@@ -437,7 +437,6 @@ _INFO_DOCUMENT: dict[str, Any] = {
 
 
 def _receipt_document() -> dict[str, Any]:
-    """A contract-conforming Receipt as documented for POST lease transitions."""
     return {
         "type": "lets.receipt/v1",
         "tenant_id": "tenant-a",
@@ -760,6 +759,253 @@ def test_client_rejects_responses_matching_no_documented_variant(
     try:
         with pytest.raises(RemoteValidationError) as raised:
             client.info()
+        assert "matches none of the 2 documented envelope variants" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+_LEGACY_METRICS_DOCUMENT: dict[str, Any] = {
+    "active_nodes": 1,
+    "custom_metric": "ok",
+}
+
+_MOCK_DIGEST: str = f"sha256:{'0' * 64}"
+
+_PRODUCTION_METRICS_DOCUMENT: dict[str, Any] = {
+    "audit_exporter": {
+        "archive_reconciled": True,
+        "configured": False,
+        "healthy": True,
+        "last_error": None,
+        "last_success_ns": None,
+        "max_pending": 0,
+        "pending": 0,
+        "publish_blocked": False,
+        "running": False,
+        "sink_call_blocked": False,
+    },
+    "audit_outbox": {"oldest_unpublished_age_ns": 0, "unpublished_count": 0},
+    "audit_verification": {
+        "captured_head_hash": _MOCK_DIGEST,
+        "captured_head_sequence": -1,
+        "catching_up": False,
+        "error_type": None,
+        "lag": 0,
+        "last_full_verification_at_ns": 1,
+        "page_size": 256,
+        "schema_definition_sha256": _MOCK_DIGEST,
+        "sticky_failure": False,
+        "sweep_cursor_sequence": -1,
+        "sweep_last_completed_at_ns": 1,
+        "sweep_last_completed_head_hash": _MOCK_DIGEST,
+        "sweep_last_completed_head_sequence": -1,
+        "sweep_target_sequence": -1,
+        "valid": True,
+        "verified_through_hash": _MOCK_DIGEST,
+        "verified_through_sequence": -1,
+    },
+    "authority_checkpoint": {
+        "audit_hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "audit_sequence": -1,
+        "clock_floor_ns": None,
+        "config_epoch": 1,
+        "database_instance_id": "inst-1",
+        "envelope_id": "env-1",
+        "format": "LETS-AUTHORITY-ANCHOR/1",
+        "schema_version": 2,
+        "signing_key_id": "key-1",
+        "signing_public_key_sha256": "key-hash",
+        "state_digest": "state-digest",
+        "state_revision": 0,
+        "tenant_id": "tenant-1",
+        "warden_id": "warden-1",
+    },
+    "capture_duration_ns": 100,
+    "capture_started_monotonic_ns": 100,
+    "captured_at_monotonic_ns": 100,
+    "captured_at_ns": 100,
+    "captured_authority_anchor": {
+        "admission_fenced": False,
+        "enabled": True,
+        "fault_reason": None,
+        "fault_stage": None,
+        "fence_id": None,
+        "fenced_at_monotonic_ns": None,
+        "first_fault": None,
+        "healthy": True,
+        "lifetime_id": "life-1",
+        "namespace_process_id": 1,
+        "permanent_faults": 0,
+        "retry_not_before_monotonic_ns": None,
+        "state": "healthy",
+        "transport_fault_episodes": 0,
+        "transport_faults": 0,
+        "transport_recoveries": 0,
+        "transport_recovery_attempts": 0,
+        "unresolved_transport_faults": 0,
+    },
+    "checked_at_ns": 100,
+    "clock_healthy": True,
+    "core_state_revision": 0,
+    "database_instance_id": "inst-1",
+    "generation": "gen-1",
+    "invariant": {
+        "checked_at_ns": 100,
+        "config_epoch": 1,
+        "consumed": [0],
+        "envelope_id": "env-1",
+        "free_pool": [10],
+        "healthy": True,
+        "initial_share": [10],
+        "lease_residual": [0],
+        "tenant_id": "tenant-1",
+        "transferred_in": [0],
+        "transferred_out": [0],
+    },
+    "invariant_healthy": True,
+    "leases": {"by_status": {}, "total": 0},
+    "lifetime_id": "life-1",
+    "max_age_ns": 15000000000,
+    "observation_eligible": True,
+    "peer_dispatcher": {
+        "configured_peers": 0,
+        "delivered_records": 0,
+        "durable_retry": None,
+        "failed_records": 0,
+        "healthy": False,
+        "last_cycle_ns": None,
+        "last_error": None,
+        "pending_records": 0,
+        "prepared_transfers": 0,
+        "running": False,
+        "superseded_records": 0,
+    },
+    "published_at_monotonic_ns": 100,
+    "published_at_ns": 100,
+    "receipts": {"total": 0},
+    "resources": {
+        "consumed": [0],
+        "free_pool": [10],
+        "initial_share": [10],
+        "lease_residual": [0],
+        "transferred_in": [0],
+        "transferred_out": [0],
+    },
+    "revision": 1,
+    "runtime": {
+        "changed_at_ns": 0,
+        "changed_by": "lets-migration",
+        "generation": 0,
+        "mode": "ACTIVE",
+        "reason": "init",
+    },
+    "schema": "lets.observation-snapshot/v1",
+    "signing_key_healthy": True,
+    "snapshot_id": _MOCK_DIGEST,
+    "sqlite_schema_sha256": _MOCK_DIGEST,
+    "storage_capacity": {
+        "additional_shared_memory_bytes": 0,
+        "database_bytes": 1024,
+        "effective_database_bytes": 1024,
+        "filesystem_free_bytes": 1024,
+        "free_pages": 0,
+        "healthy": True,
+        "logical_live_bytes": 1024,
+        "main_database_bytes": 1024,
+        "max_database_bytes": None,
+        "max_page_count": 100,
+        "min_free_disk_bytes": 0,
+        "page_count": 10,
+        "page_size": 4096,
+        "prior_full_error": False,
+        "remaining_main_growth_bytes": 0,
+        "required_filesystem_free_bytes": 1024,
+        "reserve_pages": 1,
+        "reusable_bytes": 0,
+        "shared_memory_bytes": 1024,
+        "wal_bytes": 0,
+        "worst_case_shared_memory_bytes": 0,
+        "worst_case_transaction_wal_bytes": 0,
+    },
+    "transfers": {
+        "in_flight_count": 0,
+        "inbound_gap_count": 0,
+        "incoming_compacted_high_water": 0,
+        "incoming_contiguous_high_water": 0,
+        "incoming_streams": 0,
+        "outgoing_acked_high_water": 0,
+        "outgoing_compacted_high_water": 0,
+        "outgoing_streams": 0,
+    },
+    "age_ns": 0,
+    "authority_anchor": {
+        "enabled": True,
+        "state": "healthy",
+        "healthy": True,
+        "lifetime_id": "life-1",
+        "namespace_process_id": 1,
+        "admission_fenced": False,
+        "fence_id": None,
+        "fenced_at_monotonic_ns": None,
+        "transport_faults": 0,
+        "transport_fault_episodes": 0,
+        "transport_recovery_attempts": 0,
+        "transport_recoveries": 0,
+        "unresolved_transport_faults": 0,
+        "permanent_faults": 0,
+        "fault_stage": None,
+        "fault_reason": None,
+        "retry_not_before_monotonic_ns": None,
+        "first_fault": None,
+    },
+    "capture_status": {
+        "attempt_sequence": 1,
+        "capture_in_progress": False,
+        "last_attempt_monotonic_ns": 100,
+        "last_error_type": None,
+        "last_successful_attempt_sequence": 1,
+    },
+    "fresh": True,
+    "ready": False,
+    "served_at_monotonic_ns": 100,
+    "service_ready": True,
+}
+
+
+def test_client_accepts_valid_legacy_and_production_metrics() -> None:
+    legacy_client = _static_json_client(200, json_body=_LEGACY_METRICS_DOCUMENT)
+    try:
+        assert legacy_client.metrics() == _LEGACY_METRICS_DOCUMENT
+    finally:
+        legacy_client.close()
+
+    production_client = _static_json_client(200, json_body=_PRODUCTION_METRICS_DOCUMENT)
+    try:
+        assert production_client.metrics() == _PRODUCTION_METRICS_DOCUMENT
+    finally:
+        production_client.close()
+
+
+def test_client_rejects_incomplete_production_metrics_without_legacy_fallback() -> None:
+    client = _static_json_client(200, json_body={"schema": "lets.observation-snapshot/v1"})
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.metrics()
+        assert raised.value.problem.code == "invalid_response"
+        assert "matches none of the 2 documented envelope variants" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_rejects_unknown_metrics_schema_version_without_legacy_fallback() -> None:
+    client = _static_json_client(
+        200,
+        json_body={"schema": "v9", "ready": True, "authority_anchor": None},
+    )
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.metrics()
+        assert raised.value.problem.code == "invalid_response"
         assert "matches none of the 2 documented envelope variants" in raised.value.problem.detail
     finally:
         client.close()
