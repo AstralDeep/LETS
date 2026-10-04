@@ -665,6 +665,10 @@ def test_generator_tracks_nullability_through_references_and_unions() -> None:
                         "const_text",
                         "degenerate_cycle",
                         "selfref_cycle",
+                        "oneof_nonnull",
+                        "anyof_nonnull",
+                        "unknown_ref",
+                        "untyped",
                     ],
                     "properties": {
                         "plain": {"type": "string"},
@@ -676,6 +680,10 @@ def test_generator_tracks_nullability_through_references_and_unions() -> None:
                         "const_text": {"const": "lets.example/v1"},
                         "degenerate_cycle": {"$ref": "#/components/schemas/Example"},
                         "selfref_cycle": {"$ref": "#/components/schemas/SelfRef"},
+                        "oneof_nonnull": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                        "anyof_nonnull": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+                        "unknown_ref": {"$ref": "#/components/schemas/DoesNotExist"},
+                        "untyped": {},
                     },
                 },
                 "NullableString": {"type": ["string", "null"]},
@@ -690,6 +698,8 @@ def test_generator_tracks_nullability_through_references_and_unions() -> None:
         "aliased_string",
         "const_text",
         "degenerate_cycle",
+        "oneof_nonnull",
+        "anyof_nonnull",
     ]
 
 
