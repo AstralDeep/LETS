@@ -1,24 +1,21 @@
 """Optional host-neutral mapping from Model Context Protocol (MCP) 2024-11-05 tool execution
 operations to LETS authorization calls, leases, receipts and claims. Built on ReplicaAuthorizer
 with tool storage and policy behind a host-supplied ToolLedger.
-See docs/integration.md for the request/effect digest binding, executor audience and verification contract.
+See docs/integration.md for the request/effect digest binding contract.
 """
 
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field, replace
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from enum import Enum
 from threading import RLock
 from typing import Any, Protocol
 
 from lets.canonical import canonical_json
-from lets.errors import ConflictError, ExpiredError, PolicyError, ValidationError
 from lets.ids import require_identifier
 from lets.integrations.ports import ReplicaAuthorizer, WireObject
-from lets.models import IdentityContext
-from lets.vector import ResourceVector
 
 MAPPING_VERSION = "lets.mcp-profile/v1"
 
@@ -43,7 +40,12 @@ class ToolExecutionState(Enum):
 
 
 TERMINAL_STATES = frozenset(
-    {ToolExecutionState.COMPLETED, ToolExecutionState.FAILED, ToolExecutionState.CANCELED, ToolExecutionState.REJECTED}
+    {
+        ToolExecutionState.COMPLETED,
+        ToolExecutionState.FAILED,
+        ToolExecutionState.CANCELED,
+        ToolExecutionState.REJECTED,
+    }
 )
 
 
@@ -159,9 +161,13 @@ class MCPProtectedToolAuthorizer:
             existing = self._ledger.get(request_id)
             if existing is not None:
                 if existing.tenant_id != tenant_id:
-                    raise TenantMismatchError(f"Request {request_id} belongs to different tenant {existing.tenant_id}")
+                    raise TenantMismatchError(
+                        f"Request {request_id} belongs to different tenant {existing.tenant_id}"
+                    )
                 if existing.arguments_digest != args_digest or existing.tool_name != tool_name:
-                    raise ArgumentMismatchError(f"Changed arguments or tool on same request ID {request_id}")
+                    raise ArgumentMismatchError(
+                        f"Changed arguments or tool on same request ID {request_id}"
+                    )
                 return existing
 
             if tool_name not in self._allowed_tools:
@@ -171,7 +177,9 @@ class MCPProtectedToolAuthorizer:
             # Verify tool permissions through authorizer
             replica = self._authorizer.profile
             if not required_caps.issubset(replica.default_capabilities):
-                raise PermissionDeniedError(f"Host permissions do not cover tool requirements for '{tool_name}'")
+                raise PermissionDeniedError(
+                    f"Host permissions do not cover tool requirements for '{tool_name}'"
+                )
 
             # Issue lease via authorizer
             auth_response = self._authorizer.client.authorize(
@@ -211,11 +219,18 @@ class MCPProtectedToolAuthorizer:
             if record.tenant_id != tenant_id:
                 raise TenantMismatchError(f"Tenant mismatch on claim for request {request_id}")
             if record.executor_audience != executor_audience:
-                raise PermissionDeniedError(f"Audience mismatch: expected {record.executor_audience}, got {executor_audience}")
+                raise PermissionDeniedError(
+                    f"Audience mismatch: expected {record.executor_audience}, "
+                    f"got {executor_audience}"
+                )
             if record.state in TERMINAL_STATES or record.state == ToolExecutionState.CLAIMED:
-                raise DuplicateInvocationError(f"Request {request_id} already in state {record.state.value}")
+                raise DuplicateInvocationError(
+                    f"Request {request_id} already in state {record.state.value}"
+                )
 
-            receipt = hashlib.sha256(f"{request_id}:{record.lease_id}:{executor_audience}".encode()).hexdigest()
+            receipt = hashlib.sha256(
+                f"{request_id}:{record.lease_id}:{executor_audience}".encode()
+            ).hexdigest()
             updated = replace(
                 record,
                 state=ToolExecutionState.CLAIMED,
@@ -237,7 +252,9 @@ class MCPProtectedToolAuthorizer:
             if not record.receipt_claim or record.receipt_claim != receipt_claim:
                 raise ReceiptMissingError("Valid receipt claim required to complete execution")
             if record.state in TERMINAL_STATES:
-                raise DuplicateInvocationError(f"Request {request_id} already terminal ({record.state.value})")
+                raise DuplicateInvocationError(
+                    f"Request {request_id} already terminal ({record.state.value})"
+                )
 
             updated = replace(
                 record,

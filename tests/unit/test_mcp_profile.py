@@ -1,33 +1,46 @@
 import pytest
-from lets.integrations.ports import ReplicaAuthorizer, ReplicaProfile
+
 from lets.integrations.mcp import (
-    MCPProtectedToolAuthorizer,
-    MCPToolRecord,
-    ToolExecutionState,
-    ToolNotFoundError,
-    PermissionDeniedError,
     ArgumentMismatchError,
     DuplicateInvocationError,
-    TenantMismatchError,
+    MCPProtectedToolAuthorizer,
+    PermissionDeniedError,
     ReceiptMissingError,
-    compute_arguments_digest,
+    TenantMismatchError,
+    ToolExecutionState,
+    ToolNotFoundError,
 )
+from lets.integrations.ports import ReplicaAuthorizer, ReplicaProfile
 
 
 class DummyAuthorizerClient:
     def __init__(self):
         self.authorized_calls = []
 
-    def issue_root(self, payload): return {"lease_id": "root-1"}
-    def spawn(self, parent_id, payload): return {"lease_id": "spawn-1"}
+    def issue_root(self, payload):
+        return {"lease_id": "root-1"}
+
+    def spawn(self, parent_id, payload):
+        return {"lease_id": "spawn-1"}
+
     def authorize(self, lease_id, payload):
         self.authorized_calls.append((lease_id, payload))
         return {"lease_id": f"lease-{payload['request_id']}"}
-    def renew(self, lease_id, payload): return {}
-    def quiesce(self, lease_id, payload): return {}
-    def resume(self, lease_id, payload): return {}
-    def close_lease(self, lease_id, payload): return {}
-    def revoke_branch(self, lease_id, payload): return {}
+
+    def renew(self, lease_id, payload):
+        return {}
+
+    def quiesce(self, lease_id, payload):
+        return {}
+
+    def resume(self, lease_id, payload):
+        return {}
+
+    def close_lease(self, lease_id, payload):
+        return {}
+
+    def revoke_branch(self, lease_id, payload):
+        return {}
 
 
 @pytest.fixture
@@ -147,8 +160,8 @@ def test_duplicate_claim_and_missing_receipt(authorizer):
         arguments={"path": "/tmp/a.txt"},
         executor_audience="worker-agent-1",
     )
-    claimed = authorizer.verify_and_claim("req-106", "tenant-alpha", "worker-agent-1")
-    
+    authorizer.verify_and_claim("req-106", "tenant-alpha", "worker-agent-1")
+
     # Duplicate claim raises DuplicateInvocationError
     with pytest.raises(DuplicateInvocationError):
         authorizer.verify_and_claim("req-106", "tenant-alpha", "worker-agent-1")
