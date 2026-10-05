@@ -1,9 +1,12 @@
 """Tests for client.py's response handling: oversize responses are rejected without full
-buffering, and a total deadline interrupts a slow drip response or retry backoff.
+buffering, a total deadline interrupts a slow drip response or retry backoff, and success
+responses honor the committed response-envelope contract (status, root type, required and
+constant fields) before any typed mapping reaches the caller.
 """
 
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
@@ -422,5 +425,587 @@ def test_client_preserves_idempotent_only_retries(failure_mode: str) -> None:
         with pytest.raises((RemoteUnavailableError, httpx.ConnectError)):
             client._request("POST", "/v1/transition", payload={"test": True}, idempotent=False)
         assert calls == 1
+    finally:
+        client.close()
+
+
+_INFO_DOCUMENT: dict[str, Any] = {
+    "api_version": "v1",
+    "protocol": "lets/1",
+    "warden_id": "warden-a",
+}
+
+
+def _receipt_document() -> dict[str, Any]:
+    return {
+        "type": "lets.receipt/v1",
+        "tenant_id": "tenant-a",
+        "envelope_id": "envelope-a",
+        "config_epoch": 1,
+        "receipt_id": "receipt-a",
+        "request_id": "request-a",
+        "warden_id": "warden-a",
+        "key_id": "key-a",
+        "policy_id": "policy-a",
+        "policy_version": "1",
+        "policy_digest": "policy-digest",
+        "machine_digest": "machine-digest",
+        "lease_id": "lease-a",
+        "lineage_id": "lineage-a",
+        "subject_id": "subject-a",
+        "executor_audience": "executor-a",
+        "transition": "quiesce",
+        "source_state": "active",
+        "target_state": "quiesced",
+        "cost": [1],
+        "resulting_sequence": 1,
+        "evidence_digest": None,
+        "nonce": "nonce-a",
+        "issued_at_ns": 1,
+        "expires_at_ns": 2,
+        "signature": "signature-a",
+    }
+
+
+def _static_json_client(status: int, *, content: bytes = b"", json_body: Any = None) -> LETSClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if json_body is not None:
+            return httpx.Response(status, json=json_body, request=request)
+        return httpx.Response(status, content=content, request=request)
+
+    return LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(handler),
+        retry=RetryPolicy(max_attempts=1),
+    )
+
+
+@pytest.mark.parametrize("body", [b"[]", b"null", b"42"])
+def test_client_rejects_non_object_info_envelope(body: bytes) -> None:
+    client = _static_json_client(200, content=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.code == "invalid_response"
+        assert raised.value.problem.status == 502
+        assert raised.value.problem.instance == "/v1/info"
+    finally:
+        client.close()
+
+
+def test_client_rejects_empty_success_body() -> None:
+    client = _static_json_client(200, content=b"")
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.code == "invalid_response"
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [(302, b""), (203, json.dumps(_INFO_DOCUMENT).encode())],
+)
+def test_client_rejects_success_status_outside_the_contract(status: int, body: bytes) -> None:
+    client = _static_json_client(status, content=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert raised.value.problem.code == "invalid_response"
+    finally:
+        client.close()
+
+
+def test_client_rejects_info_envelope_missing_required_field() -> None:
+    body = {"api_version": "v1", "warden_id": "warden-a"}
+    client = _static_json_client(200, json_body=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "protocol" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_rejects_null_required_field() -> None:
+    body = {**_INFO_DOCUMENT, "warden_id": None}
+    client = _static_json_client(200, json_body=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "warden_id" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_rejects_unknown_contract_version() -> None:
+    body = {**_INFO_DOCUMENT, "api_version": "v9"}
+    client = _static_json_client(200, json_body=body)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "api_version" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_accepts_contract_conforming_info_document() -> None:
+    client = _static_json_client(200, json_body=_INFO_DOCUMENT)
+    try:
+        assert client.info() == _INFO_DOCUMENT
+    finally:
+        client.close()
+
+
+def test_client_rejects_malformed_receipt() -> None:
+    missing_signature = _receipt_document()
+    del missing_signature["signature"]
+    cases = [
+        missing_signature,
+        {**_receipt_document(), "signature": None},
+        {**_receipt_document(), "type": "lets.receipt/v2"},
+    ]
+    for body in cases:
+        client = _static_json_client(200, json_body=body)
+        try:
+            with pytest.raises(RemoteValidationError) as raised:
+                client.authorize(
+                    "lease-a",
+                    {"executor_audience": "executor-a", "request_id": "request-a"},
+                )
+            assert raised.value.problem.code == "invalid_response"
+        finally:
+            client.close()
+
+
+def test_client_accepts_contract_conforming_receipt_for_encoded_lease_paths() -> None:
+    client = _static_json_client(200, json_body=_receipt_document())
+    try:
+        result = client.authorize(
+            "lease/a b", {"executor_audience": "executor-a", "request_id": "request-a"}
+        )
+        assert result["receipt_id"] == "receipt-a"
+    finally:
+        client.close()
+
+
+def test_client_requires_object_root_on_undocumented_health_paths() -> None:
+    failing = _static_json_client(200, content=b"[]")
+    try:
+        with pytest.raises(RemoteValidationError):
+            failing.liveness()
+    finally:
+        failing.close()
+    passing = _static_json_client(200, json_body={"status": "live"})
+    try:
+        assert passing.liveness() == {"status": "live"}
+    finally:
+        passing.close()
+
+
+def test_client_envelope_rule_ignores_the_query_string() -> None:
+    passing = _static_json_client(200, json_body={"records": []})
+    try:
+        assert passing.audit()["records"] == []
+    finally:
+        passing.close()
+    failing = _static_json_client(200, content=b"42")
+    try:
+        with pytest.raises(RemoteValidationError):
+            failing.audit()
+    finally:
+        failing.close()
+
+
+def test_response_contract_module_matches_the_committed_openapi_document() -> None:
+    from scripts.generate_response_contract import (
+        OPENAPI_DOCUMENT,
+        TARGET_MODULE,
+        build_rules,
+        render_module,
+    )
+
+    document = json.loads(OPENAPI_DOCUMENT.read_text(encoding="utf-8"))
+    expected = render_module(build_rules(document))
+    assert TARGET_MODULE.read_text(encoding="utf-8") == expected
+
+
+def test_generator_tracks_nullability_through_references_and_unions() -> None:
+    from scripts.generate_response_contract import build_rules
+
+    document = {
+        "paths": {
+            "/v1/example": {
+                "get": {
+                    "responses": {
+                        "200": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/Example"}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "Example": {
+                    "type": "object",
+                    "required": [
+                        "plain",
+                        "aliased_nullable",
+                        "union_nullable",
+                        "anynull_nullable",
+                        "aliased_string",
+                        "const_null",
+                        "const_text",
+                        "degenerate_cycle",
+                        "selfref_cycle",
+                        "oneof_nonnull",
+                        "anyof_nonnull",
+                        "unknown_ref",
+                        "untyped",
+                    ],
+                    "properties": {
+                        "plain": {"type": "string"},
+                        "aliased_nullable": {"$ref": "#/components/schemas/NullableString"},
+                        "union_nullable": {"oneOf": [{"type": "string"}, {"type": "null"}]},
+                        "anynull_nullable": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                        "aliased_string": {"$ref": "#/components/schemas/PlainString"},
+                        "const_null": {"const": None},
+                        "const_text": {"const": "lets.example/v1"},
+                        "degenerate_cycle": {"$ref": "#/components/schemas/Example"},
+                        "selfref_cycle": {"$ref": "#/components/schemas/SelfRef"},
+                        "oneof_nonnull": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                        "anyof_nonnull": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+                        "unknown_ref": {"$ref": "#/components/schemas/DoesNotExist"},
+                        "untyped": {},
+                    },
+                },
+                "NullableString": {"type": ["string", "null"]},
+                "PlainString": {"type": "string"},
+                "SelfRef": {"$ref": "#/components/schemas/SelfRef"},
+            }
+        },
+    }
+    variant = build_rules(document)["GET /v1/example"]["variants"][0]
+    assert variant["required_non_null"] == [
+        "plain",
+        "aliased_string",
+        "const_text",
+        "degenerate_cycle",
+        "oneof_nonnull",
+        "anyof_nonnull",
+    ]
+
+
+def test_client_rejects_ambiguous_response_contract_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "lets.client.RESPONSE_CONTRACT",
+        {
+            "GET /v1/info": {"statuses": [200], "root": "object", "variants": []},
+            "GET /v1/{name}": {"statuses": [200], "root": "object", "variants": []},
+        },
+    )
+    client = _static_json_client(200, json_body=_INFO_DOCUMENT)
+    try:
+        with pytest.raises(RuntimeError, match="ambiguous response contract match"):
+            client.info()
+    finally:
+        client.close()
+
+
+def test_client_enforces_array_root_rules_from_the_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lets.client.RESPONSE_CONTRACT",
+        {"GET /v1/info": {"statuses": [200], "root": "array", "variants": []}},
+    )
+    rejecting = _static_json_client(200, json_body=_INFO_DOCUMENT)
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            rejecting.info()
+        assert "JSON array" in raised.value.problem.detail
+    finally:
+        rejecting.close()
+    accepting = _static_json_client(200, content=b"[1]")
+    try:
+        assert accepting.info() == [1]
+    finally:
+        accepting.close()
+
+
+def test_client_rejects_responses_matching_no_documented_variant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lets.client.RESPONSE_CONTRACT",
+        {
+            "GET /v1/info": {
+                "statuses": [200],
+                "root": "object",
+                "variants": [
+                    {"required": ["protocol"], "required_non_null": ["protocol"], "consts": {}},
+                    {"required": ["warden_id"], "required_non_null": [], "consts": {}},
+                ],
+            }
+        },
+    )
+    client = _static_json_client(200, json_body={"unrelated": True})
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.info()
+        assert "matches none of the 2 documented envelope variants" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+_LEGACY_METRICS_DOCUMENT: dict[str, Any] = {
+    "active_nodes": 1,
+    "custom_metric": "ok",
+}
+
+_MOCK_DIGEST: str = f"sha256:{'0' * 64}"
+
+_PRODUCTION_METRICS_DOCUMENT: dict[str, Any] = {
+    "audit_exporter": {
+        "archive_reconciled": True,
+        "configured": False,
+        "healthy": True,
+        "last_error": None,
+        "last_success_ns": None,
+        "max_pending": 0,
+        "pending": 0,
+        "publish_blocked": False,
+        "running": False,
+        "sink_call_blocked": False,
+    },
+    "audit_outbox": {"oldest_unpublished_age_ns": 0, "unpublished_count": 0},
+    "audit_verification": {
+        "captured_head_hash": _MOCK_DIGEST,
+        "captured_head_sequence": -1,
+        "catching_up": False,
+        "error_type": None,
+        "lag": 0,
+        "last_full_verification_at_ns": 1,
+        "page_size": 256,
+        "schema_definition_sha256": _MOCK_DIGEST,
+        "sticky_failure": False,
+        "sweep_cursor_sequence": -1,
+        "sweep_last_completed_at_ns": 1,
+        "sweep_last_completed_head_hash": _MOCK_DIGEST,
+        "sweep_last_completed_head_sequence": -1,
+        "sweep_target_sequence": -1,
+        "valid": True,
+        "verified_through_hash": _MOCK_DIGEST,
+        "verified_through_sequence": -1,
+    },
+    "authority_checkpoint": {
+        "audit_hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "audit_sequence": -1,
+        "clock_floor_ns": None,
+        "config_epoch": 1,
+        "database_instance_id": "inst-1",
+        "envelope_id": "env-1",
+        "format": "LETS-AUTHORITY-ANCHOR/1",
+        "schema_version": 2,
+        "signing_key_id": "key-1",
+        "signing_public_key_sha256": "key-hash",
+        "state_digest": "state-digest",
+        "state_revision": 0,
+        "tenant_id": "tenant-1",
+        "warden_id": "warden-1",
+    },
+    "capture_duration_ns": 100,
+    "capture_started_monotonic_ns": 100,
+    "captured_at_monotonic_ns": 100,
+    "captured_at_ns": 100,
+    "captured_authority_anchor": {
+        "admission_fenced": False,
+        "enabled": True,
+        "fault_reason": None,
+        "fault_stage": None,
+        "fence_id": None,
+        "fenced_at_monotonic_ns": None,
+        "first_fault": None,
+        "healthy": True,
+        "lifetime_id": "life-1",
+        "namespace_process_id": 1,
+        "permanent_faults": 0,
+        "retry_not_before_monotonic_ns": None,
+        "state": "healthy",
+        "transport_fault_episodes": 0,
+        "transport_faults": 0,
+        "transport_recoveries": 0,
+        "transport_recovery_attempts": 0,
+        "unresolved_transport_faults": 0,
+    },
+    "checked_at_ns": 100,
+    "clock_healthy": True,
+    "core_state_revision": 0,
+    "database_instance_id": "inst-1",
+    "generation": "gen-1",
+    "invariant": {
+        "checked_at_ns": 100,
+        "config_epoch": 1,
+        "consumed": [0],
+        "envelope_id": "env-1",
+        "free_pool": [10],
+        "healthy": True,
+        "initial_share": [10],
+        "lease_residual": [0],
+        "tenant_id": "tenant-1",
+        "transferred_in": [0],
+        "transferred_out": [0],
+    },
+    "invariant_healthy": True,
+    "leases": {"by_status": {}, "total": 0},
+    "lifetime_id": "life-1",
+    "max_age_ns": 15000000000,
+    "observation_eligible": True,
+    "peer_dispatcher": {
+        "configured_peers": 0,
+        "delivered_records": 0,
+        "durable_retry": None,
+        "failed_records": 0,
+        "healthy": False,
+        "last_cycle_ns": None,
+        "last_error": None,
+        "pending_records": 0,
+        "prepared_transfers": 0,
+        "running": False,
+        "superseded_records": 0,
+    },
+    "published_at_monotonic_ns": 100,
+    "published_at_ns": 100,
+    "receipts": {"total": 0},
+    "resources": {
+        "consumed": [0],
+        "free_pool": [10],
+        "initial_share": [10],
+        "lease_residual": [0],
+        "transferred_in": [0],
+        "transferred_out": [0],
+    },
+    "revision": 1,
+    "runtime": {
+        "changed_at_ns": 0,
+        "changed_by": "lets-migration",
+        "generation": 0,
+        "mode": "ACTIVE",
+        "reason": "init",
+    },
+    "schema": "lets.observation-snapshot/v1",
+    "signing_key_healthy": True,
+    "snapshot_id": _MOCK_DIGEST,
+    "sqlite_schema_sha256": _MOCK_DIGEST,
+    "storage_capacity": {
+        "additional_shared_memory_bytes": 0,
+        "database_bytes": 1024,
+        "effective_database_bytes": 1024,
+        "filesystem_free_bytes": 1024,
+        "free_pages": 0,
+        "healthy": True,
+        "logical_live_bytes": 1024,
+        "main_database_bytes": 1024,
+        "max_database_bytes": None,
+        "max_page_count": 100,
+        "min_free_disk_bytes": 0,
+        "page_count": 10,
+        "page_size": 4096,
+        "prior_full_error": False,
+        "remaining_main_growth_bytes": 0,
+        "required_filesystem_free_bytes": 1024,
+        "reserve_pages": 1,
+        "reusable_bytes": 0,
+        "shared_memory_bytes": 1024,
+        "wal_bytes": 0,
+        "worst_case_shared_memory_bytes": 0,
+        "worst_case_transaction_wal_bytes": 0,
+    },
+    "transfers": {
+        "in_flight_count": 0,
+        "inbound_gap_count": 0,
+        "incoming_compacted_high_water": 0,
+        "incoming_contiguous_high_water": 0,
+        "incoming_streams": 0,
+        "outgoing_acked_high_water": 0,
+        "outgoing_compacted_high_water": 0,
+        "outgoing_streams": 0,
+    },
+    "age_ns": 0,
+    "authority_anchor": {
+        "enabled": True,
+        "state": "healthy",
+        "healthy": True,
+        "lifetime_id": "life-1",
+        "namespace_process_id": 1,
+        "admission_fenced": False,
+        "fence_id": None,
+        "fenced_at_monotonic_ns": None,
+        "transport_faults": 0,
+        "transport_fault_episodes": 0,
+        "transport_recovery_attempts": 0,
+        "transport_recoveries": 0,
+        "unresolved_transport_faults": 0,
+        "permanent_faults": 0,
+        "fault_stage": None,
+        "fault_reason": None,
+        "retry_not_before_monotonic_ns": None,
+        "first_fault": None,
+    },
+    "capture_status": {
+        "attempt_sequence": 1,
+        "capture_in_progress": False,
+        "last_attempt_monotonic_ns": 100,
+        "last_error_type": None,
+        "last_successful_attempt_sequence": 1,
+    },
+    "fresh": True,
+    "ready": False,
+    "served_at_monotonic_ns": 100,
+    "service_ready": True,
+}
+
+
+def test_client_accepts_valid_legacy_and_production_metrics() -> None:
+    legacy_client = _static_json_client(200, json_body=_LEGACY_METRICS_DOCUMENT)
+    try:
+        assert legacy_client.metrics() == _LEGACY_METRICS_DOCUMENT
+    finally:
+        legacy_client.close()
+
+    production_client = _static_json_client(200, json_body=_PRODUCTION_METRICS_DOCUMENT)
+    try:
+        assert production_client.metrics() == _PRODUCTION_METRICS_DOCUMENT
+    finally:
+        production_client.close()
+
+
+def test_client_rejects_incomplete_production_metrics_without_legacy_fallback() -> None:
+    client = _static_json_client(200, json_body={"schema": "lets.observation-snapshot/v1"})
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.metrics()
+        assert raised.value.problem.code == "invalid_response"
+        assert "matches none of the 2 documented envelope variants" in raised.value.problem.detail
+    finally:
+        client.close()
+
+
+def test_client_rejects_unknown_metrics_schema_version_without_legacy_fallback() -> None:
+    client = _static_json_client(
+        200,
+        json_body={"schema": "v9", "ready": True, "authority_anchor": None},
+    )
+    try:
+        with pytest.raises(RemoteValidationError) as raised:
+            client.metrics()
+        assert raised.value.problem.code == "invalid_response"
+        assert "matches none of the 2 documented envelope variants" in raised.value.problem.detail
     finally:
         client.close()

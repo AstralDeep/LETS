@@ -12,6 +12,16 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Fixed
 
+- The HTTP client validates every success response against the committed OpenAPI contract
+  before returning it: documented success status codes, JSON root type, required envelope
+  fields (including their documented nullability), and constant discriminator fields such as
+  document type versions. Non-JSON success bodies, empty bodies, redirects, unexpected
+  success statuses, and wrong-root or incomplete envelopes now raise a typed
+  `RemoteValidationError` with code `invalid_response` instead of surfacing as `None`, lists,
+  or integers from `Mapping`-annotated methods. The per-endpoint rules are generated from
+  `protocol/openapi.yaml` by `scripts/generate_response_contract.py`; run it with `--check`
+  to verify they are current.
+
 - The HTTP client rejects invalid numeric configuration deterministically before creating any
   transport: boolean, fractional, non-finite, or unrepresentably large attempt counts, byte
   limits, timeouts, and retry backoffs raise `TypeError` or `ValueError` at construction, and
