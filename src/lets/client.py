@@ -532,7 +532,10 @@ class LETSClient:
                 if response.status_code == 204 or not response_content:
                     return None
                 try:
-                    return _response_json(response, response_content)
+                    data = _response_json(response, response_content)
+                    if not isinstance(data, (dict, list)):
+                        raise ValueError("response JSON envelope must be an object or array")
+                    return data
                 except (ValueError, UnicodeDecodeError) as exc:
                     raise RemoteValidationError(
                         ProblemDetails(
