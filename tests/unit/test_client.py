@@ -424,3 +424,12 @@ def test_client_preserves_idempotent_only_retries(failure_mode: str) -> None:
         assert calls == 1
     finally:
         client.close()
+
+
+def test_client_deadline_contract_deterministic():
+    from lets.client import ClientDeadline
+    import time
+    
+    deadline = ClientDeadline.from_timeout_seconds(5.0)
+    assert deadline.remaining_seconds() > 0.0
+    assert not deadline.is_expired()
