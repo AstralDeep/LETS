@@ -7,6 +7,11 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Changed
 
+- Contribution triage now requests missing issue context and applies evidence-based,
+  exact-head maintainer closure decisions; useful partial work remains eligible for repair.
+
+### Changed
+
 - Retire bounty reservation replies. The community points bot credits the PR author after
   a successful merge into `main` closes an approved bounty; no claim or assignment is required.
 

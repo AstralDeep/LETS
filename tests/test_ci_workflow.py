@@ -21,6 +21,7 @@ CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
 SETUP_UV_ACTION = "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7"
 UPLOAD_ACTION = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
 APPROVED_ACTIONS = {
+    "AstralDeep/astraldeep.github.io/actions/pr-triage": "9c83bac26fe9c5d594388afb70b30ed9076c90f1",
     "actions/checkout": CHECKOUT_ACTION.partition("@")[2],
     "astral-sh/setup-uv": SETUP_UV_ACTION.partition("@")[2],
     "actions/upload-artifact": UPLOAD_ACTION.partition("@")[2],
