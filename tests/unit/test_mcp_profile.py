@@ -1,3 +1,4 @@
+import unittest
 from unittest.mock import MagicMock
 
 from lets.integrations.mcp import MCPAuthorizer, MCPProfile
@@ -28,14 +29,15 @@ class TestMCPProfile(unittest.TestCase):
 
         self.assertEqual(result["status"], "authorized")
         client.authorize.assert_called_once_with(
-            tenant_id="tenant-mcp",
-            envelope_id="env-mcp",
-            agent_id="agent-1",
-            capability="mcp.cmd.run",
-            transition="execute",
-            request_id="req-123",
-            audience="executor-node-1",
-            evidence={"cmd": "ls"},
+            "env-mcp",
+            {
+                "request_id": "req-123",
+                "agent_id": "agent-1",
+                "capability": "mcp.cmd.run",
+                "transition": "execute",
+                "executor_audience": "executor-node-1",
+                "evidence": {"cmd": "ls"},
+            },
         )
 
     def test_unknown_tool_fails_closed(self) -> None:
