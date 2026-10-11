@@ -15,6 +15,10 @@ image together; the Git tag is the package version prefixed with `v`.
 - Retire bounty reservation replies. The community points bot credits the PR author after
   a successful merge into `main` closes an approved bounty; no claim or assignment is required.
 
+- Client deadline tests verify the total wall-clock deadline with injected clocks, watchdog
+  timers, and events instead of asserting elapsed wall time, so the required Windows and
+  Linux gates stay deterministic under shared-runner scheduling delays.
+
 ### Fixed
 
 - The HTTP client validates every success response against the committed OpenAPI contract

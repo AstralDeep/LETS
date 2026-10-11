@@ -1,5 +1,6 @@
 """Tests for client.py's response handling: oversize responses are rejected without full
-buffering, a total deadline interrupts a slow drip response or retry backoff, and success
+buffering, the total wall-clock deadline is verified with injected clocks, watchdog timers,
+and events that prove no post-deadline success and bounded retry admission, and success
 responses honor the committed response-envelope contract (status, root type, required and
 constant fields) before any typed mapping reaches the caller.
 """
@@ -10,7 +11,7 @@ import json
 import math
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,12 +20,74 @@ import pytest
 
 from lets.client import LETSClient, RemoteUnavailableError, RemoteValidationError, RetryPolicy
 
+# Hang guard for event handshakes: a stuck deadline path fails the test instead of blocking CI.
+_GUARD_TIMEOUT_S = 30.0
 
-class _SlowBytes(httpx.SyncByteStream):
-    def __iter__(self) -> Iterator[bytes]:
-        for _ in range(100):
-            time.sleep(0.02)
-            yield b" "
+
+class _FakeMonotonicClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class _InjectedTime:
+    def __init__(self, clock: _FakeMonotonicClock) -> None:
+        self._clock = clock
+
+    def monotonic(self) -> float:
+        return self._clock.monotonic()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(time, name)
+
+
+class _FakeWatchdog:
+    def __init__(self) -> None:
+        self.interval: float | None = None
+        self.function: Callable[[], None] | None = None
+        self.started = False
+        self.cancelled = False
+        self.fire_count = 0
+        self.daemon = False
+
+    def arm(self, interval: float, function: Callable[[], None]) -> _FakeWatchdog:
+        self.interval = interval
+        self.function = function
+        return self
+
+    def start(self) -> None:
+        self.started = True
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def join(self, timeout: float | None = None) -> None:
+        return None
+
+    def fire(self) -> None:
+        self.fire_count += 1
+        assert self.function is not None
+        self.function()
+
+
+class _WatchdogThreading:
+    def __init__(self, watchdog: _FakeWatchdog) -> None:
+        self.Timer = watchdog.arm
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(threading, name)
+
+
+def _patch_deadline_controls(
+    monkeypatch: pytest.MonkeyPatch, clock: _FakeMonotonicClock, watchdog: _FakeWatchdog
+) -> None:
+    monkeypatch.setattr("lets.client.time", _InjectedTime(clock))
+    monkeypatch.setattr("lets.client.threading", _WatchdogThreading(watchdog))
 
 
 def _retry_response(value: str) -> httpx.Response:
@@ -53,29 +116,71 @@ def test_client_rejects_oversize_response_without_buffering_it_all() -> None:
         client.close()
 
 
-def test_client_total_deadline_interrupts_a_slow_drip_response() -> None:
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, stream=_SlowBytes(), request=request)
-    )
+def test_client_deadline_interrupts_a_slow_response_body_before_any_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
+
+    class _DeadlineFiresMidBody(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield b'{"status"'
+            watchdog.fire()
+            yield b': "ok"}'
+
     client = LETSClient(
         "https://warden.test",
-        transport=transport,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, stream=_DeadlineFiresMidBody(), request=request)
+        ),
         timeout=1.0,
         total_timeout_s=0.05,
         retry=RetryPolicy(max_attempts=1),
     )
-    started = time.perf_counter()
     try:
         with pytest.raises(httpx.TimeoutException, match="wall-clock deadline"):
             client.liveness()
-        assert time.perf_counter() - started < 0.5
+        assert watchdog.fire_count == 1
+        assert watchdog.cancelled
+    finally:
+        client.close()
+
+
+def test_client_deadline_rejects_a_success_response_after_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        clock.advance(0.05)
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(handler),
+        total_timeout_s=0.05,
+        retry=RetryPolicy(max_attempts=1),
+    )
+    try:
+        with pytest.raises(httpx.TimeoutException, match="wall-clock deadline"):
+            client.liveness()
+        assert watchdog.fire_count == 0
     finally:
         client.close()
 
 
 @pytest.mark.parametrize("failure", ["response", "transport"])
-def test_client_total_deadline_interrupts_retry_backoff(failure: str) -> None:
+def test_client_deadline_admits_no_retry_after_the_deadline(
+    failure: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
     calls = 0
+    sleeps: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
@@ -84,22 +189,224 @@ def test_client_total_deadline_interrupts_retry_backoff(failure: str) -> None:
             raise httpx.ConnectError("injected outage", request=request)
         return httpx.Response(503, request=request)
 
+    def recorded_sleep(delay: float) -> None:
+        sleeps.append(delay)
+        clock.advance(delay)
+
     client = LETSClient(
         "https://warden.test",
         transport=httpx.MockTransport(handler),
         total_timeout_s=0.05,
-        retry=RetryPolicy(
-            max_attempts=2,
-            initial_backoff_s=0.5,
-            maximum_backoff_s=0.5,
-        ),
+        retry=RetryPolicy(max_attempts=5, initial_backoff_s=10.0, maximum_backoff_s=10.0),
+        sleep=recorded_sleep,
     )
-    started = time.perf_counter()
     try:
         with pytest.raises(httpx.TimeoutException, match="wall-clock deadline"):
             client.liveness()
         assert calls == 1
-        assert time.perf_counter() - started < 0.4
+        assert sleeps == pytest.approx([0.05])
+        assert watchdog.fire_count == 0
+        assert watchdog.cancelled
+    finally:
+        client.close()
+
+
+def test_client_deadline_admits_no_retry_when_the_deadline_already_elapsed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
+    calls = 0
+    sleeps: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        clock.advance(0.5)
+        raise httpx.ConnectError("injected outage", request=request)
+
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(handler),
+        total_timeout_s=0.05,
+        retry=RetryPolicy(max_attempts=2, initial_backoff_s=10.0, maximum_backoff_s=10.0),
+        sleep=sleeps.append,
+    )
+    try:
+        with pytest.raises(httpx.TimeoutException, match="wall-clock deadline"):
+            client.liveness()
+        assert calls == 1
+        assert sleeps == []
+    finally:
+        client.close()
+
+
+def test_client_deadline_abort_replaces_an_owned_transport_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
+    closes: list[int] = []
+    calls = 0
+
+    class _DeadlineFiresMidBody(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield b'{"status"'
+            watchdog.fire()
+            yield b': "ok"}'
+
+    class _CloseTrackingTransport(httpx.MockTransport):
+        def close(self) -> None:
+            closes.append(len(closes) + 1)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(200, stream=_DeadlineFiresMidBody(), request=request)
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    client = LETSClient(
+        "https://warden.test",
+        transport=_CloseTrackingTransport(handler),
+        total_timeout_s=0.05,
+        retry=RetryPolicy(max_attempts=1),
+    )
+    aborted_client = client._client
+    try:
+        with pytest.raises(httpx.TimeoutException, match="wall-clock deadline"):
+            client.liveness()
+        assert closes == [1]
+        assert client._client is not aborted_client
+        assert client.liveness() == {"status": "ok"}
+        assert calls == 2
+        assert closes == [1]
+    finally:
+        client.close()
+    assert closes == [1, 2]
+
+
+def test_client_deadline_abort_closes_but_keeps_a_caller_owned_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
+    closes: list[int] = []
+
+    class _DeadlineFiresMidBody(httpx.SyncByteStream):
+        def __iter__(self) -> Iterator[bytes]:
+            yield b'{"status"'
+            watchdog.fire()
+            yield b': "ok"}'
+
+    class _CloseTrackingTransport(httpx.MockTransport):
+        def close(self) -> None:
+            closes.append(len(closes) + 1)
+
+    injected = httpx.Client(
+        base_url="https://warden.test/",
+        transport=_CloseTrackingTransport(
+            lambda request: httpx.Response(200, stream=_DeadlineFiresMidBody(), request=request)
+        ),
+    )
+    client = LETSClient("https://warden.test", client=injected, total_timeout_s=0.05)
+    try:
+        with pytest.raises(httpx.TimeoutException, match="wall-clock deadline"):
+            client.liveness()
+        assert closes == [1]
+        assert client._client is injected
+        assert injected.is_closed
+        assert watchdog.cancelled
+    finally:
+        client.close()
+    assert closes == [1]
+    assert injected.is_closed
+
+
+def test_request_queued_behind_a_deadline_abort_gets_a_fresh_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
+    started_first = threading.Event()
+    release_first = threading.Event()
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started_first.set()
+            release_first.wait(_GUARD_TIMEOUT_S)
+        return httpx.Response(200, json={"status": "ok"}, request=request)
+
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(handler),
+        total_timeout_s=0.05,
+        retry=RetryPolicy(max_attempts=1),
+    )
+    original_client = client._client
+    first_outcome: list[Any] = []
+    second_outcome: list[Any] = []
+
+    def first_request() -> None:
+        try:
+            first_outcome.append(client.liveness())
+        except Exception as error:
+            first_outcome.append(error)
+
+    def second_request() -> None:
+        try:
+            second_outcome.append(client.liveness())
+        except Exception as error:
+            second_outcome.append(error)
+
+    first = threading.Thread(target=first_request, daemon=True)
+    second = threading.Thread(target=second_request, daemon=True)
+    first.start()
+    assert started_first.wait(_GUARD_TIMEOUT_S)
+    second.start()
+    watchdog.fire()
+    release_first.set()
+    first.join(_GUARD_TIMEOUT_S)
+    second.join(_GUARD_TIMEOUT_S)
+    try:
+        assert not first.is_alive()
+        assert not second.is_alive()
+        assert isinstance(first_outcome[0], httpx.TimeoutException)
+        assert second_outcome[0] == {"status": "ok"}
+        assert calls == 2
+        assert watchdog.fire_count == 1
+        assert client._client is not original_client
+    finally:
+        client.close()
+
+
+def test_client_success_cancels_the_deadline_watchdog_without_firing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeMonotonicClock()
+    watchdog = _FakeWatchdog()
+    _patch_deadline_controls(monkeypatch, clock, watchdog)
+    client = LETSClient(
+        "https://warden.test",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"status": "ok"}, request=request)
+        ),
+        total_timeout_s=10.0,
+    )
+    try:
+        assert client.liveness() == {"status": "ok"}
+        assert watchdog.started
+        assert watchdog.interval == 10.0
+        assert watchdog.daemon
+        assert watchdog.fire_count == 0
+        assert watchdog.cancelled
     finally:
         client.close()
 
