@@ -148,6 +148,10 @@ class RemoteUnavailableError(LETSClientError):
     pass
 
 
+class ClientCapacityError(httpx.TimeoutException):
+    pass
+
+
 def _problem_error(response: httpx.Response, content: bytes | None = None) -> LETSClientError:
     problem = ProblemDetails.from_response(response, content)
     exception_type: type[LETSClientError]
@@ -563,7 +567,13 @@ class LETSClient:
         idempotent: bool,
         peer_signer: PeerSigner | None = None,
     ) -> Any:
-        with self._request_lock:
+        deadline = time.monotonic() + self._total_timeout_s
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not self._request_lock.acquire(timeout=remaining):
+            raise ClientCapacityError(
+                "LETS client admission wait exceeded its total wall-clock deadline"
+            )
+        try:
             if self._closed:
                 raise RuntimeError("LETS client is closed")
             body = b"" if payload is None else canonical_json(payload)
@@ -573,7 +583,6 @@ class LETSClient:
             response_content = b""
             active_client = self._client
             deadline_fired = threading.Event()
-            deadline = time.monotonic() + self._total_timeout_s
 
             def deadline_error() -> httpx.TimeoutException:
                 return httpx.TimeoutException("LETS request exceeded its total wall-clock deadline")
@@ -597,7 +606,7 @@ class LETSClient:
                 deadline_fired.set()
                 active_client.close()
 
-            watchdog = threading.Timer(self._total_timeout_s, abort_at_deadline)
+            watchdog = threading.Timer(max(0.0, deadline - time.monotonic()), abort_at_deadline)
             watchdog.daemon = True
             watchdog.start()
             try:
@@ -668,6 +677,8 @@ class LETSClient:
                     and not self._closed
                 ):
                     self._client = self._client_factory()
+        finally:
+            self._request_lock.release()
 
     @staticmethod
     def _id(value: object) -> str:
