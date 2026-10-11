@@ -180,6 +180,25 @@ Peer warden traffic is Ed25519 message-signed, timestamped, content-digested, an
 durable nonce store. Run it over TLS as well: signatures authenticate the message but do not hide
 its contents or protect traffic metadata.
 
+## Client concurrency and deadlines
+
+`LETSClient` is a synchronous SDK with an explicitly serialized request path: one client
+executes one HTTP request at a time behind an internal request lock. Each public call carries
+one absolute total deadline (`total_timeout_s`) that is created at admission, before the call
+waits for that lock, and it then bounds the lock wait, retries, body reading, and cleanup
+together. A caller that cannot be admitted before its deadline raises `ClientCapacityError`
+(a subclass of `httpx.TimeoutException`) without touching the transport, so a queued call can
+never outlive its configured budget and a lost or timed-out call is never treated as success.
+Waiting for a shared client therefore consumes the caller's own budget; it does not queue
+unboundedly.
+
+Do not issue parallel MCP or A2A tool traffic through one shared `LETSClient` and expect
+concurrency: the calls serialize, and each caller still burns its own total deadline while
+queued behind the others. For parallel work, give each concurrent worker its own `LETSClient`
+instance (each with its own connection pool and budget), or run the work on a bounded host
+executor so the host, not the client, decides how many LETS calls may be in flight. The
+synchronous SDK surface stays explicit: there is no async client and no internal work queue.
+
 ## Standards profiles
 
 Treat standards as composable profiles rather than reimplementing them inside LETS:
