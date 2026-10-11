@@ -274,7 +274,7 @@ jobs:
           (directory / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
       - name: Archive release package assets
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-package-${{ needs.verify.outputs.version }}
           path: dist/
@@ -696,7 +696,7 @@ jobs:
               )
           PY
       - name: Archive production-profile evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-production-acceptance-${{ needs.verify.outputs.version }}
           path: results/generated/production-profile-acceptance.json
@@ -1072,7 +1072,7 @@ jobs:
             fi
           done <<< "$RELEASE_TAGS"
       - name: Archive release image assets
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-image-${{ needs.verify.outputs.version }}
           path: |
