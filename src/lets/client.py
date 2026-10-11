@@ -61,6 +61,18 @@ def _response_json(response: httpx.Response, content: bytes | None = None) -> An
     return strict_json_loads(response.content if content is None else content)
 
 
+def _deadline_capped_timeout(base: httpx.Timeout, remaining: float) -> httpx.Timeout:
+    def cap(value: float | None) -> float:
+        return remaining if value is None else min(value, remaining)
+
+    return httpx.Timeout(
+        connect=cap(base.connect),
+        read=cap(base.read),
+        write=cap(base.write),
+        pool=cap(base.pool),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ProblemDetails:
     type: str
@@ -585,24 +597,23 @@ class LETSClient:
                     raise deadline_error()
                 bounded_delay = min(delay, remaining)
                 if self._sleep is time.sleep:
-                    interrupted = deadline_fired.wait(bounded_delay)
+                    deadline_fired.wait(bounded_delay)
                 else:
                     self._sleep(bounded_delay)
-                    interrupted = deadline_fired.is_set()
-                if interrupted or delay >= remaining or time.monotonic() >= deadline:
-                    deadline_fired.set()
-                    raise deadline_error()
 
             def abort_at_deadline() -> None:
                 deadline_fired.set()
-                active_client.close()
+                if self._owns_client:
+                    active_client.close()
 
             watchdog = threading.Timer(self._total_timeout_s, abort_at_deadline)
             watchdog.daemon = True
             watchdog.start()
             try:
                 for attempt in range(1, self._retry.max_attempts + 1):
-                    if deadline_fired.is_set():
+                    remaining = deadline - time.monotonic()
+                    if deadline_fired.is_set() or remaining <= 0:
+                        deadline_fired.set()
                         raise deadline_error()
                     headers = dict(base_headers)
                     if peer_signer is not None:
@@ -616,7 +627,11 @@ class LETSClient:
                         )
                     try:
                         with active_client.stream(
-                            method, path, content=body, headers=headers
+                            method,
+                            path,
+                            content=body,
+                            headers=headers,
+                            timeout=_deadline_capped_timeout(active_client.timeout, remaining),
                         ) as response:
                             if (
                                 idempotent

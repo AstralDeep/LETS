@@ -17,6 +17,15 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Fixed
 
+- The HTTP client preserves ownership of a caller-injected `httpx.Client` when a total deadline
+  expires: the deadline watchdog closes only wrapper-owned clients, so a borrowed client stays
+  open and usable for its owner's unrelated requests and later LETS calls, explicit and
+  concurrent `close()` calls respect ownership, and owned clients are still closed and replaced
+  after a deadline abort. Wrapper requests now cap their connect, read, write, and pool timeouts
+  at the remaining total deadline, so a hung transport operation on a borrowed client still ends
+  near the deadline without closing the shared client. A deadline outcome still raises and is
+  never treated as authorization.
+
 - The HTTP client validates every success response against the committed OpenAPI contract
   before returning it: documented success status codes, JSON root type, required envelope
   fields (including their documented nullability), and constant discriminator fields such as

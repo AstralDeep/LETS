@@ -180,6 +180,20 @@ Peer warden traffic is Ed25519 message-signed, timestamped, content-digested, an
 durable nonce store. Run it over TLS as well: signatures authenticate the message but do not hide
 its contents or protect traffic metadata.
 
+## HTTP client ownership and deadlines
+
+`LETSClient` constructs and owns its HTTP client by default (`transport=` injects only a
+transport): `close()` closes the owned client, and a total-deadline abort closes it and recreates
+it so later calls keep working. Passing `client=` borrows a caller-owned `httpx.Client` instead:
+the wrapper never closes or replaces it, not on a total-deadline abort and not on `close()`, so a
+LETS timeout leaves the shared client open for its owner's unrelated requests and later wrapper
+calls keep using it. A borrowed client must carry a `base_url` that matches the wrapper's, and
+the wrapper keeps enforcing its total deadline on its own requests: each connect, read, write,
+and pool timeout of a wrapper request is capped at the remaining deadline, so a hung operation
+ends near the deadline without destroying the shared client. Every deadline outcome raises
+(`httpx.TimeoutException` or a typed `LETSClientError`) and never returns a lost or timed-out
+reply as success; a lost reply is never authorization.
+
 ## Standards profiles
 
 Treat standards as composable profiles rather than reimplementing them inside LETS:
