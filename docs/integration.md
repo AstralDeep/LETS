@@ -182,17 +182,36 @@ its contents or protect traffic metadata.
 
 ## HTTP client ownership and deadlines
 
-`LETSClient` constructs and owns its HTTP client by default (`transport=` injects only a
-transport): `close()` closes the owned client, and a total-deadline abort closes it and recreates
-it so later calls keep working. Passing `client=` borrows a caller-owned `httpx.Client` instead:
-the wrapper never closes or replaces it, not on a total-deadline abort and not on `close()`, so a
-LETS timeout leaves the shared client open for its owner's unrelated requests and later wrapper
-calls keep using it. A borrowed client must carry a `base_url` that matches the wrapper's, and
-the wrapper keeps enforcing its total deadline on its own requests: each connect, read, write,
-and pool timeout of a wrapper request is capped at the remaining deadline, so a hung operation
-ends near the deadline without destroying the shared client. Every deadline outcome raises
-(`httpx.TimeoutException` or a typed `LETSClientError`) and never returns a lost or timed-out
-reply as success; a lost reply is never authorization.
+`LETSClient` owns a dedicated HTTP client and connection pool. `close()` closes it, and a
+request deadline closes and replaces it so later calls can recover. The `client=` constructor
+argument rejects non-null clients before using or closing them. HTTPX connect/read/write/pool
+timeouts measure inactivity: repeatedly arriving header bytes can extend one request past its
+absolute deadline. A borrowed shared client's transport cannot be cancelled safely through
+HTTPX's public client API without disrupting unrelated requests, so sharing is unsupported.
+
+Construct one dedicated `LETSClient` per worker. `transport=` is an ownership transfer to the
+wrapper, suitable for dedicated transports and testing, and must not share a transport with
+an unrelated client. This is a compatibility restriction for existing `client=` callers.
+Every timeout raises and a lost reply never authorizes an effect; wire contracts are unchanged.
+
+## Client concurrency and deadlines
+
+`LETSClient` is a synchronous SDK with an explicitly serialized request path: one client
+executes one HTTP request at a time behind an internal request lock. Each public call carries
+one absolute total deadline (`total_timeout_s`) that is created at admission, before the call
+waits for that lock, and it then bounds the lock wait, retries, body reading, and cleanup
+together. A caller that cannot be admitted before its deadline raises `ClientCapacityError`
+(a subclass of `httpx.TimeoutException`) without touching the transport, so a queued call can
+never outlive its configured budget and a lost or timed-out call is never treated as success.
+Waiting for a shared client therefore consumes the caller's own budget; it does not queue
+unboundedly.
+
+Do not issue parallel MCP or A2A tool traffic through one shared `LETSClient` and expect
+concurrency: the calls serialize, and each caller still burns its own total deadline while
+queued behind the others. For parallel work, give each concurrent worker its own `LETSClient`
+instance (each with its own connection pool and budget), or run the work on a bounded host
+executor so the host, not the client, decides how many LETS calls may be in flight. The
+synchronous SDK surface stays explicit: there is no async client and no internal work queue.
 
 ## Standards profiles
 
