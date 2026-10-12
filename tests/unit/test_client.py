@@ -288,42 +288,14 @@ def test_client_deadline_abort_replaces_an_owned_transport_client(
     assert closes == [1, 2]
 
 
-def test_client_deadline_abort_closes_but_keeps_a_caller_owned_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    clock = _FakeMonotonicClock()
-    watchdog = _FakeWatchdog()
-    _patch_deadline_controls(monkeypatch, clock, watchdog)
-    closes: list[int] = []
-
-    class _DeadlineFiresMidBody(httpx.SyncByteStream):
-        def __iter__(self) -> Iterator[bytes]:
-            yield b'{"status"'
-            watchdog.fire()
-            yield b': "ok"}'
-
-    class _CloseTrackingTransport(httpx.MockTransport):
-        def close(self) -> None:
-            closes.append(len(closes) + 1)
-
-    injected = httpx.Client(
-        base_url="https://warden.test/",
-        transport=_CloseTrackingTransport(
-            lambda request: httpx.Response(200, stream=_DeadlineFiresMidBody(), request=request)
-        ),
-    )
-    client = LETSClient("https://warden.test", client=injected, total_timeout_s=0.05)
+def test_client_rejects_shared_ownership_before_a_request():
+    injected = httpx.Client(base_url="https://warden.test/")
     try:
-        with pytest.raises(httpx.TimeoutException, match="wall-clock deadline"):
-            client.liveness()
-        assert closes == [1]
-        assert client._client is injected
-        assert injected.is_closed
-        assert watchdog.cancelled
+        with pytest.raises(ValueError, match="borrowed HTTP clients"):
+            LETSClient("https://warden.test", client=injected, total_timeout_s=0.05)
+        assert not injected.is_closed
     finally:
-        client.close()
-    assert closes == [1]
-    assert injected.is_closed
+        injected.close()
 
 
 def test_request_queued_behind_a_deadline_abort_gets_a_fresh_deadline(

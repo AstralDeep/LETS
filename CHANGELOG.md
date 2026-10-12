@@ -21,6 +21,13 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Fixed
 
+- Shared caller-owned `httpx.Client` injection is now rejected explicitly at construction,
+  before any request or ownership transfer. HTTPX inactivity timeouts cannot guarantee an
+  absolute per-request deadline under slow headers without closing a shared client. Use a
+  dedicated `LETSClient` with its own pool; unrelated external clients remain untouched.
+  Owned-client deadline recovery, concurrent shutdown, and request timeout caps remain enforced.
+  This is a compatibility restriction for callers using `client=`; no wire contract changes.
+
 - The HTTP client now starts each call's total deadline at admission, before the call waits for
   the client's internal request lock, so concurrent callers on one serialized `LETSClient`
   consume their own `total_timeout_s` while queued instead of waiting unbounded behind earlier
@@ -30,6 +37,7 @@ image together; the Git tag is the package version prefixed with `v`.
   admission through lock acquisition, retries, body reading, and cleanup. The synchronous SDK
   surface stays explicit: callers needing parallel MCP/A2A work use separate clients or a
   bounded host executor (see "Client concurrency and deadlines" in `docs/integration.md`).
+
 
 - The HTTP client validates every success response against the committed OpenAPI contract
   before returning it: documented success status codes, JSON root type, required envelope

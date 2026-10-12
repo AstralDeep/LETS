@@ -61,6 +61,18 @@ def _response_json(response: httpx.Response, content: bytes | None = None) -> An
     return strict_json_loads(response.content if content is None else content)
 
 
+def _deadline_capped_timeout(base: httpx.Timeout, remaining: float) -> httpx.Timeout:
+    def cap(value: float | None) -> float:
+        return remaining if value is None else min(value, remaining)
+
+    return httpx.Timeout(
+        connect=cap(base.connect),
+        read=cap(base.read),
+        write=cap(base.write),
+        pool=cap(base.pool),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ProblemDetails:
     type: str
@@ -385,6 +397,11 @@ class LETSClient:
     ) -> None:
         if client is not None and transport is not None:
             raise ValueError("pass either client or transport, not both")
+        if client is not None:
+            raise ValueError(
+                "borrowed HTTP clients cannot enforce request-scoped total deadlines; "
+                "construct a dedicated LETSClient instead"
+            )
         _require_finite_real("total_timeout_s", total_timeout_s)
         if total_timeout_s <= 0:
             raise ValueError("total_timeout_s must be positive")
@@ -398,26 +415,21 @@ class LETSClient:
             if not token:
                 raise ValueError("token cannot be empty")
             headers["authorization"] = f"Bearer {token}"
-        self._owns_client = client is None
-        self._client_factory: Callable[[], httpx.Client] | None = None
-        if client is None:
-            tls_verify, tls_cert = _httpx_tls_configuration(verify, cert)
+        tls_verify, tls_cert = _httpx_tls_configuration(verify, cert)
 
-            def create_client() -> httpx.Client:
-                return httpx.Client(
-                    base_url=base_url.rstrip("/") + "/",
-                    headers=headers,
-                    verify=tls_verify,
-                    cert=tls_cert,
-                    timeout=timeout,
-                    transport=transport,
-                    follow_redirects=False,
-                )
+        def create_client() -> httpx.Client:
+            return httpx.Client(
+                base_url=base_url.rstrip("/") + "/",
+                headers=headers,
+                verify=tls_verify,
+                cert=tls_cert,
+                timeout=timeout,
+                transport=transport,
+                follow_redirects=False,
+            )
 
-            self._client_factory = create_client
-            self._client = create_client()
-        else:
-            self._client = client
+        self._client_factory = create_client
+        self._client = create_client()
         self._retry = retry or RetryPolicy()
         self._sleep = sleep
         self._total_timeout_s = total_timeout_s
@@ -433,8 +445,7 @@ class LETSClient:
 
     def close(self) -> None:
         self._closed = True
-        if self._owns_client:
-            self._client.close()
+        self._client.close()
 
     def _read_bounded(self, response: httpx.Response, deadline_fired: threading.Event) -> bytes:
         content = bytearray()
@@ -611,7 +622,9 @@ class LETSClient:
             watchdog.start()
             try:
                 for attempt in range(1, self._retry.max_attempts + 1):
-                    if deadline_fired.is_set():
+                    remaining = deadline - time.monotonic()
+                    if deadline_fired.is_set() or remaining <= 0:
+                        deadline_fired.set()
                         raise deadline_error()
                     headers = dict(base_headers)
                     if peer_signer is not None:
@@ -625,7 +638,11 @@ class LETSClient:
                         )
                     try:
                         with active_client.stream(
-                            method, path, content=body, headers=headers
+                            method,
+                            path,
+                            content=body,
+                            headers=headers,
+                            timeout=_deadline_capped_timeout(active_client.timeout, remaining),
                         ) as response:
                             if (
                                 idempotent
@@ -671,11 +688,7 @@ class LETSClient:
             finally:
                 watchdog.cancel()
                 watchdog.join()
-                if (
-                    deadline_fired.is_set()
-                    and self._client_factory is not None
-                    and not self._closed
-                ):
+                if deadline_fired.is_set() and not self._closed:
                     self._client = self._client_factory()
         finally:
             self._request_lock.release()

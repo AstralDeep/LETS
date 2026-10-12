@@ -180,6 +180,20 @@ Peer warden traffic is Ed25519 message-signed, timestamped, content-digested, an
 durable nonce store. Run it over TLS as well: signatures authenticate the message but do not hide
 its contents or protect traffic metadata.
 
+## HTTP client ownership and deadlines
+
+`LETSClient` owns a dedicated HTTP client and connection pool. `close()` closes it, and a
+request deadline closes and replaces it so later calls can recover. The `client=` constructor
+argument rejects non-null clients before using or closing them. HTTPX connect/read/write/pool
+timeouts measure inactivity: repeatedly arriving header bytes can extend one request past its
+absolute deadline. A borrowed shared client's transport cannot be cancelled safely through
+HTTPX's public client API without disrupting unrelated requests, so sharing is unsupported.
+
+Construct one dedicated `LETSClient` per worker. `transport=` is an ownership transfer to the
+wrapper, suitable for dedicated transports and testing, and must not share a transport with
+an unrelated client. This is a compatibility restriction for existing `client=` callers.
+Every timeout raises and a lost reply never authorizes an effect; wire contracts are unchanged.
+
 ## Client concurrency and deadlines
 
 `LETSClient` is a synchronous SDK with an explicitly serialized request path: one client

@@ -160,8 +160,9 @@ def test_waiting_callers_are_admitted_serially_after_the_occupier_finishes() -> 
 
 def test_close_while_waiting_for_admission_fails_the_waiter_with_closed_error() -> None:
     handler = _GatedHandler(())
-    borrowed = httpx.Client(base_url="https://warden.test/", transport=httpx.MockTransport(handler))
-    client = LETSClient("https://warden.test", client=borrowed, total_timeout_s=30.0)
+    client = LETSClient(
+        "https://warden.test", transport=httpx.MockTransport(handler), total_timeout_s=30.0
+    )
     waiter_outcome: list[object] = []
     try:
         assert client._request_lock.acquire(timeout=_GATE_TIMEOUT_S)
@@ -181,13 +182,13 @@ def test_close_while_waiting_for_admission_fails_the_waiter_with_closed_error() 
     finally:
         handler.release_all()
         client.close()
-        borrowed.close()
 
 
 def test_admission_deadline_bounds_a_waiter_even_after_close() -> None:
     handler = _GatedHandler(())
-    borrowed = httpx.Client(base_url="https://warden.test/", transport=httpx.MockTransport(handler))
-    client = LETSClient("https://warden.test", client=borrowed, total_timeout_s=0.2)
+    client = LETSClient(
+        "https://warden.test", transport=httpx.MockTransport(handler), total_timeout_s=0.2
+    )
     waiter_outcome: list[object] = []
     try:
         assert client._request_lock.acquire(timeout=_GATE_TIMEOUT_S)
@@ -204,7 +205,6 @@ def test_admission_deadline_bounds_a_waiter_even_after_close() -> None:
     finally:
         handler.release_all()
         client.close()
-        borrowed.close()
 
 
 def test_admission_wait_consumes_the_total_deadline_before_transport_use(
