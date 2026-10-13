@@ -30,7 +30,7 @@ EXPECTED_ACTIONS = Counter(
     {
         CHECKOUT_ACTION: 3,
         SETUP_UV_ACTION: 3,
-        UPLOAD_ACTION: 1,
+        UPLOAD_ACTION: 2,
     }
 )
 EXPECTED_JOBS = {"quality", "test", "distributed-acceptance", "required"}
@@ -163,6 +163,29 @@ def _assert_ci_contract(text: str) -> None:
     assert "--cov=lets" in quality
     assert "--cov=benchmarks.astraldeep" in quality
     assert "--cov-report=xml:coverage.xml" in quality
+    mutation_command = (
+        "uv run --frozen python scripts/check_public_contract_mutations.py "
+        "--output results/generated/ci/public-contract-mutations.json"
+    )
+    assert quality.count(mutation_command) == 1
+    assert quality.index('pytest -m "not e2e"') < quality.index(mutation_command)
+    review_command = (
+        'uv run --frozen python scripts/ci_review_diagnostics.py --base "$BASE_SHA" '
+        '--head "$HEAD_SHA" --output results/generated/ci/review-diagnostics.json'
+    )
+    assert quality.count(review_command) == 1
+    assert quality.count("HEAD_SHA: ${{ github.sha }}") == 1
+    assert quality.index(review_command) < quality.index('pytest -m "not e2e"')
+    assert quality.count("COVERAGE_FILE: .coverage.ci-tooling") == 1
+    assert quality.count("--cov=scripts.ci_review_diagnostics") == 1
+    assert quality.count("--cov=scripts.check_public_contract_mutations") == 1
+    assert quality.count("--cov-fail-under=90") == 1
+    assert quality.count(UPLOAD_ACTION) == 1
+    assert (
+        "name: public-contract-regressions-${{ github.run_id }}-${{ github.run_attempt }}"
+        in quality
+    )
+    assert "path: results/generated/ci/" in quality
     tool_environment = "uv venv --python 3.14 .ci-tools"
     assert quality.count(tool_environment) == 1
     assert quality.count(CI_TOOL_INSTALL) == 1
@@ -182,7 +205,7 @@ def _assert_ci_contract(text: str) -> None:
     assert quality.index(CI_TOOL_INSTALL) < quality.index(changed_coverage)
     assert "uv run --frozen diff-cover" not in quality
 
-    assert quality.count(CHANGED_COVERAGE_BASE) == 1
+    assert quality.count(CHANGED_COVERAGE_BASE) == 2
     assert quality.count("scripts/check_changed_coverage.py") == 1
     decision = next(
         (line.strip() for line in quality.splitlines() if "check_changed_coverage.py" in line),
@@ -264,6 +287,11 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         ("needs.test.result", "needs.quality.result"),
         ("timeout-minutes: 30", "timeout-minutes: 45"),
         ("timeout-minutes: 5", "timeout-minutes: 15"),
+        ("scripts/check_public_contract_mutations.py", "scripts/generate_openapi.py"),
+        ("--output results/generated/ci/public-contract-mutations.json", "--output /dev/null"),
+        ("scripts/ci_review_diagnostics.py", "scripts/generate_openapi.py"),
+        ('--head "$HEAD_SHA"', "--head main"),
+        ("--cov-fail-under=90", "--cov-fail-under=89"),
     ],
     ids=[
         "pull-request-trigger",
@@ -290,6 +318,11 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         "aggregate-dependency",
         "job-timeout-budget",
         "required-timeout-budget",
+        "public-contract-mutation-gate",
+        "public-contract-mutation-evidence",
+        "immutable-review-diagnostics",
+        "immutable-reviewed-head",
+        "ci-tooling-coverage-floor",
     ],
 )
 def test_ci_contract_rejects_gate_weakening(old: str, new: str) -> None:

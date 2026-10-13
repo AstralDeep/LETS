@@ -34,11 +34,30 @@ jobs:
         run: uv run --no-project python -m benchmarks.astraldeep.check_version_disposition verify-anchor --repository .
       - run: uv lock --check
       - run: uv sync --all-extras --frozen
+      - name: Record immutable test and qualification-policy review diagnostics
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: uv run --frozen python scripts/ci_review_diagnostics.py --base "$BASE_SHA" --head "$HEAD_SHA" --output results/generated/ci/review-diagnostics.json
       - run: uv run --frozen ruff check .
       - run: uv run --frozen ruff format --check .
       - run: uv run --frozen mypy src
       - name: Run tests and produce complete changed-code coverage input
         run: uv run --frozen pytest -m "not e2e" --cov=lets --cov=benchmarks.astraldeep --cov-report=xml:coverage.xml --cov-report=term-missing
+      - name: Prove public authority regressions detect removed guards
+        run: uv run --frozen python scripts/check_public_contract_mutations.py --output results/generated/ci/public-contract-mutations.json
+      - name: Qualify CI tooling with independent coverage
+        env:
+          COVERAGE_FILE: .coverage.ci-tooling
+        run: uv run --frozen pytest tests/unit/test_ci_review_diagnostics.py tests/unit/test_public_contract_mutations.py --cov=scripts.ci_review_diagnostics --cov=scripts.check_public_contract_mutations --cov-report=xml:results/generated/ci/ci-tooling-coverage.xml --cov-report=term-missing --cov-fail-under=90
+      - name: Archive public contract regression evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: public-contract-regressions-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/generated/ci/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Create isolated changed-coverage tooling environment
         run: uv venv --python 3.14 .ci-tools
       - name: Install changed-coverage tooling from the immutable lock
