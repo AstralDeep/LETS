@@ -1010,7 +1010,7 @@ def test_release_workflow_verifies_and_keyless_signs_before_release() -> None:
     assert 'signature_name = f"{checksum_name}.sigstore.json"' in workflow
     assert "path.name not in {checksum_name, signature_name}" in workflow
     assert 'test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 16' in workflow
-    assert "anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26" in workflow
+    assert "anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c" in workflow
     assert "syft-version: v1.50.0" in workflow
     assert "--from registry" in workflow
     assert '--platform "$platform"' in workflow
