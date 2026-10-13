@@ -51,6 +51,30 @@ different comparison or whose totals are inconsistent.
 `tooling/python-ci/requirements.lock.txt`. They are absent from LETS package metadata,
 `uv.lock`, and runtime artifacts.
 
+The public-contract acceptance suite joins `LETSClient` and the public authorizers to the real
+authenticated ASGI warden and durable SQLite executor with local synthetic credentials. It checks
+signed receipts, missing authority, tenant and subject denials, content-bound request reuse, and
+replay through a fresh verifier and Python process. The committed signed receipt fixture is
+independent of the current serializers, and released integration exports remain checked.
+
+`scripts/check_public_contract_mutations.py` copies source into disposable directories and removes
+five specific audience, signature, durable-claim, client-wire, and export guards. Its focused
+acceptance tests must first pass unchanged, then fail with assertions for every removed guard;
+survivors, import or collection errors, skips, and missing tests fail qualification. JSON, JUnit,
+logs, and source/test/fixture digests are archived under `results/generated/ci/`. Reproduce it with:
+
+```powershell
+uv run --frozen python scripts/check_public_contract_mutations.py `
+  --output results/generated/ci/public-contract-mutations.json
+```
+
+CI also records `scripts/ci_review_diagnostics.py` against immutable base and checked-out head
+commits. Removed tests, added skips or xfails, swallowed test errors, and qualification-policy
+changes produce review findings and a warning, without granting approval or blocking legitimate
+maintenance. The two diagnostic/mutation scripts have a separate 90% branch-aware coverage gate
+whose coverage file cannot overwrite the product coverage input. Inspect the archived review
+receipt before merging changes to tests or qualification policy.
+
 `uv run` selects `.venv` without relying on shell activation. To activate it manually in
 PowerShell:
 
