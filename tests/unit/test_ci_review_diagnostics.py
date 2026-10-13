@@ -13,6 +13,11 @@ from scripts.ci_review_diagnostics import collect, inspect_change
 from scripts.ci_review_diagnostics import main as diagnostics_main
 
 
+@pytest.mark.parametrize("path", [".specify/memory/constitution.md", "uv.lock"])
+def test_constitution_and_locked_ci_policy_changes_require_review(path):
+    assert inspect_change(path, "", "") == [{"path": path, "kind": "qualification-policy-change"}]
+
+
 def test_removed_assertions_and_added_skips_are_review_findings():
     before = "def test_denial():\n    assert denied()\n"
     after = (
