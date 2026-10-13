@@ -180,6 +180,39 @@ Peer warden traffic is Ed25519 message-signed, timestamped, content-digested, an
 durable nonce store. Run it over TLS as well: signatures authenticate the message but do not hide
 its contents or protect traffic metadata.
 
+## HTTP client ownership and deadlines
+
+`LETSClient` owns a dedicated HTTP client and connection pool. `close()` closes it, and a
+request deadline closes and replaces it so later calls can recover. The `client=` constructor
+argument rejects non-null clients before using or closing them. HTTPX connect/read/write/pool
+timeouts measure inactivity: repeatedly arriving header bytes can extend one request past its
+absolute deadline. A borrowed shared client's transport cannot be cancelled safely through
+HTTPX's public client API without disrupting unrelated requests, so sharing is unsupported.
+
+Construct one dedicated `LETSClient` per worker. `transport=` is an ownership transfer to the
+wrapper, suitable for dedicated transports and testing, and must not share a transport with
+an unrelated client. This is a compatibility restriction for existing `client=` callers.
+Every timeout raises and a lost reply never authorizes an effect; wire contracts are unchanged.
+
+## Client concurrency and deadlines
+
+`LETSClient` is a synchronous SDK with an explicitly serialized request path: one client
+executes one HTTP request at a time behind an internal request lock. Each public call carries
+one absolute total deadline (`total_timeout_s`) that is created at admission, before the call
+waits for that lock, and it then bounds the lock wait, retries, body reading, and cleanup
+together. A caller that cannot be admitted before its deadline raises `ClientCapacityError`
+(a subclass of `httpx.TimeoutException`) without touching the transport, so a queued call can
+never outlive its configured budget and a lost or timed-out call is never treated as success.
+Waiting for a shared client therefore consumes the caller's own budget; it does not queue
+unboundedly.
+
+Do not issue parallel MCP or A2A tool traffic through one shared `LETSClient` and expect
+concurrency: the calls serialize, and each caller still burns its own total deadline while
+queued behind the others. For parallel work, give each concurrent worker its own `LETSClient`
+instance (each with its own connection pool and budget), or run the work on a bounded host
+executor so the host, not the client, decides how many LETS calls may be in flight. The
+synchronous SDK surface stays explicit: there is no async client and no internal work queue.
+
 ## Standards profiles
 
 Treat standards as composable profiles rather than reimplementing them inside LETS:
