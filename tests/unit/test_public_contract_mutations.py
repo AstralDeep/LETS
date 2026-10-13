@@ -119,6 +119,26 @@ def test_focused_execution_timeout_is_invalid(
     assert status == "invalid"
 
 
+def test_failed_source_bootstrap_cannot_reuse_a_prior_mutation_failure(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    output = tmp_path / "receipt"
+    report = output.with_suffix(".xml")
+    report.write_text(
+        '<testsuites><testsuite><testcase name="test_target">'
+        '<failure message="AssertionError: prior mutation"/>'
+        "</testcase></testsuite></testsuites>"
+    )
+    output.with_suffix(".log").write_text("prior execution")
+    assert classify_result(1, report, ("test_target",), mutated=True)[0] == "killed"
+    status, details = gate.run_focused(source, output, ("test_target",), mutated=True)
+    assert status == "invalid", details
+    assert not report.exists()
+    log = output.with_suffix(".log").read_text()
+    assert "prior execution" not in log
+    assert "Traceback" in log
+
+
 @pytest.mark.parametrize(("status", "exit_code"), [("passed", 0), ("failed", 1)])
 def test_mutation_cli_preserves_gate_status(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str, exit_code: int

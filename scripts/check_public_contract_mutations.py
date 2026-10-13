@@ -116,6 +116,8 @@ def classify_result(
 def run_focused(
     source: Path, output: Path, tests: tuple[str, ...], *, mutated: bool
 ) -> tuple[str, dict[str, Any]]:
+    for suffix in (".xml", ".log"):
+        output.with_suffix(suffix).unlink(missing_ok=True)
     env = dict(os.environ)
     env["PYTHONPATH"] = str(source)
     env.pop("PYTEST_ADDOPTS", None)
