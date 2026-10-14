@@ -38,6 +38,11 @@ pollack2007quota,doi:10.1109/MSST.2007.4367965,primary publisher/arXiv record ch
 behl2012dqmp,doi:10.1007/978-3-642-33536-5_21,primary publisher/arXiv record checked during novelty audit,included
 lakew2014treequota,doi:10.1109/SERVICES.2014.57,primary publisher/arXiv record checked during novelty audit,included
 agudo2009quota,doi:10.1007/978-3-642-01465-9_20,primary publisher/arXiv record checked during novelty audit,included
+wetherall1998ants,doi:10.1109/OPNARC.1998.662048,publisher DOI metadata checked via Crossref on 2026-10-14,included
+wetherall1999thesis,hdl:1721.1/79975,MIT DSpace thesis record checked on 2026-10-14 (CV lists completion October 1998; repository dates it February 1999),included
+hicks1998plan,doi:10.1145/291251.289431,publisher DOI metadata checked via Crossref on 2026-10-14,included
+moore2001snap,doi:10.1109/INFCOM.2001.916685,publisher DOI metadata checked via Crossref on 2026-10-14,included
+white1994telescript,no DOI/arXiv known or applicable,secondary records only (1994 agents-list post and course notes describing permits and teleclicks); primary General Magic white paper not retrieved on 2026-10-14,pending verification
 dennis1966capabilities,doi:10.1145/365230.365252,primary publisher/arXiv record checked during novelty audit,included
 saltzer1975protection,doi:10.1109/PROC.1975.9939,stable bibliographic metadata manually reviewed; identifier included where known,included
 birgisson2014macaroons,doi:10.14722/ndss.2014.23212,primary publisher/arXiv record checked during novelty audit,included
