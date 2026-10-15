@@ -1,0 +1,278 @@
+"""Tests for benchmarks/fair_baselines/analysis.py, figures.py, and local_cluster.py on
+synthetic data: bootstrap intervals, censored CDFs, link-state reconstruction, stranded-capacity
+integration per system kind, table rendering, figure output, and the compose/endpoints documents.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from benchmarks.fair_baselines import local_cluster
+from benchmarks.fair_baselines.analysis import (
+    LinkState,
+    RequestRow,
+    authorization_cdf,
+    bootstrap_ci,
+    completion_by_seed,
+    link_states,
+    per_site_csv,
+    per_site_markdown,
+    per_site_rows,
+    quantile,
+    stranded_capacity,
+    summary_rows,
+    topology_description,
+)
+from benchmarks.fair_baselines.figures import cdf_panel, completion_chart
+
+
+def _row(
+    system: str, site: str, outcome: str, t_auth_ns: int | None, seed: int = 1, **kw: object
+) -> RequestRow:
+    return RequestRow(
+        run_id=f"split-s1-L2-T1-equal-S{seed:03d}",
+        topology="split-s1",
+        load=2.0,
+        theta=1.0,
+        seed=seed,
+        placement="equal",
+        system=system,
+        site=site,
+        outcome=outcome,
+        arrival_offset_ns=0,
+        t_auth_ns=t_auth_ns,
+        deadline_ns=2_000_000_000,
+        messages=1,
+        **kw,  # type: ignore[arg-type]
+    )
+
+
+def test_bootstrap_quantile_and_cdf() -> None:
+    mean, low, high = bootstrap_ci([0.5, 0.7, 0.9, 1.0], resamples=500)
+    assert low <= mean <= high and abs(mean - 0.775) < 1e-9
+    assert bootstrap_ci([0.4]) == (0.4, 0.4, 0.4)
+    with pytest.raises(ValueError):
+        bootstrap_ci([])
+    assert quantile([], 0.5) is None
+    assert quantile([3.0, 1.0, 2.0], 0.5) == 2.0
+    assert quantile([3.0, 1.0, 2.0], 0.95) == 3.0
+    rows = [
+        _row("lets", "s1", "authorized", 100_000_000),
+        _row("lets", "s1", "authorized", 300_000_000),
+        _row("lets", "s1", "timeout", None),
+        _row("lets", "s1", "denied", None),
+    ]
+    xs, ys = authorization_cdf(rows)
+    assert xs == [0.0, 0.1, 0.3] and ys == [0.0, 0.25, 0.5]
+    assert authorization_cdf([]) == ([], [])
+    by_seed = completion_by_seed([*rows, _row("lets", "s2", "authorized", 1, seed=2)])
+    assert by_seed[(("split-s1", 2.0, 1.0, "equal"), "lets")] == [0.5, 1.0]
+
+
+def test_link_states_follow_cut_and_heal_offsets() -> None:
+    faults = [
+        {"run_id": "r", "kind": "cut", "link": "s1-s2,s1-s3", "returned_offset_s": "5.0"},
+        {"run_id": "r", "kind": "heal", "link": "s1-s2,s1-s3", "returned_offset_s": "35.0"},
+        {"run_id": "r", "kind": "cut", "link": "s1-s2", "returned_offset_s": "40.0"},
+        {"run_id": "r", "kind": "probe", "link": "", "returned_offset_s": "41.0"},
+    ]
+    state = link_states(faults)["r"]
+    link = frozenset({"s1", "s2"})
+    assert state.link_up(link, 4.9) and not state.link_up(link, 5.0)
+    assert not state.link_up(frozenset({"s1", "s3"}), 20.0)
+    assert state.link_up(frozenset({"s2", "s3"}), 20.0)
+    assert state.link_up(link, 35.0) and not state.link_up(link, 50.0)
+
+
+def _events(system: str, entries: list[tuple[str, float, str, int]]) -> list[dict[str, str]]:
+    return [
+        {
+            "run_id": "r",
+            "system": system,
+            "site": site,
+            "offset_ns": str(int(offset * 1e9)),
+            "kind": kind,
+            "value": str(value),
+            "detail": "",
+        }
+        for site, offset, kind, value in entries
+    ]
+
+
+def test_stranded_capacity_per_system_kind() -> None:
+    cut = LinkState([(5.0, 15.0, frozenset({"s1", "s2"})), (5.0, 15.0, frozenset({"s1", "s3"}))])
+    shares = {"s1": 10, "s2": 10, "s3": 10}
+    static = stranded_capacity(
+        "static-quota",
+        _events("static-quota", [("s1", 6.0, "waiting", 1), ("s1", 8.0, "waiting", 0)]),
+        cut,
+        shares,
+        30,
+        20.0,
+    )
+    assert static.peak_units == 20 and abs(static.unit_seconds - 40.0) < 1e-6
+    lets_open = stranded_capacity(
+        "lets",
+        _events("lets", [("s1", 16.0, "waiting", 1), ("s1", 17.0, "waiting", 0)]),
+        cut,
+        shares,
+        30,
+        20.0,
+    )
+    assert lets_open.peak_units == 0
+    lets_cut = stranded_capacity(
+        "lets",
+        _events(
+            "lets", [("s1", 6.0, "waiting", 1), ("s2", 7.0, "free", 4), ("s1", 8.0, "waiting", 0)]
+        ),
+        cut,
+        shares,
+        30,
+        20.0,
+    )
+    assert lets_cut.peak_units == 20 and lets_cut.unit_seconds < 40.0
+    central = stranded_capacity(
+        "central-retry@s2",
+        _events(
+            "central-retry@s2",
+            [("s2", 1.0, "free", 7), ("s1", 6.0, "waiting", 2), ("s1", 8.0, "waiting", 0)],
+        ),
+        cut,
+        shares,
+        30,
+        20.0,
+    )
+    assert central.peak_units == 7
+    reachable = stranded_capacity(
+        "central-retry@s3",
+        _events("central-retry@s3", [("s2", 6.0, "waiting", 2), ("s2", 8.0, "waiting", 0)]),
+        cut,
+        shares,
+        30,
+        20.0,
+    )
+    assert reachable.peak_units == 0
+    raft = stranded_capacity(
+        "raft-quorum",
+        _events("raft-quorum", [("s1", 6.0, "waiting", 1), ("s1", 8.0, "waiting", 0)]),
+        cut,
+        shares,
+        30,
+        20.0,
+    )
+    assert raft.peak_units == 30
+    quorum = stranded_capacity(
+        "raft-quorum",
+        _events("raft-quorum", [("s2", 6.0, "waiting", 1), ("s2", 8.0, "waiting", 0)]),
+        cut,
+        shares,
+        30,
+        20.0,
+    )
+    assert quorum.peak_units == 0
+    assert stranded_capacity("lets", [], cut, shares, 30, 0.0).unit_seconds == 0.0
+
+
+def test_per_site_table_and_summary_render(tmp_path: Path) -> None:
+    requests = [
+        _row("lets", "s1", "authorized", 50_000_000, seed=1),
+        _row("lets", "s1", "timeout", None, seed=1),
+        _row("lets", "s2", "authorized", 60_000_000, seed=1),
+        _row("lets", "s1", "authorized", 70_000_000, seed=2),
+        _row("lets", "s2", "denied", None, seed=2),
+        _row("static-quota", "s1", "authorized", 1_000_000, seed=1),
+        _row("static-quota", "s1", "authorized", 1_000_000, seed=2),
+    ]
+    runs = [
+        {
+            "run_id": "split-s1-L2-T1-equal-S001",
+            "envelope": "30",
+            "shares": json.dumps({"s1": 10, "s2": 10, "s3": 10}),
+        },
+        {
+            "run_id": "split-s1-L2-T1-equal-S002",
+            "envelope": "30",
+            "shares": json.dumps({"s1": 10, "s2": 10, "s3": 10}),
+        },
+    ]
+    messages = [
+        {"run_id": "split-s1-L2-T1-equal-S001", "system": "lets", "site": "s1", "messages": "4"},
+        {"run_id": "split-s1-L2-T1-equal-S002", "system": "lets", "site": "s1", "messages": "6"},
+    ]
+    table = per_site_rows(requests, [], [], runs, messages)
+    assert len(table) == 3
+    lets_s1 = next(row for row in table if row["system"] == "lets" and row["site"] == "s1")
+    assert lets_s1["seeds"] == 2 and lets_s1["share"] == 10
+    assert lets_s1["requests_per_run"] == 1.5 and lets_s1["messages_per_run"] == 5.0
+    assert lets_s1["completion_mean"] == 0.75
+    assert lets_s1["t_auth_p50_s"] == 0.05
+    markdown = per_site_markdown(table, "Title")
+    assert markdown.startswith("# Title") and "| split-s1 | 2 | 1 | lets | s1 | 10 |" in markdown
+    assert per_site_csv(table).splitlines()[0].startswith("topology,load,theta")
+    assert per_site_csv([]) == ""
+    summary = summary_rows(table)
+    assert [row["system"] for row in summary] == ["lets", "static-quota"]
+    assert summary[0]["requests_per_run"] == 2.5
+    assert topology_description("bridge-s3") == "bridge-s3: cut s1-s2; intact s1-s3, s2-s3"
+    assert "toggle every 3 s" in topology_description("flapping-s1-s2")
+    panel = cdf_panel(requests, ["split-s1"], 2.0, 1.0, tmp_path / "cdf.svg")
+    assert panel.exists() and panel.stat().st_size > 0
+    chart = completion_chart(requests, ["split-s1"], 1.0, tmp_path / "bars.png")
+    assert chart.exists()
+
+
+def test_local_cluster_documents_and_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    compose = local_cluster.compose_document(2, "tok", "img")
+    services = compose["services"]
+    assert isinstance(services, dict) and len(services) == 6
+    s1 = services["lets-e1-1-s1"]
+    assert isinstance(s1, dict)
+    assert s1["cap_add"] == ["NET_ADMIN"]
+    assert s1["networks"] == {"cluster1": {"ipv4_address": "10.231.1.11"}}
+    assert s1["ports"] == ["127.0.0.1:9711:9701"]
+    assert s1["environment"] == {"LETS_E1_TOKEN": "tok"}
+    endpoints = local_cluster.endpoints_document(2, "tok")
+    clusters = endpoints["clusters"]
+    assert isinstance(clusters, list) and clusters[1]["sites"]["s3"]["peer_ip"] == "10.231.1.13"
+    assert clusters[0]["sites"]["s2"]["fault_exec"] == [
+        "docker",
+        "exec",
+        "lets-e1-0-s2",
+        "sh",
+        "-c",
+    ]
+    with pytest.raises(RuntimeError, match="never became healthy"):
+        local_cluster.wait_healthy(
+            {
+                "token": "tok",
+                "clusters": [
+                    {
+                        "name": "x",
+                        "sites": {
+                            "s1": {"control_url": "http://127.0.0.1:9"},
+                            "s2": {"control_url": "http://127.0.0.1:9"},
+                            "s3": {"control_url": "http://127.0.0.1:9"},
+                        },
+                    }
+                ],
+            },
+            timeout_s=0.5,
+        )
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(local_cluster, "_compose", lambda work_dir, *args, **kw: calls.append(args))
+    monkeypatch.setattr(local_cluster, "wait_healthy", lambda endpoints: None)
+    assert local_cluster.main(["up", "--work-dir", str(tmp_path / "w"), "--clusters", "2"]) == 0
+    assert (tmp_path / "w" / "compose.yaml").exists() and (
+        tmp_path / "w" / "endpoints.json"
+    ).exists()
+    assert calls[-1] == ("up", "-d", "--remove-orphans", "--build")
+    assert local_cluster.main(["up", "--work-dir", str(tmp_path / "w"), "--no-build"]) == 0
+    assert calls[-1] == ("up", "-d", "--remove-orphans")
+    assert local_cluster.main(["down", "--work-dir", str(tmp_path / "w")]) == 0
+    assert calls[-1][0] == "down"
+    assert local_cluster.main(["down", "--work-dir", str(tmp_path / "missing")]) == 0
+    with pytest.raises(SystemExit, match="between 1 and 20"):
+        local_cluster.main(["up", "--work-dir", str(tmp_path), "--clusters", "0"])

@@ -1,0 +1,266 @@
+"""Tests for benchmarks/fair_baselines/site_agent.py: a three-agent loopback run through every
+system with safety verification, the control and peer API denials, and the CLI entry point.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import secrets
+import time
+import urllib.request
+from pathlib import Path
+
+import pytest
+
+from benchmarks.fair_baselines.common import SITES, peer_mac
+from benchmarks.fair_baselines.controller import verify_safety
+from benchmarks.fair_baselines.site_agent import AgentError, AgentState, main
+from tests.benchmarks.conftest import TOKEN, LoopbackCluster, short_config
+
+
+def _run_to_completion(cluster: LoopbackCluster, config: dict[str, object]) -> dict[str, dict]:
+    for site in SITES:
+        status, payload = cluster.call(
+            site, "POST", "/run/configure", cluster.configure_body(site, config)
+        )
+        assert status == 200, payload
+        assert payload["configured"] is True
+        assert payload["plan_size"] == sum(payload["site_demand"].values())
+    deadline = time.monotonic() + 30
+    while True:
+        statuses = [cluster.call(site, "GET", "/run/status")[1] for site in SITES]
+        if all(status["ready"] for status in statuses):
+            break
+        assert time.monotonic() < deadline, statuses
+        time.sleep(0.1)
+    start_at = time.time_ns() + 300_000_000
+    for site in SITES:
+        status, payload = cluster.call(site, "POST", "/run/start", {"start_at_epoch_ns": start_at})
+        assert status == 200 and payload == {"started": True}
+    status, payload = cluster.call("s1", "GET", "/run/results")
+    assert status == 409 and "not done" in str(payload["error"])
+    deadline = time.monotonic() + 60
+    while True:
+        statuses = [cluster.call(site, "GET", "/run/status")[1] for site in SITES]
+        if all(status["status"] == "done" for status in statuses):
+            break
+        assert time.monotonic() < deadline, statuses
+        time.sleep(0.2)
+    results = {}
+    for site in SITES:
+        status, payload = cluster.call(site, "GET", "/run/results")
+        assert status == 200
+        results[site] = payload
+    return results
+
+
+def test_three_agents_run_every_system_within_the_envelope(
+    loopback_cluster: LoopbackCluster,
+) -> None:
+    cluster = loopback_cluster
+    config = short_config("agent-run")
+    results = _run_to_completion(cluster, config)
+    systems = set(config["systems"])  # type: ignore[arg-type]
+    plan_size = results["s1"]["plan_size"]
+    assert plan_size > 0
+    total_records = sum(len(payload["records"]) for payload in results.values())
+    assert total_records == plan_size * len(systems)
+    for payload in results.values():
+        assert set(payload["snapshots"]) == systems
+        assert payload["end_offset_ns"] > 0
+        for record in payload["records"]:
+            assert record["outcome"] in {"authorized", "denied", "timeout"}
+            assert record["attempts"] >= 1
+            if record["outcome"] == "authorized":
+                assert record["t_auth_ns"] >= 0
+            else:
+                assert record["t_auth_ns"] is None
+        kinds = {event["kind"] for event in payload["events"]}
+        assert {"waiting", "free"} <= kinds
+    safety = verify_safety(int(config["envelope"]), results)  # type: ignore[arg-type]
+    assert set(safety) == systems
+    for system, verdict in safety.items():
+        assert verdict["safety_ok"] is True, (system, verdict)
+        assert verdict["effects"] == verdict["authorized_records"]
+    assert safety["lets"]["effects"] == config["envelope"]
+    assert safety["raft-quorum"]["effects"] == config["envelope"]
+    lets = {site: payload["snapshots"]["lets"] for site, payload in results.items()}
+    assert all(snapshot["healthy"] for snapshot in lets.values())
+    assert sum(
+        snapshot["transferred_in"][0]
+        if isinstance(snapshot["transferred_in"], list)
+        else snapshot["transferred_in"]
+        for snapshot in lets.values()
+    ) == sum(snapshot["transferred_out"] for snapshot in lets.values())
+    noretry = [
+        record
+        for payload in results.values()
+        for record in payload["records"]
+        if record["system"] == "central-noretry@s2"
+    ]
+    assert all(record["attempts"] == 1 for record in noretry)
+    for site in SITES:
+        status, payload = cluster.call(site, "POST", "/run/teardown")
+        assert status == 200 and payload["torn_down"] is True
+    status, payload = cluster.call("s1", "POST", "/run/teardown")
+    assert status == 200 and payload == {"torn_down": False}
+
+
+def test_control_api_denies_bad_tokens_paths_and_states(
+    loopback_cluster: LoopbackCluster,
+) -> None:
+    cluster = loopback_cluster
+    assert cluster.call("s1", "GET", "/health", token="nope")[0] == 401
+    assert cluster.call("s1", "POST", "/run/teardown", token="nope")[0] == 401
+    assert cluster.call("s1", "GET", "/nothing")[0] == 404
+    assert cluster.call("s1", "POST", "/nothing", {})[0] == 404
+    status, payload = cluster.call("s1", "GET", "/health")
+    assert status == 200 and payload["site"] == "s1" and payload["run_id"] is None
+    assert cluster.call("s1", "GET", "/run/status")[0] == 409
+    assert cluster.call("s1", "POST", "/run/start", {"start_at_epoch_ns": 1})[0] == 400
+    assert cluster.call("s1", "POST", "/probe/peer", {"target": "s2"})[0] == 400
+    assert cluster.call("s1", "POST", "/probe/peer", {"target": "s1"})[0] == 400
+    config = short_config("agent-deny", systems=["static-quota"])
+    body = cluster.configure_body("s1", config)
+    status, payload = cluster.call("s1", "POST", "/run/configure", body)
+    assert status == 200, payload
+    status, payload = cluster.call("s1", "POST", "/run/configure", body)
+    assert status == 400 and "already configured" in payload["error"]
+    status, payload = cluster.call("s1", "GET", "/health")
+    assert payload["run_id"] == "agent-deny"
+    status, payload = cluster.call("s1", "POST", "/probe/peer", {"target": "s2"})
+    assert status == 200 and payload["reachable"] is True and payload["latency_ns"] > 0
+    status, payload = cluster.call("s1", "POST", "/run/start", {"start_at_epoch_ns": "soon"})
+    assert status == 400
+    bad_peers = dict(body)
+    bad_peers["peers"] = {"s2": body["peers"]["s2"]}  # type: ignore[index]
+    cluster.call("s1", "POST", "/run/teardown")
+    status, payload = cluster.call("s1", "POST", "/run/configure", bad_peers)
+    assert status == 400 and "exactly the two other sites" in payload["error"]
+    bad_run = dict(body)
+    bad_run["config"] = {**config, "run_id": "../escape"}
+    status, payload = cluster.call("s1", "POST", "/run/configure", bad_run)
+    assert status == 400 and "safe path" in payload["error"]
+    bad_raft = dict(body)
+    bad_raft["config"] = {**config, "systems": ["raft-quorum"]}
+    bad_raft["raft"] = {}
+    status, payload = cluster.call("s1", "POST", "/run/configure", bad_raft)
+    assert status == 400 and "raft addresses" in payload["error"]
+    request = urllib.request.Request(
+        f"{cluster.control_url('s1')}/run/configure",
+        data=b"{not json",
+        method="POST",
+        headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        urllib.request.urlopen(request, timeout=5)
+    assert excinfo.value.code == 400
+
+
+def _peer_post(
+    cluster: LoopbackCluster,
+    target: str,
+    path: str,
+    body: dict[str, object],
+    *,
+    alias: str = "s2",
+    token: str = TOKEN,
+    timestamp: str | None = None,
+    nonce: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, dict[str, object]]:
+    raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    timestamp = timestamp or str(int(time.time()))
+    nonce = nonce or secrets.token_hex(32)
+    digest = hashlib.sha256(raw).hexdigest()
+    signature = peer_mac(token, path, timestamp, nonce, digest, alias)
+    request = urllib.request.Request(
+        f"{cluster.control_url(target)}{path}",
+        data=raw,
+        method="POST",
+        headers={
+            "Authorization": f"LETS-HMAC {signature}",
+            "Content-Type": "application/json",
+            "X-LETS-Peer-Alias": alias,
+            "X-LETS-Timestamp": timestamp,
+            "X-LETS-Nonce": nonce,
+            "X-LETS-Body-SHA256": digest,
+            **(headers or {}),
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status, json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read())
+
+
+def test_peer_api_verifies_hmac_timestamp_nonce_and_routes(
+    loopback_cluster: LoopbackCluster,
+) -> None:
+    cluster = loopback_cluster
+    status, payload = _peer_post(cluster, "s1", "/peer/ping", {})
+    assert status == 200 and payload == {"pong": True, "site": "s1"}
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, token="other-token-0123")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="s1")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="s9")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, timestamp="nope")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, timestamp="100")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, nonce="short")[0] == 401
+    nonce = secrets.token_hex(32)
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, nonce=nonce)[0] == 200
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, nonce=nonce)[0] == 401
+    assert (
+        _peer_post(cluster, "s1", "/peer/ping", {}, headers={"Authorization": "Basic x"})[0] == 401
+    )
+    assert (
+        _peer_post(cluster, "s1", "/peer/ping", {}, headers={"X-LETS-Body-SHA256": "0" * 64})[0]
+        == 401
+    )
+    assert _peer_post(cluster, "s1", "/peer/central/x/take", {"request_id": "r"})[0] == 400
+    config = short_config("agent-peer", systems=["central-retry@s1", "lets", "static-quota"])
+    status, payload = cluster.call(
+        "s1", "POST", "/run/configure", cluster.configure_body("s1", config)
+    )
+    assert status == 200, payload
+    status, payload = _peer_post(
+        cluster, "s1", "/peer/central/central-retry@s1/take", {"request_id": "r1"}
+    )
+    assert status == 200 and payload["authorized"] is True
+    assert _peer_post(cluster, "s1", "/peer/central/lets/take", {"request_id": "r1"})[0] == 400
+    assert _peer_post(cluster, "s1", "/peer/lets/lets/request-transfer", {"amount": 0})[0] == 400
+    status, payload = _peer_post(cluster, "s1", "/peer/lets/lets/request-transfer", {"amount": 2})
+    assert status == 200 and payload["granted"] == 2
+    assert _peer_post(cluster, "s1", "/peer/lets/lets/finalize", {"ack": {}})[0] == 400
+    assert _peer_post(cluster, "s1", "/peer/lets/static-quota/finalize", {"ack": {}})[0] == 400
+    assert _peer_post(cluster, "s1", "/peer/other/lets/finalize", {})[0] == 400
+    assert _peer_post(cluster, "s1", "/peer/lets", {})[0] == 400
+    cluster.call("s1", "POST", "/run/teardown")
+
+
+def test_agent_state_rejects_unknown_site_and_main_requires_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(AgentError, match="one of s1"):
+        AgentState("s4", TOKEN, tmp_path)
+    monkeypatch.delenv("LETS_E1_TOKEN", raising=False)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["site_agent", "--site", "s1", "--port", "1", "--state-root", str(tmp_path)],
+    )
+    with pytest.raises(SystemExit, match="at least 16 characters"):
+        main()
+
+
+def test_main_serves_until_shutdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from benchmarks.fair_baselines import site_agent
+
+    monkeypatch.setenv("LETS_E1_TOKEN", TOKEN)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["site_agent", "--site", "s2", "--port", "0", "--state-root", str(tmp_path / "state")],
+    )
+    monkeypatch.setattr(site_agent.AgentServer, "serve_forever", lambda self, poll_interval: None)
+    assert main() == 0
+    assert (tmp_path / "state").is_dir()
