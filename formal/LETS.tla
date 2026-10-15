@@ -4,9 +4,12 @@ EXTENDS Integers, FiniteSets, Naturals, Sequences, TLC
 (***************************************************************************
 Finite specification of the LETS escrow/transfer/replay kernel.  This model
 tracks scalar rights; the executable implementation applies the equation per
-resource-vector dimension.  The checked Python refinement model lives in
-formal/model_checker.py.  Neither a finite TLC run nor that bounded search is
-a proof for arbitrary configurations.
+resource-vector dimension.  A transfer is either a pool voucher, which moves
+free-pool rights between wardens, or a lease voucher, which moves a parent's
+leased rights to a child lease that the target warden issues on acceptance.
+The checked Python refinement model lives in formal/model_checker.py.  Neither
+a finite TLC run nor that bounded search is a proof for arbitrary
+configurations.
 ***************************************************************************)
 
 CONSTANTS Wardens, InitialShare, MaxTransfers, MaxReceipts
@@ -35,6 +38,7 @@ vars == <<pool, leased, consumed, transfers, receipts, claims, watermark,
           nextTransfer, nextReceipt>>
 
 TransferStates == {"PREPARED", "ACCEPTED", "FINALIZED"}
+TransferKinds == {"pool", "lease"}
 
 Init ==
     /\ pool = InitialShare
@@ -73,16 +77,32 @@ Prepare(source, target) ==
     /\ transfers' = Append(transfers,
                             [id |-> nextTransfer, source |-> source,
                              target |-> target, amount |-> 1,
-                             state |-> "PREPARED"])
+                             kind |-> "pool", state |-> "PREPARED"])
     /\ nextTransfer' = nextTransfer + 1
     /\ UNCHANGED <<leased, consumed, receipts, claims, watermark, nextReceipt>>
+
+SpawnRemote(source, target) ==
+    /\ source # target
+    /\ leased[source] > 0
+    /\ Len(transfers) < MaxTransfers
+    /\ leased' = [leased EXCEPT ![source] = @ - 1]
+    /\ transfers' = Append(transfers,
+                            [id |-> nextTransfer, source |-> source,
+                             target |-> target, amount |-> 1,
+                             kind |-> "lease", state |-> "PREPARED"])
+    /\ nextTransfer' = nextTransfer + 1
+    /\ UNCHANGED <<pool, consumed, receipts, claims, watermark, nextReceipt>>
 
 Accept(i) ==
     /\ i \in 1..Len(transfers)
     /\ transfers[i].state = "PREPARED"
-    /\ pool' = [pool EXCEPT ![transfers[i].target] = @ + transfers[i].amount]
+    /\ IF transfers[i].kind = "lease"
+         THEN /\ leased' = [leased EXCEPT ![transfers[i].target] = @ + transfers[i].amount]
+              /\ UNCHANGED pool
+         ELSE /\ pool' = [pool EXCEPT ![transfers[i].target] = @ + transfers[i].amount]
+              /\ UNCHANGED leased
     /\ transfers' = [transfers EXCEPT ![i].state = "ACCEPTED"]
-    /\ UNCHANGED <<leased, consumed, receipts, claims, watermark,
+    /\ UNCHANGED <<consumed, receipts, claims, watermark,
                     nextTransfer, nextReceipt>>
 
 DuplicateAccept(i) ==
@@ -117,6 +137,7 @@ Next ==
     \/ \E w \in Wardens : IssueRoot(w)
     \/ \E w \in Wardens : Authorize(w)
     \/ \E source, target \in Wardens : Prepare(source, target)
+    \/ \E source, target \in Wardens : SpawnRemote(source, target)
     \/ \E i \in 1..Len(transfers) : Accept(i) \/ DuplicateAccept(i) \/ Finalize(i)
     \/ \E i \in 1..Len(receipts) : Claim(i) \/ DuplicateOrStaleClaim(i)
 
@@ -135,6 +156,7 @@ TypeOK ==
           /\ transfers[i].target \in Wardens
           /\ transfers[i].source # transfers[i].target
           /\ transfers[i].amount \in Nat \ {0}
+          /\ transfers[i].kind \in TransferKinds
           /\ transfers[i].state \in TransferStates
     /\ claims \subseteq {receipts[i].id : i \in 1..Len(receipts)}
     /\ watermark \in [Wardens -> Nat]

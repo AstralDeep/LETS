@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "lets-agent"
-version = "1.0.12"
+version = "1.1.0"
 description = "Lineage Escrow Transition Systems for portable, partition-safe agent management"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
@@ -33,6 +33,10 @@ server = [
   "uvicorn[standard]>=0.52.1,<1",
 ]
 client = ["httpx>=0.28,<1"]
+benchmarks = [
+  "matplotlib>=3.9,<4",
+  "pysyncobj>=0.3.17,<0.4",
+]
 dev = [
   "httpx>=0.28,<1",
   "hypothesis>=6.165.5,<7",

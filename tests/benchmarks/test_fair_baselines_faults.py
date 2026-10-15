@@ -1,0 +1,150 @@
+"""Tests for benchmarks/fair_baselines/faults.py: command construction for iptables and netem,
+the timed cut/heal schedule including flapping, the injector over a recording driver, the
+subprocess driver, and drop-counter parsing.
+"""
+
+from __future__ import annotations
+
+import itertools
+import sys
+
+import pytest
+
+from benchmarks.fair_baselines.common import LINKS, TOPOLOGIES
+from benchmarks.fair_baselines.faults import (
+    CHAIN,
+    DryRunFaultDriver,
+    FaultInjector,
+    SiteEndpoint,
+    SubprocessFaultDriver,
+    cleanup_commands,
+    counters_command,
+    cut_commands,
+    fault_schedule,
+    heal_commands,
+    link_label,
+    netem_commands,
+    parse_drop_counters,
+    setup_commands,
+)
+
+
+def _endpoints() -> dict[str, SiteEndpoint]:
+    return {
+        site: SiteEndpoint(
+            site, f"http://127.0.0.1:970{index}", f"10.231.0.1{index}", 9701, 9801, ("dry",)
+        )
+        for index, site in enumerate(("s1", "s2", "s3"), start=1)
+    }
+
+
+def test_command_builders() -> None:
+    assert f"iptables -N {CHAIN}" in setup_commands()[0]
+    assert cut_commands("10.0.0.2") == (
+        f"iptables -A {CHAIN} -s 10.0.0.2 -j DROP",
+        f"iptables -A {CHAIN} -d 10.0.0.2 -j DROP",
+    )
+    assert "'" in cut_commands("10.0.0.2; rm -rf /")[0]
+    assert heal_commands() == (f"iptables -F {CHAIN}",)
+    assert counters_command().startswith(f"iptables -L {CHAIN}")
+    assert netem_commands("eth0", 25, 0) == ("tc qdisc replace dev eth0 root netem delay 25ms",)
+    assert netem_commands("eth0", 25, 1.5) == (
+        "tc qdisc replace dev eth0 root netem delay 25ms loss 1.5%",
+    )
+    assert netem_commands("eth0", 0, 0)[0].startswith("tc qdisc del")
+    with pytest.raises(ValueError):
+        netem_commands("eth0", -1, 0)
+    assert any("-X" in command for command in cleanup_commands("eth0"))
+    assert link_label(frozenset({"s2", "s1"})) == "s1-s2"
+
+
+def test_fault_schedule_static_and_flapping() -> None:
+    static = fault_schedule(TOPOLOGIES["split-s1"], 5.0, 30.0)
+    assert [(event.offset_s, event.kind) for event in static] == [(5.0, "cut"), (35.0, "heal")]
+    assert static[0].links == TOPOLOGIES["split-s1"].cut_links
+    flapping = fault_schedule(TOPOLOGIES["flapping-s1-s2"], 5.0, 30.0)
+    kinds = [event.kind for event in flapping]
+    assert kinds[0] == "cut" and kinds[-1] == "heal"
+    assert len(flapping) == 11
+    assert all(later.offset_s > earlier.offset_s for earlier, later in itertools.pairwise(flapping))
+    assert flapping[-1].offset_s == 35.0
+
+
+def test_injector_runs_setup_cut_heal_counters_and_cleanup() -> None:
+    driver = DryRunFaultDriver()
+    injector = FaultInjector(driver, _endpoints())
+    injector.prepare(25, 0.0)
+    assert all(site in {"s1", "s2", "s3"} for site, _ in driver.commands)
+    assert sum(1 for _, command in driver.commands if "netem" in command) == 3
+    results = injector.cut({LINKS[0]})
+    assert [result.site for result in results] == ["s1", "s1", "s2", "s2"]
+    assert "10.231.0.12" in results[0].command and "10.231.0.11" in results[2].command
+    with pytest.raises(ValueError, match="unknown link"):
+        injector.cut({frozenset({"s1", "s4"})})
+    healed = injector.heal()
+    assert [result.site for result in healed] == ["s1", "s2", "s3"]
+    assert set(injector.counters()) == {"s1", "s2", "s3"}
+    injector.cleanup()
+    assert len(injector.log) == len(driver.commands)
+
+
+def test_injector_reports_failing_commands() -> None:
+    class FailingDriver:
+        def run(self, endpoint: SiteEndpoint, command: str):  # type: ignore[no-untyped-def]
+            return (
+                DryRunFaultDriver()
+                .run(endpoint, command)
+                .__class__(endpoint.site, command, 2, "", "iptables: not permitted", 0, 0)
+            )
+
+    injector = FaultInjector(FailingDriver(), _endpoints())
+    with pytest.raises(RuntimeError, match="not permitted"):
+        injector.heal()
+
+
+def test_subprocess_driver_runs_prefix_plus_command() -> None:
+    endpoint = SiteEndpoint(
+        "s1",
+        "http://127.0.0.1:1",
+        "127.0.0.1",
+        1,
+        2,
+        (sys.executable, "-c", "import sys; print(sys.argv[1]); sys.exit(int(sys.argv[1][-1]))"),
+    )
+    result = SubprocessFaultDriver().run(endpoint, "echo-0")
+    assert result.ok and result.stdout.strip() == "echo-0"
+    assert result.returned_wall_ns >= result.sent_wall_ns
+    assert SubprocessFaultDriver().run(endpoint, "echo-3").returncode == 3
+
+
+def test_endpoint_parsing_and_drop_counter_parsing() -> None:
+    endpoint = SiteEndpoint.from_dict(
+        "s2",
+        {
+            "control_url": "http://127.0.0.1:9702/",
+            "peer_ip": "10.231.0.12",
+            "peer_port": 9701,
+            "raft_port": 9801,
+            "fault_exec": ["docker", "exec", "x", "sh", "-c"],
+        },
+    )
+    assert endpoint.control_url == "http://127.0.0.1:9702"
+    assert endpoint.peer_url == "http://10.231.0.12:9701"
+    assert endpoint.raft_address == "10.231.0.12:9801"
+    assert endpoint.to_dict()["fault_exec"] == ["docker", "exec", "x", "sh", "-c"]
+    with pytest.raises(ValueError, match="unknown site"):
+        SiteEndpoint.from_dict("s4", {})
+    with pytest.raises(ValueError, match="fault_exec"):
+        SiteEndpoint.from_dict("s1", {"fault_exec": "docker"})
+    output = (
+        "Chain LETS_E1 (2 references)\n"
+        "    pkts      bytes target     prot opt in     out     source               destination\n"
+        "      72       5822 DROP       0    --  *      *       0.0.0.0/0            10.231.0.12\n"
+        "       7       1210 DROP       0    --  *      *       10.231.0.12          0.0.0.0/0\n"
+    )
+    rows = parse_drop_counters(output)
+    assert rows == [
+        {"packets": 72, "bytes": 5822, "source": "0.0.0.0/0", "destination": "10.231.0.12"},
+        {"packets": 7, "bytes": 1210, "source": "10.231.0.12", "destination": "0.0.0.0/0"},
+    ]
+    assert parse_drop_counters("") == []

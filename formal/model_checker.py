@@ -3,7 +3,8 @@
 This model is deliberately executable with the repository's Python environment.
 It explores message loss/reordering (any prepared transfer may arrive), duplicate
 transfer delivery, duplicate receipt claims, out-of-order receipt claims, local
-issuance, recursive spawn, consumption, closure, and transfer finalization.
+issuance, recursive spawn, cross-warden spawn through lease-kind vouchers,
+consumption, closure, and transfer finalization.
 
 Passing a bounded check is not a mathematical proof.  It is a finite exhaustive
 search over the supplied ``Bounds`` and complements the executable service,
@@ -23,6 +24,7 @@ from pathlib import Path
 from typing import Literal
 
 TransferStatus = Literal["PREPARED", "ACCEPTED", "FINALIZED"]
+TransferKind = Literal["pool", "lease"]
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -33,6 +35,7 @@ class Lease:
     residual: int
     active: bool
     sequence: int
+    remote: bool = False
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -43,6 +46,8 @@ class Transfer:
     sequence: int
     amount: int
     status: TransferStatus
+    kind: TransferKind = "pool"
+    parent_id: int | None = None
 
 
 @dataclass(frozen=True, order=True, slots=True)
@@ -198,6 +203,59 @@ def spawn(state: State, parent_id: int, amount: int = 1) -> State:
     )
 
 
+def _next_stream_sequence(state: State, source: int, target: int) -> int:
+    return (
+        max(
+            (
+                transfer.sequence
+                for transfer in state.transfers
+                if transfer.source == source and transfer.target == target
+            ),
+            default=0,
+        )
+        + 1
+    )
+
+
+def _pending_remote_children(state: State, parent_id: int) -> bool:
+    return any(
+        transfer.kind == "lease"
+        and transfer.parent_id == parent_id
+        and transfer.status == "PREPARED"
+        for transfer in state.transfers
+    )
+
+
+def spawn_remote(state: State, parent_id: int, target: int, amount: int = 1) -> State:
+    parent = next((lease for lease in state.leases if lease.lease_id == parent_id), None)
+    if (
+        parent is None
+        or not parent.active
+        or amount <= 0
+        or parent.residual < amount
+        or target == parent.warden
+        or not 0 <= target < len(state.pools)
+    ):
+        raise ValueError("remote spawn is not enabled")
+    changed = replace(parent, residual=parent.residual - amount, sequence=parent.sequence + 1)
+    transfer = Transfer(
+        state.next_transfer_id,
+        parent.warden,
+        target,
+        _next_stream_sequence(state, parent.warden, target),
+        amount,
+        "PREPARED",
+        "lease",
+        parent.lease_id,
+    )
+    return replace(
+        state,
+        leases=_replace_lease(state, changed),
+        transfers=tuple(sorted((*state.transfers, transfer))),
+        next_transfer_id=state.next_transfer_id + 1,
+    )
+
+
 def authorize(state: State, lease_id: int, cost: int = 1) -> State:
     lease = next((candidate for candidate in state.leases if candidate.lease_id == lease_id), None)
     if lease is None or not lease.active or cost <= 0 or lease.residual < cost:
@@ -223,7 +281,12 @@ def authorize(state: State, lease_id: int, cost: int = 1) -> State:
 def close_lease(state: State, lease_id: int) -> State:
     lease = next((candidate for candidate in state.leases if candidate.lease_id == lease_id), None)
     has_live_child = any(child.parent_id == lease_id and child.active for child in state.leases)
-    if lease is None or not lease.active or has_live_child:
+    if (
+        lease is None
+        or not lease.active
+        or has_live_child
+        or _pending_remote_children(state, lease_id)
+    ):
         raise ValueError("closure is not enabled")
     pools = list(state.pools)
     pools[lease.warden] += lease.residual
@@ -236,22 +299,11 @@ def prepare_transfer(state: State, source: int, target: int, amount: int = 1) ->
         raise ValueError("transfer preparation is not enabled")
     pools = list(state.pools)
     pools[source] -= amount
-    sequence = (
-        max(
-            (
-                transfer.sequence
-                for transfer in state.transfers
-                if transfer.source == source and transfer.target == target
-            ),
-            default=0,
-        )
-        + 1
-    )
     transfer = Transfer(
         state.next_transfer_id,
         source,
         target,
-        sequence,
+        _next_stream_sequence(state, source, target),
         amount,
         "PREPARED",
     )
@@ -276,9 +328,25 @@ def accept_transfer(
         raise ValueError("transfer acceptance is not enabled")
     if transfer.status != "PREPARED" and not duplicate_credit_fault:
         return state
+    changed = replace(transfer, status="ACCEPTED")
+    if transfer.kind == "lease":
+        child = Lease(
+            state.next_lease_id,
+            transfer.target,
+            transfer.parent_id,
+            transfer.amount,
+            True,
+            0,
+            True,
+        )
+        return replace(
+            state,
+            leases=tuple(sorted((*state.leases, child))),
+            transfers=_replace_transfer(state, changed),
+            next_lease_id=state.next_lease_id + 1,
+        )
     pools = list(state.pools)
     pools[transfer.target] += transfer.amount
-    changed = replace(transfer, status="ACCEPTED")
     return replace(state, pools=tuple(pools), transfers=_replace_transfer(state, changed))
 
 
@@ -345,13 +413,45 @@ def validate(state: State, bounds: Bounds) -> None:
         raise InvariantViolationError("unique_lease_ids", "duplicate lease identifier")
     known_leases = {lease.lease_id: lease for lease in state.leases}
     for lease in state.leases:
-        if lease.parent_id is not None:
-            parent = known_leases.get(lease.parent_id)
-            if parent is None or parent.warden != lease.warden or parent.lease_id >= lease.lease_id:
+        if lease.parent_id is None:
+            if lease.remote:
                 raise InvariantViolationError(
-                    "lineage_attenuation",
-                    "child lacks an earlier parent on the same warden",
+                    "lineage_attenuation", "remote child lacks a parent identifier"
                 )
+            continue
+        parent = known_leases.get(lease.parent_id)
+        if parent is None or parent.lease_id >= lease.lease_id:
+            raise InvariantViolationError(
+                "lineage_attenuation",
+                "child lacks an earlier parent",
+            )
+        if (parent.warden != lease.warden) != lease.remote:
+            raise InvariantViolationError(
+                "lineage_attenuation",
+                "child warden placement does not match its remote binding",
+            )
+    remote_children: dict[tuple[int, int], int] = {}
+    for lease in state.leases:
+        if lease.remote and lease.parent_id is not None:
+            key = (lease.parent_id, lease.warden)
+            remote_children[key] = remote_children.get(key, 0) + 1
+    accepted_lease_vouchers: dict[tuple[int, int], int] = {}
+    for transfer in state.transfers:
+        if transfer.kind == "lease":
+            if transfer.parent_id is None:
+                raise InvariantViolationError(
+                    "transfer_type", "lease transfer lacks a parent identifier"
+                )
+            if transfer.status in {"ACCEPTED", "FINALIZED"}:
+                key = (transfer.parent_id, transfer.target)
+                accepted_lease_vouchers[key] = accepted_lease_vouchers.get(key, 0) + 1
+        elif transfer.parent_id is not None:
+            raise InvariantViolationError("transfer_type", "pool transfer carries a parent")
+    if remote_children != accepted_lease_vouchers:
+        raise InvariantViolationError(
+            "remote_child_origin",
+            "remote children do not match accepted lease vouchers one-to-one",
+        )
     transfer_ids = [transfer.transfer_id for transfer in state.transfers]
     if len(transfer_ids) != len(set(transfer_ids)):
         raise InvariantViolationError("unique_transfer_ids", "duplicate transfer identifier")
@@ -418,7 +518,12 @@ def successors(
     *,
     duplicate_credit_fault: bool = False,
 ) -> Iterable[tuple[str, State]]:
-    if len(state.leases) < bounds.max_leases:
+    pending_remote = sum(
+        1
+        for transfer in state.transfers
+        if transfer.kind == "lease" and transfer.status == "PREPARED"
+    )
+    if len(state.leases) + pending_remote < bounds.max_leases:
         for warden, pool in enumerate(state.pools):
             for amount in range(1, min(pool, bounds.max_action_amount) + 1):
                 yield f"issue_root(w={warden},amount={amount})", issue_root(state, warden, amount)
@@ -429,6 +534,21 @@ def successors(
                         f"spawn(parent={lease.lease_id},amount={amount})",
                         spawn(state, lease.lease_id, amount),
                     )
+        if len(state.transfers) < bounds.max_transfers:
+            for lease in state.leases:
+                if not lease.active:
+                    continue
+                for target in range(len(state.pools)):
+                    if target == lease.warden:
+                        continue
+                    for amount in range(1, min(lease.residual, bounds.max_action_amount) + 1):
+                        yield (
+                            (
+                                f"spawn_remote(parent={lease.lease_id},"
+                                f"target={target},amount={amount})"
+                            ),
+                            spawn_remote(state, lease.lease_id, target, amount),
+                        )
     if len(state.receipts) < bounds.max_receipts:
         for lease in state.leases:
             if lease.active:
@@ -438,8 +558,12 @@ def successors(
                         authorize(state, lease.lease_id, cost),
                     )
     for lease in state.leases:
-        if lease.active and not any(
-            child.parent_id == lease.lease_id and child.active for child in state.leases
+        if (
+            lease.active
+            and not any(
+                child.parent_id == lease.lease_id and child.active for child in state.leases
+            )
+            and not _pending_remote_children(state, lease.lease_id)
         ):
             yield f"close(lease={lease.lease_id})", close_lease(state, lease.lease_id)
     if len(state.transfers) < bounds.max_transfers:

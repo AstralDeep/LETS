@@ -5,8 +5,45 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-15
+
+### Added
+
+- Cross-warden spawn. A parent lease can fund a child lease on another warden:
+  `POST /v1/leases/{parent_id}/remote-children` (`WardenService.spawn_remote`) debits the parent
+  residual and sends a lease-kind transfer voucher that carries the child's allocation,
+  capabilities, ancestor path, branch epoch, and clamped expiry through the existing transfer
+  stream. The target warden issues the child from the voucher, or fences the units into its free
+  pool when the branch is already revoked or the child expired in flight, and reports the outcome
+  in the acknowledgement (`child_lease_id`, `child_outcome`). The parent's warden records each
+  remote child as pending, active, fenced, or terminated.
+- Peer lease-status lookups (`POST /v1/peer/lease-status`) so a parent's warden can verify a
+  remote descendant before closing; `PeerDispatcher.resolve_remote_lease` and the CLI node bind
+  this resolver automatically.
+- The bounded model, the sensitivity mutants (eleven, four of them for lease vouchers), and the
+  TLA+ specification cover lease vouchers; TLC reaches a fixpoint at 22,400 distinct states.
+- Research tooling outside the shipped package: the E1 fair-baseline partition harness
+  (`benchmarks/fair_baselines/`) with its local grid results under `results/fair-baselines-*`.
+
 ### Changed
 
+- Closing a lease now fails closed while any descendant is live. Local children are checked
+  directly; remote children are checked through the peer lease-status resolver, and an
+  unreachable or unknown remote child blocks the close until its expiry (plus the clock bound
+  and receipt TTL) has passed on the local clock. Previously the service accepted a close with
+  live local children, which the Python model already rejected.
+- Schema version 3. `leases` gains `parent_warden` and `remote_parent_id`; `outgoing_transfers`
+  gains `kind`, `lease_request`, and `child_lease_id`; the new `remote_children` table tracks
+  remote spawns. Upgrade every warden with `lets migrate --backup <dir>` while the node is
+  stopped; the migration is additive and in place, the pre-migration recovery bundle is the
+  rollback boundary, and `lets migrate` now accepts any pre-current source schema (1 or 2).
+- Transfer vouchers and acknowledgements carry optional fields (`kind`, `lease_request`,
+  `child_lease_id`, `child_outcome`). Free-pool vouchers keep their 1.0 wire bytes and digests,
+  so mixed-version peers continue to exchange pool transfers; a 1.0 warden rejects lease-kind
+  vouchers as unknown fields, so upgrade all wardens in a configuration epoch before using
+  remote spawn.
+- The pinned TLC tool moved to the current `v1.8.0` rolling `tla2tools.jar` build
+  (2026-10-15, SHA-256 `15d103b7…`), because upstream replaced the previously pinned asset.
 - Contribution triage now requests missing issue context and applies evidence-based,
   exact-head maintainer closure decisions; useful partial work remains eligible for repair.
 

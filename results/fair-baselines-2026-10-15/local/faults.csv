@@ -1,0 +1,853 @@
+run_id,scheduled_offset_s,kind,link,site,command,ok,sent_offset_s,returned_offset_s
+bridge-s3-L0.7-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.0008004,5.154097
+bridge-s3-L0.7-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.154097,5.3215654
+bridge-s3-L0.7-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3215654,5.4833422
+bridge-s3-L0.7-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.4833422,5.6517666
+bridge-s3-L0.7-T0-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.4657423,35.6685839
+bridge-s3-L0.7-T0-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.6685839,35.8843724
+bridge-s3-L0.7-T0-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.8843724,36.0636086
+bridge-s3-L0.7-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0004858,5.1644946
+bridge-s3-L0.7-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.1644946,5.3322551
+bridge-s3-L0.7-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3322551,5.4873274
+bridge-s3-L0.7-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.4873274,5.6416625
+bridge-s3-L0.7-T0-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.5159287,35.7317289
+bridge-s3-L0.7-T0-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.7317289,35.9039159
+bridge-s3-L0.7-T0-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9039159,36.0503887
+bridge-s3-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.0008153,5.1577902
+bridge-s3-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.1577991,5.3074049
+bridge-s3-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.3074049,5.4564427
+bridge-s3-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.4564427,5.6126144
+bridge-s3-L0.7-T0.5-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.6032236,35.8344696
+bridge-s3-L0.7-T0.5-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.8344794,36.0822124
+bridge-s3-L0.7-T0.5-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.0822124,36.2591409
+bridge-s3-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.0008237,5.170541
+bridge-s3-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.170541,5.3449447
+bridge-s3-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3449447,5.5701301
+bridge-s3-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5701301,5.7853539
+bridge-s3-L0.7-T0.5-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,36.6969292,36.9871803
+bridge-s3-L0.7-T0.5-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,36.9871803,37.7514916
+bridge-s3-L0.7-T0.5-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,37.7514916,38.0872095
+bridge-s3-L0.7-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0008378,5.1900438
+bridge-s3-L0.7-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.1900438,5.3873427
+bridge-s3-L0.7-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3873427,5.5899732
+bridge-s3-L0.7-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.5899732,5.79468
+bridge-s3-L0.7-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,36.3105962,36.5701539
+bridge-s3-L0.7-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,36.5701539,37.3291574
+bridge-s3-L0.7-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,37.3291574,37.7137989
+bridge-s3-L0.7-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.0005958,5.2426435
+bridge-s3-L0.7-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.2426435,5.4195182
+bridge-s3-L0.7-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4195182,5.621795
+bridge-s3-L0.7-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.621795,5.8667016
+bridge-s3-L0.7-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,38.7796761,39.0669381
+bridge-s3-L0.7-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,39.0669381,39.3137603
+bridge-s3-L0.7-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,39.3137603,39.509858
+bridge-s3-L2-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0006182,5.2008061
+bridge-s3-L2-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.2008061,5.5304099
+bridge-s3-L2-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.5304099,5.890153
+bridge-s3-L2-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.890153,6.1250432
+bridge-s3-L2-T0-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.7672618,36.0689761
+bridge-s3-L2-T0-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,36.0689761,36.283662
+bridge-s3-L2-T0-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.283662,36.4769841
+bridge-s3-L2-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.0004541,5.2183821
+bridge-s3-L2-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.2183821,5.4471057
+bridge-s3-L2-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.4471057,5.833102
+bridge-s3-L2-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.833102,6.0910158
+bridge-s3-L2-T0-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.6495516,35.8742249
+bridge-s3-L2-T0-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.8742249,36.1069975
+bridge-s3-L2-T0-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.1069975,36.3154959
+bridge-s3-L2-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.0000646,5.2379275
+bridge-s3-L2-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.2379275,5.4585014
+bridge-s3-L2-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4585014,5.6930491
+bridge-s3-L2-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.6930491,5.8957569
+bridge-s3-L2-T0.5-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,36.4196716,36.8629028
+bridge-s3-L2-T0.5-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,36.8629028,37.3532958
+bridge-s3-L2-T0.5-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,37.3532958,38.0970037
+bridge-s3-L2-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0004995,5.2093585
+bridge-s3-L2-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.2093585,5.39407
+bridge-s3-L2-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.39407,5.5890597
+bridge-s3-L2-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.5890597,5.7733369
+bridge-s3-L2-T0.5-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.7316951,36.1262259
+bridge-s3-L2-T0.5-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,36.1262259,36.6259206
+bridge-s3-L2-T0.5-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.6259206,37.3863298
+bridge-s3-L2-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.0001045,5.1739388
+bridge-s3-L2-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.1739388,5.3467188
+bridge-s3-L2-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3467188,5.5210951
+bridge-s3-L2-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5210951,5.6964686
+bridge-s3-L2-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,36.8801487,37.5467033
+bridge-s3-L2-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,37.5467033,38.0430529
+bridge-s3-L2-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,38.0430529,38.3922782
+bridge-s3-L2-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.000068,5.1948252
+bridge-s3-L2-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.1948252,5.3794991
+bridge-s3-L2-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.3794991,5.5608888
+bridge-s3-L2-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.5608888,5.7442582
+bridge-s3-L2-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.5569353,35.7820142
+bridge-s3-L2-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.7820142,35.9810962
+bridge-s3-L2-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9810962,36.1527568
+flapping-s1-s2-L0.7-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.0002378,5.1697404
+flapping-s1-s2-L0.7-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.1697404,5.3356721
+flapping-s1-s2-L0.7-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3356721,5.5158663
+flapping-s1-s2-L0.7-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5158663,5.706277
+flapping-s1-s2-L0.7-T0-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,10.9624586,11.1880028
+flapping-s1-s2-L0.7-T0-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.1880028,11.4280943
+flapping-s1-s2-L0.7-T0-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.4280943,11.6133284
+flapping-s1-s2-L0.7-T0-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,11.6138479,11.7976592
+flapping-s1-s2-L0.7-T0-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,11.7976592,11.9854076
+flapping-s1-s2-L0.7-T0-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,11.9854076,12.1983425
+flapping-s1-s2-L0.7-T0-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,12.1983425,12.4202514
+flapping-s1-s2-L0.7-T0-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.5373916,14.7596665
+flapping-s1-s2-L0.7-T0-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.7596665,14.9891661
+flapping-s1-s2-L0.7-T0-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.9891661,15.158098
+flapping-s1-s2-L0.7-T0-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,17.0016712,17.1692797
+flapping-s1-s2-L0.7-T0-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,17.1692797,17.3436815
+flapping-s1-s2-L0.7-T0-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,17.3436815,17.5175463
+flapping-s1-s2-L0.7-T0-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,17.5175463,17.7101225
+flapping-s1-s2-L0.7-T0-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.4946784,20.7032343
+flapping-s1-s2-L0.7-T0-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.7032343,20.8989508
+flapping-s1-s2-L0.7-T0-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.8989508,21.07765
+flapping-s1-s2-L0.7-T0-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,23.0006192,23.1840486
+flapping-s1-s2-L0.7-T0-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,23.1840486,23.3500324
+flapping-s1-s2-L0.7-T0-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,23.3500324,23.5166359
+flapping-s1-s2-L0.7-T0-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,23.5166359,23.6804502
+flapping-s1-s2-L0.7-T0-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.5002458,26.6987974
+flapping-s1-s2-L0.7-T0-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.6987974,26.9029754
+flapping-s1-s2-L0.7-T0-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.9029754,27.0829566
+flapping-s1-s2-L0.7-T0-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,29.0007133,29.233253
+flapping-s1-s2-L0.7-T0-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,29.233253,29.4870375
+flapping-s1-s2-L0.7-T0-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,29.4870375,29.7300844
+flapping-s1-s2-L0.7-T0-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,29.7300844,29.9310074
+flapping-s1-s2-L0.7-T0-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.7081957,32.9137617
+flapping-s1-s2-L0.7-T0-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.9137617,33.1505992
+flapping-s1-s2-L0.7-T0-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.1505992,33.3117718
+flapping-s1-s2-L0.7-T0-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.5279661,35.6971496
+flapping-s1-s2-L0.7-T0-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.6971496,35.8694518
+flapping-s1-s2-L0.7-T0-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.8694518,36.0777038
+flapping-s1-s2-L0.7-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0006887,5.197992
+flapping-s1-s2-L0.7-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.197992,5.3895327
+flapping-s1-s2-L0.7-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3895327,5.5770058
+flapping-s1-s2-L0.7-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.5770058,5.7592555
+flapping-s1-s2-L0.7-T0-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.0671383,11.2815819
+flapping-s1-s2-L0.7-T0-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.2815819,11.5009826
+flapping-s1-s2-L0.7-T0-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.5009826,11.6801323
+flapping-s1-s2-L0.7-T0-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,11.6801323,11.863593
+flapping-s1-s2-L0.7-T0-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,11.863593,12.0369473
+flapping-s1-s2-L0.7-T0-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,12.0369473,12.2142283
+flapping-s1-s2-L0.7-T0-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,12.2142283,12.3859402
+flapping-s1-s2-L0.7-T0-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.5283706,14.7291967
+flapping-s1-s2-L0.7-T0-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.7291967,14.9461202
+flapping-s1-s2-L0.7-T0-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.9461202,15.1228142
+flapping-s1-s2-L0.7-T0-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,17.000517,17.1695072
+flapping-s1-s2-L0.7-T0-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,17.1695072,17.3459067
+flapping-s1-s2-L0.7-T0-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,17.3459067,17.5253103
+flapping-s1-s2-L0.7-T0-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,17.5253103,17.6890575
+flapping-s1-s2-L0.7-T0-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.5459326,20.74891
+flapping-s1-s2-L0.7-T0-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.74891,20.9723628
+flapping-s1-s2-L0.7-T0-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.9723628,21.1365349
+flapping-s1-s2-L0.7-T0-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,23.0004088,23.1595303
+flapping-s1-s2-L0.7-T0-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,23.1595303,23.3240721
+flapping-s1-s2-L0.7-T0-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,23.3240721,23.4901573
+flapping-s1-s2-L0.7-T0-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,23.4901573,23.6690383
+flapping-s1-s2-L0.7-T0-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.5803013,26.7918371
+flapping-s1-s2-L0.7-T0-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.7918371,27.0098495
+flapping-s1-s2-L0.7-T0-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0098495,27.2823338
+flapping-s1-s2-L0.7-T0-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,29.0003231,29.1612884
+flapping-s1-s2-L0.7-T0-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,29.1612884,29.3269132
+flapping-s1-s2-L0.7-T0-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,29.3269132,29.4960488
+flapping-s1-s2-L0.7-T0-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,29.4960488,29.7679783
+flapping-s1-s2-L0.7-T0-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.7268524,33.0076372
+flapping-s1-s2-L0.7-T0-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,33.0076372,33.298883
+flapping-s1-s2-L0.7-T0-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.298883,33.5075021
+flapping-s1-s2-L0.7-T0-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.5665655,35.7927973
+flapping-s1-s2-L0.7-T0-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.7927973,35.9818477
+flapping-s1-s2-L0.7-T0-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9818477,36.2088427
+flapping-s1-s2-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.0012148,5.2473316
+flapping-s1-s2-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.2473316,5.4817063
+flapping-s1-s2-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4817063,5.7135969
+flapping-s1-s2-L0.7-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.7135969,5.9534543
+flapping-s1-s2-L0.7-T0.5-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.2488524,11.4837514
+flapping-s1-s2-L0.7-T0.5-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.4837514,11.7351866
+flapping-s1-s2-L0.7-T0.5-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.7351866,11.9426561
+flapping-s1-s2-L0.7-T0.5-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,11.9426561,12.1231454
+flapping-s1-s2-L0.7-T0.5-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,12.1231454,12.2959063
+flapping-s1-s2-L0.7-T0.5-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,12.2959063,12.4621849
+flapping-s1-s2-L0.7-T0.5-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,12.4621849,12.6340193
+flapping-s1-s2-L0.7-T0.5-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.5323995,14.7554392
+flapping-s1-s2-L0.7-T0.5-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.7554392,14.9590548
+flapping-s1-s2-L0.7-T0.5-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.9590548,15.1452364
+flapping-s1-s2-L0.7-T0.5-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,17.0001676,17.1723198
+flapping-s1-s2-L0.7-T0.5-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,17.1723198,17.3524718
+flapping-s1-s2-L0.7-T0.5-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,17.3524718,17.5606313
+flapping-s1-s2-L0.7-T0.5-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,17.5606313,17.7405736
+flapping-s1-s2-L0.7-T0.5-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.6106744,20.881014
+flapping-s1-s2-L0.7-T0.5-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.881014,21.1564808
+flapping-s1-s2-L0.7-T0.5-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.1564808,21.4028895
+flapping-s1-s2-L0.7-T0.5-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,23.0014029,23.2386642
+flapping-s1-s2-L0.7-T0.5-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,23.2386642,23.4471546
+flapping-s1-s2-L0.7-T0.5-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,23.4471546,23.6398323
+flapping-s1-s2-L0.7-T0.5-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,23.6398323,23.8550092
+flapping-s1-s2-L0.7-T0.5-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.6099374,26.8076614
+flapping-s1-s2-L0.7-T0.5-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.8076614,27.0427316
+flapping-s1-s2-L0.7-T0.5-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0427316,27.2261237
+flapping-s1-s2-L0.7-T0.5-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,29.0012703,29.247989
+flapping-s1-s2-L0.7-T0.5-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,29.2484996,29.5590505
+flapping-s1-s2-L0.7-T0.5-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,29.5590505,29.7556168
+flapping-s1-s2-L0.7-T0.5-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,29.7556168,29.9437075
+flapping-s1-s2-L0.7-T0.5-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.7358778,33.0351975
+flapping-s1-s2-L0.7-T0.5-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,33.0351975,33.2865522
+flapping-s1-s2-L0.7-T0.5-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.2865522,33.4937576
+flapping-s1-s2-L0.7-T0.5-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.7425386,35.9889114
+flapping-s1-s2-L0.7-T0.5-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.9889114,36.2204015
+flapping-s1-s2-L0.7-T0.5-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.2204015,36.4187362
+flapping-s1-s2-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0011608,5.2117387
+flapping-s1-s2-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.2117464,5.4153743
+flapping-s1-s2-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.4153743,5.6502998
+flapping-s1-s2-L0.7-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.6502998,5.9455228
+flapping-s1-s2-L0.7-T0.5-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.3270828,11.7015282
+flapping-s1-s2-L0.7-T0.5-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.7015282,11.9892969
+flapping-s1-s2-L0.7-T0.5-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.9892969,12.3325654
+flapping-s1-s2-L0.7-T0.5-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,12.3325654,12.5633146
+flapping-s1-s2-L0.7-T0.5-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,12.5633146,12.8594792
+flapping-s1-s2-L0.7-T0.5-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,12.8594792,13.0739077
+flapping-s1-s2-L0.7-T0.5-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,13.0739077,13.3072518
+flapping-s1-s2-L0.7-T0.5-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,15.1650514,15.4565337
+flapping-s1-s2-L0.7-T0.5-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,15.4565337,15.7292593
+flapping-s1-s2-L0.7-T0.5-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,15.7292696,16.021268
+flapping-s1-s2-L0.7-T0.5-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,17.000995,17.3535134
+flapping-s1-s2-L0.7-T0.5-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,17.3535134,17.5915237
+flapping-s1-s2-L0.7-T0.5-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,17.5915237,17.828261
+flapping-s1-s2-L0.7-T0.5-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,17.828261,18.0690672
+flapping-s1-s2-L0.7-T0.5-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.9699195,21.2127389
+flapping-s1-s2-L0.7-T0.5-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,21.2127389,21.4645038
+flapping-s1-s2-L0.7-T0.5-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.4645038,21.6720197
+flapping-s1-s2-L0.7-T0.5-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,23.000585,23.2067749
+flapping-s1-s2-L0.7-T0.5-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,23.2067749,23.3829167
+flapping-s1-s2-L0.7-T0.5-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,23.3829167,23.5640882
+flapping-s1-s2-L0.7-T0.5-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,23.5640882,23.7413431
+flapping-s1-s2-L0.7-T0.5-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.5405385,26.7511692
+flapping-s1-s2-L0.7-T0.5-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.7511692,27.0409518
+flapping-s1-s2-L0.7-T0.5-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0409518,27.2674339
+flapping-s1-s2-L0.7-T0.5-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,29.0004694,29.2661064
+flapping-s1-s2-L0.7-T0.5-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,29.2661064,29.481119
+flapping-s1-s2-L0.7-T0.5-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,29.481119,29.7080302
+flapping-s1-s2-L0.7-T0.5-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,29.7080302,29.9412629
+flapping-s1-s2-L0.7-T0.5-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.6164145,32.8309392
+flapping-s1-s2-L0.7-T0.5-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.8309392,33.0392255
+flapping-s1-s2-L0.7-T0.5-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.0392255,33.2340435
+flapping-s1-s2-L0.7-T0.5-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.5299439,35.7126114
+flapping-s1-s2-L0.7-T0.5-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.7126114,35.9260315
+flapping-s1-s2-L0.7-T0.5-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9260315,36.118864
+flapping-s1-s2-L0.7-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.0006193,5.248335
+flapping-s1-s2-L0.7-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.248335,5.4755236
+flapping-s1-s2-L0.7-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.4755236,5.7150592
+flapping-s1-s2-L0.7-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.7150592,5.9127353
+flapping-s1-s2-L0.7-T1-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.487582,11.7525358
+flapping-s1-s2-L0.7-T1-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.7530452,12.0496317
+flapping-s1-s2-L0.7-T1-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,12.0496317,12.2641049
+flapping-s1-s2-L0.7-T1-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,12.2641049,12.5043014
+flapping-s1-s2-L0.7-T1-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,12.5043014,12.7037084
+flapping-s1-s2-L0.7-T1-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,12.7037381,12.9082352
+flapping-s1-s2-L0.7-T1-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,12.9082352,13.0910846
+flapping-s1-s2-L0.7-T1-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.955895,15.2484294
+flapping-s1-s2-L0.7-T1-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,15.2484294,15.5133547
+flapping-s1-s2-L0.7-T1-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,15.5133547,15.757249
+flapping-s1-s2-L0.7-T1-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,17.0007313,17.2397741
+flapping-s1-s2-L0.7-T1-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,17.2397741,17.7446634
+flapping-s1-s2-L0.7-T1-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,17.7446634,18.001871
+flapping-s1-s2-L0.7-T1-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,18.001871,18.2758209
+flapping-s1-s2-L0.7-T1-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.6529328,20.8991811
+flapping-s1-s2-L0.7-T1-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.8991811,21.1231936
+flapping-s1-s2-L0.7-T1-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.1231936,21.3331357
+flapping-s1-s2-L0.7-T1-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,23.001231,23.1817834
+flapping-s1-s2-L0.7-T1-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,23.1817834,23.3579559
+flapping-s1-s2-L0.7-T1-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,23.3579559,23.5551176
+flapping-s1-s2-L0.7-T1-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,23.5551176,23.7434887
+flapping-s1-s2-L0.7-T1-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.6902667,26.9309328
+flapping-s1-s2-L0.7-T1-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.9309328,27.1609244
+flapping-s1-s2-L0.7-T1-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.1609244,27.3897121
+flapping-s1-s2-L0.7-T1-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,29.0004321,29.231391
+flapping-s1-s2-L0.7-T1-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,29.231391,29.4427546
+flapping-s1-s2-L0.7-T1-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,29.4427546,29.6667121
+flapping-s1-s2-L0.7-T1-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,29.6667121,29.8537299
+flapping-s1-s2-L0.7-T1-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.5577023,32.7378309
+flapping-s1-s2-L0.7-T1-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.7378309,32.9621916
+flapping-s1-s2-L0.7-T1-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.9621916,33.1332062
+flapping-s1-s2-L0.7-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.6009147,35.7653804
+flapping-s1-s2-L0.7-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.7653804,35.9358269
+flapping-s1-s2-L0.7-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9358269,36.1023689
+flapping-s1-s2-L0.7-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.0002238,5.1853736
+flapping-s1-s2-L0.7-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.1853736,5.4372144
+flapping-s1-s2-L0.7-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4372144,5.6770721
+flapping-s1-s2-L0.7-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.6770721,5.91736
+flapping-s1-s2-L0.7-T1-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.1518204,11.3765727
+flapping-s1-s2-L0.7-T1-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.3770824,11.5917367
+flapping-s1-s2-L0.7-T1-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.5917367,11.7722947
+flapping-s1-s2-L0.7-T1-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,11.7728001,11.9539912
+flapping-s1-s2-L0.7-T1-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,11.9539912,12.1475525
+flapping-s1-s2-L0.7-T1-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,12.1475525,12.355509
+flapping-s1-s2-L0.7-T1-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,12.355509,12.5368257
+flapping-s1-s2-L0.7-T1-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.5191024,14.7526266
+flapping-s1-s2-L0.7-T1-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.7526266,14.9523984
+flapping-s1-s2-L0.7-T1-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.9523984,15.1215462
+flapping-s1-s2-L0.7-T1-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,17.0007221,17.2085899
+flapping-s1-s2-L0.7-T1-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,17.2085899,17.3786112
+flapping-s1-s2-L0.7-T1-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,17.3791184,17.5506526
+flapping-s1-s2-L0.7-T1-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,17.5506526,17.7218405
+flapping-s1-s2-L0.7-T1-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.519651,20.7239952
+flapping-s1-s2-L0.7-T1-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.7239952,20.9358389
+flapping-s1-s2-L0.7-T1-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.9358389,21.1500818
+flapping-s1-s2-L0.7-T1-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,23.0004939,23.184187
+flapping-s1-s2-L0.7-T1-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,23.184187,23.4329524
+flapping-s1-s2-L0.7-T1-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,23.4329524,23.6256462
+flapping-s1-s2-L0.7-T1-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,23.6256462,23.8115338
+flapping-s1-s2-L0.7-T1-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.589888,26.8355317
+flapping-s1-s2-L0.7-T1-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.8355317,27.0559316
+flapping-s1-s2-L0.7-T1-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0559316,27.2440722
+flapping-s1-s2-L0.7-T1-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,29.0002581,29.1742454
+flapping-s1-s2-L0.7-T1-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,29.1742454,29.353373
+flapping-s1-s2-L0.7-T1-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,29.353373,29.5316575
+flapping-s1-s2-L0.7-T1-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,29.5316664,29.7076142
+flapping-s1-s2-L0.7-T1-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.5618761,32.7899543
+flapping-s1-s2-L0.7-T1-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.7899543,33.0228495
+flapping-s1-s2-L0.7-T1-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.0228495,33.2033733
+flapping-s1-s2-L0.7-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.5118285,35.6908355
+flapping-s1-s2-L0.7-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.6908355,35.9173683
+flapping-s1-s2-L0.7-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9173683,36.0889495
+flapping-s1-s2-L2-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.0011018,5.2010578
+flapping-s1-s2-L2-T0-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.2010578,5.3810551
+flapping-s1-s2-L2-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3810551,5.5848597
+flapping-s1-s2-L2-T0-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5848597,5.8221616
+flapping-s1-s2-L2-T0-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.0883598,11.2820967
+flapping-s1-s2-L2-T0-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.2820967,11.4778249
+flapping-s1-s2-L2-T0-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.4778249,11.6595481
+flapping-s1-s2-L2-T0-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,11.6595547,11.8559939
+flapping-s1-s2-L2-T0-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,11.8559939,12.0463221
+flapping-s1-s2-L2-T0-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,12.0463221,12.241489
+flapping-s1-s2-L2-T0-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,12.241489,12.4171421
+flapping-s1-s2-L2-T0-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.7456224,14.9941956
+flapping-s1-s2-L2-T0-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.9941956,15.2594054
+flapping-s1-s2-L2-T0-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,15.2594054,15.4511218
+flapping-s1-s2-L2-T0-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,17.0004657,17.2437766
+flapping-s1-s2-L2-T0-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,17.2437766,17.5353196
+flapping-s1-s2-L2-T0-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,17.5353196,17.7456843
+flapping-s1-s2-L2-T0-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,17.7456843,17.9328506
+flapping-s1-s2-L2-T0-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.5579036,20.7856374
+flapping-s1-s2-L2-T0-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.7856374,21.069353
+flapping-s1-s2-L2-T0-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.069353,21.2797627
+flapping-s1-s2-L2-T0-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,23.0006543,23.2133266
+flapping-s1-s2-L2-T0-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,23.2133266,23.4091861
+flapping-s1-s2-L2-T0-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,23.4091861,23.5983915
+flapping-s1-s2-L2-T0-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,23.5983915,23.8574198
+flapping-s1-s2-L2-T0-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.5523296,26.7772169
+flapping-s1-s2-L2-T0-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.7772169,26.9969885
+flapping-s1-s2-L2-T0-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.9969885,27.2171313
+flapping-s1-s2-L2-T0-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,29.0001347,29.2030045
+flapping-s1-s2-L2-T0-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,29.2030045,29.4243467
+flapping-s1-s2-L2-T0-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,29.4243467,29.6035791
+flapping-s1-s2-L2-T0-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,29.6035791,29.7718234
+flapping-s1-s2-L2-T0-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.5227347,32.7645167
+flapping-s1-s2-L2-T0-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.7645167,33.0042664
+flapping-s1-s2-L2-T0-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.0042664,33.2728095
+flapping-s1-s2-L2-T0-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.7014216,35.8786797
+flapping-s1-s2-L2-T0-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.8786797,36.0588485
+flapping-s1-s2-L2-T0-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.0588485,36.2484903
+flapping-s1-s2-L2-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0012385,5.2205876
+flapping-s1-s2-L2-T0-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.2205876,5.4150748
+flapping-s1-s2-L2-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.4150748,5.6259494
+flapping-s1-s2-L2-T0-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.6259494,5.8451211
+flapping-s1-s2-L2-T0-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.1234469,11.3794009
+flapping-s1-s2-L2-T0-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.3794009,11.6037827
+flapping-s1-s2-L2-T0-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.6037827,11.7836543
+flapping-s1-s2-L2-T0-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,11.7836543,12.0124904
+flapping-s1-s2-L2-T0-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,12.0124904,12.2423274
+flapping-s1-s2-L2-T0-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,12.2423274,12.4955854
+flapping-s1-s2-L2-T0-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,12.4955854,12.7359861
+flapping-s1-s2-L2-T0-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.5536488,14.7676237
+flapping-s1-s2-L2-T0-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.7676237,15.0240534
+flapping-s1-s2-L2-T0-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,15.0240534,15.3309831
+flapping-s1-s2-L2-T0-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,17.0003537,17.2088867
+flapping-s1-s2-L2-T0-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,17.2088867,17.4331925
+flapping-s1-s2-L2-T0-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,17.4331925,17.6562079
+flapping-s1-s2-L2-T0-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,17.6562079,17.8516956
+flapping-s1-s2-L2-T0-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.5333469,20.7395302
+flapping-s1-s2-L2-T0-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.7395302,20.9518433
+flapping-s1-s2-L2-T0-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.9518433,21.1545088
+flapping-s1-s2-L2-T0-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,23.0010296,23.1982939
+flapping-s1-s2-L2-T0-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,23.1982939,23.3789464
+flapping-s1-s2-L2-T0-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,23.3789464,23.5602724
+flapping-s1-s2-L2-T0-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,23.5602724,23.73492
+flapping-s1-s2-L2-T0-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.5644844,26.7752602
+flapping-s1-s2-L2-T0-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.7752602,27.0105261
+flapping-s1-s2-L2-T0-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0105261,27.2357542
+flapping-s1-s2-L2-T0-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,29.0003173,29.1937842
+flapping-s1-s2-L2-T0-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,29.1937842,29.3675147
+flapping-s1-s2-L2-T0-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,29.3675147,29.5407378
+flapping-s1-s2-L2-T0-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,29.5407378,29.7128084
+flapping-s1-s2-L2-T0-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.6775274,32.9514002
+flapping-s1-s2-L2-T0-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.9514002,33.2389827
+flapping-s1-s2-L2-T0-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.2389827,33.4738208
+flapping-s1-s2-L2-T0-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.6383488,35.818373
+flapping-s1-s2-L2-T0-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.818373,35.9996931
+flapping-s1-s2-L2-T0-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9996931,36.1828486
+flapping-s1-s2-L2-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.0005625,5.2167588
+flapping-s1-s2-L2-T0.5-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.2167588,5.4124995
+flapping-s1-s2-L2-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4124995,5.586744
+flapping-s1-s2-L2-T0.5-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.586744,5.7634127
+flapping-s1-s2-L2-T0.5-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.1374908,11.3679365
+flapping-s1-s2-L2-T0.5-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.3679365,11.6161644
+flapping-s1-s2-L2-T0.5-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.6161644,11.7960926
+flapping-s1-s2-L2-T0.5-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,11.7960926,11.969973
+flapping-s1-s2-L2-T0.5-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,11.969973,12.1596749
+flapping-s1-s2-L2-T0.5-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,12.1596749,12.3731544
+flapping-s1-s2-L2-T0.5-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,12.3731544,12.6276383
+flapping-s1-s2-L2-T0.5-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.5544187,14.7593646
+flapping-s1-s2-L2-T0.5-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.7593646,14.9607957
+flapping-s1-s2-L2-T0.5-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.9607957,15.1860586
+flapping-s1-s2-L2-T0.5-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,17.0006704,17.1721852
+flapping-s1-s2-L2-T0.5-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,17.1721852,17.3503552
+flapping-s1-s2-L2-T0.5-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,17.3503552,17.5306905
+flapping-s1-s2-L2-T0.5-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,17.5306905,17.7222163
+flapping-s1-s2-L2-T0.5-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.6225797,20.8269415
+flapping-s1-s2-L2-T0.5-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.8269415,21.0434384
+flapping-s1-s2-L2-T0.5-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.0434384,21.2225454
+flapping-s1-s2-L2-T0.5-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,23.0003102,23.1703639
+flapping-s1-s2-L2-T0.5-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,23.1703639,23.343738
+flapping-s1-s2-L2-T0.5-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,23.343738,23.540693
+flapping-s1-s2-L2-T0.5-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,23.540693,23.716526
+flapping-s1-s2-L2-T0.5-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.567039,26.7908177
+flapping-s1-s2-L2-T0.5-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.7908177,27.0239234
+flapping-s1-s2-L2-T0.5-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0244322,27.2438927
+flapping-s1-s2-L2-T0.5-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,29.0008245,29.2051844
+flapping-s1-s2-L2-T0.5-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,29.2051844,29.4221427
+flapping-s1-s2-L2-T0.5-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,29.4221427,29.6447712
+flapping-s1-s2-L2-T0.5-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,29.6447712,29.8635694
+flapping-s1-s2-L2-T0.5-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.7378082,32.9960448
+flapping-s1-s2-L2-T0.5-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.9960448,33.2593555
+flapping-s1-s2-L2-T0.5-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.2593555,33.4769803
+flapping-s1-s2-L2-T0.5-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.6662179,35.8816914
+flapping-s1-s2-L2-T0.5-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.8816914,36.101327
+flapping-s1-s2-L2-T0.5-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.101327,36.295021
+flapping-s1-s2-L2-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.000244,5.3455068
+flapping-s1-s2-L2-T0.5-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.3455068,5.6818805
+flapping-s1-s2-L2-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.6818805,5.9153212
+flapping-s1-s2-L2-T0.5-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.9153212,6.0941757
+flapping-s1-s2-L2-T0.5-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.432064,11.6692357
+flapping-s1-s2-L2-T0.5-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.6692452,11.9084497
+flapping-s1-s2-L2-T0.5-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.9084497,12.1210208
+flapping-s1-s2-L2-T0.5-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,12.1210208,12.3429081
+flapping-s1-s2-L2-T0.5-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,12.3429081,12.5737359
+flapping-s1-s2-L2-T0.5-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,12.5737359,12.7949528
+flapping-s1-s2-L2-T0.5-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,12.7949528,13.0226309
+flapping-s1-s2-L2-T0.5-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.7108561,14.8994781
+flapping-s1-s2-L2-T0.5-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.8994781,15.1077891
+flapping-s1-s2-L2-T0.5-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,15.1077891,15.2827722
+flapping-s1-s2-L2-T0.5-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,17.0006789,17.2120318
+flapping-s1-s2-L2-T0.5-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,17.2120318,17.4430662
+flapping-s1-s2-L2-T0.5-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,17.4430662,17.6369319
+flapping-s1-s2-L2-T0.5-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,17.6369319,17.8221353
+flapping-s1-s2-L2-T0.5-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.6380593,20.9038897
+flapping-s1-s2-L2-T0.5-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.9038897,21.1714967
+flapping-s1-s2-L2-T0.5-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.1714967,21.4004296
+flapping-s1-s2-L2-T0.5-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,23.01279,23.2218886
+flapping-s1-s2-L2-T0.5-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,23.2218886,23.4124185
+flapping-s1-s2-L2-T0.5-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,23.4124185,23.6135762
+flapping-s1-s2-L2-T0.5-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,23.6135762,23.8448951
+flapping-s1-s2-L2-T0.5-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.6113919,26.8281147
+flapping-s1-s2-L2-T0.5-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.8281147,27.0440884
+flapping-s1-s2-L2-T0.5-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0440884,27.2755822
+flapping-s1-s2-L2-T0.5-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,29.0005017,29.2116479
+flapping-s1-s2-L2-T0.5-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,29.2116479,29.4837908
+flapping-s1-s2-L2-T0.5-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,29.4839429,29.7363727
+flapping-s1-s2-L2-T0.5-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,29.7363727,30.0359555
+flapping-s1-s2-L2-T0.5-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.7003017,32.9995141
+flapping-s1-s2-L2-T0.5-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.9995141,33.2561062
+flapping-s1-s2-L2-T0.5-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.2561062,33.49072
+flapping-s1-s2-L2-T0.5-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.627877,35.8029869
+flapping-s1-s2-L2-T0.5-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.8029869,36.0132509
+flapping-s1-s2-L2-T0.5-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.0132509,36.2135316
+flapping-s1-s2-L2-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.0005192,5.2087864
+flapping-s1-s2-L2-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.2087864,5.4074766
+flapping-s1-s2-L2-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.4074766,5.6044728
+flapping-s1-s2-L2-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.6044728,5.7961824
+flapping-s1-s2-L2-T1-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.1931982,11.4296329
+flapping-s1-s2-L2-T1-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.4296329,11.6624247
+flapping-s1-s2-L2-T1-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.6624247,11.8391633
+flapping-s1-s2-L2-T1-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,11.8391633,12.0227161
+flapping-s1-s2-L2-T1-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,12.0227161,12.2223753
+flapping-s1-s2-L2-T1-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,12.2223753,12.4400252
+flapping-s1-s2-L2-T1-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,12.4400252,12.6717395
+flapping-s1-s2-L2-T1-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.5786436,14.7972513
+flapping-s1-s2-L2-T1-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.7972513,15.0139622
+flapping-s1-s2-L2-T1-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,15.0139622,15.2242993
+flapping-s1-s2-L2-T1-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,17.0000466,17.1833678
+flapping-s1-s2-L2-T1-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,17.1833678,17.3800399
+flapping-s1-s2-L2-T1-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,17.3800399,17.5651114
+flapping-s1-s2-L2-T1-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,17.5651114,17.7628892
+flapping-s1-s2-L2-T1-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.6266717,20.8368606
+flapping-s1-s2-L2-T1-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.8368606,21.0613319
+flapping-s1-s2-L2-T1-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.0613319,21.3011682
+flapping-s1-s2-L2-T1-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,23.0005079,23.2201363
+flapping-s1-s2-L2-T1-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,23.2201363,23.4148652
+flapping-s1-s2-L2-T1-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,23.4148652,23.6276187
+flapping-s1-s2-L2-T1-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,23.6276187,23.821121
+flapping-s1-s2-L2-T1-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.6270349,26.8685165
+flapping-s1-s2-L2-T1-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.8685165,27.0885604
+flapping-s1-s2-L2-T1-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0885604,27.2851204
+flapping-s1-s2-L2-T1-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,29.0005627,29.259324
+flapping-s1-s2-L2-T1-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,29.259324,29.4923213
+flapping-s1-s2-L2-T1-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,29.4923213,29.7504077
+flapping-s1-s2-L2-T1-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,29.7504077,30.0174618
+flapping-s1-s2-L2-T1-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.6506573,32.8812277
+flapping-s1-s2-L2-T1-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.8812277,33.1288695
+flapping-s1-s2-L2-T1-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.1288695,33.3780625
+flapping-s1-s2-L2-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.6694258,35.8677281
+flapping-s1-s2-L2-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.8677281,36.1074539
+flapping-s1-s2-L2-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,36.1074539,36.295943
+flapping-s1-s2-L2-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.0005343,5.2081601
+flapping-s1-s2-L2-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.2086713,5.4051251
+flapping-s1-s2-L2-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4051251,5.5967962
+flapping-s1-s2-L2-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.5967962,5.783496
+flapping-s1-s2-L2-T1-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,11.2892653,11.531249
+flapping-s1-s2-L2-T1-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,11.531249,11.7801026
+flapping-s1-s2-L2-T1-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,11.7801026,12.0023047
+flapping-s1-s2-L2-T1-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,12.0023047,12.2069901
+flapping-s1-s2-L2-T1-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,12.2069901,12.4281678
+flapping-s1-s2-L2-T1-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,12.4281678,12.6693882
+flapping-s1-s2-L2-T1-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,12.6693882,12.9401085
+flapping-s1-s2-L2-T1-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.7468956,14.9899443
+flapping-s1-s2-L2-T1-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.9899443,15.2442981
+flapping-s1-s2-L2-T1-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,15.2442981,15.4633444
+flapping-s1-s2-L2-T1-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,17.0004923,17.1902708
+flapping-s1-s2-L2-T1-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,17.1902708,17.3933339
+flapping-s1-s2-L2-T1-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,17.3933339,17.5842462
+flapping-s1-s2-L2-T1-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,17.5842462,17.7638285
+flapping-s1-s2-L2-T1-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.64528,20.9110698
+flapping-s1-s2-L2-T1-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.9110698,21.2116825
+flapping-s1-s2-L2-T1-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,21.2116825,21.4445238
+flapping-s1-s2-L2-T1-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,23.0006031,23.2211333
+flapping-s1-s2-L2-T1-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,23.2211333,23.463786
+flapping-s1-s2-L2-T1-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,23.463786,23.6771291
+flapping-s1-s2-L2-T1-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,23.6771291,23.8643945
+flapping-s1-s2-L2-T1-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.5811386,26.8272361
+flapping-s1-s2-L2-T1-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.8272361,27.0345241
+flapping-s1-s2-L2-T1-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,27.0345241,27.2165117
+flapping-s1-s2-L2-T1-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,29.0006585,29.2314833
+flapping-s1-s2-L2-T1-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,29.2314833,29.4525176
+flapping-s1-s2-L2-T1-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,29.4525176,29.6760825
+flapping-s1-s2-L2-T1-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,29.6760825,29.9197846
+flapping-s1-s2-L2-T1-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.6604501,32.8821683
+flapping-s1-s2-L2-T1-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.8821683,33.1190437
+flapping-s1-s2-L2-T1-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,33.1190437,33.3280412
+flapping-s1-s2-L2-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.5803939,35.7782972
+flapping-s1-s2-L2-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.7782972,35.9583962
+flapping-s1-s2-L2-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.9583962,36.1470191
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0008636,5.1757349
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.1757349,5.3340398
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3340398,5.4963867
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.4963867,5.6566547
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.6566547,5.8227668
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.8227668,5.9883826
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.9883826,6.1507762
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.1507762,6.3116752
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,6.3116752,6.4899401
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.4899401,6.6679921
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,6.6679921,6.8473757
+full-isolation-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,6.8473757,7.031713
+full-isolation-L0.7-T0-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.5264635,35.7252052
+full-isolation-L0.7-T0-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.7252052,35.9570327
+full-isolation-L0.7-T0-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.9570327,36.1649249
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.0004877,5.1791461
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.1791461,5.3515369
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3515369,5.536928
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.536928,5.716912
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.716912,5.8768669
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.8768669,6.0522631
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.0522631,6.2242439
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.2242439,6.3810497
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.3810497,6.5421334
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.5421334,6.7011426
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,6.7011426,6.8608507
+full-isolation-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,6.8608507,7.0194719
+full-isolation-L0.7-T0-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.5072776,35.7111042
+full-isolation-L0.7-T0-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.7111042,35.911335
+full-isolation-L0.7-T0-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.911335,36.143301
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.0014652,5.167756
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.167756,5.3359704
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.3359704,5.5059555
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.5059555,5.6856244
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.6856244,5.8661576
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.8661576,6.0491081
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,6.0491081,6.2327289
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.2327289,6.4104968
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,6.4104968,6.6082608
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.6082608,6.7964279
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,6.7969351,6.9709478
+full-isolation-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,6.9709478,7.1442474
+full-isolation-L0.7-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.4898391,35.6885992
+full-isolation-L0.7-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.6885992,35.8928399
+full-isolation-L0.7-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.8928399,36.1044981
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.0004654,5.1739658
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.1739658,5.343969
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.343969,5.5404505
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5404505,5.7225437
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.7225437,5.8816366
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.8816366,6.0431765
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.0431765,6.196142
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.196142,6.3503584
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.3503584,6.5067078
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.5067078,6.6635598
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,6.6635598,6.8169009
+full-isolation-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,6.8169009,6.9790448
+full-isolation-L0.7-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.4588489,35.6376666
+full-isolation-L0.7-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.6376666,35.8188609
+full-isolation-L0.7-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.8188609,36.0258618
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0003491,5.1529689
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.1529689,5.3060975
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3060975,5.4700328
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.4700328,5.6315996
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.6315996,5.805531
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.805531,5.9655206
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.9655206,6.120378
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.120378,6.2785011
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,6.2785011,6.4370764
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.4370764,6.5950345
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,6.5950345,6.7558858
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,6.7558858,6.915385
+full-isolation-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.4724626,35.6897248
+full-isolation-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.6897248,35.8857035
+full-isolation-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.8857035,36.073383
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.0007543,5.155858
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.155858,5.3126192
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.3126192,5.4686108
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.4686108,5.6382988
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.6382988,5.7931865
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.7931865,5.9534091
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.9534091,6.1369373
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.1369373,6.3027167
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,6.3032341,6.455885
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.455885,6.617789
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,6.617789,6.777042
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,6.777042,6.9360593
+full-isolation-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.4715245,35.6690159
+full-isolation-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.6690159,35.86936
+full-isolation-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.86936,36.0972015
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0010564,5.1697332
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.1697332,5.3619826
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3619826,5.5406892
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.5406892,5.7224149
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.722922,5.9011195
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.9011195,6.0801225
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,6.0801225,6.2584078
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.2584078,6.4347114
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,6.4347114,6.6259093
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.6259093,6.8244086
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,6.8244086,7.0064704
+full-isolation-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,7.0064704,7.1810922
+full-isolation-L2-T0-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.5363275,35.7404881
+full-isolation-L2-T0-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.7404881,35.9772826
+full-isolation-L2-T0-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.9772826,36.18895
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.0009763,5.1911581
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.1911581,5.3647408
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3647408,5.5441396
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5441396,5.7192875
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.7192875,5.9001182
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.9001182,6.074387
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.074387,6.2538419
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.2538419,6.4585982
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.4585982,6.6997686
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.6997686,6.8790112
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,6.8790112,7.0535224
+full-isolation-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,7.0535224,7.2193472
+full-isolation-L2-T0-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.5494769,35.7792838
+full-isolation-L2-T0-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.7792838,35.9911747
+full-isolation-L2-T0-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.9911747,36.1794596
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.0010308,5.1520483
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.1520483,5.299639
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.299639,5.4484251
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.4484251,5.5978986
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.5978986,5.7517199
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.7517199,5.9022346
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.9022346,6.0513047
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.0513047,6.197349
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,6.197349,6.3451892
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.3451892,6.5074465
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,6.5074465,6.6630085
+full-isolation-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,6.6630085,6.8199922
+full-isolation-L2-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.4694506,35.6784524
+full-isolation-L2-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.6784524,35.88657
+full-isolation-L2-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.88657,36.0782319
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0005221,5.1726229
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.1726229,5.3711573
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3711573,5.5673257
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.5673257,5.765269
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.765269,5.9634727
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.9634727,6.162663
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,6.162663,6.3499947
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.3499947,6.5295881
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,6.5295881,6.7135551
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.7135551,6.8958091
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,6.8958091,7.073378
+full-isolation-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,7.073378,7.2625182
+full-isolation-L2-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.541119,35.7907882
+full-isolation-L2-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.7907882,36.0256866
+full-isolation-L2-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,36.0256866,36.2500391
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.0005243,5.1989805
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.1989805,5.393842
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.393842,5.5909881
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5909881,5.7850131
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.7850131,5.979752
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.979752,6.160456
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.160456,6.3436531
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.3436531,6.5290688
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,6.5290688,6.7125477
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.7125477,6.8924583
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,6.8924583,7.1012281
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,7.1012281,7.268109
+full-isolation-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.5903124,35.8199093
+full-isolation-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.8199093,36.0451627
+full-isolation-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,36.0451627,36.2396057
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.000409,5.2227378
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.2227378,5.4027382
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4027382,5.6383665
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.6383665,5.8270144
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.8270144,6.022357
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,6.022357,6.2015056
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,6.2015056,6.4184119
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.4184119,6.6201597
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,6.6201597,6.8078488
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.8078488,7.0009225
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,7.0009225,7.1919545
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,7.1919545,7.380382
+full-isolation-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.5849475,35.7975719
+full-isolation-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.7975719,35.9975186
+full-isolation-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.9975186,36.2096401
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0004564,5.219733
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.219733,5.4370089
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.4370089,5.7036896
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.7036896,5.9320617
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.9320617,6.1473418
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,6.1473418,6.3788808
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,6.3788808,6.6024119
+split-s1-L0.7-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,6.6024119,6.8179696
+split-s1-L0.7-T0-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.5969935,35.8751553
+split-s1-L0.7-T0-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.8751553,36.1309301
+split-s1-L0.7-T0-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,36.1309301,36.3627365
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.0004523,5.2081477
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.2081477,5.4254894
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.4254894,5.7016772
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.7016772,5.9226061
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.9226061,6.1354974
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,6.1354974,6.3601413
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,6.3601413,6.5975558
+split-s1-L0.7-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,6.5975727,6.8185345
+split-s1-L0.7-T0-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.5900996,35.8381346
+split-s1-L0.7-T0-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.8381346,36.0387386
+split-s1-L0.7-T0-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,36.0387386,36.2460927
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.0008355,5.2322798
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.2322798,5.4472615
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.4472615,5.6620704
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.6620704,5.898414
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.898414,6.1170592
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,6.1170592,6.3089064
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,6.3089064,6.4892885
+split-s1-L0.7-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,6.4892885,6.6674582
+split-s1-L0.7-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.6654538,35.8669347
+split-s1-L0.7-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.8669347,36.042356
+split-s1-L0.7-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,36.042356,36.2349422
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0007375,5.1498162
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.1498162,5.3143296
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3143296,5.4675233
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.4675233,5.6269385
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.6269385,5.8164768
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.8164768,6.0209512
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,6.0209512,6.2586487
+split-s1-L0.7-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,6.2586487,6.4666129
+split-s1-L0.7-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.4475915,35.6490168
+split-s1-L0.7-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.6490168,35.844854
+split-s1-L0.7-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.844854,36.0367673
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.0012143,5.1897495
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.1897495,5.4011441
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.4011441,5.6128251
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.6128251,5.8126199
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.8126199,5.9733592
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.9733592,6.1351731
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,6.1351731,6.290879
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,6.290879,6.4512445
+split-s1-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.5004929,35.6928008
+split-s1-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.6928008,35.8722573
+split-s1-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.8722573,36.0567977
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.0001023,5.1527599
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.1527599,5.3074907
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.3074907,5.4609861
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.4609861,5.6108913
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.6108913,5.7606544
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.7606544,5.9402537
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.9402537,6.0941201
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,6.0941201,6.2475452
+split-s1-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.465397,35.6604322
+split-s1-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.6609381,35.8613129
+split-s1-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.8613129,36.0691901
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.000679,5.1687481
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.1687481,5.3528428
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3528428,5.5926303
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.5926303,5.7546856
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.7546856,5.9246922
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.9246922,6.0929281
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,6.0929281,6.2596752
+split-s1-L2-T0-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,6.2596752,6.4065023
+split-s1-L2-T0-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.5430493,35.7635102
+split-s1-L2-T0-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.7635102,35.9585657
+split-s1-L2-T0-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.9585657,36.1553461
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0008313,5.1459083
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.1459083,5.3214853
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3214853,5.4975796
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.4975796,5.6984058
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.6984058,5.8603862
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.8603862,6.0275166
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,6.0275166,6.1933581
+split-s1-L2-T0-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,6.1933581,6.3582183
+split-s1-L2-T0-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.5019344,35.7445887
+split-s1-L2-T0-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.7445887,35.9644002
+split-s1-L2-T0-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.9644002,36.1804985
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.0007641,5.151714
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.151714,5.3011471
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.3011471,5.44571
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.44571,5.5915387
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.5915387,5.7359118
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.7359118,5.8895539
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.8895539,6.0424455
+split-s1-L2-T0.5-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,6.0424455,6.1945731
+split-s1-L2-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.4447439,35.6203531
+split-s1-L2-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.6203531,35.8122942
+split-s1-L2-T0.5-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.8122942,35.9921445
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.13 -j DROP,True,5.0008194,5.1743077
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.13 -j DROP,True,5.1743077,5.3277521
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.3277521,5.4840821
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,5.4840821,5.6453496
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.2.12 -j DROP,True,5.6453496,5.797
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.2.12 -j DROP,True,5.797,5.9581113
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.2.11 -j DROP,True,5.9581113,6.1259645
+split-s1-L2-T0.5-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.2.11 -j DROP,True,6.1259645,6.3064365
+split-s1-L2-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.4402105,35.6132179
+split-s1-L2-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.6132179,35.801597
+split-s1-L2-T0.5-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.801597,35.9948011
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.13 -j DROP,True,5.0003892,5.1808747
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.13 -j DROP,True,5.1808747,5.3411846
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.3411846,5.4945268
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,5.4945268,5.6466916
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.0.12 -j DROP,True,5.6466916,5.7991226
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.0.12 -j DROP,True,5.7991226,5.9533219
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.0.11 -j DROP,True,5.9533219,6.1200243
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.0.11 -j DROP,True,6.1200243,6.2755356
+split-s1-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.4842643,35.7119226
+split-s1-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.7119226,35.9274257
+split-s1-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.9274257,36.1193474
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.13 -j DROP,True,5.0006815,5.146369
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.13 -j DROP,True,5.146369,5.2937903
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.2937903,5.4424948
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,5.4424948,5.5939389
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s 10.231.1.12 -j DROP,True,5.5939389,5.7429321
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -d 10.231.1.12 -j DROP,True,5.7429321,5.9306396
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s 10.231.1.11 -j DROP,True,5.9306396,6.0843965
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -d 10.231.1.11 -j DROP,True,6.0843965,6.2414209
+split-s1-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.4742857,35.664874
+split-s1-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.664874,35.8840366
+split-s1-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.8840366,36.0729657

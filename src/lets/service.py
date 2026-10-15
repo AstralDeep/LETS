@@ -43,7 +43,10 @@ from lets.ids import (
 )
 from lets.invariants import ConservationSnapshot
 from lets.models import (
+    CHILD_OUTCOME_FENCED,
+    CHILD_OUTCOME_ISSUED,
     MAX_LINEAGE_DEPTH,
+    TRANSFER_KIND_LEASE,
     AuditRecord,
     BranchRevocation,
     IdentityContext,
@@ -159,6 +162,19 @@ def _row_value(row: sqlite3.Row | Mapping[str, Any], key: str) -> Any:
     return row[key]
 
 
+def _optional_row_value(row: sqlite3.Row | Mapping[str, Any], key: str) -> Any:
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return None
+
+
+RemoteLeaseResolver: TypeAlias = Callable[[str, str], Mapping[str, Any] | None]
+_LIVE_LEASE_STATUSES = ("PROVISIONED", "ACTIVE", "QUIESCENT", "MIGRATING")
+_TERMINAL_LEASE_STATUSES = frozenset({"CLOSED", "EXPIRED", "REVOKED", "TERMINATED"})
+_REMOTE_CHILD_OPEN_STATUSES = ("PENDING", "ACTIVE")
+
+
 class WardenService:
     def __init__(
         self,
@@ -170,6 +186,7 @@ class WardenService:
         evidence_evaluator: EvidenceEvaluator = evaluate_evidence,
         signing_key_validity: tuple[int | None, int | None] | None = None,
         allowed_peer_wardens: Iterable[str] | None = None,
+        remote_lease_resolver: RemoteLeaseResolver | None = None,
     ) -> None:
         self._store = store
         self._signer = signer
@@ -177,6 +194,8 @@ class WardenService:
         self._trust_registry = trust_registry
         self._evidence_evaluator = evidence_evaluator
         self._signing_key_validity = signing_key_validity
+        self._remote_lease_resolver: RemoteLeaseResolver | None = None
+        self.bind_remote_lease_resolver(remote_lease_resolver)
         require_warden_id(signer.warden_id, field="signer warden id")
         require_identifier(signer.key_id, field="signer key_id")
         self._allowed_peer_wardens = (
@@ -234,6 +253,11 @@ class WardenService:
     @property
     def warden_id(self) -> str:
         return self._signer.warden_id
+
+    def bind_remote_lease_resolver(self, resolver: RemoteLeaseResolver | None) -> None:
+        if resolver is not None and not callable(resolver):
+            raise ValidationError("remote lease resolver must be callable")
+        self._remote_lease_resolver = resolver
 
     def _connection(self, transaction: _Transaction) -> sqlite3.Connection:
         return transaction.connection
@@ -1277,13 +1301,16 @@ class WardenService:
         policy_id = policy.get("policy_id", policy.get("policy_version"))
         if not isinstance(policy_id, str):
             raise StorageError("stored policy has no policy_id")
+        remote_parent_id = _optional_row_value(row, "remote_parent_id")
         return LeaseGrant(
             tenant_id=_row_value(row, "tenant_id"),
             envelope_id=_row_value(row, "envelope_id"),
             config_epoch=int(_row_value(row, "config_epoch")),
             lease_id=_row_value(row, "lease_id"),
             lineage_id=_row_value(row, "lineage_id"),
-            parent_id=_row_value(row, "parent_id"),
+            parent_id=_row_value(row, "parent_id")
+            if remote_parent_id is None
+            else remote_parent_id,
             subject_id=_row_value(row, "subject_id"),
             warden_id=_row_value(row, "warden_id"),
             allocation=vector(_unpack_blob(_row_value(row, "allocation"))),
@@ -1334,11 +1361,14 @@ class WardenService:
         return cast(sqlite3.Row, row)
 
     @staticmethod
-    def _lease_revoked(connection: sqlite3.Connection, lease: sqlite3.Row) -> bool:
-        path = (
-            *tuple(_json_array(_row_value(lease, "ancestor_path_json"))),
-            _row_value(lease, "lease_id"),
-        )
+    def _path_revoked(
+        connection: sqlite3.Connection,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        lineage_id: str,
+        path: tuple[str, ...],
+    ) -> bool:
         placeholders = ",".join("?" for _ in path)
         query = (
             "SELECT 1 FROM revocations "
@@ -1346,16 +1376,21 @@ class WardenService:
             f"AND branch_lease_id IN ({placeholders}) "  # nosec B608
             "LIMIT 1"
         )
-        row = connection.execute(
-            query,
-            (
-                _row_value(lease, "tenant_id"),
-                _row_value(lease, "envelope_id"),
-                _row_value(lease, "lineage_id"),
-                *path,
-            ),
-        ).fetchone()
+        row = connection.execute(query, (tenant_id, envelope_id, lineage_id, *path)).fetchone()
         return row is not None
+
+    @classmethod
+    def _lease_revoked(cls, connection: sqlite3.Connection, lease: sqlite3.Row) -> bool:
+        return cls._path_revoked(
+            connection,
+            tenant_id=_row_value(lease, "tenant_id"),
+            envelope_id=_row_value(lease, "envelope_id"),
+            lineage_id=_row_value(lease, "lineage_id"),
+            path=(
+                *tuple(_json_array(_row_value(lease, "ancestor_path_json"))),
+                _row_value(lease, "lease_id"),
+            ),
+        )
 
     @staticmethod
     def _materialize_revoked_branch(
@@ -1569,6 +1604,134 @@ class WardenService:
             raise ExpiredError("lease is expired or cannot be proven fresh")
         if self._lease_revoked(connection, lease):
             raise PolicyError("lease is beneath a revoked branch")
+
+    def _policy_declared_capabilities(self, policy: Mapping[str, Any]) -> frozenset[str]:
+        transitions = self._machine(policy).get("transitions")
+        transition_values: Iterable[Any]
+        if isinstance(transitions, Mapping):
+            transition_values = transitions.values()
+        elif isinstance(transitions, Sequence) and not isinstance(transitions, (str, bytes)):
+            transition_values = transitions
+        else:
+            raise StorageError("registered policy transition table is malformed")
+        return frozenset(
+            candidate["capability"]
+            for candidate in transition_values
+            if isinstance(candidate, Mapping) and isinstance(candidate.get("capability"), str)
+        )
+
+    def _probe_remote_children(
+        self,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        parent_id: str,
+        now_ns: int,
+    ) -> tuple[tuple[str, str], ...]:
+        with self._store.read() as transaction:
+            connection = self._connection(transaction)
+            envelope = self._singleton_envelope(connection)
+            grace_ns = self._clock.uncertainty_ns() + int(_row_value(envelope, "receipt_ttl_ns"))
+            placeholders = ",".join("?" for _ in _REMOTE_CHILD_OPEN_STATUSES)
+            rows = connection.execute(
+                "SELECT child_lease_id, target_warden FROM remote_children "
+                "WHERE tenant_id = ? AND envelope_id = ? AND parent_id = ? "
+                f"AND status IN ({placeholders}) AND expires_at_ns + ? > ? "  # nosec B608
+                "ORDER BY child_lease_id",
+                (
+                    tenant_id,
+                    envelope_id,
+                    parent_id,
+                    *_REMOTE_CHILD_OPEN_STATUSES,
+                    grace_ns,
+                    now_ns,
+                ),
+            ).fetchall()
+        resolver = self._remote_lease_resolver
+        if resolver is None or not rows:
+            return ()
+        terminated: list[tuple[str, str]] = []
+        for row in rows:
+            child_lease_id = str(_row_value(row, "child_lease_id"))
+            try:
+                snapshot = resolver(str(_row_value(row, "target_warden")), child_lease_id)
+            except Exception:
+                continue
+            if not isinstance(snapshot, Mapping):
+                continue
+            observed = snapshot.get("status")
+            if isinstance(observed, str) and observed in _TERMINAL_LEASE_STATUSES:
+                terminated.append((child_lease_id, observed))
+        return tuple(terminated)
+
+    def _require_no_live_descendants(
+        self,
+        connection: sqlite3.Connection,
+        envelope: sqlite3.Row,
+        *,
+        tenant_id: str,
+        envelope_id: str,
+        lease_id: str,
+        actor: str,
+        now_ns: int,
+        terminated: tuple[tuple[str, str], ...],
+    ) -> None:
+        uncertainty = self._clock_is_safe(connection, envelope, now_ns=now_ns)
+        grace_ns = uncertainty + int(_row_value(envelope, "receipt_ttl_ns"))
+        open_placeholders = ",".join("?" for _ in _REMOTE_CHILD_OPEN_STATUSES)
+        for child_lease_id, observed in terminated:
+            cursor = connection.execute(
+                "UPDATE remote_children "
+                "SET status = 'TERMINATED', observed_status = ?, updated_at_ns = ? "
+                "WHERE tenant_id = ? AND envelope_id = ? AND parent_id = ? "
+                f"AND child_lease_id = ? AND status IN ({open_placeholders})",  # nosec B608
+                (
+                    observed,
+                    now_ns,
+                    tenant_id,
+                    envelope_id,
+                    lease_id,
+                    child_lease_id,
+                    *_REMOTE_CHILD_OPEN_STATUSES,
+                ),
+            )
+            if cursor.rowcount:
+                self._append_audit(
+                    connection,
+                    tenant_id=tenant_id,
+                    envelope_id=envelope_id,
+                    event_type="lease.remote-child-terminated",
+                    entity_type="lease",
+                    entity_id=child_lease_id,
+                    actor_id=actor,
+                    details={"parent_id": lease_id, "observed_status": observed},
+                    now_ns=now_ns,
+                )
+        live_placeholders = ",".join("?" for _ in _LIVE_LEASE_STATUSES)
+        local = connection.execute(
+            "SELECT lease_id FROM leases "
+            "WHERE tenant_id = ? AND envelope_id = ? AND parent_id = ? "
+            f"AND status IN ({live_placeholders}) AND expires_at_ns + ? > ? "  # nosec B608
+            "LIMIT 1",
+            (tenant_id, envelope_id, lease_id, *_LIVE_LEASE_STATUSES, uncertainty, now_ns),
+        ).fetchone()
+        if local is not None:
+            raise PolicyError(
+                f"lease has a live local descendant {_row_value(local, 'lease_id')!r}"
+            )
+        remote = connection.execute(
+            "SELECT child_lease_id, target_warden, status FROM remote_children "
+            "WHERE tenant_id = ? AND envelope_id = ? AND parent_id = ? "
+            f"AND status IN ({open_placeholders}) AND expires_at_ns + ? > ? "  # nosec B608
+            "LIMIT 1",
+            (tenant_id, envelope_id, lease_id, *_REMOTE_CHILD_OPEN_STATUSES, grace_ns, now_ns),
+        ).fetchone()
+        if remote is not None:
+            raise PolicyError(
+                f"remote descendant {_row_value(remote, 'child_lease_id')!r} on "
+                f"{_row_value(remote, 'target_warden')!r} is "
+                f"{str(_row_value(remote, 'status')).lower()} and not proven terminated"
+            )
 
     def runtime_status(self, *, identity: IdentityContext) -> RuntimeStatus:
         with self._store.read() as transaction:
@@ -2085,7 +2248,9 @@ class WardenService:
         status: LeaseStatus,
         sequence: int,
         now_ns: int,
+        parent_warden: str | None = None,
     ) -> None:
+        remote_parent_id = None if parent_warden is None else grant.parent_id
         connection.execute(
             """
             INSERT INTO leases(
@@ -2093,9 +2258,11 @@ class WardenService:
                 warden_id, allocation, residual, capabilities_json, machine_digest,
                 ancestor_path_json, branch_epoch, config_epoch, issued_at_ns,
                 expires_at_ns, key_id, signature, state, status, sequence,
-                policy_version, policy_digest, created_at_ns, updated_at_ns
+                policy_version, policy_digest, created_at_ns, updated_at_ns,
+                parent_warden, remote_parent_id
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?
             )
             """,
             (
@@ -2103,7 +2270,7 @@ class WardenService:
                 grant.envelope_id,
                 grant.lease_id,
                 grant.lineage_id,
-                grant.parent_id,
+                None if parent_warden is not None else grant.parent_id,
                 grant.subject_id,
                 grant.warden_id,
                 pack(grant.allocation),
@@ -2124,6 +2291,8 @@ class WardenService:
                 grant.policy_digest,
                 now_ns,
                 now_ns,
+                parent_warden,
+                remote_parent_id,
             ),
         )
 
@@ -2507,6 +2676,400 @@ class WardenService:
                 status_code=201,
             )
             return grant
+
+    def spawn_remote(
+        self,
+        *,
+        request_id: str,
+        identity: IdentityContext,
+        parent_id: str,
+        target_warden: str,
+        subject_id: str,
+        allocation: Sequence[int],
+        capabilities: Iterable[str],
+        ttl_ns: int,
+        expected_sequence: int | None = None,
+    ) -> TransferVoucher:
+        require_identifier(request_id, field="request_id")
+        require_identifier(parent_id, field="parent_id")
+        require_identifier(subject_id, field="subject_id")
+        require_warden_id(target_warden, field="target_warden")
+        if target_warden == self.warden_id:
+            raise ValidationError("remote spawn target must differ from the parent's warden")
+        if self._allowed_peer_wardens is None or target_warden not in self._allowed_peer_wardens:
+            raise PolicyError("remote spawn target is not authorized by this warden configuration")
+        ttl = self._positive_ttl(ttl_ns)
+        child_capabilities = frozenset(
+            require_identifier(item, field="capability") for item in capabilities
+        )
+        if expected_sequence is not None and (
+            isinstance(expected_sequence, bool)
+            or not isinstance(expected_sequence, int)
+            or expected_sequence < 0
+            or expected_sequence > MAX_RESOURCE
+        ):
+            raise ValidationError("expected_sequence must be a non-negative integer")
+        identity_tenant, actor, scopes = self._identity_fields(identity)
+        tenant_id = self._store.metadata.tenant_id
+        envelope_id = self._store.metadata.envelope_id
+        if identity_tenant != tenant_id:
+            raise PolicyError("identity tenant does not match parent tenant")
+        checked_allocation = vector(
+            allocation,
+            dimensions=self._store.metadata.dimension_count,
+        )
+        if not any(checked_allocation):
+            raise ValidationError("child allocation must contain a non-zero dimension")
+        fingerprint = self._fingerprint(
+            "spawn_remote",
+            {
+                "actor": actor,
+                "parent_id": parent_id,
+                "target_warden": target_warden,
+                "subject_id": subject_id,
+                "allocation": list(checked_allocation),
+                "capabilities": sorted(child_capabilities),
+                "ttl_ns": ttl,
+                "expected_sequence": expected_sequence,
+                "config_epoch": self._store.metadata.config_epoch,
+            },
+        )
+        scope = f"spawn_remote:{parent_id}"
+        now_ns = self._clock.now_ns()
+        with self._write_or_degraded_retry() as transaction:
+            if transaction is None:
+                return TransferVoucher.from_dict(
+                    self._degraded_lease_idempotent_response(
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        lease_id=parent_id,
+                        actor=actor,
+                        scopes=scopes,
+                        authorization_error="only the parent subject may spawn a child",
+                        require_root_management=False,
+                        scope=scope,
+                        request_id=request_id,
+                        fingerprint=fingerprint,
+                    )
+                )
+            connection = self._connection(transaction)
+            self._verify_database_identity(connection)
+            envelope = self._singleton_envelope(connection)
+            uncertainty = self._clock_is_safe(connection, envelope, now_ns=now_ns)
+            parent = self._load_lease(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                lease_id=parent_id,
+            )
+            if actor != _row_value(parent, "subject_id") and not self._has_scope(
+                scopes, _SUBJECT_LIFECYCLE_SCOPES
+            ):
+                raise PolicyError("only the parent subject may spawn a child")
+            prior = self._idempotent_response(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                scope=scope,
+                request_id=request_id,
+                fingerprint=fingerprint,
+            )
+            if prior is not None:
+                return TransferVoucher.from_dict(prior)
+            self._require_runtime_active(connection)
+            self._require_actionable(connection, parent, envelope, now_ns=now_ns)
+            parent_sequence = int(_row_value(parent, "sequence"))
+            if expected_sequence is not None and parent_sequence != expected_sequence:
+                raise ConflictError(
+                    f"parent sequence is {parent_sequence}, expected {expected_sequence}"
+                )
+            parent_capabilities = frozenset(_json_array(_row_value(parent, "capabilities_json")))
+            if not child_capabilities.issubset(parent_capabilities):
+                raise PolicyError("child capability set is not attenuated from its parent")
+            parent_residual = _unpack_blob(_row_value(parent, "residual"))
+            if not less_than_or_equal(checked_allocation, parent_residual):
+                raise PolicyError("parent residual does not cover the child allocation")
+            policy_digest = str(_row_value(parent, "policy_digest"))
+            policy_row, policy = self._policy(connection, tenant_id, envelope_id, policy_digest)
+            maximum_ttl = policy.get("max_lease_ttl_ns")
+            if not isinstance(maximum_ttl, int) or ttl > maximum_ttl:
+                raise PolicyError("requested child TTL exceeds the registered policy maximum")
+            expires_at_ns = min(now_ns + ttl, int(_row_value(parent, "expires_at_ns")))
+            if expires_at_ns <= now_ns + uncertainty:
+                raise ExpiredError("child expiry is not fresh under clock uncertainty")
+            parent_path = tuple(_json_array(_row_value(parent, "ancestor_path_json")))
+            if len(parent_path) >= MAX_LINEAGE_DEPTH:
+                raise PolicyError(
+                    f"child would exceed the v1 lineage depth limit of {MAX_LINEAGE_DEPTH}"
+                )
+            if self._trust_registry is None:
+                raise SignatureError("remote spawn requires current target verification material")
+            self._trust_registry.require_current_warden(target_warden)
+            state = connection.execute(
+                """
+                SELECT transferred_out FROM warden_state
+                WHERE tenant_id = ? AND envelope_id = ?
+                """,
+                (tenant_id, envelope_id),
+            ).fetchone()
+            if state is None:
+                raise StorageError("warden state is missing")
+            transferred_out = _unpack_blob(_row_value(state, "transferred_out"))
+            config_epoch = int(_row_value(envelope, "config_epoch"))
+            connection.execute(
+                """
+                INSERT INTO outgoing_transfer_streams(
+                    tenant_id, envelope_id, target_warden, config_epoch,
+                    next_sequence, acked_through, updated_at_ns
+                ) VALUES (?, ?, ?, ?, 1, 0, ?)
+                ON CONFLICT(tenant_id, envelope_id, target_warden) DO NOTHING
+                """,
+                (tenant_id, envelope_id, target_warden, config_epoch, now_ns),
+            )
+            stream = connection.execute(
+                """
+                SELECT * FROM outgoing_transfer_streams
+                WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
+                """,
+                (tenant_id, envelope_id, target_warden),
+            ).fetchone()
+            if stream is None:
+                raise StorageError("outgoing transfer stream is missing")
+            if int(_row_value(stream, "config_epoch")) != config_epoch:
+                raise ConflictError("outgoing stream belongs to another configuration epoch")
+            sequence = int(_row_value(stream, "next_sequence"))
+            policy_id = policy.get("policy_id", policy.get("policy_version"))
+            if not isinstance(policy_id, str):
+                raise StorageError("stored policy has no policy_id")
+            child_lease_id = new_id("lease")
+            lease_request = {
+                "child_lease_id": child_lease_id,
+                "lineage_id": str(_row_value(parent, "lineage_id")),
+                "parent_id": parent_id,
+                "subject_id": subject_id,
+                "capabilities": sorted(child_capabilities),
+                "ancestor_path": [*parent_path, parent_id],
+                "branch_epoch": int(_row_value(parent, "branch_epoch")),
+                "expires_at_ns": expires_at_ns,
+            }
+            unsigned = TransferVoucher(
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                config_epoch=config_epoch,
+                transfer_id=new_id("transfer"),
+                source_warden=self.warden_id,
+                target_warden=target_warden,
+                policy_id=policy_id,
+                policy_version=str(_row_value(policy_row, "policy_version")),
+                policy_digest=policy_digest,
+                sequence=sequence,
+                amount=checked_allocation,
+                issued_at_ns=now_ns,
+                key_id=self._signer.key_id,
+                kind=TRANSFER_KIND_LEASE,
+                lease_request=lease_request,
+            )
+            voucher = cast(TransferVoucher, self._sign_record(unsigned))
+            voucher_payload = canonical_json(voucher.to_dict())
+            voucher_digest = canonical_digest(voucher.to_dict())
+            connection.execute(
+                """
+                INSERT INTO outgoing_transfers(
+                    tenant_id, envelope_id, transfer_id, source_warden, target_warden,
+                    sequence, config_epoch, amount, policy_version, policy_digest,
+                    digest, key_id, signature, voucher_payload, status, prepared_at_ns,
+                    kind, lease_request, child_lease_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PREPARED', ?, ?, ?, ?)
+                """,
+                (
+                    tenant_id,
+                    envelope_id,
+                    voucher.transfer_id,
+                    self.warden_id,
+                    target_warden,
+                    sequence,
+                    config_epoch,
+                    pack(checked_allocation),
+                    voucher.policy_version,
+                    voucher.policy_digest,
+                    voucher_digest,
+                    voucher.key_id,
+                    b64url_decode(voucher.signature),
+                    voucher_payload,
+                    now_ns,
+                    TRANSFER_KIND_LEASE,
+                    canonical_json(lease_request),
+                    child_lease_id,
+                ),
+            )
+            self._enqueue_peer_delivery(
+                connection,
+                record_kind="transfer",
+                record_id=voucher.transfer_id,
+                target_warden=target_warden,
+                ordering_key=target_warden,
+                stream_position=sequence,
+                payload=voucher_payload,
+                now_ns=now_ns,
+            )
+            connection.execute(
+                """
+                UPDATE outgoing_transfer_streams
+                SET next_sequence = next_sequence + 1, updated_at_ns = ?
+                WHERE tenant_id = ? AND envelope_id = ? AND target_warden = ?
+                """,
+                (now_ns, tenant_id, envelope_id, target_warden),
+            )
+            connection.execute(
+                """
+                UPDATE leases
+                SET residual = ?, sequence = sequence + 1, updated_at_ns = ?
+                WHERE tenant_id = ? AND envelope_id = ? AND lease_id = ?
+                """,
+                (
+                    pack(subtract(parent_residual, checked_allocation)),
+                    now_ns,
+                    tenant_id,
+                    envelope_id,
+                    parent_id,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE warden_state
+                SET transferred_out = ?, revision = revision + 1, updated_at_ns = ?
+                WHERE tenant_id = ? AND envelope_id = ?
+                """,
+                (
+                    pack(add(transferred_out, checked_allocation)),
+                    now_ns,
+                    tenant_id,
+                    envelope_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO remote_children(
+                    tenant_id, envelope_id, child_lease_id, parent_id, target_warden,
+                    transfer_id, sequence, allocation, expires_at_ns, status,
+                    created_at_ns, updated_at_ns
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
+                """,
+                (
+                    tenant_id,
+                    envelope_id,
+                    child_lease_id,
+                    parent_id,
+                    target_warden,
+                    voucher.transfer_id,
+                    sequence,
+                    pack(checked_allocation),
+                    expires_at_ns,
+                    now_ns,
+                    now_ns,
+                ),
+            )
+            self._append_audit(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                event_type="lease.spawned-remote",
+                entity_type="lease",
+                entity_id=child_lease_id,
+                actor_id=actor,
+                details={
+                    "parent_id": parent_id,
+                    "lineage_id": _row_value(parent, "lineage_id"),
+                    "target_warden": target_warden,
+                    "transfer_id": voucher.transfer_id,
+                    "sequence": sequence,
+                    "allocation": list(checked_allocation),
+                    "voucher_digest": voucher_digest,
+                },
+                now_ns=now_ns,
+            )
+            self._remember_response(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                scope=scope,
+                request_id=request_id,
+                fingerprint=fingerprint,
+                response=voucher.to_dict(),
+                now_ns=now_ns,
+                status_code=201,
+            )
+            return voucher
+
+    def _admit_remote_child(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        envelope: sqlite3.Row,
+        voucher: TransferVoucher,
+        policy_row: sqlite3.Row,
+        policy: Mapping[str, Any],
+        amount: ResourceVector,
+        now_ns: int,
+        uncertainty: int,
+    ) -> tuple[str, str, LeaseGrant | None]:
+        request = voucher.lease_request
+        if request is None:
+            raise ValidationError("lease transfer voucher lacks a lease request")
+        child_lease_id = str(request["child_lease_id"])
+        existing = connection.execute(
+            """
+            SELECT lease_id FROM leases
+            WHERE tenant_id = ? AND envelope_id = ? AND lease_id = ?
+            """,
+            (voucher.tenant_id, voucher.envelope_id, child_lease_id),
+        ).fetchone()
+        if existing is not None:
+            raise ConflictError("remote child lease identifier already exists on this warden")
+        requested_capabilities = frozenset(request["capabilities"])
+        if not requested_capabilities.issubset(self._policy_declared_capabilities(policy)):
+            raise PolicyError("remote child requests capabilities undeclared by its policy")
+        expires_at_ns = int(request["expires_at_ns"])
+        ancestor_path = tuple(request["ancestor_path"])
+        lineage_id = str(request["lineage_id"])
+        if expires_at_ns <= now_ns + uncertainty:
+            return child_lease_id, CHILD_OUTCOME_FENCED, None
+        if self._path_revoked(
+            connection,
+            tenant_id=voucher.tenant_id,
+            envelope_id=voucher.envelope_id,
+            lineage_id=lineage_id,
+            path=ancestor_path,
+        ):
+            return child_lease_id, CHILD_OUTCOME_FENCED, None
+        grant = self._new_grant(
+            tenant_id=voucher.tenant_id,
+            envelope_id=voucher.envelope_id,
+            config_epoch=int(_row_value(envelope, "config_epoch")),
+            lease_id=child_lease_id,
+            lineage_id=lineage_id,
+            parent_id=str(request["parent_id"]),
+            subject_id=str(request["subject_id"]),
+            allocation=amount,
+            capabilities=requested_capabilities,
+            policy_row=policy_row,
+            policy_payload=policy,
+            ancestor_path=ancestor_path,
+            branch_epoch=int(request["branch_epoch"]),
+            issued_at_ns=now_ns,
+            expires_at_ns=expires_at_ns,
+        )
+        self._insert_lease(
+            connection,
+            grant=grant,
+            residual=amount,
+            state=self._initial_state(policy),
+            status=LeaseStatus.ACTIVE,
+            sequence=0,
+            now_ns=now_ns,
+            parent_warden=voucher.source_warden,
+        )
+        return child_lease_id, CHILD_OUTCOME_ISSUED, grant
 
     def authorize(
         self,
@@ -3131,6 +3694,14 @@ class WardenService:
         )
         scope = f"{operation}:{lease_id}"
         now_ns = self._clock.now_ns()
+        remote_terminated: tuple[tuple[str, str], ...] = ()
+        if operation == "close":
+            remote_terminated = self._probe_remote_children(
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                parent_id=lease_id,
+                now_ns=now_ns,
+            )
         with self._write_or_degraded_retry(
             capacity_recovery=operation in {"quiesce", "close"}
         ) as transaction:
@@ -3209,6 +3780,16 @@ class WardenService:
                     mutate = False
                     resulting_status = status
                 else:
+                    self._require_no_live_descendants(
+                        connection,
+                        envelope,
+                        tenant_id=tenant_id,
+                        envelope_id=envelope_id,
+                        lease_id=lease_id,
+                        actor=actor,
+                        now_ns=now_ns,
+                        terminated=remote_terminated,
+                    )
                     resulting_status = LeaseStatus.CLOSED.value
                     returned = residual
             else:
@@ -3857,6 +4438,32 @@ class WardenService:
                 raise PolicyError("authenticated subject may not inspect this lease")
             return self._snapshot_from_row(connection, lease)
 
+    def peer_lease_status(
+        self,
+        *,
+        identity: IdentityContext,
+        lease_id: str,
+    ) -> LeaseSnapshot:
+        require_identifier(lease_id, field="lease_id")
+        identity_tenant, actor, scopes = self._identity_fields(identity)
+        is_peer = self._allowed_peer_wardens is not None and actor in self._allowed_peer_wardens
+        if not is_peer and not self._has_scope(scopes, _ADMIN_SCOPES | frozenset({"lets.peer"})):
+            raise PolicyError("peer lease status requires a configured peer identity")
+        with self._store.read() as transaction:
+            connection = self._connection(transaction)
+            envelope = self._singleton_envelope(connection)
+            tenant_id = str(_row_value(envelope, "tenant_id"))
+            envelope_id = str(_row_value(envelope, "envelope_id"))
+            if identity_tenant != tenant_id:
+                raise PolicyError("identity tenant does not match lease tenant")
+            lease = self._load_lease(
+                connection,
+                tenant_id=tenant_id,
+                envelope_id=envelope_id,
+                lease_id=lease_id,
+            )
+            return self._snapshot_from_row(connection, lease)
+
     def _invariant_snapshot(
         self,
         connection: sqlite3.Connection,
@@ -4180,7 +4787,7 @@ class WardenService:
         with self._write_transaction(capacity_recovery=True) as transaction:
             connection = self._connection(transaction)
             envelope = self._envelope(connection, parsed.tenant_id, parsed.envelope_id)
-            self._clock_is_safe(connection, envelope, now_ns=now_ns)
+            uncertainty = self._clock_is_safe(connection, envelope, now_ns=now_ns)
             if identity_tenant != parsed.tenant_id:
                 raise PolicyError("identity tenant does not match transfer tenant")
             if parsed.target_warden != self.warden_id:
@@ -4358,6 +4965,20 @@ class WardenService:
                     watermark=parsed.sequence,
                 )
             highest_seen = max(int(_row_value(stream, "highest_seen")), parsed.sequence)
+            child_lease_id: str | None = None
+            child_outcome: str | None = None
+            issued_child: LeaseGrant | None = None
+            if parsed.is_lease:
+                child_lease_id, child_outcome, issued_child = self._admit_remote_child(
+                    connection,
+                    envelope=envelope,
+                    voucher=parsed,
+                    policy_row=policy_row,
+                    policy=policy,
+                    amount=amount,
+                    now_ns=now_ns,
+                    uncertainty=uncertainty,
+                )
             unsigned_ack = TransferAck(
                 tenant_id=parsed.tenant_id,
                 envelope_id=parsed.envelope_id,
@@ -4370,6 +4991,8 @@ class WardenService:
                 accepted_at_ns=now_ns,
                 contiguous_watermark=new_contiguous,
                 key_id=self._signer.key_id,
+                child_lease_id=child_lease_id,
+                child_outcome=child_outcome,
             )
             ack = cast(TransferAck, self._sign_record(unsigned_ack))
             ack_payload = canonical_json(ack.to_dict())
@@ -4384,6 +5007,7 @@ class WardenService:
                 raise StorageError("warden state is missing")
             free_pool = _unpack_blob(_row_value(state, "free_pool"))
             transferred_in = _unpack_blob(_row_value(state, "transferred_in"))
+            credited_pool = free_pool if issued_child is not None else add(free_pool, amount)
             connection.execute(
                 """
                 UPDATE warden_state
@@ -4392,13 +5016,40 @@ class WardenService:
                 WHERE tenant_id = ? AND envelope_id = ?
                 """,
                 (
-                    pack(add(free_pool, amount)),
+                    pack(credited_pool),
                     pack(add(transferred_in, amount)),
                     now_ns,
                     parsed.tenant_id,
                     parsed.envelope_id,
                 ),
             )
+            if child_lease_id is not None:
+                self._append_audit(
+                    connection,
+                    tenant_id=parsed.tenant_id,
+                    envelope_id=parsed.envelope_id,
+                    event_type=(
+                        "lease.remote-child-issued"
+                        if issued_child is not None
+                        else "lease.remote-child-fenced"
+                    ),
+                    entity_type="lease",
+                    entity_id=child_lease_id,
+                    actor_id=actor,
+                    details={
+                        "source_warden": parsed.source_warden,
+                        "transfer_id": parsed.transfer_id,
+                        "sequence": parsed.sequence,
+                        "allocation": list(amount),
+                        "child_outcome": child_outcome,
+                        "parent_id": (
+                            None
+                            if parsed.lease_request is None
+                            else parsed.lease_request["parent_id"]
+                        ),
+                    },
+                    now_ns=now_ns,
+                )
             connection.execute(
                 """
                 UPDATE inbound_transfer_streams
@@ -4556,6 +5207,47 @@ class WardenService:
                 return ack
             if status != "PREPARED":
                 raise ConflictError(f"transfer status {status!r} cannot be finalized")
+            if _optional_row_value(outgoing, "kind") == TRANSFER_KIND_LEASE:
+                expected_child = _row_value(outgoing, "child_lease_id")
+                if ack.child_lease_id != expected_child or ack.child_outcome is None:
+                    raise ConflictError(
+                        "acknowledgement does not report the remote spawn child outcome"
+                    )
+                child_status = "ACTIVE" if ack.child_outcome == CHILD_OUTCOME_ISSUED else "FENCED"
+                connection.execute(
+                    """
+                    UPDATE remote_children
+                    SET status = ?, observed_status = ?, updated_at_ns = ?
+                    WHERE tenant_id = ? AND envelope_id = ? AND child_lease_id = ?
+                      AND status = 'PENDING'
+                    """,
+                    (
+                        child_status,
+                        ack.child_outcome,
+                        now_ns,
+                        ack.tenant_id,
+                        ack.envelope_id,
+                        expected_child,
+                    ),
+                )
+                self._append_audit(
+                    connection,
+                    tenant_id=ack.tenant_id,
+                    envelope_id=ack.envelope_id,
+                    event_type="lease.remote-child-acknowledged",
+                    entity_type="lease",
+                    entity_id=str(expected_child),
+                    actor_id=actor,
+                    details={
+                        "target_warden": ack.target_warden,
+                        "transfer_id": ack.transfer_id,
+                        "sequence": ack.sequence,
+                        "child_outcome": ack.child_outcome,
+                    },
+                    now_ns=now_ns,
+                )
+            elif ack.child_lease_id is not None:
+                raise ConflictError("pool transfer acknowledgement must not report a child")
             connection.execute(
                 """
                 UPDATE outgoing_transfers

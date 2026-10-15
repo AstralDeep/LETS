@@ -6,7 +6,7 @@ bundle's database against the same expected schema.
 from __future__ import annotations
 
 APPLICATION_ID = 0x4C455453  # ASCII "LETS"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 REQUIRED_TABLES = frozenset(
     {
@@ -33,11 +33,13 @@ REQUIRED_TABLES = frozenset(
         "peer_http_authority",
         "peer_http_replay",
         "executor_replay",
+        "remote_children",
     }
 )
 
 REQUIRED_INDEXES = frozenset(
     {
+        "ix_remote_children_parent",
         "ux_policies_digest",
         "ux_policies_active",
         "ix_leases_parent",
@@ -91,6 +93,9 @@ REQUIRED_TRIGGERS = frozenset(
         "inbound_stream_epoch_insert",
         "inbound_stream_identity_immutable",
         "leases_signed_identity_immutable",
+        "leases_remote_parent_consistent",
+        "outgoing_transfers_kind_insert",
+        "remote_children_identity_immutable",
         "leases_residual_total_delete",
         "leases_residual_total_insert",
         "leases_residual_total_update",
@@ -1271,12 +1276,133 @@ MIGRATION_2 = (
 )
 
 
-MIGRATIONS = {1: SCHEMA_STATEMENTS, 2: MIGRATION_2}
+MIGRATION_3 = (
+    """
+    ALTER TABLE leases ADD COLUMN parent_warden TEXT CHECK (
+        parent_warden IS NULL OR length(parent_warden) BETWEEN 1 AND 512
+    )
+    """,
+    """
+    ALTER TABLE leases ADD COLUMN remote_parent_id TEXT CHECK (
+        remote_parent_id IS NULL OR length(remote_parent_id) BETWEEN 1 AND 512
+    )
+    """,
+    """
+    CREATE TRIGGER leases_remote_parent_consistent
+    BEFORE INSERT ON leases
+    BEGIN
+        SELECT CASE WHEN (NEW.parent_warden IS NULL) != (NEW.remote_parent_id IS NULL)
+            THEN RAISE(ABORT, 'remote parent binding needs parent_warden and remote_parent_id') END;
+        SELECT CASE WHEN NEW.remote_parent_id IS NOT NULL AND NEW.parent_id IS NOT NULL
+            THEN RAISE(ABORT, 'a lease cannot bind both a local and a remote parent') END;
+        SELECT CASE WHEN NEW.parent_warden IS NOT NULL AND NEW.parent_warden = NEW.warden_id
+            THEN RAISE(ABORT, 'remote parent warden must differ from the issuing warden') END;
+    END
+    """,
+    """
+    DROP TRIGGER leases_signed_identity_immutable
+    """,
+    """
+    CREATE TRIGGER leases_signed_identity_immutable
+    BEFORE UPDATE OF
+        tenant_id, envelope_id, lease_id, lineage_id, parent_id, parent_warden,
+        remote_parent_id, subject_id, warden_id, allocation, capabilities_json,
+        machine_digest, ancestor_path_json, config_epoch, policy_version, policy_digest,
+        created_at_ns
+    ON leases
+    BEGIN
+        SELECT RAISE(ABORT, 'signed lease identity is immutable');
+    END
+    """,
+    """
+    ALTER TABLE outgoing_transfers ADD COLUMN kind TEXT NOT NULL DEFAULT 'pool' CHECK (
+        kind IN ('pool', 'lease')
+    )
+    """,
+    """
+    ALTER TABLE outgoing_transfers ADD COLUMN lease_request BLOB CHECK (
+        lease_request IS NULL OR typeof(lease_request) = 'blob'
+    )
+    """,
+    """
+    ALTER TABLE outgoing_transfers ADD COLUMN child_lease_id TEXT CHECK (
+        child_lease_id IS NULL OR length(child_lease_id) BETWEEN 1 AND 512
+    )
+    """,
+    """
+    DROP TRIGGER outgoing_transfers_signed_immutable
+    """,
+    """
+    CREATE TRIGGER outgoing_transfers_signed_immutable
+    BEFORE UPDATE OF
+        tenant_id, envelope_id, transfer_id, source_warden, target_warden,
+        sequence, config_epoch, amount, policy_version, policy_digest, digest,
+        key_id, signature, voucher_payload, prepared_at_ns, kind, lease_request,
+        child_lease_id
+    ON outgoing_transfers
+    BEGIN
+        SELECT RAISE(ABORT, 'signed outgoing transfer is immutable');
+    END
+    """,
+    """
+    CREATE TRIGGER outgoing_transfers_kind_insert
+    BEFORE INSERT ON outgoing_transfers
+    BEGIN
+        SELECT CASE WHEN (NEW.kind = 'lease') != (NEW.lease_request IS NOT NULL)
+            OR (NEW.kind = 'lease') != (NEW.child_lease_id IS NOT NULL)
+            THEN RAISE(ABORT, 'lease transfers carry a lease request and child lease id') END;
+    END
+    """,
+    """
+    CREATE TABLE remote_children (
+        tenant_id        TEXT NOT NULL,
+        envelope_id      TEXT NOT NULL,
+        child_lease_id   TEXT NOT NULL CHECK (length(child_lease_id) BETWEEN 1 AND 512),
+        parent_id        TEXT NOT NULL CHECK (length(parent_id) BETWEEN 1 AND 512),
+        target_warden    TEXT NOT NULL CHECK (length(target_warden) BETWEEN 1 AND 512),
+        transfer_id      TEXT NOT NULL CHECK (length(transfer_id) BETWEEN 1 AND 512),
+        sequence         INTEGER NOT NULL CHECK (sequence > 0),
+        allocation       BLOB NOT NULL CHECK (
+            lets_vector_valid(allocation, NULL) = 1 AND lets_vector_nonzero(allocation) = 1
+        ),
+        expires_at_ns    INTEGER NOT NULL CHECK (expires_at_ns >= 0),
+        status           TEXT NOT NULL DEFAULT 'PENDING' CHECK (
+            status IN ('PENDING', 'ACTIVE', 'FENCED', 'TERMINATED')
+        ),
+        observed_status  TEXT CHECK (
+            observed_status IS NULL OR length(observed_status) BETWEEN 1 AND 64
+        ),
+        created_at_ns    INTEGER NOT NULL CHECK (created_at_ns >= 0),
+        updated_at_ns    INTEGER NOT NULL CHECK (updated_at_ns >= created_at_ns),
+        PRIMARY KEY (tenant_id, envelope_id, child_lease_id),
+        FOREIGN KEY (tenant_id, envelope_id, parent_id)
+            REFERENCES leases(tenant_id, envelope_id, lease_id) ON DELETE RESTRICT
+    ) STRICT, WITHOUT ROWID
+    """,
+    """
+    CREATE INDEX ix_remote_children_parent
+    ON remote_children(tenant_id, envelope_id, parent_id, status)
+    """,
+    """
+    CREATE TRIGGER remote_children_identity_immutable
+    BEFORE UPDATE OF
+        tenant_id, envelope_id, child_lease_id, parent_id, target_warden, transfer_id,
+        sequence, allocation, expires_at_ns, created_at_ns
+    ON remote_children
+    BEGIN
+        SELECT RAISE(ABORT, 'remote child identity is immutable');
+    END
+    """,
+)
+
+
+MIGRATIONS = {1: SCHEMA_STATEMENTS, 2: MIGRATION_2, 3: MIGRATION_3}
 
 __all__ = [
     "APPLICATION_ID",
     "MIGRATIONS",
     "MIGRATION_2",
+    "MIGRATION_3",
     "REQUIRED_INDEXES",
     "REQUIRED_TABLES",
     "REQUIRED_TRIGGERS",
