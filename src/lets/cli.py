@@ -2069,26 +2069,29 @@ def _migrate_storage(
     )
 
 
-def _legacy_preflight(core: Path, replay: Path) -> dict[str, object]:
+def _legacy_preflight(core: Path, replay: Path | None, *, source_version: int) -> dict[str, object]:
     core_diagnostics = sqlite_diagnostics(
         core,
         expected_application_id=APPLICATION_ID,
-        expected_schema_version=1,
+        expected_schema_version=source_version,
         foreign_keys=True,
     )
-    replay_diagnostics = sqlite_diagnostics(
-        replay,
-        expected_application_id=SQLitePeerReplayStore.APPLICATION_ID,
-        expected_schema_version=SQLitePeerReplayStore.SCHEMA_VERSION,
-        foreign_keys=False,
-    )
-    legacy_replay = SQLitePeerReplayStore(replay, read_only=True)
-    active_replay_claims = legacy_replay.active_claim_count(now_s=int(time.time()))
-    if active_replay_claims:
-        raise ValidationError(
-            "legacy peer replay still has live claims; keep the schema-1 node stopped, "
-            "wait at least the peer signature validity window, then retry migration"
+    replay_diagnostics: dict[str, object] | None = None
+    active_replay_claims = 0
+    if replay is not None:
+        replay_diagnostics = sqlite_diagnostics(
+            replay,
+            expected_application_id=SQLitePeerReplayStore.APPLICATION_ID,
+            expected_schema_version=SQLitePeerReplayStore.SCHEMA_VERSION,
+            foreign_keys=False,
         )
+        legacy_replay = SQLitePeerReplayStore(replay, read_only=True)
+        active_replay_claims = legacy_replay.active_claim_count(now_s=int(time.time()))
+        if active_replay_claims:
+            raise ValidationError(
+                "legacy peer replay still has live claims; keep the schema-1 node stopped, "
+                "wait at least the peer signature validity window, then retry migration"
+            )
     try:
         with closing(sqlite3.connect(f"{core.resolve().as_uri()}?mode=ro", uri=True)) as connection:
             pending_peer = int(
@@ -2271,8 +2274,8 @@ def _verify_migration_bundle(
     signer: RuntimeSigner,
 ) -> VerifiedBundle:
     bundle = verify_recovery_bundle(backup)
-    if bundle.source_schema_version != 1:
-        raise ValidationError("migration backup must preserve the schema-1 source")
+    if not 1 <= bundle.source_schema_version < SCHEMA_VERSION:
+        raise ValidationError("migration backup must preserve a pre-migration schema source")
     _require_bundle_trust_inputs(
         bundle.artifacts["config"],
         bundle.artifacts.get("signed_manifest"),
@@ -2372,20 +2375,32 @@ def _resume_migrated_database(
             )
         migration_now_s = int(time.time())
         migration_bundle = verify_recovery_bundle(backup)
-        legacy_replay_path = migration_bundle.artifacts.get("replay_database")
-        if legacy_replay_path is None:
-            raise ValidationError("schema-1 migration backup omits peer replay authority")
-        legacy_replay = SQLitePeerReplayStore(legacy_replay_path, read_only=True, immutable=True)
-        legacy_snapshot = legacy_replay.snapshot(
-            now_s=migration_now_s,
-            expected_digest=bytes.fromhex(migration_bundle.digests["replay_database"].sha256),
-        )
-        imported_legacy_replay = service.import_legacy_peer_replay(
-            clock_floor_s=legacy_snapshot.clock_floor_s,
-            snapshot_digest=legacy_snapshot.digest,
-            active_claim_count=legacy_snapshot.active_claim_count,
-            now_s=migration_now_s,
-        )
+        legacy_replay_checks: dict[str, object] = {}
+        if migration_bundle.source_schema_version == 1:
+            legacy_replay_path = migration_bundle.artifacts.get("replay_database")
+            if legacy_replay_path is None:
+                raise ValidationError("schema-1 migration backup omits peer replay authority")
+            legacy_replay = SQLitePeerReplayStore(
+                legacy_replay_path, read_only=True, immutable=True
+            )
+            legacy_snapshot = legacy_replay.snapshot(
+                now_s=migration_now_s,
+                expected_digest=bytes.fromhex(migration_bundle.digests["replay_database"].sha256),
+            )
+            imported_legacy_replay = service.import_legacy_peer_replay(
+                clock_floor_s=legacy_snapshot.clock_floor_s,
+                snapshot_digest=legacy_snapshot.digest,
+                active_claim_count=legacy_snapshot.active_claim_count,
+                now_s=migration_now_s,
+            )
+            if legacy_replay.integrity_check() != ("ok",):
+                raise ValidationError("resumable migration replay database failed integrity")
+            legacy_replay_checks = {
+                "legacy_replay_integrity": ["ok"],
+                "legacy_replay_snapshot_sha256": legacy_snapshot.digest.hex(),
+                "legacy_replay_active_claims": legacy_snapshot.active_claim_count,
+                "legacy_replay_imported": imported_legacy_replay,
+            }
         pending_peer, pending_audit = _sqlite_counts(store)
         if pending_peer:
             raise ValidationError("resumable migration has pending peer deliveries")
@@ -2393,8 +2408,6 @@ def _resume_migrated_database(
             raise ValidationError("resumable migrated database failed integrity diagnostics")
         store.verify_conservation(reconcile=True)
         service.verify_audit(identity=identity)
-        if legacy_replay.integrity_check() != ("ok",):
-            raise ValidationError("resumable migration replay database failed integrity")
         checkpoint = store.authority_checkpoint()
         checks = {
             "runtime": status.to_dict(),
@@ -2403,10 +2416,7 @@ def _resume_migrated_database(
             "database_integrity": ["ok"],
             "conservation": True,
             "audit_chain": True,
-            "legacy_replay_integrity": ["ok"],
-            "legacy_replay_snapshot_sha256": legacy_snapshot.digest.hex(),
-            "legacy_replay_active_claims": legacy_snapshot.active_claim_count,
-            "legacy_replay_imported": imported_legacy_replay,
+            **legacy_replay_checks,
             "peer_replay": service.peer_replay_status(),
         }
     finally:
@@ -2474,9 +2484,9 @@ def _migrate(config_path: Path, arguments: argparse.Namespace) -> int:
         application_id, source_version = read_sqlite_header(core)
         if application_id != APPLICATION_ID:
             raise ValidationError("migration source is not a LETS authority database")
-        if source_version not in (1, SCHEMA_VERSION):
+        if not 1 <= source_version <= SCHEMA_VERSION:
             raise ValidationError(
-                f"migrate supports schema 1 -> {SCHEMA_VERSION}; source is {source_version}"
+                f"migrate supports schema 1..{SCHEMA_VERSION}; source is {source_version}"
             )
         with _open_runtime(
             resolved,
@@ -2486,7 +2496,9 @@ def _migrate(config_path: Path, arguments: argparse.Namespace) -> int:
         ) as runtime:
             if source_version == SCHEMA_VERSION:
                 if not arguments.resume:
-                    raise ValidationError("schema-2 migration recovery requires explicit --resume")
+                    raise ValidationError(
+                        f"schema-{SCHEMA_VERSION} migration recovery requires explicit --resume"
+                    )
                 bundle = _verify_migration_bundle(
                     backup_path,
                     resolved=resolved,
@@ -2526,8 +2538,10 @@ def _migrate(config_path: Path, arguments: argparse.Namespace) -> int:
                 )
                 return 0
 
-            replay = _local_path(resolved, config, "replay_database")
-            checks = _legacy_preflight(core, replay)
+            replay = (
+                _local_path(resolved, config, "replay_database") if source_version == 1 else None
+            )
+            checks = _legacy_preflight(core, replay, source_version=source_version)
             compatibility = _verify_migration_copy(
                 core,
                 config,
@@ -3287,6 +3301,7 @@ def _serve_unlocked(config_path: Path, arguments: argparse.Namespace) -> int:
                 cert=peer_cert,
                 request_timeout_s=float(arguments.peer_request_timeout_seconds),
             )
+            service.bind_remote_lease_resolver(dispatcher.resolve_remote_lease)
             audit_exporter = (
                 None if runtime.audit_sink is None else AuditExporter(store, runtime.audit_sink)
             )

@@ -51,6 +51,12 @@ from lets.recovery import (
 from lets.runtime import RUNTIME_PROVIDER_GROUP, RuntimeBindings
 from lets.service import WardenService
 from lets.storage import SQLiteStorage
+from lets.storage.schema import (
+    REQUIRED_INDEXES,
+    REQUIRED_TABLES,
+    REQUIRED_TRIGGERS,
+    SCHEMA_VERSION,
+)
 
 
 @dataclass
@@ -452,17 +458,17 @@ def test_recovery_bundle_rejects_tampering_and_unlisted_files(tmp_path: Path) ->
         core_database=core,
         replay_database=None,
         signed_manifest=None,
-        source_schema_version=2,
+        source_schema_version=SCHEMA_VERSION,
         identity={"warden_id": signer.warden_id},
         authority_checkpoint=checkpoint,
     )
     verified = verify_recovery_bundle(bundle.root)
-    assert verified.source_schema_version == 2
+    assert verified.source_schema_version == SCHEMA_VERSION
     protected = [bundle.root / "warden.sqlite3"]
     for artifact in protected:
         artifact.chmod(stat.S_IREAD)
-    assert verify_recovery_bundle(bundle.root).source_schema_version == 2
-    assert verify_recovery_bundle(bundle.root).source_schema_version == 2
+    assert verify_recovery_bundle(bundle.root).source_schema_version == SCHEMA_VERSION
+    assert verify_recovery_bundle(bundle.root).source_schema_version == SCHEMA_VERSION
     assert {entry.name for entry in bundle.root.iterdir()} == {
         "bundle.json",
         "config.json",
@@ -500,23 +506,49 @@ def test_recovery_bundle_rejects_tampering_and_unlisted_files(tmp_path: Path) ->
         artifact.chmod(stat.S_IREAD | stat.S_IWRITE)
 
 
+def _initialize_schema_v2(
+    core: Path, signer: Ed25519Signer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import lets.storage.sqlite as sqlite_module
+
+    with monkeypatch.context() as patch:
+        patch.setattr(sqlite_module, "SCHEMA_VERSION", 2)
+        patch.setattr(sqlite_module, "_EXPECTED_SCHEMA_DEFINITION_DIGEST", None)
+        patch.setattr(sqlite_module, "REQUIRED_TABLES", REQUIRED_TABLES - {"remote_children"})
+        patch.setattr(
+            sqlite_module, "REQUIRED_INDEXES", REQUIRED_INDEXES - {"ix_remote_children_parent"}
+        )
+        patch.setattr(
+            sqlite_module,
+            "REQUIRED_TRIGGERS",
+            REQUIRED_TRIGGERS
+            - {
+                "leases_remote_parent_consistent",
+                "outgoing_transfers_kind_insert",
+                "remote_children_identity_immutable",
+            },
+        )
+        legacy = SQLiteStorage.initialize(
+            core,
+            signer.warden_id,
+            (10,),
+            signing_key_id=signer.key_id,
+            signing_public_key=signer.public_key_bytes,
+            tenant_id="tenant-a",
+            envelope_id="envelope-a",
+            initial_local_share=(10,),
+        )
+        legacy.close()
+    sqlite_module._EXPECTED_SCHEMA_DEFINITION_DIGEST = None
+
+
 def test_schema_migration_resume_converges_after_post_commit_anchor_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     signer = Ed25519Signer.generate("warden-a")
     core = tmp_path / "warden.sqlite3"
-    current = SQLiteStorage.initialize(
-        core,
-        signer.warden_id,
-        (10,),
-        signing_key_id=signer.key_id,
-        signing_public_key=signer.public_key_bytes,
-        tenant_id="tenant-a",
-        envelope_id="envelope-a",
-        initial_local_share=(10,),
-    )
-    current.close()
+    _initialize_schema_v2(core, signer, monkeypatch)
     with closing(sqlite3.connect(core)) as connection, connection:
         connection.execute("DROP TRIGGER runtime_control_generation_monotonic")
         connection.execute("DROP TRIGGER runtime_control_no_delete")
@@ -613,7 +645,7 @@ def test_schema_migration_resume_converges_after_post_commit_anchor_failure(
     with pytest.raises(StorageError, match="after schema commit before drain"):
         _migrate(config_path, first)
     monkeypatch.setattr(WardenService, "set_runtime_mode", original_set_runtime_mode)
-    assert read_sqlite_header(core)[1] == 2
+    assert read_sqlite_header(core)[1] == SCHEMA_VERSION
     assert backup.is_dir()
     journal = json.loads((tmp_path / "migration-v1-v2.json").read_text(encoding="utf-8"))
     assert journal["phase"] == "BACKUP_VERIFIED"
@@ -677,3 +709,68 @@ def test_schema_migration_resume_converges_after_post_commit_anchor_failure(
         assert replay_status["legacy_snapshot_digest"] is not None
     finally:
         admitted.close()
+
+
+def test_schema_v2_database_migrates_to_the_current_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signer = Ed25519Signer.generate("warden-a")
+    core = tmp_path / "warden.sqlite3"
+    _initialize_schema_v2(core, signer, monkeypatch)
+    assert read_sqlite_header(core)[1] == 2
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "warden_id": "warden-a",
+                "tenant_id": "tenant-a",
+                "envelope_id": "envelope-a",
+                "config_epoch": 1,
+                "budget": [10],
+                "local_share": [10],
+                "receipt_ttl_ns": 1_000_000_000,
+                "max_clock_uncertainty_ns": 0,
+                "transfer_gap_window": 64,
+                "database": core.name,
+                "replay_database": "peer-replay.sqlite3",
+                "runtime": {"provider": "managed", "options": {}},
+                "bootstrap_identities": [],
+                "trusted_peers": [],
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    anchor_path = tmp_path / "external" / "authority.json"
+    anchor_path.parent.mkdir()
+
+    def provider(_context: object) -> RuntimeBindings:
+        return RuntimeBindings(
+            warden_id="warden-a",
+            tenant_id="tenant-a",
+            signer=signer,
+            authenticator=Authenticator(),
+            production_capable=True,
+            authority_anchor=FileAuthorityAnchor(anchor_path),
+            audit_sink=AuditSink(),
+        )
+
+    monkeypatch.setattr(
+        "lets.runtime.metadata.entry_points",
+        lambda *, group: (
+            (FakeEntryPoint("managed", provider),) if group == RUNTIME_PROVIDER_GROUP else ()
+        ),
+    )
+    backup = tmp_path / "pre-migration"
+    assert _migrate(config_path, _parser().parse_args(["migrate", "--backup", str(backup)])) == 0
+    assert read_sqlite_header(core)[1] == SCHEMA_VERSION
+    assert backup.is_dir()
+    with closing(sqlite3.connect(core)) as connection:
+        assert tuple(connection.execute("SELECT COUNT(*) FROM remote_children").fetchone()) == (0,)
+        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(leases)")}
+    assert {"parent_warden", "remote_parent_id"} <= columns
+    journal = json.loads((tmp_path / "migration-v1-v2.json").read_text(encoding="utf-8"))
+    assert journal["phase"] == "COMPLETE"

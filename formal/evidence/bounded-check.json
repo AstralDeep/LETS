@@ -12,13 +12,13 @@
     "max_receipts": 2,
     "max_transfers": 2
   },
-  "generated_at": "2026-08-09T14:56:01.403564+00:00",
+  "generated_at": "2026-10-15T16:01:42.717337+00:00",
   "maximum_depth_reached": 9,
-  "model_digest": "sha256:77d48812fa293cf5934496c90a435f8f7792a6f88aef6e4f460bcf0e7ee3b5b8",
+  "model_digest": "sha256:5954e62b7396f61a54c4ae65731148a94fe664b32b55eb4440d7f385d0b7f3d2",
   "passed": true,
   "schema": "lets.bounded-model-check/v1",
-  "self_loops_checked": 66072,
-  "states_checked": 101245,
-  "transitions_checked": 318558,
+  "self_loops_checked": 116412,
+  "states_checked": 147673,
+  "transitions_checked": 481728,
   "violations": []
 }

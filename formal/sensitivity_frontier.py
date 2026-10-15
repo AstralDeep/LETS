@@ -120,6 +120,26 @@ MUTANTS = (
         "checkpoint_contiguity",
         "A checkpoint advances through a sequence whose earlier prefix is not finalized.",
     ),
+    MutantSpec(
+        "remote_spawn_refund_in_flight",
+        "global_conservation",
+        "A timeout refunds the parent residual while its lease voucher is still in flight.",
+    ),
+    MutantSpec(
+        "remote_child_also_credited_to_pool",
+        "global_conservation",
+        "Accepting a lease voucher issues the child and also credits the target free pool.",
+    ),
+    MutantSpec(
+        "remote_child_without_voucher",
+        "remote_child_origin",
+        "A warden issues a remote child lease without any accepted lease voucher.",
+    ),
+    MutantSpec(
+        "close_parent_with_pending_remote_child",
+        "active_descendant_has_active_ancestors",
+        "Close reclaims a parent whose lease voucher is still waiting at the target.",
+    ),
 )
 MUTANT_BY_ID = {mutant.mutant_id: mutant for mutant in MUTANTS}
 
@@ -595,6 +615,80 @@ def _fault_successors(
                     state,
                     checkpoints=tuple(sorted((*state.checkpoints, checkpoint))),
                 ),
+            )
+        return
+
+    if mutant_id == "remote_spawn_refund_in_flight":
+        for transfer in core.transfers:
+            if transfer.kind != "lease" or transfer.status != "PREPARED":
+                continue
+            parent = next(
+                (lease for lease in core.leases if lease.lease_id == transfer.parent_id), None
+            )
+            if parent is None:
+                continue
+            refunded = replace(parent, residual=parent.residual + transfer.amount)
+            yield (
+                f"faulty_remote_spawn_refund(transfer={transfer.transfer_id})",
+                replace(state, core=replace(core, leases=_replace_lease(core, refunded))),
+            )
+        return
+
+    if mutant_id == "remote_child_also_credited_to_pool":
+        for transfer in core.transfers:
+            if transfer.kind != "lease" or transfer.status != "PREPARED":
+                continue
+            accepted = retained.accept_transfer(core, transfer.transfer_id)
+            pools = list(accepted.pools)
+            pools[transfer.target] += transfer.amount
+            yield (
+                f"faulty_remote_child_pool_credit(transfer={transfer.transfer_id})",
+                replace(state, core=replace(accepted, pools=tuple(pools))),
+            )
+        return
+
+    if mutant_id == "remote_child_without_voucher":
+        if len(core.leases) >= bounds.max_leases:
+            return
+        for parent in core.leases:
+            if not parent.active:
+                continue
+            for target in range(len(core.pools)):
+                if target == parent.warden or core.pools[target] < 1:
+                    continue
+                pools = list(core.pools)
+                pools[target] -= 1
+                ghost = Lease(core.next_lease_id, target, parent.lease_id, 1, True, 0, True)
+                candidate = replace(
+                    core,
+                    pools=tuple(pools),
+                    leases=tuple(sorted((*core.leases, ghost))),
+                    next_lease_id=core.next_lease_id + 1,
+                )
+                yield (
+                    f"faulty_ghost_remote_child(parent={parent.lease_id},target={target})",
+                    replace(state, core=candidate),
+                )
+        return
+
+    if mutant_id == "close_parent_with_pending_remote_child":
+        for parent in core.leases:
+            if not parent.active or not any(
+                transfer.kind == "lease"
+                and transfer.parent_id == parent.lease_id
+                and transfer.status == "PREPARED"
+                for transfer in core.transfers
+            ):
+                continue
+            if any(child.parent_id == parent.lease_id and child.active for child in core.leases):
+                continue
+            pools = list(core.pools)
+            pools[parent.warden] += parent.residual
+            changed = replace(parent, residual=0, active=False, sequence=parent.sequence + 1)
+            candidate = replace(core, pools=tuple(pools), leases=_replace_lease(core, changed))
+            yield (
+                f"faulty_close_pending_remote_parent(lease={parent.lease_id})",
+                replace(state, core=candidate),
             )
         return
 

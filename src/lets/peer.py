@@ -18,7 +18,7 @@ from typing import Any, Protocol, cast
 import httpx
 
 from lets.canonical import strict_json_loads
-from lets.client import PeerClient, RemoteUnavailableError, RetryPolicy
+from lets.client import PeerClient, RemoteUnavailableError, ResourceNotFoundError, RetryPolicy
 from lets.crypto import Ed25519Signer
 from lets.errors import StorageError
 from lets.ids import require_warden_id
@@ -34,6 +34,8 @@ class PeerTransport(Protocol):
     def ingest_revocation(self, revocation: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
     def ingest_transfer_checkpoint(self, checkpoint: Mapping[str, Any]) -> Mapping[str, Any]: ...
+
+    def lease_status(self, lease_id: str) -> Mapping[str, Any]: ...
 
     def close(self) -> None: ...
 
@@ -414,6 +416,15 @@ class PeerDispatcher:
         for row in rows:
             grouped[str(row[2])].append((str(row[0]), str(row[1]), str(row[3]), bytes(row[4])))
         return dict(grouped)
+
+    def resolve_remote_lease(self, warden_id: str, lease_id: str) -> Mapping[str, Any] | None:
+        client = self._clients.get(warden_id)
+        if client is None:
+            raise StorageError(f"no configured client exists for peer {warden_id!r}")
+        try:
+            return client.lease_status(lease_id)
+        except ResourceNotFoundError:
+            return None
 
     def _deliver_target(
         self,
