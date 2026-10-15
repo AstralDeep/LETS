@@ -736,7 +736,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _arguments(argv)
     if arguments.command == "assemble":
         counts = assemble(arguments.output)
-        write_manifest(arguments.output, ["assemble"], {"assembled": counts})
+        previous_path = arguments.output / "MANIFEST.json"
+        carried: dict[str, Any] = {}
+        if previous_path.exists():
+            previous = json.loads(previous_path.read_text(encoding="utf-8"))
+            carried = {
+                key: previous[key]
+                for key in ("grid", "outcomes", "run_command", "run_source", "run_environment")
+                if key in previous
+            }
+            if "run_command" not in previous:
+                carried["run_command"] = previous.get("command")
+                carried["run_source"] = previous.get("source")
+                carried["run_environment"] = previous.get("environment")
+        write_manifest(arguments.output, ["assemble"], {**carried, "assembled": counts})
         print(json.dumps(counts))
         return 0
     for name in arguments.systems:

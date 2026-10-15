@@ -91,9 +91,12 @@ def cdf_panel(
         axis.set_ylim(0, 1.02)
         axis.grid(True, alpha=0.3)
     axes[0].set_ylabel("fraction of requests authorized")
-    axes[-1].legend(loc="lower right", fontsize=8, frameon=False)
+    handles, labels = axes[-1].get_legend_handles_labels()
+    fig.legend(
+        handles, labels, loc="lower center", ncol=min(4, len(labels)), fontsize=8, frameon=False
+    )
     fig.suptitle(title or f"Time to authorization, load {load:g}x envelope, Zipf θ={theta:g}")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.12, 1, 1))
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output)
     plt.close(fig)
@@ -150,9 +153,12 @@ def completion_chart(
         axis.set_ylim(0, 1.05)
         axis.grid(True, axis="y", alpha=0.3)
     axes[0].set_ylabel("completions by deadline (fraction)")
-    axes[-1].legend(fontsize=8, frameon=False, loc="upper right", ncol=2)
+    handles, labels = axes[-1].get_legend_handles_labels()
+    fig.legend(
+        handles, labels, loc="lower center", ncol=min(4, len(labels)), fontsize=8, frameon=False
+    )
     fig.suptitle(f"Completions by deadline with 95% seed-bootstrap CIs, Zipf θ={theta:g}")
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0.12, 1, 1))
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output)
     plt.close(fig)
