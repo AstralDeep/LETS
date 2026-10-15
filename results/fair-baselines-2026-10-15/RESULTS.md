@@ -185,16 +185,21 @@ other sites use to reach it, and a privileged command prefix. On each endpoint (
    or run the agent inside the experiment image with `--cap-add NET_ADMIN` on hosts that have a
    Docker daemon (s1 and s3 in the inventory) and use
    `"fault_exec": ["ssh", "<user>@<host>", "docker", "exec", "lets-e1-s1", "sh", "-c"]`.
-   Set `"interface"` to the host's data interface if it is not `eth0`.
+   Set `"interface"` to the host's data interface if it is not `eth0`. Any prefix that goes
+   through `ssh` needs `"fault_exec_quote": true`, because the remote login shell re-parses the
+   command line: the driver then passes each command as one `sh -c` word. `docker exec` keeps
+   argument boundaries, so the local mode leaves the flag off. A site whose advertised `peer_ip`
+   is not an address on its own interfaces (an Azure VM behind a NAT public address, for example)
+   still works: the Raft node listens on every interface for its advertised port.
 4. Write the endpoints file:
 
    ```json
    {
      "token_env": "LETS_E1_TOKEN",
      "clusters": [{"name": "three-host", "sites": {
-       "s1": {"control_url": "http://127.0.0.1:9711", "peer_ip": "<s1 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s1>", "sudo", "sh", "-c"]},
-       "s2": {"control_url": "http://127.0.0.1:9712", "peer_ip": "<s2 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s2>", "sudo", "sh", "-c"]},
-       "s3": {"control_url": "http://127.0.0.1:9713", "peer_ip": "<s3 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s3>", "sudo", "sh", "-c"]}
+       "s1": {"control_url": "http://127.0.0.1:9711", "peer_ip": "<s1 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s1>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true},
+       "s2": {"control_url": "http://127.0.0.1:9712", "peer_ip": "<s2 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s2>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true},
+       "s3": {"control_url": "http://127.0.0.1:9713", "peer_ip": "<s3 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s3>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true}
      }}]
    }
    ```

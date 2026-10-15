@@ -5,6 +5,13 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Changed
+
+- E1 harness (`benchmarks/fair_baselines/`, experiment-only): the pysyncobj Raft node listens on
+  every interface for its advertised port, so a site can advertise a NAT public address it cannot
+  bind; and an endpoint may set `fault_exec_quote` so fault commands sent through `ssh` reach the
+  remote `sh -c` as one word. The runtime package, API, and schema are unchanged.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added

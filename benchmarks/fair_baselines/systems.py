@@ -362,6 +362,7 @@ class RaftCounterSystem:
         self._machine = BudgetStateMachine(budget)
         conf = SyncObjConf(
             autoTick=False,
+            bindAddress=f"0.0.0.0:{self_address.rsplit(':', 1)[1]}",
             journalFile=str(state_dir / f"{name}.journal"),
             fullDumpFile=str(state_dir / f"{name}.dump"),
             appendEntriesUseBatch=True,

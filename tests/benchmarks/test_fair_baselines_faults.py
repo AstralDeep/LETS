@@ -6,6 +6,7 @@ subprocess driver, and drop-counter parsing.
 from __future__ import annotations
 
 import itertools
+import shlex
 import sys
 
 import pytest
@@ -117,6 +118,15 @@ def test_subprocess_driver_runs_prefix_plus_command() -> None:
     assert SubprocessFaultDriver().run(endpoint, "echo-3").returncode == 3
 
 
+def test_subprocess_driver_quotes_the_command_for_a_remote_shell() -> None:
+    prefix = (sys.executable, "-c", "import sys; print(sys.argv[1])")
+    command = "iptables -N LETS_E1 2>/dev/null || true; iptables -F LETS_E1"
+    raw = SiteEndpoint("s1", "http://127.0.0.1:1", "127.0.0.1", 1, 2, prefix)
+    quoted = SiteEndpoint("s1", "http://127.0.0.1:1", "127.0.0.1", 1, 2, prefix, "eth0", True)
+    assert SubprocessFaultDriver().run(raw, command).stdout.strip() == command
+    assert SubprocessFaultDriver().run(quoted, command).stdout.strip() == shlex.quote(command)
+
+
 def test_endpoint_parsing_and_drop_counter_parsing() -> None:
     endpoint = SiteEndpoint.from_dict(
         "s2",
@@ -132,6 +142,22 @@ def test_endpoint_parsing_and_drop_counter_parsing() -> None:
     assert endpoint.peer_url == "http://10.231.0.12:9701"
     assert endpoint.raft_address == "10.231.0.12:9801"
     assert endpoint.to_dict()["fault_exec"] == ["docker", "exec", "x", "sh", "-c"]
+    assert endpoint.fault_exec_quote is False
+    assert endpoint.to_dict()["fault_exec_quote"] is False
+    remote = SiteEndpoint.from_dict(
+        "s3",
+        {
+            "control_url": "http://127.0.0.1:9713",
+            "peer_ip": "203.0.113.10",
+            "peer_port": 9701,
+            "raft_port": 9801,
+            "interface": "eno1",
+            "fault_exec": ["ssh", "user@203.0.113.10", "sudo", "-n", "sh", "-c"],
+            "fault_exec_quote": True,
+        },
+    )
+    assert remote.fault_exec_quote is True and remote.interface == "eno1"
+    assert remote.to_dict()["fault_exec_quote"] is True
     with pytest.raises(ValueError, match="unknown site"):
         SiteEndpoint.from_dict("s4", {})
     with pytest.raises(ValueError, match="fault_exec"):

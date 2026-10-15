@@ -6,6 +6,7 @@ its transfer handlers, and the actuator-side effect log.
 from __future__ import annotations
 
 import base64
+import socket
 import time
 from pathlib import Path
 
@@ -186,6 +187,34 @@ def test_raft_counter_times_out_without_quorum(tmp_path: Path) -> None:
         assert decision.reason.startswith("timeout") or decision.reason == "no_leader"
     finally:
         lonely.close()
+
+
+def test_raft_counter_listens_on_every_interface_for_an_unbindable_advertised_address(
+    tmp_path: Path,
+) -> None:
+    _log, sink = _events()
+    port = free_port()
+    advertised = RaftCounterSystem(
+        "raft-quorum",
+        "s3",
+        tmp_path,
+        2,
+        f"203.0.113.10:{port}",
+        {"s1": f"127.0.0.1:{free_port()}", "s2": f"127.0.0.1:{free_port()}"},
+        0.3,
+        sink,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+                break
+            except OSError:
+                assert time.monotonic() < deadline, "raft node never listened on 0.0.0.0"
+                time.sleep(0.1)
+    finally:
+        advertised.close()
 
 
 def _lets(tmp_path: Path, site: str, share: int, sink: object, transport: PeerTransport):  # type: ignore[no-untyped-def]

@@ -27,6 +27,7 @@ class SiteEndpoint:
     raft_port: int
     fault_exec: tuple[str, ...]
     interface: str = "eth0"
+    fault_exec_quote: bool = False
 
     @property
     def peer_url(self) -> str:
@@ -51,6 +52,7 @@ class SiteEndpoint:
             raft_port=int(payload["raft_port"]),  # type: ignore[call-overload]
             fault_exec=tuple(str(part) for part in fault_exec),
             interface=str(payload.get("interface", "eth0")),
+            fault_exec_quote=bool(payload.get("fault_exec_quote", False)),
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -61,6 +63,7 @@ class SiteEndpoint:
             "raft_port": self.raft_port,
             "fault_exec": list(self.fault_exec),
             "interface": self.interface,
+            "fault_exec_quote": self.fault_exec_quote,
         }
 
 
@@ -89,8 +92,9 @@ class SubprocessFaultDriver:
 
     def run(self, endpoint: SiteEndpoint, command: str) -> CommandResult:
         sent = time.time_ns()
+        argument = shlex.quote(command) if endpoint.fault_exec_quote else command
         completed = subprocess.run(
-            [*endpoint.fault_exec, command],
+            [*endpoint.fault_exec, argument],
             check=False,
             capture_output=True,
             text=True,
