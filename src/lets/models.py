@@ -5,6 +5,7 @@ executor.py build on these records; AstralDeep and AstralProjection clients too.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, ClassVar, Self
@@ -391,6 +392,59 @@ class Receipt:
         return cls(**values)
 
 
+TRANSFER_KIND_POOL = "pool"
+TRANSFER_KIND_LEASE = "lease"
+TRANSFER_KINDS = frozenset({TRANSFER_KIND_POOL, TRANSFER_KIND_LEASE})
+CHILD_OUTCOME_ISSUED = "ISSUED"
+CHILD_OUTCOME_FENCED = "FENCED"
+CHILD_OUTCOMES = frozenset({CHILD_OUTCOME_ISSUED, CHILD_OUTCOME_FENCED})
+_LEASE_REQUEST_FIELDS = frozenset(
+    {
+        "child_lease_id",
+        "lineage_id",
+        "parent_id",
+        "subject_id",
+        "capabilities",
+        "ancestor_path",
+        "branch_epoch",
+        "expires_at_ns",
+    }
+)
+
+
+def validate_lease_request(value: object) -> WireDict:
+    if not isinstance(value, Mapping):
+        raise ValidationError("lease_request must be an object")
+    data = dict(value)
+    _strict(data, set(_LEASE_REQUEST_FIELDS), "lease request")
+    for field in ("child_lease_id", "lineage_id", "parent_id", "subject_id"):
+        require_identifier(data[field], field=f"lease_request.{field}")
+    capabilities = sorted(_strings(data["capabilities"], "lease_request.capabilities"))
+    ancestor_path = _strings(data["ancestor_path"], "lease_request.ancestor_path")
+    if not ancestor_path or ancestor_path[-1] != data["parent_id"]:
+        raise ValidationError("lease_request.ancestor_path must end with parent_id")
+    if len(set(ancestor_path)) != len(ancestor_path):
+        raise ValidationError("lease_request.ancestor_path must not contain a cycle")
+    if data["child_lease_id"] in ancestor_path:
+        raise ValidationError("lease_request.ancestor_path must not contain the child")
+    if len(ancestor_path) > MAX_LINEAGE_DEPTH:
+        raise ValidationError(
+            f"lease_request.ancestor_path exceeds the v1 limit of {MAX_LINEAGE_DEPTH}"
+        )
+    _positive(data["branch_epoch"], "lease_request.branch_epoch", allow_zero=True)
+    _positive(data["expires_at_ns"], "lease_request.expires_at_ns")
+    return {
+        "child_lease_id": data["child_lease_id"],
+        "lineage_id": data["lineage_id"],
+        "parent_id": data["parent_id"],
+        "subject_id": data["subject_id"],
+        "capabilities": capabilities,
+        "ancestor_path": list(ancestor_path),
+        "branch_epoch": data["branch_epoch"],
+        "expires_at_ns": data["expires_at_ns"],
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class TransferVoucher:
     WIRE_TYPE: ClassVar[str] = "lets.transfer-voucher/v1"
@@ -409,6 +463,8 @@ class TransferVoucher:
     issued_at_ns: int
     key_id: str
     signature: str = ""
+    kind: str = TRANSFER_KIND_POOL
+    lease_request: WireDict | None = None
 
     def __post_init__(self) -> None:
         for field in (
@@ -431,9 +487,19 @@ class TransferVoucher:
         object.__setattr__(self, "amount", vector(self.amount))
         if not any(self.amount):
             raise ValidationError("transfer amount must contain a non-zero dimension")
+        if self.kind not in TRANSFER_KINDS:
+            raise ValidationError("transfer kind must be 'pool' or 'lease'")
+        if self.kind == TRANSFER_KIND_LEASE:
+            object.__setattr__(self, "lease_request", validate_lease_request(self.lease_request))
+        elif self.lease_request is not None:
+            raise ValidationError("pool transfers must not carry a lease request")
+
+    @property
+    def is_lease(self) -> bool:
+        return self.kind == TRANSFER_KIND_LEASE
 
     def unsigned_payload(self) -> WireDict:
-        return {
+        payload: WireDict = {
             "type": self.WIRE_TYPE,
             "tenant_id": self.tenant_id,
             "envelope_id": self.envelope_id,
@@ -449,6 +515,10 @@ class TransferVoucher:
             "issued_at_ns": self.issued_at_ns,
             "key_id": self.key_id,
         }
+        if self.kind == TRANSFER_KIND_LEASE and self.lease_request is not None:
+            payload["kind"] = self.kind
+            payload["lease_request"] = dict(self.lease_request)
+        return payload
 
     def to_dict(self) -> WireDict:
         return {**self.unsigned_payload(), "signature": self.signature}
@@ -456,12 +526,14 @@ class TransferVoucher:
     @classmethod
     def from_dict(cls, data: WireDict) -> Self:
         allowed = set(cls.__dataclass_fields__) - {"WIRE_TYPE"} | {"type"}
-        _strict(data, allowed, "transfer voucher")
+        _strict(data, allowed, "transfer voucher", required=allowed - {"kind", "lease_request"})
         if data.get("type") != cls.WIRE_TYPE:
             raise ValidationError("unsupported transfer voucher type")
         values = dict(data)
         values.pop("type")
         values["amount"] = vector(values["amount"])
+        values.setdefault("kind", TRANSFER_KIND_POOL)
+        values.setdefault("lease_request", None)
         return cls(**values)
 
 
@@ -481,6 +553,8 @@ class TransferAck:
     contiguous_watermark: int
     key_id: str
     signature: str = ""
+    child_lease_id: str | None = None
+    child_outcome: str | None = None
 
     def __post_init__(self) -> None:
         for field in (
@@ -497,9 +571,15 @@ class TransferAck:
         _positive(self.sequence, "sequence")
         _positive(self.contiguous_watermark, "contiguous_watermark", allow_zero=True)
         _positive(self.accepted_at_ns, "accepted_at_ns", allow_zero=True)
+        if (self.child_lease_id is None) != (self.child_outcome is None):
+            raise ValidationError("child_lease_id and child_outcome must be set together")
+        if self.child_lease_id is not None:
+            require_identifier(self.child_lease_id, field="child_lease_id")
+            if self.child_outcome not in CHILD_OUTCOMES:
+                raise ValidationError("child_outcome must be ISSUED or FENCED")
 
     def unsigned_payload(self) -> WireDict:
-        return {
+        payload: WireDict = {
             "type": self.WIRE_TYPE,
             "tenant_id": self.tenant_id,
             "envelope_id": self.envelope_id,
@@ -513,6 +593,10 @@ class TransferAck:
             "contiguous_watermark": self.contiguous_watermark,
             "key_id": self.key_id,
         }
+        if self.child_lease_id is not None:
+            payload["child_lease_id"] = self.child_lease_id
+            payload["child_outcome"] = self.child_outcome
+        return payload
 
     def to_dict(self) -> WireDict:
         return {**self.unsigned_payload(), "signature": self.signature}
@@ -520,11 +604,18 @@ class TransferAck:
     @classmethod
     def from_dict(cls, data: WireDict) -> Self:
         allowed = set(cls.__dataclass_fields__) - {"WIRE_TYPE"} | {"type"}
-        _strict(data, allowed, "transfer acknowledgement")
+        _strict(
+            data,
+            allowed,
+            "transfer acknowledgement",
+            required=allowed - {"child_lease_id", "child_outcome"},
+        )
         if data.get("type") != cls.WIRE_TYPE:
             raise ValidationError("unsupported transfer acknowledgement type")
         values = dict(data)
         values.pop("type")
+        values.setdefault("child_lease_id", None)
+        values.setdefault("child_outcome", None)
         return cls(**values)
 
 

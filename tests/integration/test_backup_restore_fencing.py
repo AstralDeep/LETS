@@ -43,6 +43,7 @@ from lets.recovery import (
 from lets.runtime import RUNTIME_PROVIDER_GROUP, RuntimeBindings
 from lets.service import WardenService
 from lets.storage import SQLiteStorage
+from lets.storage.schema import SCHEMA_VERSION
 
 
 class Authenticator:
@@ -345,7 +346,7 @@ def test_stale_recovery_bundle_is_fenced_before_live_files_are_replaced(
         core_database=ahead_core,
         replay_database=None,
         signed_manifest=manifest_path,
-        source_schema_version=2,
+        source_schema_version=SCHEMA_VERSION,
         identity=verified.identity,
         authority_checkpoint=ahead_checkpoint,
     )

@@ -129,11 +129,23 @@ def test_random_lifecycle_traces_conform_to_conservation_and_attenuation(
                             nonce=f"trace-nonce-{index:08d}",
                         )
                 else:
-                    service.close(
-                        request_id=f"trace-close-{index}",
-                        identity=_identity(owner),
-                        lease_id=lease_id,
-                    )
+                    try:
+                        service.close(
+                            request_id=f"trace-close-{index}",
+                            identity=_identity(owner),
+                            lease_id=lease_id,
+                        )
+                    except PolicyError as exc:
+                        assert "live local descendant" in str(exc)
+                        assert any(
+                            parent_of[candidate] == lease_id
+                            and service.snapshot(
+                                identity=_identity("auditor", "lets.lease.manage"),
+                                lease_id=candidate,
+                            ).status
+                            is LeaseStatus.ACTIVE
+                            for candidate in lease_ids
+                        )
 
                 invariant = service.invariant_snapshot(identity=_identity("auditor"))
                 assert invariant.healthy

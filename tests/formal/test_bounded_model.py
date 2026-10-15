@@ -33,9 +33,9 @@ def test_three_warden_bounded_model_preserves_invariants() -> None:
 
     assert result.passed
     assert result.violations == ()
-    assert result.states_checked == evidence["states_checked"] == 101_245
-    assert result.transitions_checked == evidence["transitions_checked"] == 318_558
-    assert result.self_loops_checked == evidence["self_loops_checked"] == 66_072
+    assert result.states_checked == evidence["states_checked"] == 147_673
+    assert result.transitions_checked == evidence["transitions_checked"] == 481_728
+    assert result.self_loops_checked == evidence["self_loops_checked"] == 116_412
     assert result.maximum_depth_reached == evidence["maximum_depth_reached"] == 9
     assert result.model_digest == evidence["model_digest"]
 
@@ -66,7 +66,7 @@ def test_tlc_evidence_is_bound_to_the_checked_spec_and_configuration() -> None:
 
     assert evidence["passed"] is True
     assert evidence["states_left_on_queue"] == 0
-    assert evidence["distinct_states"] == 6_776
+    assert evidence["distinct_states"] == 22_400
     assert evidence["tla2tools_jar_sha256"] == tool["sha256"]
     assert evidence["tla2tools_jar_bytes"] == tool["bytes"]
     assert evidence["tla2tools_release"] == tool["release"]

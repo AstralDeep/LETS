@@ -886,6 +886,54 @@
         ],
         "type": "object"
       },
+      "LeaseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ancestor_path": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "branch_epoch": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "child_lease_id": {
+            "type": "string"
+          },
+          "expires_at_ns": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "lineage_id": {
+            "type": "string"
+          },
+          "parent_id": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "child_lease_id",
+          "lineage_id",
+          "parent_id",
+          "subject_id",
+          "capabilities",
+          "ancestor_path",
+          "branch_epoch",
+          "expires_at_ns"
+        ],
+        "type": "object"
+      },
       "LeaseSnapshot": {
         "additionalProperties": false,
         "properties": {
@@ -1611,6 +1659,18 @@
         ],
         "type": "object"
       },
+      "PeerLeaseStatusRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lease_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lease_id"
+        ],
+        "type": "object"
+      },
       "Policy": {
         "additionalProperties": false,
         "properties": {
@@ -2106,6 +2166,46 @@
         ],
         "type": "object"
       },
+      "RemoteSpawnRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allocation": {
+            "$ref": "#/components/schemas/ResourceVector"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_sequence": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "target_warden": {
+            "$ref": "#/components/schemas/WardenId"
+          },
+          "ttl_ns": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "request_id",
+          "target_warden",
+          "subject_id",
+          "allocation",
+          "capabilities",
+          "ttl_ns"
+        ],
+        "type": "object"
+      },
       "RenewRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2365,6 +2465,16 @@
             "minimum": 0,
             "type": "integer"
           },
+          "child_lease_id": {
+            "type": "string"
+          },
+          "child_outcome": {
+            "enum": [
+              "ISSUED",
+              "FENCED"
+            ],
+            "type": "string"
+          },
           "config_epoch": {
             "minimum": 1,
             "type": "integer"
@@ -2493,6 +2603,16 @@
           },
           "key_id": {
             "$ref": "#/components/schemas/KeyId"
+          },
+          "kind": {
+            "enum": [
+              "pool",
+              "lease"
+            ],
+            "type": "string"
+          },
+          "lease_request": {
+            "$ref": "#/components/schemas/LeaseRequest"
           },
           "policy_digest": {
             "pattern": "^sha256:[0-9a-f]{64}$",
@@ -3406,6 +3526,70 @@
         "summary": "Spawn Child"
       }
     },
+    "/v1/leases/{parent_id}/remote-children": {
+      "post": {
+        "operationId": "spawn_remote_child_v1_leases__parent_id__remote_children_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "parent_id",
+            "required": true,
+            "schema": {
+              "title": "Parent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoteSpawnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransferVoucher"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS validation problem"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Spawn Remote Child"
+      }
+    },
     "/v1/maintenance/authority-fence": {
       "post": {
         "operationId": "fence_authority_admission_v1_maintenance_authority_fence_post",
@@ -3630,6 +3814,54 @@
           }
         ],
         "summary": "Metrics"
+      }
+    },
+    "/v1/peer/lease-status": {
+      "post": {
+        "operationId": "peer_lease_status_v1_peer_lease_status_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PeerLeaseStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaseSnapshot"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "RFC 9457 LETS problem"
+          }
+        },
+        "security": [
+          {
+            "peerContentSha256": [],
+            "peerKeyId": [],
+            "peerNonce": [],
+            "peerSignature": [],
+            "peerTimestamp": [],
+            "peerWardenId": []
+          }
+        ],
+        "summary": "Peer Lease Status"
       }
     },
     "/v1/peer/revocations": {

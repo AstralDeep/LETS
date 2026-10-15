@@ -191,7 +191,72 @@ def test_connect_reports_exclusive_lock_stage_and_recovers(tmp_path: Path) -> No
         storage.close()
 
 
-def test_schema_v1_requires_explicit_transactional_migration(tmp_path: Path) -> None:
+def _initialize_at_schema_version(
+    path: Path, version: int, monkeypatch: pytest.MonkeyPatch, **options: object
+) -> None:
+    import lets.storage.sqlite as sqlite_module
+
+    v3_tables = {"remote_children"}
+    v3_indexes = {"ix_remote_children_parent"}
+    v3_triggers = {
+        "leases_remote_parent_consistent",
+        "outgoing_transfers_kind_insert",
+        "remote_children_identity_immutable",
+    }
+    with monkeypatch.context() as patch:
+        patch.setattr(sqlite_module, "SCHEMA_VERSION", version)
+        patch.setattr(sqlite_module, "_EXPECTED_SCHEMA_DEFINITION_DIGEST", None)
+        if version < 3:
+            patch.setattr(sqlite_module, "REQUIRED_TABLES", REQUIRED_TABLES - v3_tables)
+            patch.setattr(sqlite_module, "REQUIRED_INDEXES", REQUIRED_INDEXES - v3_indexes)
+            patch.setattr(sqlite_module, "REQUIRED_TRIGGERS", REQUIRED_TRIGGERS - v3_triggers)
+        legacy = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
+        legacy.close()
+    sqlite_module._EXPECTED_SCHEMA_DEFINITION_DIGEST = None
+
+
+def _schema_columns(path: Path, table: str) -> set[str]:
+    with closing(sqlite3.connect(path)) as connection:
+        return {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")}
+
+
+def test_schema_v2_requires_explicit_migration_to_remote_children(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "legacy-v2.db"
+    options = {
+        "signing_key_id": _SIGNING_KEY_ID,
+        "signing_public_key": _SIGNING_PUBLIC_KEY,
+        "tenant_id": "tenant-a",
+        "envelope_id": "envelope-a",
+    }
+    _initialize_at_schema_version(path, 2, monkeypatch, **options)
+    assert "parent_warden" not in _schema_columns(path, "leases")
+    assert "kind" not in _schema_columns(path, "outgoing_transfers")
+
+    with pytest.raises(StorageError, match="requires explicit migration"):
+        SQLiteStorage(path, "warden-a", (10,), **options)
+
+    migrated = SQLiteStorage.migrate(path, "warden-a", (10,), **options)
+    try:
+        assert migrated.schema_version == SCHEMA_VERSION == 3
+    finally:
+        migrated.close()
+    assert {"parent_warden", "remote_parent_id"} <= _schema_columns(path, "leases")
+    assert {"kind", "lease_request", "child_lease_id"} <= _schema_columns(
+        path, "outgoing_transfers"
+    )
+    assert _schema_columns(path, "remote_children") >= {"child_lease_id", "parent_id", "status"}
+    reopened = SQLiteStorage(path, "warden-a", (10,), **options)
+    try:
+        assert reopened.schema_version == SCHEMA_VERSION
+    finally:
+        reopened.close()
+
+
+def test_schema_v1_requires_explicit_transactional_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "legacy-v1.db"
     options = {
         "signing_key_id": _SIGNING_KEY_ID,
@@ -199,8 +264,7 @@ def test_schema_v1_requires_explicit_transactional_migration(tmp_path: Path) -> 
         "tenant_id": "tenant-a",
         "envelope_id": "envelope-a",
     }
-    current = SQLiteStorage.initialize(path, "warden-a", (10,), **options)
-    current.close()
+    _initialize_at_schema_version(path, 2, monkeypatch, **options)
 
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.execute("DROP TRIGGER runtime_control_generation_monotonic")
@@ -222,12 +286,16 @@ def test_schema_v1_requires_explicit_transactional_migration(tmp_path: Path) -> 
 
     migrated = SQLiteStorage.migrate(path, "warden-a", (10,), **options)
     try:
-        assert migrated.schema_version == SCHEMA_VERSION == 2
+        assert migrated.schema_version == SCHEMA_VERSION == 3
         with migrated.read() as transaction:
             row = transaction.connection.execute(
                 "SELECT mode, generation FROM runtime_control WHERE singleton = 1"
             ).fetchone()
+            remote_children = transaction.connection.execute(
+                "SELECT COUNT(*) FROM remote_children"
+            ).fetchone()
         assert tuple(row) == ("ACTIVE", 0)
+        assert tuple(remote_children) == (0,)
     finally:
         migrated.close()
 

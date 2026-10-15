@@ -580,6 +580,28 @@ def create_app(
         include_in_schema=False,
     )
 
+    @app.post("/v1/leases/{parent_id}/remote-children", status_code=201)
+    async def spawn_remote_child(parent_id: str, request: Request) -> JSONResponse:
+        identity = await client_identity(request)
+        body = _fields(
+            await _json_object(request, maximum_bytes=maximum_body_bytes),
+            required=frozenset(
+                {
+                    "request_id",
+                    "target_warden",
+                    "subject_id",
+                    "allocation",
+                    "capabilities",
+                    "ttl_ns",
+                }
+            ),
+            optional=frozenset({"expected_sequence"}),
+        )
+        value = await _invoke(
+            _method(service, "spawn_remote"), identity=identity, parent_id=parent_id, **body
+        )
+        return _json_response(value, status_code=201)
+
     async def authorize_transition(lease_id: str, request: Request) -> JSONResponse:
         identity = await client_identity(request)
         body = await _json_object(request, maximum_bytes=maximum_body_bytes)
@@ -842,6 +864,16 @@ def create_app(
         value = await _invoke(
             _method(service, "ingest_revocation"), identity=identity, revocation=body
         )
+        return _json_response(value)
+
+    @app.post("/v1/peer/lease-status")
+    async def peer_lease_status(request: Request) -> JSONResponse:
+        _, identity = await peer_identity(request)
+        body = _fields(
+            await _json_object(request, maximum_bytes=maximum_body_bytes),
+            required=frozenset({"lease_id"}),
+        )
+        value = await _invoke(_method(service, "peer_lease_status"), identity=identity, **body)
         return _json_response(value)
 
     @app.post("/v1/transfers/{target_warden}/checkpoints")
@@ -1127,6 +1159,57 @@ def create_app(
                 "expected_sequence": {"type": "integer", "minimum": 0},
             },
         },
+        "RemoteSpawnRequest": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "request_id",
+                "target_warden",
+                "subject_id",
+                "allocation",
+                "capabilities",
+                "ttl_ns",
+            ],
+            "properties": {
+                "request_id": {"type": "string"},
+                "target_warden": {"$ref": "#/components/schemas/WardenId"},
+                "subject_id": {"type": "string"},
+                "allocation": {"$ref": "#/components/schemas/ResourceVector"},
+                "capabilities": {"type": "array", "items": {"type": "string"}},
+                "ttl_ns": {"type": "integer", "minimum": 1},
+                "expected_sequence": {"type": "integer", "minimum": 0},
+            },
+        },
+        "PeerLeaseStatusRequest": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["lease_id"],
+            "properties": {"lease_id": {"type": "string"}},
+        },
+        "LeaseRequest": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "child_lease_id",
+                "lineage_id",
+                "parent_id",
+                "subject_id",
+                "capabilities",
+                "ancestor_path",
+                "branch_epoch",
+                "expires_at_ns",
+            ],
+            "properties": {
+                "child_lease_id": {"type": "string"},
+                "lineage_id": {"type": "string"},
+                "parent_id": {"type": "string"},
+                "subject_id": {"type": "string"},
+                "capabilities": {"type": "array", "items": {"type": "string"}},
+                "ancestor_path": {"type": "array", "items": {"type": "string"}},
+                "branch_epoch": {"type": "integer", "minimum": 0},
+                "expires_at_ns": {"type": "integer", "minimum": 1},
+            },
+        },
         "TransitionRequest": {
             "type": "object",
             "additionalProperties": False,
@@ -1226,6 +1309,8 @@ def create_app(
                 "issued_at_ns": {"type": "integer", "minimum": 0},
                 "key_id": {"$ref": "#/components/schemas/KeyId"},
                 "signature": {"type": "string"},
+                "kind": {"type": "string", "enum": ["pool", "lease"]},
+                "lease_request": {"$ref": "#/components/schemas/LeaseRequest"},
             },
         },
         "TransferAck": {
@@ -1260,6 +1345,8 @@ def create_app(
                 "contiguous_watermark": {"type": "integer", "minimum": 0},
                 "key_id": {"$ref": "#/components/schemas/KeyId"},
                 "signature": {"type": "string"},
+                "child_lease_id": {"type": "string"},
+                "child_outcome": {"type": "string", "enum": ["ISSUED", "FENCED"]},
             },
         },
         "BranchRevocation": {
@@ -2309,6 +2396,7 @@ def create_app(
         "/v1/policies": "Policy",
         "/v1/roots": "IssueRootRequest",
         "/v1/leases/{parent_id}/children": "SpawnRequest",
+        "/v1/leases/{parent_id}/remote-children": "RemoteSpawnRequest",
         "/v1/leases/{lease_id}/transitions": "TransitionRequest",
         "/v1/leases/{lease_id}/renew": "RenewRequest",
         "/v1/leases/{lease_id}/quiesce": "IdempotentRequest",
@@ -2322,6 +2410,7 @@ def create_app(
         "/v1/transfers/{source_warden}/{sequence}/accept": "TransferVoucher",
         "/v1/transfers/{target_warden}/{sequence}/finalize": "TransferAck",
         "/v1/peer/revocations": "BranchRevocation",
+        "/v1/peer/lease-status": "PeerLeaseStatusRequest",
         "/v1/transfers/{target_warden}/checkpoints": "CheckpointRequest",
         "/v1/peer/transfer-checkpoints": "TransferCheckpoint",
     }
@@ -2329,6 +2418,7 @@ def create_app(
         "/v1/transfers/{source_warden}/{sequence}/accept",
         "/v1/transfers/{target_warden}/{sequence}/finalize",
         "/v1/peer/revocations",
+        "/v1/peer/lease-status",
         "/v1/peer/transfer-checkpoints",
     }
     success_contracts = {
@@ -2338,6 +2428,7 @@ def create_app(
         "/v1/policies": "PolicyRegistration",
         "/v1/roots": "LeaseGrant",
         "/v1/leases/{parent_id}/children": "LeaseGrant",
+        "/v1/leases/{parent_id}/remote-children": "TransferVoucher",
         "/v1/leases/{lease_id}/transitions": "Receipt",
         "/v1/leases/{lease_id}/renew": "LeaseSnapshot",
         "/v1/leases/{lease_id}/quiesce": "LeaseSnapshot",
@@ -2357,6 +2448,7 @@ def create_app(
         "/v1/transfers/{source_warden}/{sequence}/accept": "TransferAck",
         "/v1/transfers/{target_warden}/{sequence}/finalize": "TransferAck",
         "/v1/peer/revocations": "BranchRevocation",
+        "/v1/peer/lease-status": "LeaseSnapshot",
         "/v1/transfers/{target_warden}/checkpoints": "TransferCheckpoint",
         "/v1/peer/transfer-checkpoints": "TransferCheckpoint",
     }

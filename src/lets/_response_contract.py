@@ -676,6 +676,54 @@ _CONTRACT_JSON: Final[str] = """\
       }
     ]
   },
+  "POST /v1/leases/{parent_id}/remote-children": {
+    "root": "object",
+    "statuses": [
+      201
+    ],
+    "variants": [
+      {
+        "consts": {
+          "type": "lets.transfer-voucher/v1"
+        },
+        "excluded": [],
+        "required": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "transfer_id",
+          "source_warden",
+          "target_warden",
+          "policy_id",
+          "policy_version",
+          "policy_digest",
+          "sequence",
+          "amount",
+          "issued_at_ns",
+          "key_id",
+          "signature"
+        ],
+        "required_non_null": [
+          "type",
+          "tenant_id",
+          "envelope_id",
+          "config_epoch",
+          "transfer_id",
+          "source_warden",
+          "target_warden",
+          "policy_id",
+          "policy_version",
+          "policy_digest",
+          "sequence",
+          "amount",
+          "issued_at_ns",
+          "key_id",
+          "signature"
+        ]
+      }
+    ]
+  },
   "POST /v1/maintenance/authority-fence": {
     "root": "object",
     "statuses": [
@@ -752,6 +800,38 @@ _CONTRACT_JSON: Final[str] = """\
           "reason",
           "changed_at_ns",
           "changed_by"
+        ]
+      }
+    ]
+  },
+  "POST /v1/peer/lease-status": {
+    "root": "object",
+    "statuses": [
+      200
+    ],
+    "variants": [
+      {
+        "consts": {
+          "type": "lets.lease-snapshot/v1"
+        },
+        "excluded": [],
+        "required": [
+          "type",
+          "grant",
+          "residual",
+          "current_state",
+          "status",
+          "sequence",
+          "updated_at_ns"
+        ],
+        "required_non_null": [
+          "type",
+          "grant",
+          "residual",
+          "current_state",
+          "status",
+          "sequence",
+          "updated_at_ns"
         ]
       }
     ]

@@ -746,6 +746,18 @@ class LETSClient:
             ),
         )
 
+    def spawn_remote(self, parent_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        self._idempotent_payload(payload)
+        return cast(
+            Mapping[str, Any],
+            self._request(
+                "POST",
+                f"/v1/leases/{self._id(parent_id)}/remote-children",
+                payload=payload,
+                idempotent=True,
+            ),
+        )
+
     def authorize(self, lease_id: str, payload: Mapping[str, Any]) -> Mapping[str, Any]:
         self._idempotent_payload(payload)
         if "executor_audience" not in payload or "audience" in payload:
@@ -912,3 +924,6 @@ class PeerClient(LETSClient):
 
     def ingest_transfer_checkpoint(self, checkpoint: Mapping[str, Any]) -> Mapping[str, Any]:
         return self._signed_post("/v1/peer/transfer-checkpoints", checkpoint)
+
+    def lease_status(self, lease_id: str) -> Mapping[str, Any]:
+        return self._signed_post("/v1/peer/lease-status", {"lease_id": self._id(lease_id)})
