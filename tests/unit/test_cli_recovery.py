@@ -774,3 +774,39 @@ def test_schema_v2_database_migrates_to_the_current_schema(
     assert {"parent_warden", "remote_parent_id"} <= columns
     journal = json.loads((tmp_path / "migration-v1-v2.json").read_text(encoding="utf-8"))
     assert journal["phase"] == "COMPLETE"
+
+
+def test_migration_bundle_must_come_from_a_pre_migration_schema(tmp_path: Path) -> None:
+    signer = Ed25519Signer.generate("warden-a")
+    core = tmp_path / "warden.sqlite3"
+    store = SQLiteStorage.initialize(
+        core,
+        signer.warden_id,
+        (10,),
+        signing_key_id=signer.key_id,
+        signing_public_key=signer.public_key_bytes,
+        tenant_id="tenant-a",
+        envelope_id="envelope-a",
+        initial_local_share=(10,),
+    )
+    checkpoint = store.authority_checkpoint().to_dict()
+    store.close()
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"version": 1}) + "\n", encoding="utf-8")
+    bundle = create_recovery_bundle(
+        destination=tmp_path / "bundle",
+        config_path=config,
+        core_database=core,
+        replay_database=None,
+        signed_manifest=None,
+        source_schema_version=SCHEMA_VERSION,
+        identity={"warden_id": signer.warden_id},
+        authority_checkpoint=checkpoint,
+    )
+    with pytest.raises(ValidationError, match="pre-migration schema source"):
+        cli_module._verify_migration_bundle(
+            bundle.root,
+            resolved=config,
+            config=json.loads(config.read_text(encoding="utf-8")),
+            signer=signer,
+        )

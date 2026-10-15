@@ -5,16 +5,19 @@ both ledgers, and close waits for every descendant, local or remote, to terminat
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
+from lets.canonical import b64url_encode, canonical_json
+from lets.client import LETSClient, PeerClient
 from lets.clock import ManualClock
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
-from lets.errors import ConflictError, PolicyError, SignatureError, ValidationError
+from lets.errors import ConflictError, ExpiredError, PolicyError, SignatureError, ValidationError
 from lets.models import (
     CHILD_OUTCOME_FENCED,
     CHILD_OUTCOME_ISSUED,
@@ -22,6 +25,7 @@ from lets.models import (
     LeaseStatus,
     TransferAck,
     TransferVoucher,
+    validate_lease_request,
 )
 from lets.policy import MachineSpec, PolicySpec, ResourceDimension, TransitionSpec
 from lets.service import WardenService
@@ -64,7 +68,7 @@ def _service(
     registry: PublicKeyRegistry,
     *,
     peers: set[str],
-) -> tuple[SQLiteStorage, WardenService]:
+) -> tuple[SQLiteStorage, WardenService, Ed25519Signer]:
     signer = Ed25519Signer.generate(warden_id)
     store = SQLiteStorage.initialize(
         path,
@@ -88,17 +92,17 @@ def _service(
         allowed_peer_wardens=peers,
     )
     service.register_policy(_policy())
-    return store, service
+    return store, service, signer
 
 
 class Pair:
     def __init__(self, tmp_path: Path) -> None:
         self.clock = ManualClock(1_000_000, 5)
         self.registry = PublicKeyRegistry()
-        self.source_store, self.source = _service(
+        self.source_store, self.source, self.source_signer = _service(
             tmp_path / "source.db", "source", (60,), self.clock, self.registry, peers={"target"}
         )
-        self.target_store, self.target = _service(
+        self.target_store, self.target, self.target_signer = _service(
             tmp_path / "target.db", "target", (40,), self.clock, self.registry, peers={"source"}
         )
         self.source.bind_remote_lease_resolver(self.resolve)
@@ -520,4 +524,244 @@ def test_pool_vouchers_keep_their_wire_shape(pair: Pair) -> None:
     assert TransferAck.from_dict(ack.to_dict()) == ack
 
 
-RemoteResolver = Callable[[str, str], Mapping[str, Any] | None]
+def _resign_voucher(
+    voucher: TransferVoucher, signer: Ed25519Signer, **changes: Any
+) -> TransferVoucher:
+    unsigned = replace(voucher, signature="", **changes)
+    signature = b64url_encode(signer.sign(canonical_json(unsigned.unsigned_payload())))
+    return replace(unsigned, signature=signature)
+
+
+def _resign_ack(ack: TransferAck, signer: Ed25519Signer, **changes: Any) -> TransferAck:
+    unsigned = replace(ack, signature="", **changes)
+    signature = b64url_encode(signer.sign(canonical_json(unsigned.unsigned_payload())))
+    return replace(unsigned, signature=signature)
+
+
+def test_lease_request_validation_rejects_malformed_requests() -> None:
+    base: dict[str, Any] = {
+        "child_lease_id": "lease-c",
+        "lineage_id": "lineage-1",
+        "parent_id": "lease-p",
+        "subject_id": "agent",
+        "capabilities": ["worker.act"],
+        "ancestor_path": ["lease-root", "lease-p"],
+        "branch_epoch": 0,
+        "expires_at_ns": 10,
+    }
+    assert validate_lease_request(base)["ancestor_path"] == ["lease-root", "lease-p"]
+    with pytest.raises(ValidationError, match="must be an object"):
+        validate_lease_request("nope")
+    with pytest.raises(ValidationError, match="end with parent_id"):
+        validate_lease_request({**base, "ancestor_path": ["lease-root"]})
+    with pytest.raises(ValidationError, match="cycle"):
+        validate_lease_request({**base, "ancestor_path": ["lease-p", "lease-p"]})
+    with pytest.raises(ValidationError, match="contain the child"):
+        validate_lease_request({**base, "ancestor_path": ["lease-c", "lease-p"]})
+    deep = [f"lease-{index}" for index in range(65)] + ["lease-p"]
+    with pytest.raises(ValidationError, match="exceeds"):
+        validate_lease_request({**base, "ancestor_path": deep})
+
+
+def test_voucher_and_acknowledgement_field_validation(pair: Pair) -> None:
+    voucher = pair.source.prepare_transfer(
+        request_id="pool",
+        identity=SUBJECT,
+        tenant_id="tenant",
+        envelope_id="envelope",
+        target_warden="target",
+        amount=(5,),
+    )
+    with pytest.raises(ValidationError, match="transfer kind"):
+        replace(voucher, kind="gift")
+    with pytest.raises(ValidationError, match="must not carry"):
+        replace(voucher, lease_request={"child_lease_id": "lease-x"})
+    ack = pair.target.accept_transfer(identity=SOURCE_PEER, voucher=voucher)
+    with pytest.raises(ValidationError, match="set together"):
+        replace(ack, child_lease_id="lease-x")
+    with pytest.raises(ValidationError, match="ISSUED or FENCED"):
+        replace(ack, child_lease_id="lease-x", child_outcome="MAYBE")
+
+
+def test_remote_spawn_rejects_bad_sequence_tenant_subject_and_expiry(pair: Pair) -> None:
+    parent = pair.root()
+    with pytest.raises(ValidationError, match="expected_sequence"):
+        pair.spawn_remote(parent, expected_sequence=-1)
+    with pytest.raises(PolicyError, match="identity tenant"):
+        pair.spawn_remote(parent, identity=IdentityContext("agent", "other-tenant", frozenset()))
+    with pytest.raises(PolicyError, match="only the parent subject"):
+        pair.spawn_remote(parent, identity=_identity("stranger"))
+    with pytest.raises(ExpiredError, match="not fresh"):
+        pair.spawn_remote(parent, ttl_ns=3)
+    assert pair.source.invariant_snapshot(identity=ADMIN).transferred_out == (0,)
+
+
+def test_remote_spawn_requires_target_verification_material(tmp_path: Path) -> None:
+    clock = ManualClock(1_000_000, 5)
+    signer = Ed25519Signer.generate("lonely")
+    store = SQLiteStorage.initialize(
+        tmp_path / "lonely.db",
+        "lonely",
+        (100,),
+        signing_key_id=signer.key_id,
+        signing_public_key=signer.public_key_bytes,
+        tenant_id="tenant",
+        envelope_id="envelope",
+        initial_local_share=(100,),
+        receipt_ttl_ns=100,
+        max_clock_uncertainty_ns=5,
+        transfer_gap_window=4,
+    )
+    try:
+        service = WardenService(store, signer=signer, clock=clock, allowed_peer_wardens={"target"})
+        service.register_policy(_policy())
+        root = service.issue_root(
+            request_id="root",
+            identity=SUBJECT,
+            tenant_id="tenant",
+            envelope_id="envelope",
+            subject_id="agent",
+            allocation=(10,),
+            capabilities={"worker.act"},
+            policy_digest=_policy().digest,
+            ttl_ns=5_000,
+        )
+        with pytest.raises(SignatureError, match="verification material"):
+            service.spawn_remote(
+                request_id="remote",
+                identity=SUBJECT,
+                parent_id=root.lease_id,
+                target_warden="target",
+                subject_id="agent",
+                allocation=(1,),
+                capabilities={"worker.act"},
+                ttl_ns=1_000,
+            )
+    finally:
+        store.close()
+
+
+def test_target_rejects_duplicate_child_id_and_undeclared_capabilities(pair: Pair) -> None:
+    parent = pair.root()
+    voucher = pair.spawn_remote(parent)
+    pair.deliver(voucher)
+    duplicate = _resign_voucher(
+        voucher, pair.source_signer, transfer_id="transfer-duplicate-child", sequence=2
+    )
+    with pytest.raises(ConflictError, match="already exists"):
+        pair.target.accept_transfer(identity=SOURCE_PEER, voucher=duplicate)
+    assert voucher.lease_request is not None
+    undeclared = _resign_voucher(
+        voucher,
+        pair.source_signer,
+        transfer_id="transfer-undeclared",
+        sequence=2,
+        lease_request={
+            **voucher.lease_request,
+            "child_lease_id": "lease-undeclared",
+            "capabilities": ["worker.other"],
+        },
+    )
+    with pytest.raises(PolicyError, match="undeclared"):
+        pair.target.accept_transfer(identity=SOURCE_PEER, voucher=undeclared)
+    assert pair.target.invariant_snapshot(identity=ADMIN).transferred_in == (4,)
+
+
+def test_source_rejects_acknowledgements_that_misreport_the_child(pair: Pair) -> None:
+    parent = pair.root()
+    voucher = pair.spawn_remote(parent)
+    ack = pair.target.accept_transfer(identity=SOURCE_PEER, voucher=voucher)
+    misreported = _resign_ack(ack, pair.target_signer, child_lease_id="lease-other")
+    with pytest.raises(ConflictError, match="does not report"):
+        pair.source.finalize_transfer(identity=TARGET_PEER, acknowledgement=misreported)
+    pool = pair.source.prepare_transfer(
+        request_id="pool",
+        identity=SUBJECT,
+        tenant_id="tenant",
+        envelope_id="envelope",
+        target_warden="target",
+        amount=(5,),
+    )
+    pool_ack = pair.target.accept_transfer(identity=SOURCE_PEER, voucher=pool)
+    chatty = _resign_ack(
+        pool_ack,
+        pair.target_signer,
+        child_lease_id="lease-ghost",
+        child_outcome=CHILD_OUTCOME_ISSUED,
+    )
+    with pytest.raises(ConflictError, match="must not report a child"):
+        pair.source.finalize_transfer(identity=TARGET_PEER, acknowledgement=chatty)
+    pair.source.finalize_transfer(identity=TARGET_PEER, acknowledgement=ack)
+    pair.source.finalize_transfer(identity=TARGET_PEER, acknowledgement=pool_ack)
+    assert pair.conserved() == (100,)
+
+
+def test_close_ignores_non_mapping_resolver_results(pair: Pair) -> None:
+    parent = pair.root()
+    voucher = pair.spawn_remote(parent)
+    pair.deliver(voucher)
+
+    def odd_resolver(warden_id: str, lease_id: str) -> Mapping[str, Any] | None:
+        return "weird"  # type: ignore[return-value]
+
+    pair.source.bind_remote_lease_resolver(odd_resolver)
+    with pytest.raises(PolicyError, match="not proven terminated"):
+        pair.source.close(request_id="close", identity=SUBJECT, lease_id=parent)
+
+
+def test_peer_lease_status_rejects_foreign_tenants(pair: Pair) -> None:
+    parent = pair.root()
+    with pytest.raises(PolicyError, match="identity tenant"):
+        pair.target.peer_lease_status(
+            identity=IdentityContext("source", "other-tenant", frozenset({"lets.peer"})),
+            lease_id=parent,
+        )
+
+
+def test_clients_route_remote_spawn_and_peer_lease_status(pair: Pair) -> None:
+    parent = pair.root()
+    voucher = pair.spawn_remote(parent)
+    pair.deliver(voucher)
+    assert voucher.lease_request is not None
+    child_id = voucher.lease_request["child_lease_id"]
+    snapshot = pair.target.peer_lease_status(identity=SOURCE_PEER, lease_id=child_id)
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.url.path.endswith("/remote-children"):
+            return httpx.Response(201, json=voucher.to_dict(), request=request)
+        if request.url.path == "/v1/peer/lease-status":
+            return httpx.Response(200, json=snapshot.to_dict(), request=request)
+        return httpx.Response(404, request=request)
+
+    client = LETSClient(
+        "https://warden.test", transport=httpx.MockTransport(handler), token="valid-token"
+    )
+    try:
+        result = client.spawn_remote(
+            parent,
+            {
+                "request_id": "remote-request",
+                "target_warden": "target",
+                "subject_id": "agent",
+                "allocation": [4],
+                "capabilities": ["worker.act"],
+                "ttl_ns": 2_000,
+            },
+        )
+        assert result["transfer_id"] == voucher.transfer_id
+    finally:
+        client.close()
+    peer = PeerClient(
+        "https://warden.test", signer=pair.source_signer, transport=httpx.MockTransport(handler)
+    )
+    try:
+        status = peer.lease_status(child_id)
+        assert status["grant"]["lease_id"] == child_id
+    finally:
+        peer.close()
+    assert seen == [
+        ("POST", f"/v1/leases/{parent}/remote-children"),
+        ("POST", "/v1/peer/lease-status"),
+    ]
