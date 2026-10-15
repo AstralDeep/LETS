@@ -162,40 +162,53 @@ flapping-s1-s2 --loads 0.7 2.0 --thetas 0 0.5 1 --pre-s 5 --partition-s 30 --pos
 grid resumes; `--overwrite` reruns everything. `benchmarks/results/` is ignored by Git and holds
 the generated compose file and the per-invocation shared token.
 
-## Running on the three SSH endpoints
+## Running on remote endpoints (three or more sites)
 
 The controller is topology-agnostic: it only needs, per site, a control URL, the address the
-other sites use to reach it, and a privileged command prefix. On each endpoint (Ubuntu 22.04 or
-24.04 as inventoried in `results/nsdi-strengthening-2026-09-02/remote/cluster-inventory.json`):
+other sites use to reach it, and a privileged command prefix. The number of sites and their
+aliases come from the endpoints file, so the same harness runs the original three-host grid and a
+multi-region grid (for example two UK hosts, one Azure VM, and four AWS regions). On each endpoint
+(Ubuntu 22.04 or 24.04 as inventoried in
+`results/nsdi-strengthening-2026-09-02/remote/cluster-inventory.json`):
 
 1. Check out this commit, install CPython 3.12 with uv as the three-host harness does, and run
    `uv sync --extra benchmarks --frozen`.
-2. Start the site agent with a shared random token, binding the host's private address so the
-   peers reach it directly (no controller relay):
+2. Start the site agent with a shared random token and the site's alias, binding the host's
+   private address so the peers reach it directly (no controller relay):
 
    ```bash
-   LETS_E1_TOKEN="$(cat ~/.lets-e1/token)" uv run python -m benchmarks.fair_baselines.site_agent --site s1 --bind 0.0.0.0 --port 9701 --state-root ~/.lets-e1/state
+   LETS_E1_TOKEN="$(cat ~/.lets-e1/token)" uv run python -m benchmarks.fair_baselines.site_agent --site uk1 --bind 0.0.0.0 --port 9701 --state-root ~/.lets-e1/state
    ```
 
-   The peer API on 9701 and the Raft port 9801 must be open between the three hosts; the control
-   API (also 9701, bearer token) should be reachable from the controller only, for example through
-   an SSH port forward to `127.0.0.1:97xx` on the controller.
+   An alias is 1-32 letters, digits, or underscores (`uk1`, `use2`, `aws_euw2`); hyphens are not
+   allowed because link labels and topology names join aliases with `-`. The peer API on 9701 and
+   the Raft port 9801 must be open between every pair of hosts (security groups and NSGs included);
+   the control API (also 9701, bearer token) should be reachable from the controller only, for
+   example through an SSH port forward to `127.0.0.1:97xx` on the controller.
 3. Give the controller a way to run `iptables` and `tc` as root on each host. Either passwordless
    sudo for those two binaries with `"fault_exec": ["ssh", "-i", "<key>", "<user>@<host>", "sudo", "sh", "-c"]`,
    or run the agent inside the experiment image with `--cap-add NET_ADMIN` on hosts that have a
-   Docker daemon (s1 and s3 in the inventory) and use
-   `"fault_exec": ["ssh", "<user>@<host>", "docker", "exec", "lets-e1-s1", "sh", "-c"]`.
-   Set `"interface"` to the host's data interface if it is not `eth0`. Any prefix that goes
-   through `ssh` needs `"fault_exec_quote": true`, because the remote login shell re-parses the
-   command line: the driver then passes each command as one `sh -c` word. `docker exec` keeps
-   argument boundaries, so the local mode leaves the flag off. A site whose advertised `peer_ip`
-   is not an address on its own interfaces (an Azure VM behind a NAT public address, for example)
-   still works: the Raft node listens on every interface for its advertised port.
-4. Write the endpoints file:
+   Docker daemon and use
+   `"fault_exec": ["ssh", "<user>@<host>", "docker", "exec", "lets-e1-uk1", "sh", "-c"]`.
+   Set `"interface"` to the host's data interface if it is not `eth0` (`ens5` on the AWS
+   instances). Any prefix that goes through `ssh` needs `"fault_exec_quote": true`, because the
+   remote login shell re-parses the command line: the driver then passes each command as one
+   `sh -c` word. `docker exec` keeps argument boundaries, so the local mode leaves the flag off. A
+   site whose advertised `peer_ip` is not an address on its own interfaces (an Azure VM behind a
+   NAT public address, for example) still works: the Raft node listens on every interface for its
+   advertised port.
+4. Write the endpoints file. The top-level `sites` list is the ordered roster: it fixes the Zipf
+   rank order of demand (the first site is the heaviest), the order in which equal shares absorb
+   the envelope remainder, the Raft membership, and the site order in every table and figure.
+   Every cluster must describe exactly those aliases. When `sites` is absent the roster is
+   `["s1", "s2", "s3"]`, which is what the three-host run used.
+   `benchmarks/fair_baselines/examples/seven-site-endpoints.json` is a complete seven-site
+   example with placeholder addresses; the three-site shape is:
 
    ```json
    {
      "token_env": "LETS_E1_TOKEN",
+     "sites": ["s1", "s2", "s3"],
      "clusters": [{"name": "three-host", "sites": {
        "s1": {"control_url": "http://127.0.0.1:9711", "peer_ip": "<s1 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s1>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true},
        "s2": {"control_url": "http://127.0.0.1:9712", "peer_ip": "<s2 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s2>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true},
@@ -204,18 +217,46 @@ other sites use to reach it, and a privileged command prefix. On each endpoint (
    }
    ```
 
-5. Run the paper grid from the controller machine and render:
+5. Choose topologies and systems for the roster. Topology names are parametric and resolved
+   against the roster, so a seven-site run reads as what it does:
+
+   | Name | Links cut during the window |
+   |---|---|
+   | `isolate-<site>` | every link of that site (a true split {site} \| rest) |
+   | `halves` | every link between the first ⌈N/2⌉ sites of the roster and the rest |
+   | `full-isolation` | all N(N-1)/2 links: every site alone |
+   | `cut-<a>-<b>` | the one link a–b |
+   | `flapping-<a>-<b>` | the link a–b toggles every 3 s for the whole window |
+
+   The three-site names `split-s1`, `bridge-s3`, and `flapping-s1-s2` still resolve on the
+   `s1`/`s2`/`s3` roster (`split-<site>` is a synonym of `isolate-<site>`; `bridge-<site>` exists
+   only for three sites), so the three-host grid above regenerates unchanged. With no
+   `--topologies` the controller runs `split-s1 bridge-s3 full-isolation flapping-s1-s2` on the
+   default roster and `isolate-<first> halves full-isolation flapping-<first>-<second>` on any
+   other. With no `--systems` it runs `central-noretry@<second site>`, `central-retry@<site>` for
+   every site, `static-quota`, `raft-quorum`, and `lets`; pass `--systems` to keep the per-run
+   process count down on a large roster. Shares for `static-quota` and `lets` are the envelope
+   divided equally with the remainder going to the first sites of the roster (30 units over seven
+   sites: 5, 5, 4, 4, 4, 4, 4); `--placements proportional` follows the Zipf weights, and
+   `--placements explicit --shares uk1=9 uk2=6 az1=3 use2=3 usw2=3 euw2=3 apse1=3` fixes them
+   (every site at least one unit, summing to the envelope).
+6. Run the grid from the controller machine and render:
 
    ```bash
-   LETS_E1_TOKEN=... uv run python -m benchmarks.fair_baselines.controller run --endpoints three-host-endpoints.json --output results/fair-baselines-2026-10-15/three-host --seeds 20
-   uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baselines-2026-10-15/three-host
-   uv run python -m benchmarks.fair_baselines.figures --output results/fair-baselines-2026-10-15/three-host
+   LETS_E1_TOKEN=... uv run python -m benchmarks.fair_baselines.controller run --endpoints seven-site-endpoints.json --output results/fair-baselines-2026-10-15/seven-site --seeds 20 --rtt-ms 0
+   uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baselines-2026-10-15/seven-site
+   uv run python -m benchmarks.fair_baselines.figures --output results/fair-baselines-2026-10-15/seven-site
    ```
 
    480 cells at about 75 s each is roughly 10 hours on one cluster; clocks must agree to within a
    second (NTP) because the synchronized start uses wall-clock time, while every latency is
    measured with each site's monotonic clock. Use `--rtt-ms 0` to measure the real WAN RTT instead
-   of adding netem delay.
+   of adding netem delay. The per-site table has one row per site, the CDF panel one column per
+   static topology present, and the completion chart one group per topology.
+
+The N-site path can be smoke-tested on one Docker machine with
+`local_cluster up --sites uk1 uk2 az1 use2 usw2 euw2 apse1 --clusters 1`, which renders one
+container per site and writes an endpoints file with that roster.
 
 The three-endpoint run has not been executed from this checkout; the remote instructions describe
 the supported configuration, not a result.

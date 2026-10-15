@@ -338,10 +338,12 @@ def test_key_and_url_parsers() -> None:
         }
         for alias, signer in signers.items()
     }
-    table = public_key_table(payload)
+    table = public_key_table(payload, SITES)
     assert set(table) == set(SITES)
-    with pytest.raises(ValueError, match="exactly s1, s2, and s3"):
-        public_key_table({"s1": payload["s1"]})
+    with pytest.raises(ValueError, match="exactly the run's sites"):
+        public_key_table({"s1": payload["s1"]}, SITES)
+    with pytest.raises(ValueError, match="exactly the run's sites"):
+        public_key_table(payload, ("s1", "s2", "s3", "s4"))
     assert parse_peer_urls({"s2": "http://10.0.0.2:9701"}) == {"s2": "http://10.0.0.2:9701"}
     for bad in ("https://10.0.0.2:9701", "http://10.0.0.2", "http://10.0.0.2:9701/x"):
         with pytest.raises(ValueError, match="origin-only"):

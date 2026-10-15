@@ -1,5 +1,6 @@
 """Tests for benchmarks/fair_baselines/site_agent.py: a three-agent loopback run through every
-system with safety verification, the control and peer API denials, and the CLI entry point.
+system with safety verification, roster checks in the configure payload, the control and peer API
+denials, and the CLI entry point.
 """
 
 from __future__ import annotations
@@ -137,7 +138,19 @@ def test_control_api_denies_bad_tokens_paths_and_states(
     bad_peers["peers"] = {"s2": body["peers"]["s2"]}  # type: ignore[index]
     cluster.call("s1", "POST", "/run/teardown")
     status, payload = cluster.call("s1", "POST", "/run/configure", bad_peers)
-    assert status == 400 and "exactly the two other sites" in payload["error"]
+    assert status == 400 and "exactly the other sites" in payload["error"]
+    foreign = dict(body)
+    foreign["config"] = {**config, "sites": ["a1", "b2", "c3"], "topology": "isolate-a1"}
+    status, payload = cluster.call("s1", "POST", "/run/configure", foreign)
+    assert status == 400 and "not in the run's sites" in payload["error"]
+    wider = dict(body)
+    wider["config"] = {**config, "sites": ["s1", "s2", "s3", "s4"], "topology": "full-isolation"}
+    status, payload = cluster.call("s1", "POST", "/run/configure", wider)
+    assert status == 400 and "exactly the other sites" in payload["error"]
+    bad_keys = dict(body)
+    bad_keys["keys"] = {**body["keys"], "public_keys": {"s1": cluster.public_keys["s1"]}}  # type: ignore[dict-item]
+    status, payload = cluster.call("s1", "POST", "/run/configure", bad_keys)
+    assert status == 400 and "public_keys must name exactly" in payload["error"]
     bad_run = dict(body)
     bad_run["config"] = {**config, "run_id": "../escape"}
     status, payload = cluster.call("s1", "POST", "/run/configure", bad_run)
@@ -204,7 +217,8 @@ def test_peer_api_verifies_hmac_timestamp_nonce_and_routes(
     assert status == 200 and payload == {"pong": True, "site": "s1"}
     assert _peer_post(cluster, "s1", "/peer/ping", {}, token="other-token-0123")[0] == 401
     assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="s1")[0] == 401
-    assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="s9")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="s-9")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="")[0] == 401
     assert _peer_post(cluster, "s1", "/peer/ping", {}, timestamp="nope")[0] == 401
     assert _peer_post(cluster, "s1", "/peer/ping", {}, timestamp="100")[0] == 401
     assert _peer_post(cluster, "s1", "/peer/ping", {}, nonce="short")[0] == 401
@@ -224,6 +238,8 @@ def test_peer_api_verifies_hmac_timestamp_nonce_and_routes(
         "s1", "POST", "/run/configure", cluster.configure_body("s1", config)
     )
     assert status == 200, payload
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="s9")[0] == 401
+    assert _peer_post(cluster, "s1", "/peer/ping", {}, alias="s3")[0] == 200
     status, payload = _peer_post(
         cluster, "s1", "/peer/central/central-retry@s1/take", {"request_id": "r1"}
     )
@@ -242,14 +258,22 @@ def test_peer_api_verifies_hmac_timestamp_nonce_and_routes(
 def test_agent_state_rejects_unknown_site_and_main_requires_token(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with pytest.raises(AgentError, match="one of s1"):
-        AgentState("s4", TOKEN, tmp_path)
+    with pytest.raises(AgentError, match="site alias"):
+        AgentState("s-4", TOKEN, tmp_path)
+    assert AgentState("apse1", TOKEN, tmp_path).site == "apse1"
     monkeypatch.delenv("LETS_E1_TOKEN", raising=False)
     monkeypatch.setattr(
         "sys.argv",
         ["site_agent", "--site", "s1", "--port", "1", "--state-root", str(tmp_path)],
     )
     with pytest.raises(SystemExit, match="at least 16 characters"):
+        main()
+    monkeypatch.setenv("LETS_E1_TOKEN", TOKEN)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["site_agent", "--site", "us-east-2", "--port", "1", "--state-root", str(tmp_path)],
+    )
+    with pytest.raises(SystemExit):
         main()
 
 

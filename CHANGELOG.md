@@ -11,6 +11,17 @@ image together; the Git tag is the package version prefixed with `v`.
   every interface for its advertised port, so a site can advertise a NAT public address it cannot
   bind; and an endpoint may set `fault_exec_quote` so fault commands sent through `ssh` reach the
   remote `sh -c` as one word. The runtime package, API, and schema are unchanged.
+- E1 harness: the experiment runs on any number of sites (three or more) with any aliases. The
+  endpoints file carries the ordered roster in a top-level `sites` list (default
+  `["s1", "s2", "s3"]`), every cluster describes exactly those aliases, and the run configuration
+  exchanged with the site agents carries the roster, so links, Zipf rank order, equal or explicit
+  shares (`--placements explicit --shares SITE=UNITS ...`), peer lists, Raft membership, the
+  per-site table, the CDF panel, and the completion bars all follow it. Topologies are parametric
+  (`isolate-<site>`, `halves`, `full-isolation`, `cut-<a>-<b>`, `flapping-<a>-<b>`); the
+  three-site names `split-s1`, `bridge-s3`, and `flapping-s1-s2` still resolve on the default
+  roster, so the recorded three-host grid regenerates unchanged. `local_cluster up --sites ...`
+  renders one container per site. `benchmarks/fair_baselines/examples/seven-site-endpoints.json`
+  is a placeholder seven-site endpoints file. The runtime package, API, and schema are unchanged.
 
 ## [1.1.0] - 2026-10-15
 

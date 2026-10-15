@@ -33,12 +33,14 @@ alter runtime behavior.
 
 ## E1 fair-baseline family (`benchmarks/fair_baselines/`)
 
-A randomized three-site partition experiment comparing a central counter (any placement, with or
-without client retry), static per-site quotas, a pysyncobj Raft majority counter, and the real
-LETS warden with reactive transfers under kernel-level `iptables`/`tc netem` faults. Site agents
-replay one seeded Poisson/Zipf arrival plan against every system at once, measure
-time-to-authorization per request, and actuate into an independent effect log that the controller
-checks against the envelope. `local_cluster.py` runs N three-site clusters in Docker on one
-machine; `controller.py` runs the grid; `analysis.py` writes the per-site table and
-`figures.py` the CDF panel and completion bars. The commands, platforms, and results are
-documented in `results/fair-baselines-2026-10-15/RESULTS.md`.
+A randomized partition experiment over three or more sites comparing a central counter (any
+placement, with or without client retry), static per-site quotas, a pysyncobj Raft majority
+counter, and the real LETS warden with reactive transfers under kernel-level `iptables`/`tc netem`
+faults. The endpoints file names the ordered site roster; topologies, Zipf demand, shares, peer
+lists, and Raft membership derive from it. Site agents replay one seeded Poisson/Zipf arrival plan
+against every system at once, measure time-to-authorization per request, and actuate into an
+independent effect log that the controller checks against the envelope. `local_cluster.py` runs
+independent clusters of one container per site in Docker on one machine; `controller.py` runs the
+grid; `analysis.py` writes the per-site table and `figures.py` the CDF panel and completion bars.
+The commands, platforms, and results are documented in
+`results/fair-baselines-2026-10-15/RESULTS.md`.

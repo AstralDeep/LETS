@@ -18,7 +18,12 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from benchmarks.fair_baselines.common import LINKS, SITES, TOPOLOGIES, SystemSpec
+from benchmarks.fair_baselines.common import (
+    DEFAULT_SITES,
+    SystemSpec,
+    resolve_topology,
+    site_links,
+)
 from benchmarks.fair_baselines.controller import read_run, run_files
 from benchmarks.nsdi_strengthening.common import write_text
 
@@ -168,20 +173,26 @@ def link_states(faults: Sequence[Mapping[str, str]]) -> dict[str, LinkState]:
     return states
 
 
-def _majority_reachable(site: str, state: LinkState, offset_s: float) -> bool:
-    return any(
-        state.link_up(frozenset({site, other}), offset_s) for other in SITES if other != site
+def _majority_reachable(site: str, state: LinkState, offset_s: float, sites: Sequence[str]) -> bool:
+    reachable = sum(
+        1 for other in sites if other != site and state.link_up(frozenset({site, other}), offset_s)
     )
+    return 2 * (reachable + 1) > len(sites)
 
 
-def pool_usable(spec: SystemSpec, waiting_site: str, pool: str, state: LinkState, t: float) -> bool:
+def pool_usable(
+    spec: SystemSpec,
+    waiting_site: str,
+    pool: str,
+    state: LinkState,
+    t: float,
+    sites: Sequence[str] = DEFAULT_SITES,
+) -> bool:
     if spec.kind == "static-quota":
         return waiting_site == pool
-    if spec.kind == "lets":
+    if spec.kind in {"lets", "central"}:
         return waiting_site == pool or state.link_up(frozenset({waiting_site, pool}), t)
-    if spec.kind == "central":
-        return waiting_site == pool or state.link_up(frozenset({waiting_site, pool}), t)
-    return _majority_reachable(waiting_site, state, t)
+    return _majority_reachable(waiting_site, state, t, sites)
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +218,9 @@ def stranded_capacity(
     envelope: int,
     end_s: float,
     step_s: float = 0.1,
+    sites: Sequence[str] | None = None,
 ) -> StrandedSummary:
+    roster = tuple(sites) if sites is not None else tuple(shares) or DEFAULT_SITES
     spec = SystemSpec.parse(system)
     free_samples: dict[str, list[tuple[float, int]]] = defaultdict(list)
     waiting_samples: dict[str, list[tuple[float, int]]] = defaultdict(list)
@@ -223,7 +236,7 @@ def stranded_capacity(
     for samples in (*free_samples.values(), *waiting_samples.values()):
         samples.sort()
     if spec.kind in {"static-quota", "lets"}:
-        pools = {site: shares[site] for site in SITES}
+        pools = {site: shares[site] for site in roster}
     else:
         pools = {"pool": envelope}
     peak = 0
@@ -231,7 +244,7 @@ def stranded_capacity(
     steps = math.ceil(end_s / step_s)
     for index in range(steps):
         t = index * step_s
-        waiting = [site for site in SITES if _step_value(waiting_samples.get(site, ()), t, 0) > 0]
+        waiting = [site for site in roster if _step_value(waiting_samples.get(site, ()), t, 0) > 0]
         if not waiting:
             continue
         stranded = 0
@@ -239,11 +252,13 @@ def stranded_capacity(
             free = _step_value(free_samples.get(pool, ()), t, initial)
             if free <= 0:
                 continue
-            location = pool if pool in SITES else (spec.host or "pool")
+            location = pool if pool in roster else (spec.host or "pool")
             if spec.kind == "central":
-                usable = any(pool_usable(spec, site, location, state, t) for site in waiting)
+                usable = any(
+                    pool_usable(spec, site, location, state, t, roster) for site in waiting
+                )
             else:
-                usable = any(pool_usable(spec, site, pool, state, t) for site in waiting)
+                usable = any(pool_usable(spec, site, pool, state, t, roster) for site in waiting)
             if not usable:
                 stranded += free
         peak = max(peak, stranded)
@@ -274,8 +289,10 @@ def per_site_rows(
         seeds[(row.cell, row.system)].add(row.seed)
     table = []
     for (cell, system, site), rows in sorted(grouped.items()):
-        shares = json.loads(run_meta[rows[0].run_id].get("shares", "{}") or "{}")
-        envelope = int(run_meta[rows[0].run_id]["envelope"])
+        meta = run_meta[rows[0].run_id]
+        shares = json.loads(meta.get("shares", "{}") or "{}")
+        sites = tuple(json.loads(meta.get("sites", "[]") or "[]")) or tuple(shares) or DEFAULT_SITES
+        envelope = int(meta["envelope"])
         stranded_values = []
         for run_id in sorted({row.run_id for row in rows}):
             key = (run_id, system)
@@ -291,6 +308,7 @@ def per_site_rows(
                     shares,
                     envelope,
                     end_s,
+                    sites=sites,
                 )
             stranded_values.append(stranded_cache[key])
         times = [row.t_auth_ns / NS_PER_S for row in rows if row.t_auth_ns is not None]
@@ -415,12 +433,14 @@ def summary_rows(table: Sequence[Mapping[str, object]]) -> list[dict[str, object
     return summary
 
 
-def topology_description(name: str) -> str:
-    topology = TOPOLOGIES[name]
+def topology_description(name: str, sites: Sequence[str] = DEFAULT_SITES) -> str:
+    topology = resolve_topology(name, sites)
     labels = sorted("-".join(sorted(link)) for link in topology.cut_links)
     if topology.flap_period_s is not None:
         return f"{name}: link(s) {', '.join(labels)} toggle every {topology.flap_period_s:g} s"
-    intact = sorted("-".join(sorted(link)) for link in LINKS if link not in topology.cut_links)
+    intact = sorted(
+        "-".join(sorted(link)) for link in site_links(sites) if link not in topology.cut_links
+    )
     return f"{name}: cut {', '.join(labels)}; intact {', '.join(intact) or 'none'}"
 
 
@@ -440,6 +460,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     runs = load_csv(output / "runs.csv")
     messages = load_csv(output / "messages.csv")
     shares_by_run: dict[str, str] = {}
+    sites_by_run: dict[str, str] = {}
     for path in run_files(output):
         payload = read_run(path)
         shares_by_run[payload["run_id"]] = json.dumps(
@@ -447,8 +468,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             if payload.get("configured")
             else {}
         )
+        sites_by_run[payload["run_id"]] = json.dumps(
+            list(payload.get("config", {}).get("sites", DEFAULT_SITES))
+        )
     for row in runs:
         row["shares"] = shares_by_run.get(row["run_id"], "{}")
+        row["sites"] = sites_by_run.get(row["run_id"], "[]")
     table = per_site_rows(requests, events, faults, runs, messages)
     write_text(output / "per-site.md", per_site_markdown(table, arguments.title), overwrite=True)
     write_text(output / "per-site.csv", per_site_csv(table), overwrite=True)

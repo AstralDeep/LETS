@@ -1,6 +1,6 @@
 """Kernel-level fault injection for E1: builds the iptables cut/heal and tc netem commands for a
 topology, runs them on each site through a per-site privileged command prefix (docker exec locally,
-ssh+sudo on the three endpoints), and turns a topology plus phase timings into a timed schedule the
+ssh+sudo on remote endpoints), and turns a topology plus phase timings into a timed schedule the
 controller executes while a run is in flight.
 """
 
@@ -13,7 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from benchmarks.fair_baselines.common import LINKS, SITES, Topology
+from benchmarks.fair_baselines.common import Topology, site_alias
 
 CHAIN = "LETS_E1"
 
@@ -39,8 +39,7 @@ class SiteEndpoint:
 
     @classmethod
     def from_dict(cls, site: str, payload: Mapping[str, object]) -> SiteEndpoint:
-        if site not in SITES:
-            raise ValueError(f"unknown site {site!r}")
+        site_alias(site, "site")
         fault_exec = payload.get("fault_exec")
         if not isinstance(fault_exec, Sequence) or isinstance(fault_exec, str) or not fault_exec:
             raise ValueError(f"{site}: fault_exec must be a non-empty command prefix list")
@@ -223,7 +222,7 @@ class FaultInjector:
     def cut(self, links: Iterable[frozenset[str]]) -> list[CommandResult]:
         results = []
         for link in links:
-            if link not in LINKS:
+            if len(link) != 2 or not link <= set(self.endpoints):
                 raise ValueError(f"unknown link {sorted(link)}")
             left, right = sorted(link)
             results.extend(self._run(left, cut_commands(self.endpoints[right].peer_ip)))

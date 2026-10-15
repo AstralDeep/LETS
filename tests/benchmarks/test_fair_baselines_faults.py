@@ -1,6 +1,6 @@
 """Tests for benchmarks/fair_baselines/faults.py: command construction for iptables and netem,
-the timed cut/heal schedule including flapping, the injector over a recording driver, the
-subprocess driver, and drop-counter parsing.
+the timed cut/heal schedule including flapping, the injector over a recording driver for three
+and seven endpoints, the subprocess driver, and drop-counter parsing.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from benchmarks.fair_baselines.common import LINKS, TOPOLOGIES
+from benchmarks.fair_baselines.common import LINKS, TOPOLOGIES, resolve_topology
 from benchmarks.fair_baselines.faults import (
     CHAIN,
     DryRunFaultDriver,
@@ -29,13 +29,15 @@ from benchmarks.fair_baselines.faults import (
     setup_commands,
 )
 
+SEVEN = ("uk1", "uk2", "az1", "use2", "usw2", "euw2", "apse1")
 
-def _endpoints() -> dict[str, SiteEndpoint]:
+
+def _endpoints(sites: tuple[str, ...] = ("s1", "s2", "s3")) -> dict[str, SiteEndpoint]:
     return {
         site: SiteEndpoint(
-            site, f"http://127.0.0.1:970{index}", f"10.231.0.1{index}", 9701, 9801, ("dry",)
+            site, f"http://127.0.0.1:97{index:02d}", f"10.231.0.{10 + index}", 9701, 9801, ("dry",)
         )
-        for index, site in enumerate(("s1", "s2", "s3"), start=1)
+        for index, site in enumerate(sites, start=1)
     }
 
 
@@ -69,6 +71,9 @@ def test_fault_schedule_static_and_flapping() -> None:
     assert len(flapping) == 11
     assert all(later.offset_s > earlier.offset_s for earlier, later in itertools.pairwise(flapping))
     assert flapping[-1].offset_s == 35.0
+    seven = fault_schedule(resolve_topology("halves", SEVEN), 5.0, 30.0)
+    assert [(event.offset_s, event.kind) for event in seven] == [(5.0, "cut"), (35.0, "heal")]
+    assert len(seven[0].links) == 12
 
 
 def test_injector_runs_setup_cut_heal_counters_and_cleanup() -> None:
@@ -87,6 +92,27 @@ def test_injector_runs_setup_cut_heal_counters_and_cleanup() -> None:
     assert set(injector.counters()) == {"s1", "s2", "s3"}
     injector.cleanup()
     assert len(injector.log) == len(driver.commands)
+
+
+def test_injector_cuts_every_link_of_a_seven_site_topology() -> None:
+    driver = DryRunFaultDriver()
+    endpoints = _endpoints(SEVEN)
+    injector = FaultInjector(driver, endpoints)
+    injector.prepare(0, 0.0)
+    assert sum(1 for _, command in driver.commands if "qdisc del" in command) == 7
+    isolate = injector.cut(resolve_topology("isolate-use2", SEVEN).cut_links)
+    assert len(isolate) == 6 * 4
+    assert {result.site for result in isolate} == set(SEVEN)
+    assert sum(1 for result in isolate if result.site == "use2") == 12
+    others = [result for result in isolate if result.site != "use2"]
+    assert all(endpoints["use2"].peer_ip in result.command for result in others)
+    full = injector.cut(resolve_topology("full-isolation", SEVEN).cut_links)
+    assert len(full) == 21 * 4
+    with pytest.raises(ValueError, match="unknown link"):
+        injector.cut({frozenset({"uk1", "s1"})})
+    with pytest.raises(ValueError, match="unknown link"):
+        injector.cut({frozenset({"uk1"})})
+    assert [result.site for result in injector.heal()] == list(SEVEN)
 
 
 def test_injector_reports_failing_commands() -> None:
@@ -158,7 +184,9 @@ def test_endpoint_parsing_and_drop_counter_parsing() -> None:
     )
     assert remote.fault_exec_quote is True and remote.interface == "eno1"
     assert remote.to_dict()["fault_exec_quote"] is True
-    with pytest.raises(ValueError, match="unknown site"):
+    with pytest.raises(ValueError, match="site alias"):
+        SiteEndpoint.from_dict("s-4", {})
+    with pytest.raises(ValueError, match="fault_exec"):
         SiteEndpoint.from_dict("s4", {})
     with pytest.raises(ValueError, match="fault_exec"):
         SiteEndpoint.from_dict("s1", {"fault_exec": "docker"})

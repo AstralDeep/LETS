@@ -1,6 +1,7 @@
 """Tests for benchmarks/fair_baselines/analysis.py, figures.py, and local_cluster.py on
 synthetic data: bootstrap intervals, censored CDFs, link-state reconstruction, stranded-capacity
-integration per system kind, table rendering, figure output, and the compose/endpoints documents.
+integration per system kind for three and seven sites, table rendering, figure output, and the
+compose/endpoints documents for any roster.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ from benchmarks.fair_baselines.analysis import (
     topology_description,
 )
 from benchmarks.fair_baselines.figures import cdf_panel, completion_chart
+
+SEVEN = ("uk1", "uk2", "az1", "use2", "usw2", "euw2", "apse1")
 
 
 def _row(
@@ -176,6 +179,80 @@ def test_stranded_capacity_per_system_kind() -> None:
     assert stranded_capacity("lets", [], cut, shares, 30, 0.0).unit_seconds == 0.0
 
 
+def test_stranded_capacity_for_seven_sites() -> None:
+    shares = dict(zip(SEVEN, (5, 5, 4, 4, 4, 4, 4), strict=True))
+    isolate = LinkState(
+        [(5.0, 15.0, frozenset({"use2", other})) for other in SEVEN if other != "use2"]
+    )
+    waiting = _events("lets", [("use2", 6.0, "waiting", 1), ("use2", 8.0, "waiting", 0)])
+    lets = stranded_capacity("lets", waiting, isolate, shares, 30, 20.0, sites=SEVEN)
+    assert lets.peak_units == 26 and abs(lets.unit_seconds - 52.0) < 1e-6
+    raft = stranded_capacity(
+        "raft-quorum",
+        _events("raft-quorum", [("use2", 6.0, "waiting", 1), ("use2", 8.0, "waiting", 0)]),
+        isolate,
+        shares,
+        30,
+        20.0,
+        sites=SEVEN,
+    )
+    assert raft.peak_units == 30
+    quorum = stranded_capacity(
+        "raft-quorum",
+        _events("raft-quorum", [("uk1", 6.0, "waiting", 1), ("uk1", 8.0, "waiting", 0)]),
+        isolate,
+        shares,
+        30,
+        20.0,
+        sites=SEVEN,
+    )
+    assert quorum.peak_units == 0
+    halves = LinkState([(5.0, 15.0, link) for link in resolve_halves()])
+    minority = stranded_capacity(
+        "raft-quorum",
+        _events("raft-quorum", [("apse1", 6.0, "waiting", 1), ("apse1", 8.0, "waiting", 0)]),
+        halves,
+        shares,
+        30,
+        20.0,
+        sites=SEVEN,
+    )
+    assert minority.peak_units == 30
+    majority = stranded_capacity(
+        "raft-quorum",
+        _events("raft-quorum", [("uk1", 6.0, "waiting", 1), ("uk1", 8.0, "waiting", 0)]),
+        halves,
+        shares,
+        30,
+        20.0,
+        sites=SEVEN,
+    )
+    assert majority.peak_units == 0
+    central = stranded_capacity(
+        "central-retry@uk2",
+        _events("central-retry@uk2", [("use2", 6.0, "waiting", 1), ("use2", 8.0, "waiting", 0)]),
+        isolate,
+        shares,
+        30,
+        20.0,
+        sites=SEVEN,
+    )
+    assert central.peak_units == 30
+    static = _events("static-quota", [("use2", 6.0, "waiting", 1), ("use2", 8.0, "waiting", 0)])
+    derived = stranded_capacity("static-quota", static, isolate, shares, 30, 20.0)
+    assert derived.peak_units == 26
+    assert topology_description("halves", SEVEN).startswith("halves: cut apse1-az1, apse1-uk1")
+    assert "intact apse1-euw2" in topology_description("halves", SEVEN)
+    assert topology_description("isolate-uk1", SEVEN).startswith("isolate-uk1: cut ")
+    assert "toggle every 3 s" in topology_description("flapping-uk1-apse1", SEVEN)
+
+
+def resolve_halves() -> frozenset[frozenset[str]]:
+    from benchmarks.fair_baselines.common import resolve_topology
+
+    return resolve_topology("halves", SEVEN).cut_links
+
+
 def test_per_site_table_and_summary_render(tmp_path: Path) -> None:
     requests = [
         _row("lets", "s1", "authorized", 50_000_000, seed=1),
@@ -236,7 +313,26 @@ def test_local_cluster_documents_and_main(tmp_path: Path, monkeypatch: pytest.Mo
     assert s1["environment"] == {"LETS_E1_TOKEN": "tok"}
     endpoints = local_cluster.endpoints_document(2, "tok")
     clusters = endpoints["clusters"]
+    assert endpoints["sites"] == ["s1", "s2", "s3"]
     assert isinstance(clusters, list) and clusters[1]["sites"]["s3"]["peer_ip"] == "10.231.1.13"
+    seven = local_cluster.compose_document(2, "tok", "img", SEVEN)
+    seven_services = seven["services"]
+    assert isinstance(seven_services, dict) and len(seven_services) == 14
+    apse1 = seven_services["lets-e1-1-apse1"]
+    assert isinstance(apse1, dict)
+    assert apse1["networks"] == {"cluster1": {"ipv4_address": "10.231.1.17"}}
+    assert apse1["ports"] == ["127.0.0.1:9717:9701"]
+    assert apse1["command"][:2] == ["--site", "apse1"]
+    seven_endpoints = local_cluster.endpoints_document(2, "tok", SEVEN)
+    assert seven_endpoints["sites"] == list(SEVEN)
+    seven_clusters = seven_endpoints["clusters"]
+    assert isinstance(seven_clusters, list)
+    assert list(seven_clusters[0]["sites"]) == list(SEVEN)
+    assert seven_clusters[1]["sites"]["use2"]["control_url"] == "http://127.0.0.1:9714"
+    assert seven_clusters[1]["sites"]["use2"]["fault_exec"][2] == "lets-e1-1-use2"
+    ten = tuple(f"site{index}" for index in range(10))
+    assert local_cluster.control_port(1, "site9", ten) == 9700 + 11 + 1 + 9
+    assert local_cluster.control_port(0, "site9", ten) == 9710
     assert clusters[0]["sites"]["s2"]["fault_exec"] == [
         "docker",
         "exec",
@@ -271,6 +367,20 @@ def test_local_cluster_documents_and_main(tmp_path: Path, monkeypatch: pytest.Mo
     assert calls[-1] == ("up", "-d", "--remove-orphans", "--build")
     assert local_cluster.main(["up", "--work-dir", str(tmp_path / "w"), "--no-build"]) == 0
     assert calls[-1] == ("up", "-d", "--remove-orphans")
+    assert (
+        local_cluster.main(
+            ["up", "--work-dir", str(tmp_path / "w"), "--no-build", "--sites", *SEVEN]
+        )
+        == 0
+    )
+    written = json.loads((tmp_path / "w" / "endpoints.json").read_text(encoding="utf-8"))
+    assert written["sites"] == list(SEVEN) and len(written["clusters"]) == 3
+    with pytest.raises(SystemExit, match="at least 3"):
+        local_cluster.main(["up", "--work-dir", str(tmp_path), "--no-build", "--sites", "a", "b"])
+    with pytest.raises(SystemExit, match="site alias"):
+        local_cluster.main(
+            ["up", "--work-dir", str(tmp_path), "--no-build", "--sites", "a", "b", "c-d"]
+        )
     assert local_cluster.main(["down", "--work-dir", str(tmp_path / "w")]) == 0
     assert calls[-1][0] == "down"
     assert local_cluster.main(["down", "--work-dir", str(tmp_path / "missing")]) == 0

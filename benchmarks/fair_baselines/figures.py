@@ -1,6 +1,6 @@
-"""Figure script for E1: renders the topology x time-to-authorization CDF panel and the
-completion bar chart with seed-bootstrap confidence intervals from the controller's requests.csv,
-using the aggregates in analysis.py.
+"""Figure script for E1: renders the time-to-authorization CDF panel with one column per topology
+present and the per-topology completion bars with seed-bootstrap confidence intervals from the
+controller's requests.csv, using the aggregates in analysis.py.
 """
 
 from __future__ import annotations
@@ -24,33 +24,50 @@ from benchmarks.fair_baselines.analysis import (
     completion_by_seed,
     load_requests,
 )
-from benchmarks.fair_baselines.common import STATIC_TOPOLOGIES
+from benchmarks.fair_baselines.common import SystemSpec, is_flapping, topology_order
 
 PALETTE = {
     "lets": "#1b6ca8",
     "static-quota": "#7a7a7a",
     "raft-quorum": "#c9452a",
-    "central-noretry@s2": "#8c6d1f",
-    "central-retry@s1": "#2e8b57",
-    "central-retry@s2": "#3cb371",
-    "central-retry@s3": "#66cdaa",
 }
-STYLES = {
-    "central-noretry@s2": ":",
-    "central-retry@s1": "--",
-    "central-retry@s2": "--",
-    "central-retry@s3": "--",
-}
-
-
-def _color(system: str) -> str:
-    return PALETTE.get(system, "#444444")
+NORETRY_COLOR = "#8c6d1f"
+RETRY_COLORS = ("#2e8b57", "#3cb371", "#66cdaa", "#1f7a4d", "#52b788", "#95d5b2", "#0b5d3b")
+KIND_ORDER = {"lets": 0, "static-quota": 1, "raft-quorum": 2, "central": 3}
 
 
 def _systems(rows: Sequence[RequestRow]) -> list[str]:
-    order = list(PALETTE)
     present = {row.system for row in rows}
-    return [name for name in order if name in present] + sorted(present - set(order))
+    roster = sorted({row.site for row in rows})
+
+    def rank(name: str) -> tuple[int, int, int, str]:
+        spec = SystemSpec.parse(name)
+        host = roster.index(spec.host) if spec.host in roster else len(roster)
+        return KIND_ORDER.get(spec.kind, 9), 0 if not spec.retry else 1, host, name
+
+    return sorted(present, key=rank)
+
+
+def _palette(systems: Sequence[str]) -> dict[str, str]:
+    colors: dict[str, str] = {}
+    retry_index = 0
+    for name in systems:
+        spec = SystemSpec.parse(name)
+        if spec.kind == "central" and not spec.retry:
+            colors[name] = NORETRY_COLOR
+        elif spec.kind == "central":
+            colors[name] = RETRY_COLORS[retry_index % len(RETRY_COLORS)]
+            retry_index += 1
+        else:
+            colors[name] = PALETTE.get(name, "#444444")
+    return colors
+
+
+def _style(system: str) -> str:
+    spec = SystemSpec.parse(system)
+    if spec.kind != "central":
+        return "-"
+    return "--" if spec.retry else ":"
 
 
 def cdf_panel(
@@ -64,6 +81,7 @@ def cdf_panel(
 ) -> Path:
     selected = [row for row in rows if row.load == load and row.theta == theta]
     systems = _systems(selected)
+    colors = _palette(systems)
     fig, axes = plt.subplots(1, len(topologies), figsize=(4.2 * len(topologies), 3.6), sharey=True)
     if len(topologies) == 1:
         axes = [axes]
@@ -81,8 +99,8 @@ def cdf_panel(
                 ys,
                 where="post",
                 label=system,
-                color=_color(system),
-                linestyle=STYLES.get(system, "-"),
+                color=colors[system],
+                linestyle=_style(system),
                 linewidth=1.6,
             )
         axis.set_title(topology)
@@ -111,6 +129,7 @@ def completion_chart(
 ) -> Path:
     loads = sorted({row.load for row in rows})
     systems = _systems(rows)
+    colors = _palette(systems)
     completions = completion_by_seed(row for row in rows if row.theta == theta)
     fig, axes = plt.subplots(1, len(loads), figsize=(5.5 * len(loads), 3.8), sharey=True)
     if len(loads) == 1:
@@ -143,12 +162,12 @@ def completion_chart(
                 width=width,
                 yerr=[lows, highs],
                 label=system,
-                color=_color(system),
+                color=colors[system],
                 capsize=2,
                 error_kw={"linewidth": 0.8},
             )
         axis.set_xticks(range(len(topologies)))
-        axis.set_xticklabels(topologies)
+        axis.set_xticklabels(topologies, rotation=20 if len(topologies) > 4 else 0)
         axis.set_title(f"offered load {load:g}x envelope")
         axis.set_ylim(0, 1.05)
         axis.grid(True, axis="y", alpha=0.3)
@@ -171,10 +190,9 @@ def render_all(output_dir: Path, figure_dir: Path, formats: Sequence[str]) -> li
         raise ValueError("requests.csv has no rows")
     thetas = sorted({row.theta for row in rows})
     loads = sorted({row.load for row in rows})
-    topologies_present = [
-        name for name in STATIC_TOPOLOGIES if any(r.topology == name for r in rows)
-    ]
-    flapping = sorted({row.topology for row in rows} - set(STATIC_TOPOLOGIES))
+    present = topology_order([row.topology for row in rows])
+    topologies_present = [name for name in present if not is_flapping(name)]
+    flapping = [name for name in present if is_flapping(name)]
     written = []
     by_count: dict[float, int] = defaultdict(int)
     for row in rows:

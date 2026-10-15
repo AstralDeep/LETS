@@ -1,7 +1,7 @@
 """Grid runner for E1: enumerates cells (topology x load x skew x seed), drives one cell at a time
-on each three-site cluster described by an endpoints file (configure, synchronized start, timed
-iptables faults via faults.py, collection, teardown), verifies the actuator-side safety bound, and
-writes per-run JSON plus flat CSVs that analysis.py and figures.py consume.
+on each cluster described by an endpoints file that carries the ordered site roster (configure,
+synchronized start, timed iptables faults via faults.py, collection, teardown), verifies the
+actuator-side safety bound, and writes per-run JSON plus flat CSVs for analysis.py and figures.py.
 """
 
 from __future__ import annotations
@@ -27,12 +27,16 @@ from typing import Any
 
 from benchmarks.fair_baselines.common import (
     DEFAULT_ENVELOPE,
-    DEFAULT_SYSTEMS,
+    DEFAULT_SITES,
+    PLACEMENTS,
     SCHEMA,
-    SITES,
-    TOPOLOGIES,
     RunConfig,
     SystemSpec,
+    default_systems,
+    default_topologies,
+    resolve_topology,
+    site_roster,
+    validate_shares,
 )
 from benchmarks.fair_baselines.faults import (
     DryRunFaultDriver,
@@ -157,6 +161,8 @@ class GridOptions:
     peer_timeout_s: float = 2.0
     raft_timeout_s: float = 2.0
     ready_timeout_s: float = 45.0
+    sites: tuple[str, ...] = DEFAULT_SITES
+    shares: dict[str, int] | None = None
 
 
 def load_endpoints(path: Path) -> tuple[list[Cluster], str]:
@@ -165,13 +171,33 @@ def load_endpoints(path: Path) -> tuple[list[Cluster], str]:
     token = os.environ.get(token_env) or str(payload.get("token", ""))
     if len(token) < 16:
         raise ControllerError(f"no shared token: set {token_env} or add token to {path}")
+    try:
+        roster = site_roster(payload.get("sites", DEFAULT_SITES))
+    except ValueError as exc:
+        raise ControllerError(f"{path}: {exc}") from None
     clusters = []
     for entry in payload["clusters"]:
-        sites = {site: SiteEndpoint.from_dict(site, entry["sites"][site]) for site in SITES}
-        clusters.append(Cluster(str(entry["name"]), sites))
+        name = str(entry["name"])
+        listed = entry["sites"]
+        if not isinstance(listed, Mapping) or set(listed) != set(roster):
+            raise ControllerError(
+                f"cluster {name!r} must describe exactly the sites {list(roster)}"
+            )
+        try:
+            sites = {site: SiteEndpoint.from_dict(site, listed[site]) for site in roster}
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ControllerError(f"cluster {name!r}: {exc}") from None
+        clusters.append(Cluster(name, sites))
     if not clusters:
         raise ControllerError("endpoints file lists no clusters")
     return clusters, token
+
+
+def cluster_roster(clusters: Sequence[Cluster]) -> tuple[str, ...]:
+    rosters = {tuple(cluster.sites) for cluster in clusters}
+    if len(rosters) != 1:
+        raise ControllerError("every cluster must list the same sites in the same order")
+    return rosters.pop()
 
 
 def grid_cells(
@@ -180,10 +206,16 @@ def grid_cells(
     thetas: Sequence[float],
     seeds: Sequence[int],
     placements: Sequence[str],
+    sites: Sequence[str] = DEFAULT_SITES,
 ) -> list[Cell]:
     for topology in topologies:
-        if topology not in TOPOLOGIES:
-            raise ControllerError(f"unknown topology {topology!r}")
+        try:
+            resolve_topology(topology, sites)
+        except ValueError as exc:
+            raise ControllerError(str(exc)) from None
+    for placement in placements:
+        if placement not in PLACEMENTS:
+            raise ControllerError(f"unknown placement {placement!r}")
     return [
         Cell(topology, load, theta, seed, placement)
         for topology in topologies
@@ -241,6 +273,8 @@ def run_config(cell: Cell, options: GridOptions) -> RunConfig:
         deadline_s=options.deadline_s,
         peer_timeout_s=options.peer_timeout_s,
         raft_timeout_s=options.raft_timeout_s,
+        sites=options.sites,
+        explicit_shares=options.shares,
         extra={"rtt_ms": options.rtt_ms, "loss_pct": options.loss_pct},
     )
 
@@ -312,7 +346,7 @@ class CellRunner:
         self.injector.cleanup()
 
     def _configure(self, config: RunConfig) -> dict[str, dict[str, Any]]:
-        signers = {site: Ed25519Signer.generate(site) for site in SITES}
+        signers = {site: Ed25519Signer.generate(site) for site in self.cluster.sites}
         public_keys = {
             site: {
                 "key_id": signer.key_id,
@@ -364,7 +398,7 @@ class CellRunner:
     def _probe_links(self) -> list[dict[str, object]]:
         probes = []
         for site, client in self.clients.items():
-            for target in SITES:
+            for target in self.cluster.sites:
                 if target == site:
                     continue
                 result = client.call("POST", "/probe/peer", {"target": target})
@@ -379,7 +413,7 @@ class CellRunner:
         counters: dict[str, Any],
         failures: list[str],
     ) -> None:
-        topology = TOPOLOGIES[config.topology]
+        topology = config.resolved_topology()
         try:
             for scheduled in fault_schedule(topology, config.pre_s, config.partition_s):
                 target_ns = start_at_ns + int(scheduled.offset_s * NS_PER_S)
@@ -636,6 +670,8 @@ def run_grid(
     overwrite: bool = False,
     log: Any = sys.stderr,
 ) -> dict[str, Any]:
+    if cluster_roster(clusters) != tuple(options.sites):
+        raise ControllerError("the grid's sites do not match the clusters' sites")
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "runs").mkdir(exist_ok=True)
     pending = [
@@ -705,19 +741,43 @@ def _float_list(values: Sequence[str]) -> tuple[float, ...]:
     return tuple(float(value) for value in values)
 
 
+def parse_shares(
+    values: Sequence[str] | None, sites: Sequence[str], envelope: int
+) -> dict[str, int] | None:
+    if values is None:
+        return None
+    table: dict[str, int] = {}
+    for item in values:
+        site, separator, units = item.partition("=")
+        if not separator or not units.isdigit():
+            raise ControllerError(f"--shares entries look like SITE=UNITS, not {item!r}")
+        table[site] = int(units)
+    try:
+        return validate_shares(table, sites, envelope, "--shares")
+    except ValueError as exc:
+        raise ControllerError(str(exc)) from None
+
+
 def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="run the grid on the clusters in an endpoints file")
     run.add_argument("--endpoints", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
-    run.add_argument("--topologies", nargs="+", default=list(TOPOLOGIES))
+    run.add_argument("--topologies", nargs="+", default=None)
     run.add_argument("--loads", nargs="+", default=["0.7", "2.0"])
     run.add_argument("--thetas", nargs="+", default=["0", "0.5", "1"])
     run.add_argument("--seeds", type=int, default=20)
     run.add_argument("--seed-offset", type=int, default=1)
     run.add_argument("--placements", nargs="+", default=["equal"])
-    run.add_argument("--systems", nargs="+", default=list(DEFAULT_SYSTEMS))
+    run.add_argument(
+        "--shares",
+        nargs="+",
+        default=None,
+        metavar="SITE=UNITS",
+        help="explicit per-site shares for the explicit placement",
+    )
+    run.add_argument("--systems", nargs="+", default=None)
     run.add_argument("--envelope", type=int, default=DEFAULT_ENVELOPE)
     run.add_argument("--pre-s", type=float, default=5.0)
     run.add_argument("--partition-s", type=float, default=30.0)
@@ -752,11 +812,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_manifest(arguments.output, ["assemble"], {**carried, "assembled": counts})
         print(json.dumps(counts))
         return 0
-    for name in arguments.systems:
-        SystemSpec.parse(name)
     clusters, token = load_endpoints(arguments.endpoints)
+    sites = cluster_roster(clusters)
+    systems = tuple(arguments.systems or default_systems(sites))
+    for name in systems:
+        SystemSpec.parse(name, sites)
+    shares = parse_shares(arguments.shares, sites, arguments.envelope)
+    if (shares is None) != ("explicit" not in arguments.placements):
+        raise ControllerError("--shares and the explicit placement go together")
     options = GridOptions(
-        systems=tuple(arguments.systems),
+        systems=systems,
         envelope=arguments.envelope,
         pre_s=arguments.pre_s,
         partition_s=arguments.partition_s,
@@ -764,13 +829,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         deadline_s=arguments.deadline_s,
         rtt_ms=arguments.rtt_ms,
         loss_pct=arguments.loss_pct,
+        sites=sites,
+        shares=shares,
     )
     cells = grid_cells(
-        arguments.topologies,
+        arguments.topologies or default_topologies(sites),
         _float_list(arguments.loads),
         _float_list(arguments.thetas),
         range(arguments.seed_offset, arguments.seed_offset + arguments.seeds),
         arguments.placements,
+        sites,
     )
     driver: FaultDriver | None = DryRunFaultDriver() if arguments.dry_run_faults else None
     outcome = run_grid(
@@ -790,6 +858,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "grid": {
                 "cells": len(cells),
                 "skipped": outcome["skipped"],
+                "sites": list(sites),
                 "options": dataclasses.asdict(options),
                 "clusters": [
                     {
