@@ -23,11 +23,14 @@ from benchmarks.fair_baselines.controller import (
     grid_cells,
     load_endpoints,
     main,
+    merge_run_history,
     parse_shares,
     read_run,
     run_config,
     run_grid,
+    run_outcomes,
     run_path,
+    run_record,
     summarize,
     verify_safety,
     write_manifest,
@@ -376,6 +379,74 @@ def test_main_assemble_on_empty_directory(tmp_path: Path) -> None:
     (tmp_path / "runs").mkdir()
     assert main(["assemble", "--output", str(tmp_path)]) == 0
     assert assemble(tmp_path)["runs"] == 0
+
+
+def test_assemble_merges_run_history_and_recounts_outcomes(tmp_path: Path) -> None:
+    output = tmp_path / "grid"
+    (output / "runs").mkdir(parents=True)
+    first = {
+        "schema": "lets.fair-baselines-manifest/v1",
+        "generated_at": "2026-10-16T07:19:20Z",
+        "command": ["run", "--seeds", "20"],
+        "source": {"commit": "aaaa"},
+        "environment": {"python_version": "3.11"},
+        "grid": {"cells": 480},
+        "outcomes": {"x": "passed", "y": "failed", "z": "passed"},
+    }
+    second = {
+        **first,
+        "generated_at": "2026-10-16T09:48:00Z",
+        "command": ["run", "--topologies", "flapping-s1-s2"],
+        "source": {"commit": "bbbb"},
+        "grid": {"cells": 120},
+        "outcomes": {"y": "passed"},
+    }
+    (tmp_path / "first.json").write_text(json.dumps(first), encoding="utf-8")
+    (output / "MANIFEST.json").write_text(json.dumps(second), encoding="utf-8")
+    assert run_record({"command": ["assemble"]}) is None
+    legacy = run_record(
+        {
+            "command": ["assemble"],
+            "generated_at": "2026-10-16T09:48:33Z",
+            "run_command": ["run", "--topologies", "flapping-s1-s2"],
+            "run_source": {"commit": "bbbb"},
+            "run_environment": {},
+            "grid": {"cells": 120},
+            "outcomes": {"y": "passed"},
+        }
+    )
+    assert legacy is not None and legacy["command"][1] == "--topologies" and legacy["cells"] == 120
+    assert merge_run_history([first, second, first])[0]["cells"] == 480
+    (output / "runs" / "a-L0.7-T0-equal-S001.json").write_text(
+        json.dumps({"run_id": "a-L0.7-T0-equal-S001", "status": "passed"}), encoding="utf-8"
+    )
+    assert run_outcomes(output) == {"a-L0.7-T0-equal-S001": "passed"}
+    (output / "runs" / "a-L0.7-T0-equal-S001.json").unlink()
+    command = [
+        "assemble",
+        "--output",
+        str(output),
+        "--merge-manifest",
+        str(tmp_path / "first.json"),
+    ]
+    assert main(command) == 0
+    manifest = json.loads((output / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert manifest["command"] == ["assemble"] and manifest["outcomes"] == {}
+    assert manifest["grid"]["cells"] == 0
+    assert manifest["run_command"] == ["run", "--topologies", "flapping-s1-s2"]
+    history = manifest["run_history"]
+    assert [entry["generated_at"] for entry in history] == [
+        "2026-10-16T07:19:20Z",
+        "2026-10-16T09:48:00Z",
+    ]
+    assert history[0]["outcomes"] == {"passed": 2, "failed": 1} and history[0]["cells"] == 480
+    assert history[1]["source"] == {"commit": "bbbb"} and history[1]["cells"] == 120
+    assert main(["assemble", "--output", str(output)]) == 0
+    again = json.loads((output / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert [entry["generated_at"] for entry in again["run_history"]] == [
+        "2026-10-16T07:19:20Z",
+        "2026-10-16T09:48:00Z",
+    ]
 
 
 def test_main_run_uses_dry_faults_and_records_cell_errors(

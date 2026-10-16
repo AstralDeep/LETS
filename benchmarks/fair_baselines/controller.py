@@ -659,6 +659,63 @@ def write_manifest(output_dir: Path, command: Sequence[str], extra: Mapping[str,
     write_json(output_dir / "MANIFEST.json", manifest, overwrite=True)
 
 
+def read_manifest(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
+
+
+def run_record(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    command = manifest.get("command")
+    if not isinstance(command, list) or not command:
+        return None
+    if command[0] == "run":
+        run_command, source, environment = (
+            command,
+            manifest.get("source"),
+            manifest.get("environment"),
+        )
+    elif command[0] == "assemble" and isinstance(manifest.get("run_command"), list):
+        run_command = manifest["run_command"]
+        source, environment = manifest.get("run_source"), manifest.get("run_environment")
+    else:
+        return None
+    outcomes = manifest.get("outcomes", {})
+    tally: dict[str, int] = {}
+    for status in outcomes.values():
+        tally[str(status)] = tally.get(str(status), 0) + 1
+    return {
+        "generated_at": manifest.get("generated_at"),
+        "command": run_command,
+        "source": source,
+        "environment": environment,
+        "cells": manifest.get("grid", {}).get("cells"),
+        "outcomes": tally,
+    }
+
+
+def merge_run_history(manifests: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    for manifest in manifests:
+        for entry in manifest.get("run_history", []):
+            records.setdefault(str(entry.get("generated_at")), dict(entry))
+        own = run_record(manifest)
+        if own is not None and not (
+            manifest.get("command", [""])[0] == "assemble" and manifest.get("run_history")
+        ):
+            records.setdefault(str(own["generated_at"]), own)
+    return [records[key] for key in sorted(records)]
+
+
+def run_outcomes(output_dir: Path) -> dict[str, str]:
+    outcomes = {}
+    for path in run_files(output_dir):
+        result = read_run(path)
+        outcomes[str(result["run_id"])] = str(result.get("status", "unknown"))
+    return outcomes
+
+
 def run_grid(
     clusters: Sequence[Cluster],
     token: str,
@@ -789,6 +846,7 @@ def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run.add_argument("--dry-run-faults", action="store_true", help="record fault commands only")
     assemble_parser = sub.add_parser("assemble", help="rebuild the CSVs from runs/*.json")
     assemble_parser.add_argument("--output", type=Path, required=True)
+    assemble_parser.add_argument("--merge-manifest", type=Path, action="append", default=[])
     return parser.parse_args(argv)
 
 
@@ -796,20 +854,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _arguments(argv)
     if arguments.command == "assemble":
         counts = assemble(arguments.output)
-        previous_path = arguments.output / "MANIFEST.json"
+        previous = read_manifest(arguments.output / "MANIFEST.json")
+        merged = [m for m in (read_manifest(p) for p in arguments.merge_manifest) if m]
         carried: dict[str, Any] = {}
-        if previous_path.exists():
-            previous = json.loads(previous_path.read_text(encoding="utf-8"))
+        if previous is not None:
             carried = {
                 key: previous[key]
-                for key in ("grid", "outcomes", "run_command", "run_source", "run_environment")
+                for key in ("grid", "run_command", "run_source", "run_environment")
                 if key in previous
             }
-            if "run_command" not in previous:
+            if "run_command" not in previous and run_record(previous) is not None:
                 carried["run_command"] = previous.get("command")
                 carried["run_source"] = previous.get("source")
                 carried["run_environment"] = previous.get("environment")
-        write_manifest(arguments.output, ["assemble"], {**carried, "assembled": counts})
+        outcomes = run_outcomes(arguments.output)
+        if "grid" in carried:
+            carried["grid"] = {**carried["grid"], "cells": len(outcomes)}
+        history = merge_run_history([*([previous] if previous else []), *merged])
+        write_manifest(
+            arguments.output,
+            ["assemble"],
+            {**carried, "outcomes": outcomes, "run_history": history, "assembled": counts},
+        )
         print(json.dumps(counts))
         return 0
     clusters, token = load_endpoints(arguments.endpoints)
@@ -841,6 +907,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         sites,
     )
     driver: FaultDriver | None = DryRunFaultDriver() if arguments.dry_run_faults else None
+    previous = read_manifest(arguments.output / "MANIFEST.json")
     outcome = run_grid(
         clusters,
         token,
@@ -869,6 +936,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ],
             },
             "outcomes": outcome["outcomes"],
+            "run_history": merge_run_history([previous] if previous else []),
             "assembled": outcome["assembled"],
         },
     )

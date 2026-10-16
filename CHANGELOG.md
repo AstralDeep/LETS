@@ -7,6 +7,10 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Changed
 
+- E1 harness: `controller assemble` now records every run on disk in the manifest's `outcomes`,
+  sets the grid cell count from those files, and keeps a `run_history` of each `run` invocation
+  (command, source identity, environment, cell count, outcome tally), merging further manifests
+  given with `--merge-manifest`, so a grid executed in several invocations is fully described.
 - E1 harness: remote sites are driven through a persistent sudo-over-SSH fault session
   (`fault_ssh` in the endpoints file, paramiko in the `benchmarks` extra) instead of one `ssh`
   process per iptables command, which sshd's connection rate limit rejected during 3 s flapping
