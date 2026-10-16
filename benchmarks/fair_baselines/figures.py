@@ -6,6 +6,7 @@ controller's requests.csv, using the aggregates in analysis.py.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 from collections import defaultdict
@@ -25,6 +26,18 @@ from benchmarks.fair_baselines.analysis import (
     load_requests,
 )
 from benchmarks.fair_baselines.common import SystemSpec, is_flapping, topology_order
+
+
+def save_figure(fig: object, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.suffix.lower() == ".svg":
+        buffer = io.StringIO()
+        fig.savefig(buffer, format="svg")  # type: ignore[attr-defined]
+        output.write_text(buffer.getvalue(), encoding="utf-8", newline="\n")
+    else:
+        fig.savefig(output)  # type: ignore[attr-defined]
+    plt.close(fig)  # type: ignore[arg-type]
+
 
 PALETTE = {
     "lets": "#1b6ca8",
@@ -115,9 +128,7 @@ def cdf_panel(
     )
     fig.suptitle(title or f"Time to authorization, load {load:g}x envelope, Zipf θ={theta:g}")
     fig.tight_layout(rect=(0, 0.12, 1, 1))
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output)
-    plt.close(fig)
+    save_figure(fig, output)
     return output
 
 
@@ -178,9 +189,7 @@ def completion_chart(
     )
     fig.suptitle(f"Completions by deadline with 95% seed-bootstrap CIs, Zipf θ={theta:g}")
     fig.tight_layout(rect=(0, 0.12, 1, 1))
-    output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output)
-    plt.close(fig)
+    save_figure(fig, output)
     return output
 
 
