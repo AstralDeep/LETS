@@ -7,6 +7,10 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Changed
 
+- E1 harness: remote sites are driven through a persistent sudo-over-SSH fault session
+  (`fault_ssh` in the endpoints file, paramiko in the `benchmarks` extra) instead of one `ssh`
+  process per iptables command, which sshd's connection rate limit rejected during 3 s flapping
+  toggles on the first three-host grid. `fault_exec` prefixes remain for Docker sites.
 - E1 harness (`benchmarks/fair_baselines/`, experiment-only): the pysyncobj Raft node listens on
   every interface for its advertised port, so a site can advertise a NAT public address it cannot
   bind; and an endpoint may set `fault_exec_quote` so fault commands sent through `ssh` reach the

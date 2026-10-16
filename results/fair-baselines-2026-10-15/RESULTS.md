@@ -185,18 +185,21 @@ multi-region grid (for example two UK hosts, one Azure VM, and four AWS regions)
    the Raft port 9801 must be open between every pair of hosts (security groups and NSGs included);
    the control API (also 9701, bearer token) should be reachable from the controller only, for
    example through an SSH port forward to `127.0.0.1:97xx` on the controller.
-3. Give the controller a way to run `iptables` and `tc` as root on each host. Either passwordless
-   sudo for those two binaries with `"fault_exec": ["ssh", "-i", "<key>", "<user>@<host>", "sudo", "sh", "-c"]`,
-   or run the agent inside the experiment image with `--cap-add NET_ADMIN` on hosts that have a
-   Docker daemon and use
-   `"fault_exec": ["ssh", "<user>@<host>", "docker", "exec", "lets-e1-uk1", "sh", "-c"]`.
-   Set `"interface"` to the host's data interface if it is not `eth0` (`ens5` on the AWS
-   instances). Any prefix that goes through `ssh` needs `"fault_exec_quote": true`, because the
-   remote login shell re-parses the command line: the driver then passes each command as one
-   `sh -c` word. `docker exec` keeps argument boundaries, so the local mode leaves the flag off. A
-   site whose advertised `peer_ip` is not an address on its own interfaces (an Azure VM behind a
-   NAT public address, for example) still works: the Raft node listens on every interface for its
-   advertised port.
+3. Give the controller a way to run `iptables` and `tc` as root on each host. The supported
+   remote form is a persistent sudo-over-SSH session per site,
+   `"fault_ssh": {"host": "<host>", "user": "<user>", "key_file": "<key>"}` (optional `port` and
+   `prefix`, default `["sudo", "-n"]`), which needs passwordless sudo for the user and keeps one
+   authenticated connection open for the whole grid, reconnecting once if it drops. Do not drive
+   remote hosts through a per-command `ssh` prefix: the first three-host grid did, and the 3 s
+   `flapping` toggles opened connections faster than sshd's default `MaxStartups` admits, so 76 of
+   120 flapping cells failed with `kex_exchange_identification: Connection reset` while every other
+   topology passed; the block was rerun with `fault_ssh`. A command-prefix list `fault_exec` remains
+   for local Docker sites (`["docker", "exec", "lets-e1-uk1", "sh", "-c"]`, which keeps argument
+   boundaries) and for any other prefix that preserves them; a prefix that goes through a login
+   shell needs `"fault_exec_quote": true`. Set `"interface"` to the host's data interface if it is
+   not `eth0` (`ens5` on the AWS instances). A site whose advertised `peer_ip` is not an address on
+   its own interfaces (an Azure VM behind a NAT public address, for example) still works: the Raft
+   node listens on every interface for its advertised port.
 4. Write the endpoints file. The top-level `sites` list is the ordered roster: it fixes the Zipf
    rank order of demand (the first site is the heaviest), the order in which equal shares absorb
    the envelope remainder, the Raft membership, and the site order in every table and figure.
@@ -210,9 +213,9 @@ multi-region grid (for example two UK hosts, one Azure VM, and four AWS regions)
      "token_env": "LETS_E1_TOKEN",
      "sites": ["s1", "s2", "s3"],
      "clusters": [{"name": "three-host", "sites": {
-       "s1": {"control_url": "http://127.0.0.1:9711", "peer_ip": "<s1 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s1>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true},
-       "s2": {"control_url": "http://127.0.0.1:9712", "peer_ip": "<s2 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s2>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true},
-       "s3": {"control_url": "http://127.0.0.1:9713", "peer_ip": "<s3 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_exec": ["ssh", "<user>@<s3>", "sudo", "-n", "sh", "-c"], "fault_exec_quote": true}
+       "s1": {"control_url": "http://127.0.0.1:9711", "peer_ip": "<s1 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_ssh": {"host": "<s1>", "user": "<user>", "key_file": "<key>"}},
+       "s2": {"control_url": "http://127.0.0.1:9712", "peer_ip": "<s2 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_ssh": {"host": "<s2>", "user": "<user>", "key_file": "<key>"}},
+       "s3": {"control_url": "http://127.0.0.1:9713", "peer_ip": "<s3 private ip>", "peer_port": 9701, "raft_port": 9801, "interface": "eth0", "fault_ssh": {"host": "<s3>", "user": "<user>", "key_file": "<key>"}}
      }}]
    }
    ```

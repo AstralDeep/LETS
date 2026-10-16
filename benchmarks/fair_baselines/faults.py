@@ -1,21 +1,60 @@
 """Kernel-level fault injection for E1: builds the iptables cut/heal and tc netem commands for a
-topology, runs them on each site through a per-site privileged command prefix (docker exec locally,
-ssh+sudo on remote endpoints), and turns a topology plus phase timings into a timed schedule the
-controller executes while a run is in flight.
+topology, runs them on each site through a per-site privileged command prefix (docker exec locally)
+or a persistent sudo-over-SSH session (remote endpoints), and turns a topology plus phase timings
+into a timed schedule the controller executes while a run is in flight.
 """
 
 from __future__ import annotations
 
+import contextlib
 import shlex
 import subprocess
+import threading
 import time
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from benchmarks.fair_baselines.common import Topology, site_alias
 
 CHAIN = "LETS_E1"
+
+
+@dataclass(frozen=True, slots=True)
+class SSHTarget:
+    host: str
+    user: str
+    key_file: str
+    port: int = 22
+    prefix: tuple[str, ...] = ("sudo", "-n")
+
+    @classmethod
+    def from_dict(cls, site: str, payload: Mapping[str, object]) -> SSHTarget:
+        for key in ("host", "user", "key_file"):
+            if not isinstance(payload.get(key), str) or not payload[key]:
+                raise ValueError(f"{site}: fault_ssh.{key} must be a non-empty string")
+        prefix = payload.get("prefix", ("sudo", "-n"))
+        if not isinstance(prefix, Sequence) or isinstance(prefix, str):
+            raise ValueError(f"{site}: fault_ssh.prefix must be a command prefix list")
+        return cls(
+            host=str(payload["host"]),
+            user=str(payload["user"]),
+            key_file=str(payload["key_file"]),
+            port=int(payload.get("port", 22)),  # type: ignore[call-overload]
+            prefix=tuple(str(part) for part in prefix),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "host": self.host,
+            "user": self.user,
+            "key_file": self.key_file,
+            "port": self.port,
+            "prefix": list(self.prefix),
+        }
+
+    def remote_command(self, command: str) -> str:
+        return " ".join([*self.prefix, "sh", "-c", shlex.quote(command)])
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +67,7 @@ class SiteEndpoint:
     fault_exec: tuple[str, ...]
     interface: str = "eth0"
     fault_exec_quote: bool = False
+    fault_ssh: SSHTarget | None = None
 
     @property
     def peer_url(self) -> str:
@@ -40,8 +80,16 @@ class SiteEndpoint:
     @classmethod
     def from_dict(cls, site: str, payload: Mapping[str, object]) -> SiteEndpoint:
         site_alias(site, "site")
-        fault_exec = payload.get("fault_exec")
-        if not isinstance(fault_exec, Sequence) or isinstance(fault_exec, str) or not fault_exec:
+        ssh_payload = payload.get("fault_ssh")
+        fault_ssh = None
+        if ssh_payload is not None:
+            if not isinstance(ssh_payload, Mapping):
+                raise ValueError(f"{site}: fault_ssh must be a mapping")
+            fault_ssh = SSHTarget.from_dict(site, ssh_payload)
+        fault_exec = payload.get("fault_exec", ())
+        if isinstance(fault_exec, str) or not isinstance(fault_exec, Sequence):
+            raise ValueError(f"{site}: fault_exec must be a command prefix list")
+        if not fault_exec and fault_ssh is None:
             raise ValueError(f"{site}: fault_exec must be a non-empty command prefix list")
         return cls(
             site=site,
@@ -52,10 +100,11 @@ class SiteEndpoint:
             fault_exec=tuple(str(part) for part in fault_exec),
             interface=str(payload.get("interface", "eth0")),
             fault_exec_quote=bool(payload.get("fault_exec_quote", False)),
+            fault_ssh=fault_ssh,
         )
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        document: dict[str, object] = {
             "control_url": self.control_url,
             "peer_ip": self.peer_ip,
             "peer_port": self.peer_port,
@@ -64,6 +113,9 @@ class SiteEndpoint:
             "interface": self.interface,
             "fault_exec_quote": self.fault_exec_quote,
         }
+        if self.fault_ssh is not None:
+            document["fault_ssh"] = self.fault_ssh.to_dict()
+        return document
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +162,98 @@ class SubprocessFaultDriver:
             sent,
             time.time_ns(),
         )
+
+
+def _connect_ssh(target: SSHTarget) -> Any:
+    import paramiko
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        target.host,
+        port=target.port,
+        username=target.user,
+        key_filename=target.key_file,
+        timeout=20.0,
+        banner_timeout=20.0,
+        auth_timeout=20.0,
+        look_for_keys=False,
+        allow_agent=False,
+    )
+    client.get_transport().set_keepalive(15)
+    return client
+
+
+class SSHFaultDriver:
+    def __init__(
+        self,
+        timeout_s: float = 30.0,
+        client_factory: Callable[[SSHTarget], Any] = _connect_ssh,
+    ) -> None:
+        self.timeout_s = timeout_s
+        self._client_factory = client_factory
+        self._clients: dict[str, Any] = {}
+        self._lock = threading.Lock()
+
+    def _client(self, endpoint: SiteEndpoint) -> Any:
+        client = self._clients.get(endpoint.site)
+        transport = client.get_transport() if client is not None else None
+        if transport is None or not transport.is_active():
+            self._drop(endpoint.site)
+            if endpoint.fault_ssh is None:
+                raise ValueError(f"{endpoint.site}: endpoint has no fault_ssh target")
+            client = self._client_factory(endpoint.fault_ssh)
+            self._clients[endpoint.site] = client
+        return client
+
+    def _drop(self, site: str) -> None:
+        client = self._clients.pop(site, None)
+        if client is not None:
+            with contextlib.suppress(Exception):
+                client.close()
+
+    def _execute(self, endpoint: SiteEndpoint, remote: str) -> tuple[int, str, str]:
+        client = self._client(endpoint)
+        _, stdout, stderr = client.exec_command(remote, timeout=self.timeout_s)
+        out = stdout.read().decode("utf-8", "replace")
+        err = stderr.read().decode("utf-8", "replace")
+        return stdout.channel.recv_exit_status(), out, err
+
+    def run(self, endpoint: SiteEndpoint, command: str) -> CommandResult:
+        if endpoint.fault_ssh is None:
+            raise ValueError(f"{endpoint.site}: endpoint has no fault_ssh target")
+        remote = endpoint.fault_ssh.remote_command(command)
+        sent = time.time_ns()
+        with self._lock:
+            try:
+                returncode, out, err = self._execute(endpoint, remote)
+            except Exception as first:
+                self._drop(endpoint.site)
+                try:
+                    returncode, out, err = self._execute(endpoint, remote)
+                except Exception as second:
+                    self._drop(endpoint.site)
+                    returncode, out, err = 255, "", f"ssh session failed twice: {first}; {second}"
+        return CommandResult(endpoint.site, command, returncode, out, err, sent, time.time_ns())
+
+    def close(self) -> None:
+        with self._lock:
+            for site in list(self._clients):
+                self._drop(site)
+
+
+class EndpointFaultDriver:
+    def __init__(self, timeout_s: float = 30.0) -> None:
+        self.subprocess = SubprocessFaultDriver(timeout_s)
+        self.ssh = SSHFaultDriver(timeout_s)
+
+    def run(self, endpoint: SiteEndpoint, command: str) -> CommandResult:
+        if endpoint.fault_ssh is not None:
+            return self.ssh.run(endpoint, command)
+        return self.subprocess.run(endpoint, command)
+
+    def close(self) -> None:
+        self.ssh.close()
 
 
 class DryRunFaultDriver:

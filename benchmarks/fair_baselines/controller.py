@@ -40,10 +40,10 @@ from benchmarks.fair_baselines.common import (
 )
 from benchmarks.fair_baselines.faults import (
     DryRunFaultDriver,
+    EndpointFaultDriver,
     FaultDriver,
     FaultInjector,
     SiteEndpoint,
-    SubprocessFaultDriver,
     fault_schedule,
     link_label,
     parse_drop_counters,
@@ -679,7 +679,7 @@ def run_grid(
     ]
     skipped = len(cells) - len(pending)
     runners = [
-        CellRunner(cluster, token, options, driver or SubprocessFaultDriver(), output_dir, log)
+        CellRunner(cluster, token, options, driver or EndpointFaultDriver(), output_dir, log)
         for cluster in clusters
     ]
     for runner in runners:
