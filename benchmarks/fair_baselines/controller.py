@@ -58,6 +58,8 @@ from benchmarks.nsdi_strengthening.common import (
 from lets.crypto import Ed25519Signer
 
 NS_PER_S = 1_000_000_000
+COUNTER_LEAD_S = 1.0
+PROBE_JOIN_S = 60.0
 REQUEST_FIELDS = (
     "run_id",
     "topology",
@@ -257,6 +259,21 @@ class SiteClient:
         return payload
 
 
+def probe_links(clients: Mapping[str, Any], sites: Sequence[str]) -> list[dict[str, object]]:
+    pairs = [(site, target) for site in clients for target in sites if target != site]
+    if not pairs:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(pairs), 64)) as pool:
+        futures = [
+            pool.submit(clients[site].call, "POST", "/probe/peer", {"target": target})
+            for site, target in pairs
+        ]
+        return [
+            {"source": site, **future.result()}
+            for (site, _target), future in zip(pairs, futures, strict=True)
+        ]
+
+
 def run_config(cell: Cell, options: GridOptions) -> RunConfig:
     return RunConfig(
         run_id=cell.run_id,
@@ -396,14 +413,7 @@ class CellRunner:
             time.sleep(0.5)
 
     def _probe_links(self) -> list[dict[str, object]]:
-        probes = []
-        for site, client in self.clients.items():
-            for target in self.cluster.sites:
-                if target == site:
-                    continue
-                result = client.call("POST", "/probe/peer", {"target": target})
-                probes.append({"source": site, **result})
-        return probes
+        return probe_links(self.clients, list(self.cluster.sites))
 
     def _fault_thread(
         self,
@@ -414,19 +424,31 @@ class CellRunner:
         failures: list[str],
     ) -> None:
         topology = config.resolved_topology()
+        probe_worker: threading.Thread | None = None
+
+        def probe_during_cut() -> None:
+            try:
+                counters["probes_during_cut"] = self._probe_links()
+            except Exception as exc:
+                failures.append(f"in-cut probes failed: {exc}")
+
+        def sleep_until(offset_s: float) -> None:
+            delay = (start_at_ns + int(offset_s * NS_PER_S) - time.time_ns()) / NS_PER_S
+            if delay > 0:
+                time.sleep(delay)
+
         try:
             for scheduled in fault_schedule(topology, config.pre_s, config.partition_s):
-                target_ns = start_at_ns + int(scheduled.offset_s * NS_PER_S)
-                delay = (target_ns - time.time_ns()) / NS_PER_S
-                if delay > 0:
-                    time.sleep(delay)
                 if scheduled.kind == "heal":
+                    sleep_until(scheduled.offset_s - COUNTER_LEAD_S)
                     counters[f"before_heal_{len(faults)}"] = {
                         site: parse_drop_counters(output)
                         for site, output in self.injector.counters().items()
                     }
+                    sleep_until(scheduled.offset_s)
                     results = self.injector.heal()
                 else:
+                    sleep_until(scheduled.offset_s)
                     results = self.injector.cut(scheduled.links)
                 for result in results:
                     faults.append(
@@ -442,13 +464,20 @@ class CellRunner:
                         }
                     )
                 if scheduled.kind == "cut" and scheduled.offset_s == config.pre_s:
-                    counters["probes_during_cut"] = self._probe_links()
+                    probe_worker = threading.Thread(
+                        target=probe_during_cut, name=f"probes-{config.run_id}", daemon=True
+                    )
+                    probe_worker.start()
         except Exception as exc:
             failures.append(f"fault injection failed: {exc}")
             try:
                 self.injector.heal()
             except Exception as heal_exc:
                 failures.append(f"heal after failure also failed: {heal_exc}")
+        if probe_worker is not None:
+            probe_worker.join(timeout=PROBE_JOIN_S)
+            if probe_worker.is_alive():
+                failures.append("in-cut probes did not finish")
 
     def run_cell(self, cell: Cell) -> dict[str, Any]:
         config = run_config(cell, self.options)

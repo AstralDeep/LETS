@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import csv
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,7 @@ from benchmarks.fair_baselines.controller import (
     main,
     merge_run_history,
     parse_shares,
+    probe_links,
     read_run,
     run_config,
     run_grid,
@@ -380,6 +383,28 @@ def test_grid_records_errors_from_unreachable_clusters(tmp_path: Path) -> None:
     cells = grid_cells(["split-s1"], [2.0], [0.0], [1], ["equal"])
     with pytest.raises(ControllerError, match="unreachable"):
         run_grid(clusters, token, cells, _options(), tmp_path / "out", driver=DryRunFaultDriver())
+
+
+class _ProbeClient:
+    def __init__(self, site: str, seen: list[tuple[str, str, int]]) -> None:
+        self.site = site
+        self.seen = seen
+
+    def call(self, method: str, path: str, body: dict[str, str]) -> dict[str, object]:
+        time.sleep(0.01)
+        self.seen.append((self.site, body["target"], threading.get_ident()))
+        return {"target": body["target"], "reachable": True, "latency_ns": 1}
+
+
+def test_probe_links_queries_every_ordered_pair_concurrently() -> None:
+    seen: list[tuple[str, str, int]] = []
+    clients = {site: _ProbeClient(site, seen) for site in FIVE_SITES}
+    probes = probe_links(clients, list(FIVE_SITES))
+    assert [(p["source"], p["target"]) for p in probes] == [
+        (s, t) for s in FIVE_SITES for t in FIVE_SITES if s != t
+    ]
+    assert len(seen) == 5 * 4 and len({thread for _, _, thread in seen}) > 1
+    assert probe_links({}, list(FIVE_SITES)) == []
 
 
 def test_main_assemble_on_empty_directory(tmp_path: Path) -> None:

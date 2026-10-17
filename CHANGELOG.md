@@ -7,6 +7,11 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Changed
 
+- E1 harness: the controller keeps the fault schedule on time. The in-cut peer probes run on
+  their own thread, concurrently across every ordered site pair, instead of on the schedule
+  thread (where they delayed the final heal by a median 5.6 s on the three-host grid and 15 s on
+  seven sites), and the dropped-packet counters are read one second ahead of a scheduled heal so
+  the heal itself fires at its offset.
 - E1 harness: the fault injector now applies a cut as one batched `iptables` script per site and
   drives every site concurrently (the SSH driver locks per site), so a partition forms in one
   round trip instead of one command at a time. On the first seven-site grid the 21-link
