@@ -80,7 +80,8 @@ are equal (10/10/10). Seeds are 1–2 in the local grid (`--seeds 2`); the paper
   `runs.csv` carries the margin per run and system.
 - **Messages**: application messages sent from each site per system (requests and responses,
   Raft messages at the transport, LETS voucher traffic); `messages.csv` and the per-site table.
-- **Fault evidence**: `faults.csv` has every iptables command with its send and return offsets;
+- **Fault evidence**: `faults.csv` has every fault command with its send and return offsets (a
+  cut is one batched `iptables` script per site, applied to all sites concurrently);
   each run's JSON keeps the peer probes taken inside the cut (the cut links are unreachable, the
   others are not) and the `LETS_E1` chain's dropped-packet counters read just before each heal.
 

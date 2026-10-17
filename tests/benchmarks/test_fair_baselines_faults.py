@@ -8,12 +8,15 @@ from __future__ import annotations
 import itertools
 import shlex
 import sys
+import threading
+import time
 
 import pytest
 
 from benchmarks.fair_baselines.common import LINKS, TOPOLOGIES, resolve_topology
 from benchmarks.fair_baselines.faults import (
     CHAIN,
+    CommandResult,
     DryRunFaultDriver,
     EndpointFaultDriver,
     FaultInjector,
@@ -79,6 +82,17 @@ def test_fault_schedule_static_and_flapping() -> None:
     assert len(seven[0].links) == 12
 
 
+class _ThreadRecordingDriver(DryRunFaultDriver):
+    def __init__(self) -> None:
+        super().__init__()
+        self.threads: list[tuple[str, str, int]] = []
+
+    def run(self, endpoint: SiteEndpoint, command: str) -> CommandResult:
+        time.sleep(0.01)
+        self.threads.append((endpoint.site, command, threading.get_ident()))
+        return super().run(endpoint, command)
+
+
 def test_injector_runs_setup_cut_heal_counters_and_cleanup() -> None:
     driver = DryRunFaultDriver()
     injector = FaultInjector(driver, _endpoints())
@@ -86,8 +100,11 @@ def test_injector_runs_setup_cut_heal_counters_and_cleanup() -> None:
     assert all(site in {"s1", "s2", "s3"} for site, _ in driver.commands)
     assert sum(1 for _, command in driver.commands if "netem" in command) == 3
     results = injector.cut({LINKS[0]})
-    assert [result.site for result in results] == ["s1", "s1", "s2", "s2"]
-    assert "10.231.0.12" in results[0].command and "10.231.0.11" in results[2].command
+    assert [result.site for result in results] == ["s1", "s2"]
+    assert results[0].command == (
+        "iptables -A LETS_E1 -s 10.231.0.12 -j DROP && iptables -A LETS_E1 -d 10.231.0.12 -j DROP"
+    )
+    assert "10.231.0.11" in results[1].command and results[1].command.count("&&") == 1
     with pytest.raises(ValueError, match="unknown link"):
         injector.cut({frozenset({"s1", "s4"})})
     healed = injector.heal()
@@ -98,19 +115,25 @@ def test_injector_runs_setup_cut_heal_counters_and_cleanup() -> None:
 
 
 def test_injector_cuts_every_link_of_a_seven_site_topology() -> None:
-    driver = DryRunFaultDriver()
+    driver = _ThreadRecordingDriver()
     endpoints = _endpoints(SEVEN)
     injector = FaultInjector(driver, endpoints)
     injector.prepare(0, 0.0)
     assert sum(1 for _, command in driver.commands if "qdisc del" in command) == 7
     isolate = injector.cut(resolve_topology("isolate-use2", SEVEN).cut_links)
-    assert len(isolate) == 6 * 4
-    assert {result.site for result in isolate} == set(SEVEN)
-    assert sum(1 for result in isolate if result.site == "use2") == 12
+    assert [result.site for result in isolate] == list(SEVEN)
+    use2 = next(result for result in isolate if result.site == "use2")
+    assert use2.command.count("iptables -A LETS_E1") == 12
+    assert all(endpoints[peer].peer_ip in use2.command for peer in SEVEN if peer != "use2")
     others = [result for result in isolate if result.site != "use2"]
-    assert all(endpoints["use2"].peer_ip in result.command for result in others)
+    assert all(
+        endpoints["use2"].peer_ip in result.command and result.command.count("&&") == 1
+        for result in others
+    )
     full = injector.cut(resolve_topology("full-isolation", SEVEN).cut_links)
-    assert len(full) == 21 * 4
+    assert len(full) == 7
+    assert all(result.command.count("iptables -A LETS_E1") == 12 for result in full)
+    assert len({thread for _, _, thread in driver.threads}) > 1
     with pytest.raises(ValueError, match="unknown link"):
         injector.cut({frozenset({"uk1", "s1"})})
     with pytest.raises(ValueError, match="unknown link"):
@@ -265,6 +288,41 @@ def test_ssh_driver_reconnects_once_then_reports_failure() -> None:
             SiteEndpoint("s1", "http://127.0.0.1:1", "127.0.0.1", 1, 2, ("docker", "exec", "x")),
             "true",
         )
+
+
+def test_ssh_driver_locks_per_site_so_sites_proceed_concurrently() -> None:
+    gate = threading.Barrier(2, timeout=5)
+
+    class _BlockingClient(_FakeSSHClient):
+        def exec_command(
+            self, remote: str, timeout: float
+        ) -> tuple[None, _FakeStream, _FakeStream]:
+            gate.wait()
+            return super().exec_command(remote, timeout)
+
+    driver = SSHFaultDriver(client_factory=lambda _target: _BlockingClient())
+    a = _ssh_endpoint()
+    b = SiteEndpoint.from_dict(
+        "s2",
+        {
+            "control_url": "http://127.0.0.1:9712",
+            "peer_ip": "203.0.113.12",
+            "peer_port": 9701,
+            "raft_port": 9801,
+            "fault_ssh": {"host": "203.0.113.12", "user": "sam", "key_file": "/keys/e1"},
+        },
+    )
+    results: list[CommandResult] = []
+    workers = [
+        threading.Thread(target=lambda e=e: results.append(driver.run(e, "iptables -F LETS_E1")))
+        for e in (a, b)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(5)
+    assert len(results) == 2 and all(result.ok for result in results)
+    driver.close()
 
 
 def test_endpoint_driver_routes_by_endpoint_kind() -> None:

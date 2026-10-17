@@ -7,6 +7,11 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Changed
 
+- E1 harness: the fault injector now applies a cut as one batched `iptables` script per site and
+  drives every site concurrently (the SSH driver locks per site), so a partition forms in one
+  round trip instead of one command at a time. On the first seven-site grid the 21-link
+  `full-isolation` cut took 25 s to form through 84 sequential commands and 24 cells overran the
+  fault thread's deadline; each fault record now carries the whole per-site batch.
 - E1 harness: `controller assemble` now records every run on disk in the manifest's `outcomes`,
   sets the grid cell count from those files, and keeps a `run_history` of each `run` invocation
   (command, source identity, environment, cell count, outcome tally), merging further manifests

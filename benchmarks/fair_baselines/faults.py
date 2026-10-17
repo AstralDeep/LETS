@@ -6,6 +6,7 @@ into a timed schedule the controller executes while a run is in flight.
 
 from __future__ import annotations
 
+import concurrent.futures
 import contextlib
 import shlex
 import subprocess
@@ -194,6 +195,11 @@ class SSHFaultDriver:
         self._client_factory = client_factory
         self._clients: dict[str, Any] = {}
         self._lock = threading.Lock()
+        self._site_locks: dict[str, threading.Lock] = {}
+
+    def _site_lock(self, site: str) -> threading.Lock:
+        with self._lock:
+            return self._site_locks.setdefault(site, threading.Lock())
 
     def _client(self, endpoint: SiteEndpoint) -> Any:
         client = self._clients.get(endpoint.site)
@@ -224,7 +230,7 @@ class SSHFaultDriver:
             raise ValueError(f"{endpoint.site}: endpoint has no fault_ssh target")
         remote = endpoint.fault_ssh.remote_command(command)
         sent = time.time_ns()
-        with self._lock:
+        with self._site_lock(endpoint.site):
             try:
                 returncode, out, err = self._execute(endpoint, remote)
             except Exception as first:
@@ -344,12 +350,17 @@ class FaultInjector:
     driver: FaultDriver
     endpoints: Mapping[str, SiteEndpoint]
     log: list[CommandResult] = field(default_factory=list)
+    _log_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def _record(self, result: CommandResult) -> CommandResult:
+        with self._log_lock:
+            self.log.append(result)
+        return result
 
     def _run(self, site: str, commands: Iterable[str]) -> list[CommandResult]:
         results = []
         for command in commands:
-            result = self.driver.run(self.endpoints[site], command)
-            self.log.append(result)
+            result = self._record(self.driver.run(self.endpoints[site], command))
             results.append(result)
             if not result.ok:
                 raise RuntimeError(
@@ -358,39 +369,90 @@ class FaultInjector:
                 )
         return results
 
+    def _each_site(
+        self, work: Mapping[str, Callable[[], list[CommandResult]]]
+    ) -> list[CommandResult]:
+        if not work:
+            return []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(work)) as pool:
+            futures = {site: pool.submit(task) for site, task in work.items()}
+            outcomes = {site: future for site, future in futures.items()}
+        results: list[CommandResult] = []
+        first_error: BaseException | None = None
+        for site in self.endpoints:
+            future = outcomes.get(site)
+            if future is None:
+                continue
+            error = future.exception()
+            if error is not None:
+                first_error = first_error or error
+                continue
+            results.extend(future.result())
+        if first_error is not None:
+            raise first_error
+        return results
+
     def prepare(self, one_way_ms: float, loss_pct: float) -> None:
-        for site, endpoint in self.endpoints.items():
-            self._run(site, setup_commands())
-            self._run(site, netem_commands(endpoint.interface, one_way_ms, loss_pct))
+        self._each_site(
+            {
+                site: (
+                    lambda s=site, e=endpoint: self._run(
+                        s, (*setup_commands(), *netem_commands(e.interface, one_way_ms, loss_pct))
+                    )
+                )
+                for site, endpoint in self.endpoints.items()
+            }
+        )
 
     def cut(self, links: Iterable[frozenset[str]]) -> list[CommandResult]:
-        results = []
+        peers: dict[str, list[str]] = {}
         for link in links:
             if len(link) != 2 or not link <= set(self.endpoints):
                 raise ValueError(f"unknown link {sorted(link)}")
             left, right = sorted(link)
-            results.extend(self._run(left, cut_commands(self.endpoints[right].peer_ip)))
-            results.extend(self._run(right, cut_commands(self.endpoints[left].peer_ip)))
-        return results
+            peers.setdefault(left, []).append(self.endpoints[right].peer_ip)
+            peers.setdefault(right, []).append(self.endpoints[left].peer_ip)
+        return self._each_site(
+            {
+                site: (
+                    lambda s=site, ips=tuple(addresses): self._run(
+                        s, (" && ".join(c for ip in ips for c in cut_commands(ip)),)
+                    )
+                )
+                for site, addresses in peers.items()
+            }
+        )
 
     def heal(self) -> list[CommandResult]:
-        results = []
-        for site in self.endpoints:
-            results.extend(self._run(site, heal_commands()))
-        return results
+        return self._each_site(
+            {site: (lambda s=site: self._run(s, heal_commands())) for site in self.endpoints}
+        )
 
     def counters(self) -> dict[str, str]:
-        output = {}
-        for site in self.endpoints:
-            result = self.driver.run(self.endpoints[site], counters_command())
-            self.log.append(result)
-            output[site] = result.stdout
-        return output
+        results = self._each_site(
+            {
+                site: (
+                    lambda s=site: [
+                        self._record(self.driver.run(self.endpoints[s], counters_command()))
+                    ]
+                )
+                for site in self.endpoints
+            }
+        )
+        return {result.site: result.stdout for result in results}
 
     def cleanup(self) -> None:
-        for endpoint in self.endpoints.values():
-            for command in cleanup_commands(endpoint.interface):
-                self.log.append(self.driver.run(endpoint, command))
+        self._each_site(
+            {
+                site: (
+                    lambda e=endpoint: [
+                        self._record(self.driver.run(e, command))
+                        for command in cleanup_commands(e.interface)
+                    ]
+                )
+                for site, endpoint in self.endpoints.items()
+            }
+        )
 
 
 def parse_drop_counters(output: str) -> list[dict[str, object]]:
