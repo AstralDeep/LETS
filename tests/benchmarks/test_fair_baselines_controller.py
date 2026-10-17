@@ -331,7 +331,14 @@ def test_grid_runs_on_five_loopback_agents(
     assert all(verdict["safety_ok"] for verdict in isolate["safety"].values())
     cut = [fault for fault in isolate["faults"] if fault["kind"] == "cut"]
     assert {fault["link"] for fault in cut} == {"apse1-uk1,az1-uk1,uk1-uk2,uk1-use2"}
-    assert len(cut) == 4 * 4
+    assert [fault["site"] for fault in cut] == list(FIVE_SITES)
+    isolated = next(fault for fault in cut if fault["site"] == "uk1")
+    assert isolated["command"].count("iptables -A LETS_E1") == 4 * 2
+    assert all(
+        fault["command"].count("iptables -A LETS_E1") == 2
+        for fault in cut
+        if fault["site"] != "uk1"
+    )
     assert len(isolate["probes_before"]) == 5 * 4
     probes = isolate["drop_counters"]["probes_during_cut"]
     assert len(probes) == 5 * 4 and all(probe["reachable"] for probe in probes)
