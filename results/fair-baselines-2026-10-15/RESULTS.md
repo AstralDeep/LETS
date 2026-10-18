@@ -398,7 +398,7 @@ than committed.
   (forward to the leader plus a majority round across five networks; p50 by site rises from 257 ms
   on `s1` to 454 ms on `s7`).
 - **Stranded capacity at 0.7x, theta=1 (peak units / unit-seconds per run):** under `isolate-s1`
-  LETS 22 / 70, static quotas 26 / 3.5, the central counters 28 to 30 / 161 to 694, Raft 29 / 483;
+  LETS 22 / 70, static quotas 26 / 3.5, the central counters 28 to 30 / 161 to 693, Raft 29 / 483;
   under `isolate-s7` LETS 25 / 5.0, the central counters 29 / 40 to 228 with the counter elsewhere
   and 30 / 770 with it on the isolated site, Raft 29 / 209; under `full-isolation` LETS 25 / 130,
   static 26 / 3.2, the central counters 30 / 391 to 786, Raft 30 / 799.
