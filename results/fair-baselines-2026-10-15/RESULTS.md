@@ -11,6 +11,30 @@ Everything in `local/` was produced by the commands in this file at the commit n
 `local/MANIFEST.json` carries the SHA-256 of every file, the controller command line, and the
 source identity the controller observed.
 
+## The terms used in this document, in plain words
+
+| Term | What it means here |
+|---|---|
+| site, host | One computer taking part: `s1` and `s2` are two servers on one university LAN, `s3` a cloud VM in the US East region, `s4` to `s7` cloud instances in Ohio, Oregon, London, and Singapore. |
+| envelope, units | The one shared budget of 30 actions that all the sites together may approve, and the individual actions in it. |
+| request, authorized / denied / timed out | A demand for one action at one site; it is approved, refused, or still unanswered when its 20 s deadline passes. |
+| partition, cut, link cut | The network between some sites is blocked for 30 s by a firewall rule on the machines themselves, so those sites cannot reach each other. |
+| heal | The firewall rule is removed and the sites can reach each other again. |
+| topology | Which links were blocked. The names say which: `split-s1` / `isolate-s1`, one LAN server cut off from everyone; `isolate-s7`, the Singapore machine cut off; `bridge-s3`, the two LAN servers cannot reach each other but both still reach the cloud VM; `halves`, the four nearer sites cut off from the three farther ones; `full-isolation`, every site cut off from every other; `flapping-s1-s2`, the LAN link blocked and unblocked every 3 s, like a flaky connection. |
+| load 0.7x, 2x | How much work was requested: 70% of the budget, or twice the budget (so it must run out). |
+| theta (θ), Zipf skew | How unevenly requests were spread over the sites: 0 is even, 1 means a few sites get most of them. |
+| seed, cell, run | A cell is one combination of topology, load, and skew; each cell is run 20 times with different random request timings (seeds); each of those is a run. |
+| pre-partition, in-cut, post-heal | The three phases of a run: the first 5 s with the network intact, the 30 s with it blocked, and the 15 s after it is restored. |
+| completion (by deadline) | The fraction of requests approved within their 20 s deadline; the main score. |
+| time to authorization (t_auth), p50 / p95 | How long a request waits for its answer; the median and the 95th percentile. |
+| stranded capacity, unit-seconds | Budget sitting unused at one site while requests wait at another site that cannot reach it; the peak number of such units and how many unit-seconds they sat idle. |
+| the five systems | The ways of sharing the budget that were compared: LETS (each site holds a share and can hand unused units to a site it can reach); static quotas (the budget split once and never moved); a central counter (the whole budget at one site that everyone must call, either giving up after one failed try or retrying until the deadline); a Raft quorum counter (a majority of sites must agree to each approval). |
+| in-cut probes | While the network was blocked, each site tried to contact every other site; the record shows which pairs could and could not reach each other, which proves the block was real. |
+| drop counters | The number of packets the firewall rule discarded during the block. |
+| safety, margin | After each run the actions that actually happened are counted and checked against the 30-unit budget; the margin is how far below 30 a run stayed. |
+| schedule fidelity, cut formation, heal lateness | How closely the block and its removal happened at their scheduled moments. |
+| messages per run | How many network messages a system's clients and servers exchanged in one run. |
+
 ## Commit and platforms
 
 | Item | Value |
