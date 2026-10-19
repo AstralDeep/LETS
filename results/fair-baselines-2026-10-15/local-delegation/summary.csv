@@ -1,0 +1,9 @@
+topology,load,theta,placement,system,requests_per_run,authorized_per_run,completion,stranded_peak_units,stranded_unit_seconds_mean,messages_per_run
+full-isolation,0.7,0.0,equal,lets,13.5,13.5,1.0,18,1.8,0.0
+full-isolation,0.7,0.0,equal,lets-tree-d2-f2,13.5,13.5,1.0,18,1.8,0.0
+full-isolation,0.7,1.0,equal,lets,20.5,20.5,1.0,20,6.15,2.0
+full-isolation,0.7,1.0,equal,lets-tree-d2-f2,20.5,20.5,1.0,20,6.15,2.0
+split-s1,0.7,0.0,equal,lets,23.5,23.5,1.0,15,1.2,3.0
+split-s1,0.7,0.0,equal,lets-tree-d2-f2,23.5,23.5,1.0,15,1.4,3.0
+split-s1,0.7,1.0,equal,lets,29.0,27.0,0.9310344827586207,17,54.64999999999996,98.0
+split-s1,0.7,1.0,equal,lets-tree-d2-f2,29.0,27.0,0.9310344827586207,17,54.64999999999996,100.0

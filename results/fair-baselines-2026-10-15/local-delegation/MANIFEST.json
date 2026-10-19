@@ -1,0 +1,409 @@
+{
+  "assembled": {
+    "events": 1176,
+    "faults": 48,
+    "messages": 48,
+    "requests": 346,
+    "runs": 8
+  },
+  "command": [
+    "assemble"
+  ],
+  "environment": {
+    "logical_cpu_count": 32,
+    "machine": "AMD64",
+    "os_release": "10",
+    "os_system": "Windows",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+    "python_implementation": "CPython",
+    "python_version": "3.11.15",
+    "sqlite_version": "3.53.1"
+  },
+  "files": [
+    {
+      "bytes": 1094,
+      "path": "delegation.csv",
+      "sha256": "d09ff1dfc1f9aa97e667894e27b7395330321908782bede31972580712236ce6"
+    },
+    {
+      "bytes": 1870,
+      "path": "delegation.md",
+      "sha256": "cf5c5716e139b1da1a0a4c7e68b8fa2107bf2de9d78035efa3b1a01881d3d334"
+    },
+    {
+      "bytes": 82458,
+      "path": "events.csv",
+      "sha256": "92e29ac95d93170600a27aa3662f9ce423f2280b0cd1e7c233c31f3e9848e10d"
+    },
+    {
+      "bytes": 8293,
+      "path": "faults.csv",
+      "sha256": "a0d95f1fba70d9ebd6f668a5942da443d7230573efe3b31ae7cb84217c56ab7d"
+    },
+    {
+      "bytes": 3645,
+      "path": "messages.csv",
+      "sha256": "67fcd3e14a7b4ee6931e4511a4d1f518f71d86d4b5389045b7ba3987fb55ba49"
+    },
+    {
+      "bytes": 2624,
+      "path": "paper-table.json",
+      "sha256": "596c333133f6ef49b8e1a05b263f25cfdae96b595d17d11b1e74bd2c976084d0"
+    },
+    {
+      "bytes": 1744,
+      "path": "paper-table.md",
+      "sha256": "169b685e88c5656605332183f41bae7b776f2177939841a7d99083b640cf66b3"
+    },
+    {
+      "bytes": 3361,
+      "path": "per-site.csv",
+      "sha256": "da2a3aa1e56202c665bcbd8b679b097a909115a167d6206435796d0dec218682"
+    },
+    {
+      "bytes": 3894,
+      "path": "per-site.md",
+      "sha256": "6af75a67143d48e3af452ad4b102ea49967f5e1904ca8648dc34ea55e89eeae6"
+    },
+    {
+      "bytes": 56594,
+      "path": "requests.csv",
+      "sha256": "363eb488fe74efb975f3e39160f76edb7a10af6ab4e9ae0682295c5dc484329c"
+    },
+    {
+      "bytes": 4078,
+      "path": "runs/full-isolation-L0.7-T0-equal-S001.json.gz",
+      "sha256": "8ad9e56fd3eb1ff714772af56f563a21cb58cb278786594e9cd5c154bc385a33"
+    },
+    {
+      "bytes": 3701,
+      "path": "runs/full-isolation-L0.7-T0-equal-S002.json.gz",
+      "sha256": "d7eead3f3bc8c5eb74e5d95251d3a4bbedda56f6f3b324c80b2da73a76291c5c"
+    },
+    {
+      "bytes": 5093,
+      "path": "runs/full-isolation-L0.7-T1-equal-S001.json.gz",
+      "sha256": "941f2a8cbd717c5c51331b47b43d92814516dbc6f39acc9fffa98ce0c9bbb0ba"
+    },
+    {
+      "bytes": 4476,
+      "path": "runs/full-isolation-L0.7-T1-equal-S002.json.gz",
+      "sha256": "5ce4ecef7d2242982f25a6bd43ab4acad87b86a8ed9360f18f71470699085b57"
+    },
+    {
+      "bytes": 4813,
+      "path": "runs/split-s1-L0.7-T0-equal-S001.json.gz",
+      "sha256": "f41631a616d7b0ced87c88be6508295aed54ec1aee59dbd54f1db7f782d5cf36"
+    },
+    {
+      "bytes": 5392,
+      "path": "runs/split-s1-L0.7-T0-equal-S002.json.gz",
+      "sha256": "063ec28bd764bd1ffaed75b6a5a803b1236dae5f0bdf2a6703c0a502185fcb31"
+    },
+    {
+      "bytes": 5036,
+      "path": "runs/split-s1-L0.7-T1-equal-S001.json.gz",
+      "sha256": "bc63538bf9a40931d689c54a00af61e487d8387aee16d1daae85d12ed1e6408d"
+    },
+    {
+      "bytes": 7381,
+      "path": "runs/split-s1-L0.7-T1-equal-S002.json.gz",
+      "sha256": "4846814cd428837363f1639b70a5b0facffdfb69aa32956605e03e4f158bcb01"
+    },
+    {
+      "bytes": 2304,
+      "path": "runs.csv",
+      "sha256": "f97cd9bd5eb8e8e3b0a5a38bc40e0da7b7757bc2d3340f44d25924cdad60d312"
+    },
+    {
+      "bytes": 703,
+      "path": "summary.csv",
+      "sha256": "d5ff1f56b8de48dc0291c3cfb80fc8d2ffe84794013b108f15800fcf345768b3"
+    }
+  ],
+  "generated_at": "2026-10-19T23:53:32.070316Z",
+  "grid": {
+    "cells": 8,
+    "clusters": [
+      {
+        "name": "local-0",
+        "sites": {
+          "s1": {
+            "control_url": "http://127.0.0.1:9701",
+            "fault_exec": [
+              "docker",
+              "exec",
+              "lets-e1-0-s1",
+              "sh",
+              "-c"
+            ],
+            "fault_exec_quote": false,
+            "interface": "eth0",
+            "peer_ip": "10.231.0.11",
+            "peer_port": 9701,
+            "raft_port": 9801
+          },
+          "s2": {
+            "control_url": "http://127.0.0.1:9702",
+            "fault_exec": [
+              "docker",
+              "exec",
+              "lets-e1-0-s2",
+              "sh",
+              "-c"
+            ],
+            "fault_exec_quote": false,
+            "interface": "eth0",
+            "peer_ip": "10.231.0.12",
+            "peer_port": 9701,
+            "raft_port": 9801
+          },
+          "s3": {
+            "control_url": "http://127.0.0.1:9703",
+            "fault_exec": [
+              "docker",
+              "exec",
+              "lets-e1-0-s3",
+              "sh",
+              "-c"
+            ],
+            "fault_exec_quote": false,
+            "interface": "eth0",
+            "peer_ip": "10.231.0.13",
+            "peer_port": 9701,
+            "raft_port": 9801
+          }
+        }
+      },
+      {
+        "name": "local-1",
+        "sites": {
+          "s1": {
+            "control_url": "http://127.0.0.1:9711",
+            "fault_exec": [
+              "docker",
+              "exec",
+              "lets-e1-1-s1",
+              "sh",
+              "-c"
+            ],
+            "fault_exec_quote": false,
+            "interface": "eth0",
+            "peer_ip": "10.231.1.11",
+            "peer_port": 9701,
+            "raft_port": 9801
+          },
+          "s2": {
+            "control_url": "http://127.0.0.1:9712",
+            "fault_exec": [
+              "docker",
+              "exec",
+              "lets-e1-1-s2",
+              "sh",
+              "-c"
+            ],
+            "fault_exec_quote": false,
+            "interface": "eth0",
+            "peer_ip": "10.231.1.12",
+            "peer_port": 9701,
+            "raft_port": 9801
+          },
+          "s3": {
+            "control_url": "http://127.0.0.1:9713",
+            "fault_exec": [
+              "docker",
+              "exec",
+              "lets-e1-1-s3",
+              "sh",
+              "-c"
+            ],
+            "fault_exec_quote": false,
+            "interface": "eth0",
+            "peer_ip": "10.231.1.13",
+            "peer_port": 9701,
+            "raft_port": 9801
+          }
+        }
+      }
+    ],
+    "options": {
+      "deadline_s": 20.0,
+      "envelope": 30,
+      "loss_pct": 0.0,
+      "partition_s": 30.0,
+      "peer_timeout_s": 2.0,
+      "post_s": 15.0,
+      "pre_s": 5.0,
+      "raft_timeout_s": 2.0,
+      "ready_timeout_s": 45.0,
+      "rtt_ms": 50.0,
+      "shares": null,
+      "sites": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "systems": [
+        "lets",
+        "lets-tree-d2-f2"
+      ]
+    },
+    "sites": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "skipped": 0
+  },
+  "outcomes": {
+    "full-isolation-L0.7-T0-equal-S001": "passed",
+    "full-isolation-L0.7-T0-equal-S002": "passed",
+    "full-isolation-L0.7-T1-equal-S001": "passed",
+    "full-isolation-L0.7-T1-equal-S002": "passed",
+    "split-s1-L0.7-T0-equal-S001": "passed",
+    "split-s1-L0.7-T0-equal-S002": "passed",
+    "split-s1-L0.7-T1-equal-S001": "passed",
+    "split-s1-L0.7-T1-equal-S002": "passed"
+  },
+  "run_command": [
+    "run",
+    "--endpoints",
+    "benchmarks/results/fair-baselines/local-deleg/endpoints.json",
+    "--output",
+    "results/fair-baselines-2026-10-15/local-delegation",
+    "--topologies",
+    "split-s1",
+    "full-isolation",
+    "--loads",
+    "0.7",
+    "--thetas",
+    "0",
+    "1",
+    "--seeds",
+    "2",
+    "--systems",
+    "lets",
+    "lets-tree-d2-f2",
+    "--overwrite"
+  ],
+  "run_environment": {
+    "logical_cpu_count": 32,
+    "machine": "AMD64",
+    "os_release": "10",
+    "os_system": "Windows",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+    "python_implementation": "CPython",
+    "python_version": "3.11.15",
+    "sqlite_version": "3.53.1"
+  },
+  "run_history": [
+    {
+      "cells": 8,
+      "command": [
+        "run",
+        "--endpoints",
+        "benchmarks/results/fair-baselines/local-deleg/endpoints.json",
+        "--output",
+        "results/fair-baselines-2026-10-15/local-delegation",
+        "--topologies",
+        "split-s1",
+        "full-isolation",
+        "--loads",
+        "0.7",
+        "--thetas",
+        "0",
+        "1",
+        "--seeds",
+        "2",
+        "--systems",
+        "lets",
+        "lets-tree-d2-f2"
+      ],
+      "environment": {
+        "logical_cpu_count": 32,
+        "machine": "AMD64",
+        "os_release": "10",
+        "os_system": "Windows",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+        "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+        "python_implementation": "CPython",
+        "python_version": "3.11.15",
+        "sqlite_version": "3.53.1"
+      },
+      "generated_at": "2026-10-19T23:43:41.839462Z",
+      "outcomes": {
+        "passed": 8
+      },
+      "source": {
+        "branch": "claude/e1-delegation-partition-20261019",
+        "commit": "abe74a2eb1db1aa20cf4c5e0c837b6c068e5aeab",
+        "dirty": true,
+        "tracked_diff": "benchmarks/README.md                               |  11 +-\n benchmarks/fair_baselines/analysis.py              | 146 +++++++++++++-\n benchmarks/fair_baselines/common.py                |  23 ++-\n benchmarks/fair_baselines/paper.py                 |  97 ++++++++-\n benchmarks/fair_baselines/site_agent.py            |  11 +-\n benchmarks/fair_baselines/systems.py               | 222 ++++++++++++++++-----\n tests/benchmarks/test_fair_baselines_agent.py      |  48 ++++-\n tests/benchmarks/test_fair_baselines_analysis.py   |  84 +++++++-\n tests/benchmarks/test_fair_baselines_common.py     |  30 ++-\n tests/benchmarks/test_fair_baselines_controller.py |  23 ++-\n tests/benchmarks/test_fair_baselines_paper.py      |  72 ++++++-\n tests/benchmarks/test_fair_baselines_systems.py    | 185 ++++++++++++++++-\n 12 files changed, 862 insertions(+), 90 deletions(-)"
+      }
+    },
+    {
+      "cells": 8,
+      "command": [
+        "run",
+        "--endpoints",
+        "benchmarks/results/fair-baselines/local-deleg/endpoints.json",
+        "--output",
+        "results/fair-baselines-2026-10-15/local-delegation",
+        "--topologies",
+        "split-s1",
+        "full-isolation",
+        "--loads",
+        "0.7",
+        "--thetas",
+        "0",
+        "1",
+        "--seeds",
+        "2",
+        "--systems",
+        "lets",
+        "lets-tree-d2-f2",
+        "--overwrite"
+      ],
+      "environment": {
+        "logical_cpu_count": 32,
+        "machine": "AMD64",
+        "os_release": "10",
+        "os_system": "Windows",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+        "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+        "python_implementation": "CPython",
+        "python_version": "3.11.15",
+        "sqlite_version": "3.53.1"
+      },
+      "generated_at": "2026-10-19T23:53:20.643782Z",
+      "outcomes": {
+        "passed": 8
+      },
+      "source": {
+        "branch": "claude/e1-delegation-partition-20261019",
+        "commit": "a85e1772e17d00a303054ed018e855b49174de85",
+        "dirty": true,
+        "tracked_diff": ""
+      }
+    }
+  ],
+  "run_source": {
+    "branch": "claude/e1-delegation-partition-20261019",
+    "commit": "a85e1772e17d00a303054ed018e855b49174de85",
+    "dirty": true,
+    "tracked_diff": ""
+  },
+  "schema": "lets.fair-baselines-manifest/v1",
+  "source": {
+    "branch": "claude/e1-delegation-partition-20261019",
+    "commit": "a85e1772e17d00a303054ed018e855b49174de85",
+    "dirty": true,
+    "tracked_diff": ""
+  }
+}

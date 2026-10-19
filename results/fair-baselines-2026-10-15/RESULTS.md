@@ -29,6 +29,7 @@ source identity the controller observed.
 | time to authorization (t_auth), p50 / p95 | How long a request waits for its answer; the median and the 95th percentile. |
 | stranded capacity, unit-seconds | Budget sitting unused at one site while requests wait at another site that cannot reach it; the peak number of such units and how many unit-seconds they sat idle. |
 | the five systems | The ways of sharing the budget that were compared: LETS (each site holds a share and can hand unused units to a site it can reach); static quotas (the budget split once and never moved); a central counter (the whole budget at one site that everyone must call, either giving up after one failed try or retrying until the deadline); a Raft quorum counter (a majority of sites must agree to each approval). |
+| delegation tree, leaf, refresh | The LETS variant `lets-tree-d2-f2`, in which each site's root lease hands its units down through two levels of child leases and the four leaves at the bottom are the leases that approve requests; a refresh is the site closing the whole tree and building it again from a new root, which is how it takes up budget transferred from another site. |
 | in-cut probes | While the network was blocked, each site tried to contact every other site; the record shows which pairs could and could not reach each other, which proves the block was real. |
 | drop counters | The number of packets the firewall rule discarded during the block. |
 | safety, margin | After each run the actions that actually happened are counted and checked against the 30-unit budget; the margin is how far below 30 a run stayed. |
@@ -63,7 +64,9 @@ Linux hosts. The RTT is emulated (25 ms one-way netem on every site, 50 ms RTT b
 | `raft-quorum` | a three-node majority counter built on pysyncobj (Raft, 0.1 s heartbeats, 0.4–1.4 s election timeout, journal file) with the same idempotent state machine; each site's requests go to its local node and are forwarded to the leader | retry until deadline on timeout or missing leader (2 s per attempt); exhausted is final |
 | `lets` | the real LETS warden (`WardenService` on SQLite, signed receipts verified and durably claimed by a local executor store) with one lease per site; when a site is exhausted with waiting requests it asks reachable peers every 0.5 s for a transfer sized to its queue, the peer grants at most half its free units through the signed voucher/acknowledgement/finalize sequence | retry until deadline while exhausted (a transfer may arrive) |
 
-All five run concurrently in every run against the identical arrival sequence, so comparisons
+| `lets-tree-d2-f2` | the same warden, claim store, and transfer protocol as `lets`, with the root lease delegated through a spawn tree (two children per parent, two levels) whose leaf leases authorize the requests round-robin; a transfer in or out closes the whole tree bottom-up and respawns it from the refreshed root (see "Delegation under partition" below) | as `lets` |
+
+All systems run concurrently in every run against the identical arrival sequence, so comparisons
 within a run are paired. Each system keeps its own state files; nothing is shared between
 systems except the network links the faults act on.
 
@@ -453,11 +456,131 @@ and 2,600 to 8,400 messages per run. LETS's completion does not depend on where 
 placed, because every site authorizes from its own lease and only the transfers cross the
 network.
 
+## Delegation under partition (local grid, 8 runs, 346 requests, 2 seeds per cell)
+
+The reviewers of the paper pointed out that every LETS site above holds its budget in one root
+lease, so the partition study never exercised the paper's central mechanism, a parent agent
+handing part of its budget to child agents. The system `lets-tree-d2-f2` closes that gap: it is
+the same warden, executor claim store, and transfer protocol as `lets`, run in the same cells and
+against the same arrivals, with one difference in how each site holds its share.
+
+**What the tree is.** At the start of a run each site issues its root lease from its share as
+before, then the root spawns two children, each child spawns two children of its own, and the
+four grandchildren (the leaves) are the leases that authorize the protected calls; a site's
+requests are dealt to the leaves in turn. The share is split evenly at each level with the
+remainder going to the first children (10 units become 5/5, then 3/2 and 3/2), and a child that
+would receive no unit is not spawned, so a one-unit site gets a three-lease chain with one leaf.
+With the paper's 30-unit envelope over three sites each site runs a seven-lease tree with four
+leaves, and every parent has delegated its whole residual (`depth` counts the levels below the
+root; `fanout` is the children per parent; both are part of the system name).
+
+**How an exhausted tree takes up a transfer.** Two rules of the design shape this. A parent cannot
+close while any of its children is live, and no operation adds budget to a live lease (the paper's
+Section VII). A transfer therefore lands in the receiving warden's free pool, from which only a new
+root lease can be issued. The harness handles it as a *refresh*: it closes every live lease of the
+tree bottom-up (leaves, then their parents, then the root; each close returns that lease's unspent
+units to the free pool), issues a new root from the whole pool, and spawns the tree again. The
+same teardown funds an outgoing transfer: the site closes its tree, prepares the voucher from the
+pool, and rebuilds the tree from the remainder. The one-lease system does the same with one close
+and one issue, so the difference between the two systems is exactly the delegation cost.
+
+**What is recorded.** Every build or refresh is a `tree_build` event in `events.csv` whose value is
+the number of lease operations (issue, spawn, and close calls to the warden) and whose detail
+holds the reason (`initial`, `in-<n>` for a transfer taken up, `out-<site>-<n>` for a transfer
+granted), the resulting tree size, and the wall time in microseconds. Each site's snapshot carries
+the tree shape, the live leases and leaves, the leaf residuals, and the lifetime counts of builds,
+lease operations, and build time. `analysis.py` reduces the events to `delegation.csv` and
+`delegation.md`, and `paper.py` adds a delegation-tree row and a lease-tree cost table to the
+partition table. Spawns and closes are local warden transactions; they send no network messages.
+
+**Local-grid check.** `split-s1` and `full-isolation` at 0.7x load, skew 0 and 1, two seeds, with
+`lets` and `lets-tree-d2-f2` in every run (`local-delegation/`). The partitions were real: all 48
+in-cut probes match the cut sets, every cut had formed within 0.19 s of its offset and every heal
+within 0.25 s. Safety held for all 16 run-system pairs (`effects <= 30`, no duplicate actuation,
+`effects == authorized records`; the minimum margin is 0 because the skewed `split-s1` cells spent
+the whole envelope).
+
+| Cell (0.7x) | Requests / run | Completion `lets` | Completion `lets-tree-d2-f2` | Stranded peak / unit-s | Messages / run (`lets` / tree) |
+|---|---:|---:|---:|---|---|
+| `full-isolation`, skew 0 | 13.5 | 1.00 (27/27) | 1.00 (27/27) | 18 / 1.8 | 0 / 0 |
+| `full-isolation`, skew 1 | 20.5 | 1.00 (41/41) | 1.00 (41/41) | 20 / 6.2 | 2 / 2 |
+| `split-s1`, skew 0 | 23.5 | 1.00 (47/47) | 1.00 (47/47) | 15 / 1.2 (`lets`), 15 / 1.4 (tree) | 3 / 3 |
+| `split-s1`, skew 1 | 29.0 | 0.93 (54/58) | 0.93 (54/58) | 17 / 54.6 | 98 / 100 |
+
+The tree completes exactly the same requests as the one-lease system in every cell, strands the
+same capacity to within the timing of one transfer (the stranding reconstruction depends only on
+where the units sit, which the tree does not change), and sends the same transfer traffic within
+one request. Time to authorization before the break is 15.7 / 20.7 ms (p50 / p95 over 17
+authorized requests) for the tree against 15.4 / 20.6 ms for one lease; the leaf authorization
+carries a two-level ancestor path, which the warden checks for revocation, and costs well under a
+millisecond more.
+
+| 0.7x cells | Leases per site tree | Initial build per site | Refresh (close all, reissue, respawn) | Refreshes / run | Lease ops / run | Build time / run |
+|---|---:|---|---|---:|---:|---:|
+| `lets` | 1 | 1 op, 3.2 to 4.0 ms (p50) | 2 ops, 7.6 to 8.6 ms (p50), 27 ms max | 0 to 5 | 3 to 12 | 10 to 64 ms |
+| `lets-tree-d2-f2` | 7 | 7 ops, 24 to 28 ms (p50) | 10 to 12 ops, 42 to 50 ms (p50), 87 ms max | 0 to 5 | 21 to 70 | 73 to 306 ms |
+
+A refresh of the seven-lease tree is about six times the work of the one-lease refresh (12 lease
+operations against 2) and takes 42 to 50 ms at the median on this machine, about 4 ms per lease
+operation; the busiest cell (`split-s1` at skew 1, five transfers per run into the cut-off site
+after the heal) spends 306 ms per run rebuilding trees. During a refresh the site's requests wait
+for the warden lock, so the cost shows up as up to about 90 ms of extra latency for the few
+requests that arrive while a transfer is being taken up, not as lost completions. The paper-style
+reduction of this grid is in `local-delegation/paper-table.md`.
+
+Regenerate the grid with the local Docker clusters (about six minutes on two clusters):
+
+```bash
+uv run python -m benchmarks.fair_baselines.local_cluster up --work-dir benchmarks/results/fair-baselines/local-deleg --clusters 2
+uv run python -m benchmarks.fair_baselines.controller run --endpoints benchmarks/results/fair-baselines/local-deleg/endpoints.json --output results/fair-baselines-2026-10-15/local-delegation --topologies split-s1 full-isolation --loads 0.7 --thetas 0 1 --seeds 2 --systems lets lets-tree-d2-f2
+uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baselines-2026-10-15/local-delegation --title "E1 delegation under partition: local grid"
+uv run python -m benchmarks.fair_baselines.paper --grid local-delegation=results/fair-baselines-2026-10-15/local-delegation --write results/fair-baselines-2026-10-15/local-delegation
+uv run python -m benchmarks.fair_baselines.local_cluster down --work-dir benchmarks/results/fair-baselines/local-deleg
+```
+
+**Three-host grid (prepared, not yet run).** The paper's cells on the three real hosts, with the
+seven original systems and the tree in every run so that every comparison is paired:
+
+```bash
+LETS_E1_TOKEN=... uv run python -m benchmarks.fair_baselines.controller run --endpoints three-host-endpoints.json --output results/fair-baselines-2026-10-15/three-host-delegation --seeds 20 --rtt-ms 0 --systems central-noretry@s2 central-retry@s1 central-retry@s2 central-retry@s3 static-quota raft-quorum lets lets-tree-d2-f2
+uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baselines-2026-10-15/three-host-delegation
+uv run python -m benchmarks.fair_baselines.paper --grid three-host-delegation=results/fair-baselines-2026-10-15/three-host-delegation --write results/fair-baselines-2026-10-15/three-host-delegation
+```
+
+The endpoints file is the one of the three-host run above (`s1` 128.163.202.61 on `eno50`, `s2`
+128.163.202.50 on `enp5s0np0`, `s3` 4.227.163.14 on `eth0`, control through SSH port forwards
+9731 to 9733, faults through persistent sudo-over-SSH). The 480 cells take about ten hours. Before
+it runs the hosts need the openings that the 2026-10-18 teardown removed: passwordless sudo for the
+fault user on `s1` and `s2`, the `lets-e1` ufw rules admitting TCP 9701 and 9801 between the three
+hosts, and the Azure network-security-group rule admitting the same ports from the two LAN hosts,
+plus the harness at this commit deployed to `~/lets-e1/src` and the site agents started.
+
+**What the new evidence replaces in the paper.** In Section V-B the sentences "LETS runs one
+warden, executor claim store, and worker lease per site" and "Each LETS site initially holds its
+full budget share in one root lease, leaving the free pool empty. [...] After accepting a transfer,
+the receiving warden closes the exhausted worker lease and issues a new lease from the full
+free-pool balance" become a description of both LETS configurations: one root lease per site, and
+one root lease per site delegated through a two-level tree whose four leaf leases issue the calls,
+with transfers taken up by closing the exhausted tree bottom-up and respawning it from the
+refreshed root. Table IV (or a companion table) gains the delegation-tree row with its completion,
+pre-break latency, stranded budget, and the lease-operation and refresh-time columns above. In
+Section VI the limitation "The partition study ran one root lease per site; it did not combine
+multi-level delegation with partitions, and lineage depth was measured separately on one warden"
+is replaced by the measured cost of combining them (the same completions and stranding, under a
+millisecond of extra authorization latency, and a refresh of about 12 lease operations per
+transfer), leaving only the deeper trees of the lineage benchmark as separately measured.
+
 ## Known limitations
 
 - The local platform shares one CPU and kernel across nine site processes; it demonstrates the
   mechanics and the qualitative ordering, not WAN latency.
 - The LETS transfer policy is reactive only; proactive or gossip policies belong to E7.
+- The delegation tree takes up a transfer by closing and respawning the whole tree, because no
+  warden operation adds budget to a live lease. A grant operation (paper, Section VII) would let
+  the refreshed root fund a new leaf without closing the others; its cost would be one spawn per
+  leaf instead of a full rebuild. Deeper or wider trees than depth 2, fanout 2 are run by naming
+  them (`lets-tree-d4-f2`, up to depth 8 and fanout 8); their refresh cost grows with the number
+  of leases a share can fund.
 - The Raft baseline is one library's implementation without pre-vote; leader churn on the
   `bridge-s3` topology is a property of that implementation and is visible in the `raft_state`
   events and in the term counter of each run's snapshots.
