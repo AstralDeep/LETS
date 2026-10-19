@@ -5,6 +5,59 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Added
+
+- E1 harness: `benchmarks.fair_baselines.paper` reduces one or more grids to the numbers the
+  paper's partition table reports (pooled completion with 95% seed-bootstrap intervals and
+  their widest widths, pre-break median time to authorization, stranded unit-seconds under the
+  topology that isolates the first site, and the safety totals), regenerating the flat CSVs from
+  the committed run files when they are absent. `results/fair-baselines-2026-10-15/paper-table.md`
+  and `.json` are its output on the retained three-host and seven-site grids.
+
+### Removed
+
+- The paper-figure renderers: `benchmarks.fair_baselines.figures` (CDF panels and completion
+  bars), the partition-skew SVG of `benchmarks.nsdi_strengthening.distributed_partition`, and the
+  timeline SVGs of `benchmarks.nsdi_strengthening.remote_three_host`. The retained SVG files
+  stay as static evidence; the evidence campaign no longer re-renders them. `matplotlib` leaves
+  the `benchmarks` extra.
+
+### Changed
+
+- E1 harness: the controller keeps the fault schedule on time. The in-cut peer probes run on
+  their own thread, concurrently across every ordered site pair, instead of on the schedule
+  thread (where they delayed the final heal by a median 5.6 s on the three-host grid and 15 s on
+  seven sites), and the dropped-packet counters are read one second ahead of a scheduled heal so
+  the heal itself fires at its offset.
+- E1 harness: the fault injector now applies a cut as one batched `iptables` script per site and
+  drives every site concurrently (the SSH driver locks per site), so a partition forms in one
+  round trip instead of one command at a time. On the first seven-site grid the 21-link
+  `full-isolation` cut took 25 s to form through 84 sequential commands and 24 cells overran the
+  fault thread's deadline; each fault record now carries the whole per-site batch.
+- E1 harness: `controller assemble` now records every run on disk in the manifest's `outcomes`,
+  sets the grid cell count from those files, and keeps a `run_history` of each `run` invocation
+  (command, source identity, environment, cell count, outcome tally), merging further manifests
+  given with `--merge-manifest`, so a grid executed in several invocations is fully described.
+- E1 harness: remote sites are driven through a persistent sudo-over-SSH fault session
+  (`fault_ssh` in the endpoints file, paramiko in the `benchmarks` extra) instead of one `ssh`
+  process per iptables command, which sshd's connection rate limit rejected during 3 s flapping
+  toggles on the first three-host grid. `fault_exec` prefixes remain for Docker sites.
+- E1 harness (`benchmarks/fair_baselines/`, experiment-only): the pysyncobj Raft node listens on
+  every interface for its advertised port, so a site can advertise a NAT public address it cannot
+  bind; and an endpoint may set `fault_exec_quote` so fault commands sent through `ssh` reach the
+  remote `sh -c` as one word. The runtime package, API, and schema are unchanged.
+- E1 harness: the experiment runs on any number of sites (three or more) with any aliases. The
+  endpoints file carries the ordered roster in a top-level `sites` list (default
+  `["s1", "s2", "s3"]`), every cluster describes exactly those aliases, and the run configuration
+  exchanged with the site agents carries the roster, so links, Zipf rank order, equal or explicit
+  shares (`--placements explicit --shares SITE=UNITS ...`), peer lists, Raft membership, the
+  per-site table, the CDF panel, and the completion bars all follow it. Topologies are parametric
+  (`isolate-<site>`, `halves`, `full-isolation`, `cut-<a>-<b>`, `flapping-<a>-<b>`); the
+  three-site names `split-s1`, `bridge-s3`, and `flapping-s1-s2` still resolve on the default
+  roster, so the recorded three-host grid regenerates unchanged. `local_cluster up --sites ...`
+  renders one container per site. `benchmarks/fair_baselines/examples/seven-site-endpoints.json`
+  is a placeholder seven-site endpoints file. The runtime package, API, and schema are unchanged.
+
 ## [1.1.0] - 2026-10-15
 
 ### Added

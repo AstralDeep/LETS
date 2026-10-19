@@ -23,12 +23,13 @@ from typing import Any
 
 from benchmarks.fair_baselines.common import (
     SCHEMA,
-    SITES,
+    SITE_ALIAS,
     RunConfig,
     SystemSpec,
     integer,
     mapping,
     peer_mac,
+    site_alias,
     string,
 )
 from benchmarks.fair_baselines.systems import (
@@ -116,7 +117,7 @@ class Run:
                     name, site, state_dir, shares[site], self.event
                 )
             elif spec.kind == "raft-quorum":
-                if raft_self is None or set(raft_peers) != set(SITES) - {site}:
+                if raft_self is None or set(raft_peers) != set(config.sites) - {site}:
                     raise AgentError("raft-quorum requires raft addresses for every site")
                 self.systems[name] = RaftCounterSystem(
                     name,
@@ -319,7 +320,7 @@ class Run:
             "start_wall_ns": start_wall,
             "end_offset_ns": end_offset,
             "plan_size": len(self.plan),
-            "site_demand": site_demand(self.plan),
+            "site_demand": site_demand(self.plan, self.config.sites),
             "records": sorted(records, key=lambda item: (str(item["system"]), int(item["index"]))),
             "events": events,
             "snapshots": snapshots,
@@ -335,9 +336,10 @@ class Run:
 
 class AgentState:
     def __init__(self, site: str, token: str, state_root: Path) -> None:
-        if site not in SITES:
-            raise AgentError("site must be one of s1, s2, s3")
-        self.site = site
+        try:
+            self.site = site_alias(site, "site")
+        except ValueError as exc:
+            raise AgentError(str(exc)) from None
         self.token = token
         self.state_root = state_root
         self.lock = threading.RLock()
@@ -347,12 +349,15 @@ class AgentState:
 
     def configure(self, body: Mapping[str, Any]) -> dict[str, object]:
         config = RunConfig.from_dict(mapping(body.get("config"), "config"))
+        if self.site not in config.sites:
+            raise AgentError(f"this site ({self.site}) is not in the run's sites")
+        others = set(config.sites) - {self.site}
         peers = parse_peer_urls(body.get("peers"))
-        if set(peers) != set(SITES) - {self.site}:
-            raise AgentError("peers must name exactly the two other sites")
+        if set(peers) != others:
+            raise AgentError("peers must name exactly the other sites of the run")
         keys = mapping(body.get("keys"), "keys")
         seed = base64.b64decode(string(keys.get("seed"), "seed"), validate=True)
-        public_keys = public_key_table(keys.get("public_keys"))
+        public_keys = public_key_table(keys.get("public_keys"), config.sites)
         raft = mapping(body.get("raft", {}), "raft")
         raft_self = raft.get("self")
         raft_peers = {
@@ -365,7 +370,7 @@ class AgentState:
         if safe_run_id != config.run_id or config.run_id.startswith("."):
             raise AgentError("run_id must be a safe path component")
         needs_raft = any(SystemSpec.parse(name).kind == "raft-quorum" for name in config.systems)
-        if needs_raft and (raft_self is None or set(raft_peers) != set(SITES) - {self.site}):
+        if needs_raft and (raft_self is None or set(raft_peers) != others):
             raise AgentError("raft-quorum requires raft addresses for every site")
         with self.lock:
             if self.run is not None:
@@ -388,7 +393,8 @@ class AgentState:
                 "run_id": config.run_id,
                 "plan_size": len(self.run.plan),
                 "local_requests": len(self.run.local_plan),
-                "site_demand": site_demand(self.run.plan),
+                "sites": list(config.sites),
+                "site_demand": site_demand(self.run.plan, config.sites),
                 "shares": config.shares,
             }
 
@@ -437,7 +443,7 @@ class AgentState:
         authorization: str,
         body: bytes,
     ) -> bool:
-        if source_alias not in SITES or source_alias == self.site:
+        if not self.known_peer(source_alias):
             return False
         if len(nonce) != 64 or len(body_sha256) != 64:
             return False
@@ -465,6 +471,13 @@ class AgentState:
                 return False
             self.peer_nonces[key] = max(now, timestamp_value) + PEER_CLOCK_SKEW_SECONDS
         return True
+
+    def known_peer(self, alias: str) -> bool:
+        if alias == self.site or not SITE_ALIAS.fullmatch(alias):
+            return False
+        with self.lock:
+            run = self.run
+        return run is None or alias in run.config.sites
 
     def peer_request(self, path: str, source: str, body: Mapping[str, Any]) -> dict[str, object]:
         if path == "/peer/ping":
@@ -574,8 +587,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = state.teardown()
             elif self.path == "/probe/peer":
                 target = string(body.get("target"), "target")
-                if target not in SITES or target == state.site:
-                    raise AgentError("target must be another site")
+                if target not in state.require_run().config.sites or target == state.site:
+                    raise AgentError("target must be another site of the run")
                 result = state.probe(target)
             elif self.path == "/control/shutdown":
                 result = {"shutting_down": True}
@@ -601,9 +614,16 @@ def serve(site: str, bind: str, port: int, token: str, state_root: Path) -> Agen
     return server
 
 
+def _site_argument(value: str) -> str:
+    try:
+        return site_alias(value, "--site")
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--site", required=True, choices=SITES)
+    parser.add_argument("--site", required=True, type=_site_argument)
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--state-root", type=Path, required=True)

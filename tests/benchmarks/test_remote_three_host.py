@@ -11,7 +11,6 @@ import hashlib
 import json
 import threading
 import time
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
@@ -25,14 +24,12 @@ from benchmarks.nsdi_strengthening.remote_three_host import (
     failure_envelope,
     guarded_remote_child,
     main,
-    per_site_timeline_svg,
     phase_end_csv,
     phase_end_markdown,
     phase_end_rows,
     report_markdown,
     reported_uv_version,
     timeline_csv,
-    timeline_svg,
 )
 from benchmarks.nsdi_strengthening.remote_three_host_agent import (
     AgentConfig,
@@ -420,15 +417,6 @@ def test_report_states_transport_and_host_limitations() -> None:
     assert "placement,workload" in rendered_csv
     assert "skew70-placement-equal-workload,70-percent-s1,equal" in rendered_csv
 
-    aggregate_svg = timeline_svg(result)
-    aggregate_text = " ".join(ET.fromstring(aggregate_svg).itertext())
-    assert "Cumulative authorized operations for four fixed schedules" in aggregate_text
-    assert "(a) 70% s1 authority / equal demand" in aggregate_text
-    assert "partitioned wardens" in aggregate_text
-    assert "central counter" in aggregate_text
-    assert "70-percent-s1" not in aggregate_text
-    assert "LETS" not in aggregate_text
-
 
 def _supplemental_result() -> dict[str, object]:
     combinations = (
@@ -568,47 +556,6 @@ def test_supplemental_phase_end_renderers_are_explicit_and_deterministic() -> No
     assert phase_end_markdown(result) == rendered_markdown
 
 
-def test_per_site_timeline_is_four_by_three_and_exposes_all_four_metrics() -> None:
-    svg = per_site_timeline_svg(_supplemental_result())
-
-    visible_text = " ".join(ET.fromstring(svg).itertext())
-    assert svg.count('<g class="site-panel"') == 12
-    assert svg.count('class="partition-window"') == 12
-    assert svg.count('data-metric="authorized"') == 12
-    assert svg.count('data-metric="denied"') == 12
-    assert svg.count('data-metric="remaining"') == 12
-    assert svg.count('data-metric="stranded"') == 12
-    assert "fixed y-axis 0-30" in svg
-    assert "Per-site state over the retained three-endpoint experiment" in visible_text
-    assert "Per-site warden state over time" in visible_text
-    assert "equal authority / equal demand · s1" in visible_text
-    assert "70% s1 authority / 70% s1 demand · s3" in visible_text
-    assert "70-percent-s1" not in visible_text
-    assert 'data-scenario="70-percent-s1 placement / equal workload"' in svg
-    assert per_site_timeline_svg(_supplemental_result()) == svg
-
-
-def test_aggregate_timeline_uses_paper_labels_in_canonical_order() -> None:
-    svg = timeline_svg(_supplemental_result())
-    visible_text = " ".join(ET.fromstring(svg).itertext())
-
-    labels = (
-        "(a) equal authority / equal demand",
-        "(b) equal authority / 70% s1 demand",
-        "(c) 70% s1 authority / equal demand",
-        "(d) 70% s1 authority / 70% s1 demand",
-    )
-    assert [visible_text.index(label) for label in labels] == sorted(
-        visible_text.index(label) for label in labels
-    )
-    assert visible_text.count("partitioned wardens") == 4
-    assert visible_text.count("central counter") == 4
-    assert "70-percent-s1" not in visible_text
-    assert "placement /" not in visible_text
-    assert "workload" not in visible_text
-    assert "LETS" not in visible_text
-
-
 @pytest.mark.parametrize(
     ("field", "message"),
     (
@@ -625,10 +572,6 @@ def test_human_renderers_reject_unknown_scenario_display_tokens(field: str, mess
 
     with pytest.raises(ValueError, match=message):
         phase_end_markdown(result)
-    with pytest.raises(ValueError, match=message):
-        per_site_timeline_svg(result)
-    with pytest.raises(ValueError, match=message):
-        timeline_svg(result)
 
 
 def test_render_existing_mode_is_local_only(
@@ -657,7 +600,6 @@ def test_render_existing_mode_is_local_only(
     )
 
     assert main() == 0
-    assert (output / "three-host-linux-per-site-timeline.svg").is_file()
     assert (output / "three-host-linux-phase-end.csv").is_file()
     assert (output / "three-host-linux-phase-end.md").is_file()
     assert not (output / "three-host-linux-result.json").exists()

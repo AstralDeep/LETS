@@ -1,0 +1,75 @@
+{
+  "schema": "lets.fair-baselines-endpoints/v1",
+  "token_env": "LETS_E1_TOKEN",
+  "sites": ["uk1", "uk2", "az1", "use2", "usw2", "euw2", "apse1"],
+  "clusters": [
+    {
+      "name": "seven-site",
+      "sites": {
+        "uk1": {
+          "control_url": "http://127.0.0.1:9711",
+          "peer_ip": "192.0.2.11",
+          "peer_port": 9701,
+          "raft_port": 9801,
+          "interface": "eth0",
+          "fault_exec": ["ssh", "operator@uk1.example", "sudo", "-n", "sh", "-c"],
+          "fault_exec_quote": true
+        },
+        "uk2": {
+          "control_url": "http://127.0.0.1:9712",
+          "peer_ip": "192.0.2.12",
+          "peer_port": 9701,
+          "raft_port": 9801,
+          "interface": "eth0",
+          "fault_exec": ["ssh", "operator@uk2.example", "sudo", "-n", "sh", "-c"],
+          "fault_exec_quote": true
+        },
+        "az1": {
+          "control_url": "http://127.0.0.1:9713",
+          "peer_ip": "198.51.100.13",
+          "peer_port": 9701,
+          "raft_port": 9801,
+          "interface": "eth0",
+          "fault_exec": ["ssh", "operator@az1.example", "sudo", "-n", "sh", "-c"],
+          "fault_exec_quote": true
+        },
+        "use2": {
+          "control_url": "http://127.0.0.1:9714",
+          "peer_ip": "203.0.113.14",
+          "peer_port": 9701,
+          "raft_port": 9801,
+          "interface": "ens5",
+          "fault_exec": ["ssh", "operator@use2.example", "sudo", "-n", "sh", "-c"],
+          "fault_exec_quote": true
+        },
+        "usw2": {
+          "control_url": "http://127.0.0.1:9715",
+          "peer_ip": "203.0.113.15",
+          "peer_port": 9701,
+          "raft_port": 9801,
+          "interface": "ens5",
+          "fault_exec": ["ssh", "operator@usw2.example", "sudo", "-n", "sh", "-c"],
+          "fault_exec_quote": true
+        },
+        "euw2": {
+          "control_url": "http://127.0.0.1:9716",
+          "peer_ip": "203.0.113.16",
+          "peer_port": 9701,
+          "raft_port": 9801,
+          "interface": "ens5",
+          "fault_exec": ["ssh", "operator@euw2.example", "sudo", "-n", "sh", "-c"],
+          "fault_exec_quote": true
+        },
+        "apse1": {
+          "control_url": "http://127.0.0.1:9717",
+          "peer_ip": "203.0.113.17",
+          "peer_port": 9701,
+          "raft_port": 9801,
+          "interface": "ens5",
+          "fault_exec": ["ssh", "operator@apse1.example", "sudo", "-n", "sh", "-c"],
+          "fault_exec_quote": true
+        }
+      }
+    }
+  ]
+}

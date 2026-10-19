@@ -10,7 +10,6 @@ import base64
 import csv
 import errno
 import hashlib
-import html
 import io
 import ipaddress
 import json
@@ -46,7 +45,6 @@ UV_ASSET = "uv-x86_64-unknown-linux-gnu.tar.gz"
 UV_RELEASE = f"https://github.com/astral-sh/uv/releases/download/{UV_VERSION}"
 DEFAULT_OUTPUT = Path("results/nsdi-strengthening-2026-08-31/remote")
 DEFAULT_INVENTORY = DEFAULT_OUTPUT / "cluster-inventory.json"
-PER_SITE_FIGURE_NAME = "three-host-linux-per-site-timeline.svg"
 PHASE_END_CSV_NAME = "three-host-linux-phase-end.csv"
 PHASE_END_MARKDOWN_NAME = "three-host-linux-phase-end.md"
 AGENT_SOURCE = Path(__file__).with_name("remote_three_host_agent.py")
@@ -109,14 +107,6 @@ def _display_scenario_value(value: object, *, field: str) -> str:
     if not isinstance(value, str) or value not in _SCENARIO_DISPLAY_VALUES:
         raise ValueError(f"unsupported {field} display token: {value!r}")
     return _SCENARIO_DISPLAY_VALUES[value]
-
-
-def _scenario_panel_label(scenario: Mapping[str, object]) -> str:
-    placement = _display_scenario_value(scenario.get("placement"), field="placement")
-    demand = _display_scenario_value(scenario.get("workload"), field="demand")
-    placement = placement.lower().replace(" at ", " ")
-    demand = demand.lower().replace(" at ", " ")
-    return f"{placement} authority / {demand} demand"
 
 
 class RemoteExperimentError(RuntimeError):
@@ -1779,254 +1769,6 @@ def phase_end_markdown(result: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def per_site_timeline_svg(result: Mapping[str, Any]) -> str:
-    scenarios = result.get("scenarios")
-    if not isinstance(scenarios, list) or not scenarios:
-        raise ValueError("result scenarios must be a non-empty array")
-    width = 1500
-    panel_width = 430
-    panel_height = 142
-    column_gap = 34
-    row_gap = 54
-    margin_left = 72
-    margin_top = 112
-    plot_left_offset = 42
-    plot_right_padding = 12
-    plot_top_offset = 29
-    plot_bottom_padding = 24
-    height = margin_top + len(scenarios) * (panel_height + row_gap) + 8
-    elements = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">',
-        ('<title id="title">Per-site state over the retained three-endpoint experiment</title>'),
-        (
-            '<desc id="description">Four authority-placement and demand scenarios by three '
-            "sites, with "
-            "cumulative authorized and denied actions, actions remaining, stranded authority, "
-            "and application-path gate windows.</desc>"
-        ),
-        "<style>text{font-family:system-ui,sans-serif;fill:#172033}.title{font-size:18px;"
-        "font-weight:700}.subtitle{font-size:11px;fill:#4b5563}.panel-title{font-size:11px;"
-        "font-weight:650}.tick{font-size:9px;fill:#5d6678}.axis{stroke:#8590a6;stroke-width:1}"
-        ".grid{stroke:#d8dde7;stroke-width:.7}.panel{fill:#fff;stroke:#c7cedb;stroke-width:1}"
-        ".partition-window{fill:#ef4444;opacity:.09}.authorized{fill:none;stroke:#1167b1;"
-        "stroke-width:2.2}.denied{fill:none;stroke:#b42318;stroke-width:2;stroke-dasharray:5 3}"
-        ".remaining{fill:none;stroke:#15803d;stroke-width:2}.stranded{fill:none;stroke:#7e22ce;"
-        "stroke-width:2;stroke-dasharray:2 3}.series{vector-effect:non-scaling-stroke}</style>",
-        '<rect width="100%" height="100%" fill="#ffffff"/>',
-        (
-            '<text id="title-text" x="24" y="28" class="title">Per-site warden state over '
-            "time</text>"
-        ),
-        (
-            '<text x="24" y="48" class="subtitle">Site-event observations at global '
-            "operation step; "
-            "fixed y-axis 0-30; shading marks the s1↔s2 application-path gate.</text>"
-        ),
-        '<line x1="24" y1="73" x2="54" y2="73" class="authorized series"/>',
-        '<text x="60" y="77" class="subtitle">authorized (cumulative)</text>',
-        '<line x1="238" y1="73" x2="268" y2="73" class="denied series"/>',
-        '<text x="274" y="77" class="subtitle">denied (cumulative)</text>',
-        '<line x1="430" y1="73" x2="460" y2="73" class="remaining series"/>',
-        '<text x="466" y="77" class="subtitle">actions remaining</text>',
-        '<line x1="600" y1="73" x2="630" y2="73" class="stranded series"/>',
-        '<text x="636" y="77" class="subtitle">stranded on blocked peer</text>',
-    ]
-    for row_index, scenario in enumerate(scenarios):
-        if not isinstance(scenario, Mapping):
-            raise ValueError("result contains a malformed scenario")
-        timeline = scenario.get("timeline")
-        initial = scenario.get("initial_snapshots")
-        if not isinstance(timeline, list) or not isinstance(initial, list):
-            raise ValueError("scenario timeline or initial snapshots are malformed")
-        initial_by_alias = {
-            str(item["alias"]): item
-            for item in initial
-            if isinstance(item, Mapping) and item.get("alias") in ALIASES
-        }
-        if set(initial_by_alias) != set(ALIASES):
-            raise ValueError("scenario must contain all three initial site snapshots")
-        total_steps = max(1, len(timeline))
-        partition_steps = [
-            int(event["step"])
-            for event in timeline
-            if isinstance(event, Mapping) and event.get("phase") == "partition"
-        ]
-        for column_index, alias in enumerate(ALIASES):
-            panel_x = margin_left + column_index * (panel_width + column_gap)
-            panel_y = margin_top + row_index * (panel_height + row_gap)
-            plot_left = panel_x + plot_left_offset
-            plot_right = panel_x + panel_width - plot_right_padding
-            plot_top = panel_y + plot_top_offset
-            plot_bottom = panel_y + panel_height - plot_bottom_padding
-            plot_width = plot_right - plot_left
-            plot_height = plot_bottom - plot_top
-
-            def x_coordinate(
-                step: float,
-                *,
-                left: int = plot_left,
-                span: int = plot_width,
-                steps: int = total_steps,
-            ) -> float:
-                return left + span * (step + 1) / steps
-
-            def y_coordinate(
-                value: int,
-                *,
-                bottom: int = plot_bottom,
-                span: int = plot_height,
-            ) -> float:
-                bounded = max(0, min(30, value))
-                return bottom - span * bounded / 30
-
-            raw_scenario_label = html.escape(
-                f"{scenario.get('placement')} placement / {scenario.get('workload')} workload",
-                quote=True,
-            )
-            scenario_label = html.escape(_scenario_panel_label(scenario))
-            safe_alias = html.escape(alias, quote=True)
-            elements.extend(
-                [
-                    f'<g class="site-panel" data-scenario="{raw_scenario_label}" '
-                    f'data-site="{safe_alias}">',
-                    f'<rect x="{panel_x}" y="{panel_y}" width="{panel_width}" '
-                    f'height="{panel_height}" rx="3" class="panel"/>',
-                    f'<text x="{panel_x + 8}" y="{panel_y + 17}" class="panel-title">'
-                    f"{scenario_label} · {safe_alias}</text>",
-                ]
-            )
-            if partition_steps:
-                shade_left = max(plot_left, x_coordinate(min(partition_steps) - 0.5))
-                shade_right = min(plot_right, x_coordinate(max(partition_steps) + 0.5))
-                elements.append(
-                    f'<rect x="{shade_left:.1f}" y="{plot_top}" '
-                    f'width="{max(1.0, shade_right - shade_left):.1f}" '
-                    f'height="{plot_height}" class="partition-window"/>'
-                )
-            for tick in (0, 10, 20, 30):
-                tick_y = y_coordinate(tick)
-                elements.append(
-                    f'<line x1="{plot_left}" y1="{tick_y:.1f}" x2="{plot_right}" '
-                    f'y2="{tick_y:.1f}" class="grid"/>'
-                )
-                if tick in (0, 30):
-                    elements.append(
-                        f'<text x="{plot_left - 6}" y="{tick_y + 3:.1f}" '
-                        f'text-anchor="end" class="tick">{tick}</text>'
-                    )
-            elements.extend(
-                [
-                    f'<line x1="{plot_left}" y1="{plot_top}" x2="{plot_left}" '
-                    f'y2="{plot_bottom}" class="axis"/>',
-                    f'<line x1="{plot_left}" y1="{plot_bottom}" x2="{plot_right}" '
-                    f'y2="{plot_bottom}" class="axis"/>',
-                    f'<text x="{plot_left}" y="{plot_bottom + 15}" class="tick">initial</text>',
-                    f'<text x="{plot_right}" y="{plot_bottom + 15}" text-anchor="end" '
-                    f'class="tick">step {total_steps - 1}</text>',
-                ]
-            )
-            initial_snapshot = initial_by_alias[alias]
-            series: dict[str, list[tuple[float, int]]] = {
-                "authorized": [(-1.0, int(initial_snapshot["authorized"]))],
-                "denied": [(-1.0, int(initial_snapshot["denied"]))],
-                "remaining": [(-1.0, int(initial_snapshot["actions_remaining"]))],
-                "stranded": [(-1.0, int(initial_snapshot["stranded_on_blocked_peer"]))],
-            }
-            for event in timeline:
-                if not isinstance(event, Mapping) or event.get("site") != alias:
-                    continue
-                step = float(event["step"])
-                series["authorized"].append((step, int(event["site_authorized_cumulative"])))
-                series["denied"].append((step, int(event["site_denied_cumulative"])))
-                series["remaining"].append((step, int(event["actions_remaining_at_site"])))
-                series["stranded"].append((step, int(event["stranded_on_blocked_peer"])))
-            for metric in ("authorized", "denied", "remaining", "stranded"):
-                points = " ".join(
-                    f"{x_coordinate(step):.1f},{y_coordinate(value):.1f}"
-                    for step, value in series[metric]
-                )
-                elements.append(
-                    f'<polyline points="{points}" class="{metric} series" data-metric="{metric}"/>'
-                )
-            elements.append("</g>")
-    elements.append("</svg>")
-    return "\n".join(elements)
-
-
-def timeline_svg(result: Mapping[str, Any]) -> str:
-    width = 960
-    panel_height = 170
-    margin_left = 64
-    plot_width = width - margin_left - 30
-    height = 50 + panel_height * len(result["scenarios"])
-    elements = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}">',
-        "<style>text{font-family:system-ui,sans-serif;fill:#172033}.title{font-size:18px;"
-        "font-weight:700}.label{font-size:11px}.axis{stroke:#8590a6;stroke-width:1}.lets{"
-        "fill:none;stroke:#1167b1;stroke-width:2.5}.central{fill:none;stroke:#d97706;"
-        "stroke-width:2.5}.partition{fill:#ef4444;opacity:.09}</style>",
-        '<rect width="100%" height="100%" fill="#ffffff"/>',
-        (
-            '<text x="24" y="28" class="title">Cumulative authorized operations for four '
-            "fixed schedules</text>"
-        ),
-    ]
-    for panel, scenario in enumerate(result["scenarios"]):
-        events = scenario["timeline"]
-        top = 48 + panel * panel_height
-        bottom = top + 118
-        total = max(1, len(events))
-        maximum = max(1, total)
-
-        def x(index: int, *, event_total: int = total) -> float:
-            return margin_left + plot_width * index / max(1, event_total - 1)
-
-        def y(value: int, *, panel_bottom: int = bottom, panel_maximum: int = maximum) -> float:
-            return panel_bottom - 92 * value / panel_maximum
-
-        partition_indexes = [
-            index for index, event in enumerate(events) if event["phase"] == "partition"
-        ]
-        if partition_indexes:
-            left = x(min(partition_indexes))
-            right = x(max(partition_indexes))
-            elements.append(
-                f'<rect x="{left:.1f}" y="{top + 22}" width="{max(2.0, right - left):.1f}" '
-                f'height="96" class="partition"/>'
-            )
-        elements.extend(
-            [
-                f'<line x1="{margin_left}" y1="{bottom}" x2="{width - 30}" '
-                f'y2="{bottom}" class="axis"/>',
-                f'<text x="{margin_left}" y="{top + 13}" class="label">'
-                f"({chr(ord('a') + panel)}) "
-                f"{html.escape(_scenario_panel_label(scenario))}</text>",
-                f'<text x="8" y="{bottom}" class="label">0</text>',
-                f'<text x="8" y="{top + 29}" class="label">{maximum}</text>',
-            ]
-        )
-        lets_count = 0
-        central_count = 0
-        lets_points: list[str] = []
-        central_points: list[str] = []
-        for index, event in enumerate(events):
-            lets_count += int(event["lets_authorized"] is True)
-            central_count += int(event["central_authorized"] is True)
-            lets_points.append(f"{x(index):.1f},{y(lets_count):.1f}")
-            central_points.append(f"{x(index):.1f},{y(central_count):.1f}")
-        elements.append(f'<polyline points="{" ".join(lets_points)}" class="lets"/>')
-        elements.append(f'<polyline points="{" ".join(central_points)}" class="central"/>')
-        elements.append(
-            f'<text x="{width - 235}" y="{top + 13}" class="label">'
-            '<tspan fill="#1167b1">partitioned wardens</tspan><tspan>  </tspan>'
-            '<tspan fill="#d97706">central counter</tspan></text>'
-        )
-    elements.append("</svg>")
-    return "\n".join(elements)
-
-
 def report_markdown(result: Mapping[str, Any]) -> str:
     scope = result["scope"]
     evidence = result["host_evidence"]
@@ -2153,15 +1895,9 @@ def write_supplemental_outputs(
 ) -> dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     paths = {
-        "per_site_figure": output_dir / PER_SITE_FIGURE_NAME,
         "phase_end_csv": output_dir / PHASE_END_CSV_NAME,
         "phase_end_markdown": output_dir / PHASE_END_MARKDOWN_NAME,
     }
-    write_text(
-        paths["per_site_figure"],
-        per_site_timeline_svg(result),
-        overwrite=overwrite,
-    )
     write_text(paths["phase_end_csv"], phase_end_csv(result), overwrite=overwrite)
     write_text(
         paths["phase_end_markdown"],
@@ -2245,11 +1981,9 @@ def main() -> int:
     raw_path = arguments.output_dir / "three-host-linux-result.json"
     report_path = arguments.output_dir / "three-host-linux-report.md"
     csv_path = arguments.output_dir / "three-host-linux-timeline.csv"
-    figure_path = arguments.output_dir / "three-host-linux-timeline.svg"
     write_json(raw_path, result, overwrite=arguments.overwrite)
     write_text(report_path, report_markdown(result), overwrite=arguments.overwrite)
     write_text(csv_path, timeline_csv(result), overwrite=arguments.overwrite)
-    write_text(figure_path, timeline_svg(result), overwrite=arguments.overwrite)
     supplemental = write_supplemental_outputs(
         result, arguments.output_dir, overwrite=arguments.overwrite
     )
@@ -2260,7 +1994,6 @@ def main() -> int:
                 "result": str(raw_path),
                 "report": str(report_path),
                 "timeline": str(csv_path),
-                "figure": str(figure_path),
                 **{label: str(path) for label, path in supplemental.items()},
             }
         )

@@ -80,9 +80,6 @@ def test_real_partition_matrix_preserves_scope_and_expected_tradeoff(
     )
     with (output / "partition-events.csv").open(newline="", encoding="utf-8") as handle:
         assert len(list(csv.DictReader(handle))) == 1_800
-    assert (
-        (output / "partition-skew-equal-shares.svg").read_text(encoding="utf-8").startswith("<svg")
-    )
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         write_outputs(result, output, overwrite=False)
 

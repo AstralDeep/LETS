@@ -6,6 +6,7 @@ its transfer handlers, and the actuator-side effect log.
 from __future__ import annotations
 
 import base64
+import socket
 import time
 from pathlib import Path
 
@@ -188,6 +189,34 @@ def test_raft_counter_times_out_without_quorum(tmp_path: Path) -> None:
         lonely.close()
 
 
+def test_raft_counter_listens_on_every_interface_for_an_unbindable_advertised_address(
+    tmp_path: Path,
+) -> None:
+    _log, sink = _events()
+    port = free_port()
+    advertised = RaftCounterSystem(
+        "raft-quorum",
+        "s3",
+        tmp_path,
+        2,
+        f"203.0.113.10:{port}",
+        {"s1": f"127.0.0.1:{free_port()}", "s2": f"127.0.0.1:{free_port()}"},
+        0.3,
+        sink,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=0.5).close()
+                break
+            except OSError:
+                assert time.monotonic() < deadline, "raft node never listened on 0.0.0.0"
+                time.sleep(0.1)
+    finally:
+        advertised.close()
+
+
 def _lets(tmp_path: Path, site: str, share: int, sink: object, transport: PeerTransport):  # type: ignore[no-untyped-def]
     signers = {alias: Ed25519Signer.generate(alias) for alias in SITES}
     public_keys = {
@@ -309,10 +338,12 @@ def test_key_and_url_parsers() -> None:
         }
         for alias, signer in signers.items()
     }
-    table = public_key_table(payload)
+    table = public_key_table(payload, SITES)
     assert set(table) == set(SITES)
-    with pytest.raises(ValueError, match="exactly s1, s2, and s3"):
-        public_key_table({"s1": payload["s1"]})
+    with pytest.raises(ValueError, match="exactly the run's sites"):
+        public_key_table({"s1": payload["s1"]}, SITES)
+    with pytest.raises(ValueError, match="exactly the run's sites"):
+        public_key_table(payload, ("s1", "s2", "s3", "s4"))
     assert parse_peer_urls({"s2": "http://10.0.0.2:9701"}) == {"s2": "http://10.0.0.2:9701"}
     for bad in ("https://10.0.0.2:9701", "http://10.0.0.2", "http://10.0.0.2:9701/x"):
         with pytest.raises(ValueError, match="origin-only"):

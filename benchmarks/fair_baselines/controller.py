@@ -1,7 +1,7 @@
 """Grid runner for E1: enumerates cells (topology x load x skew x seed), drives one cell at a time
-on each three-site cluster described by an endpoints file (configure, synchronized start, timed
-iptables faults via faults.py, collection, teardown), verifies the actuator-side safety bound, and
-writes per-run JSON plus flat CSVs that analysis.py and figures.py consume.
+on each cluster described by an endpoints file that carries the ordered site roster (configure,
+synchronized start, timed iptables faults via faults.py, collection, teardown), verifies the
+actuator-side safety bound, and writes per-run JSON plus flat CSVs for analysis.py and paper.py.
 """
 
 from __future__ import annotations
@@ -27,19 +27,23 @@ from typing import Any
 
 from benchmarks.fair_baselines.common import (
     DEFAULT_ENVELOPE,
-    DEFAULT_SYSTEMS,
+    DEFAULT_SITES,
+    PLACEMENTS,
     SCHEMA,
-    SITES,
-    TOPOLOGIES,
     RunConfig,
     SystemSpec,
+    default_systems,
+    default_topologies,
+    resolve_topology,
+    site_roster,
+    validate_shares,
 )
 from benchmarks.fair_baselines.faults import (
     DryRunFaultDriver,
+    EndpointFaultDriver,
     FaultDriver,
     FaultInjector,
     SiteEndpoint,
-    SubprocessFaultDriver,
     fault_schedule,
     link_label,
     parse_drop_counters,
@@ -54,6 +58,8 @@ from benchmarks.nsdi_strengthening.common import (
 from lets.crypto import Ed25519Signer
 
 NS_PER_S = 1_000_000_000
+COUNTER_LEAD_S = 1.0
+PROBE_JOIN_S = 60.0
 REQUEST_FIELDS = (
     "run_id",
     "topology",
@@ -157,6 +163,8 @@ class GridOptions:
     peer_timeout_s: float = 2.0
     raft_timeout_s: float = 2.0
     ready_timeout_s: float = 45.0
+    sites: tuple[str, ...] = DEFAULT_SITES
+    shares: dict[str, int] | None = None
 
 
 def load_endpoints(path: Path) -> tuple[list[Cluster], str]:
@@ -165,13 +173,33 @@ def load_endpoints(path: Path) -> tuple[list[Cluster], str]:
     token = os.environ.get(token_env) or str(payload.get("token", ""))
     if len(token) < 16:
         raise ControllerError(f"no shared token: set {token_env} or add token to {path}")
+    try:
+        roster = site_roster(payload.get("sites", DEFAULT_SITES))
+    except ValueError as exc:
+        raise ControllerError(f"{path}: {exc}") from None
     clusters = []
     for entry in payload["clusters"]:
-        sites = {site: SiteEndpoint.from_dict(site, entry["sites"][site]) for site in SITES}
-        clusters.append(Cluster(str(entry["name"]), sites))
+        name = str(entry["name"])
+        listed = entry["sites"]
+        if not isinstance(listed, Mapping) or set(listed) != set(roster):
+            raise ControllerError(
+                f"cluster {name!r} must describe exactly the sites {list(roster)}"
+            )
+        try:
+            sites = {site: SiteEndpoint.from_dict(site, listed[site]) for site in roster}
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ControllerError(f"cluster {name!r}: {exc}") from None
+        clusters.append(Cluster(name, sites))
     if not clusters:
         raise ControllerError("endpoints file lists no clusters")
     return clusters, token
+
+
+def cluster_roster(clusters: Sequence[Cluster]) -> tuple[str, ...]:
+    rosters = {tuple(cluster.sites) for cluster in clusters}
+    if len(rosters) != 1:
+        raise ControllerError("every cluster must list the same sites in the same order")
+    return rosters.pop()
 
 
 def grid_cells(
@@ -180,10 +208,16 @@ def grid_cells(
     thetas: Sequence[float],
     seeds: Sequence[int],
     placements: Sequence[str],
+    sites: Sequence[str] = DEFAULT_SITES,
 ) -> list[Cell]:
     for topology in topologies:
-        if topology not in TOPOLOGIES:
-            raise ControllerError(f"unknown topology {topology!r}")
+        try:
+            resolve_topology(topology, sites)
+        except ValueError as exc:
+            raise ControllerError(str(exc)) from None
+    for placement in placements:
+        if placement not in PLACEMENTS:
+            raise ControllerError(f"unknown placement {placement!r}")
     return [
         Cell(topology, load, theta, seed, placement)
         for topology in topologies
@@ -225,6 +259,21 @@ class SiteClient:
         return payload
 
 
+def probe_links(clients: Mapping[str, Any], sites: Sequence[str]) -> list[dict[str, object]]:
+    pairs = [(site, target) for site in clients for target in sites if target != site]
+    if not pairs:
+        return []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(pairs), 64)) as pool:
+        futures = [
+            pool.submit(clients[site].call, "POST", "/probe/peer", {"target": target})
+            for site, target in pairs
+        ]
+        return [
+            {"source": site, **future.result()}
+            for (site, _target), future in zip(pairs, futures, strict=True)
+        ]
+
+
 def run_config(cell: Cell, options: GridOptions) -> RunConfig:
     return RunConfig(
         run_id=cell.run_id,
@@ -241,6 +290,8 @@ def run_config(cell: Cell, options: GridOptions) -> RunConfig:
         deadline_s=options.deadline_s,
         peer_timeout_s=options.peer_timeout_s,
         raft_timeout_s=options.raft_timeout_s,
+        sites=options.sites,
+        explicit_shares=options.shares,
         extra={"rtt_ms": options.rtt_ms, "loss_pct": options.loss_pct},
     )
 
@@ -312,7 +363,7 @@ class CellRunner:
         self.injector.cleanup()
 
     def _configure(self, config: RunConfig) -> dict[str, dict[str, Any]]:
-        signers = {site: Ed25519Signer.generate(site) for site in SITES}
+        signers = {site: Ed25519Signer.generate(site) for site in self.cluster.sites}
         public_keys = {
             site: {
                 "key_id": signer.key_id,
@@ -362,14 +413,7 @@ class CellRunner:
             time.sleep(0.5)
 
     def _probe_links(self) -> list[dict[str, object]]:
-        probes = []
-        for site, client in self.clients.items():
-            for target in SITES:
-                if target == site:
-                    continue
-                result = client.call("POST", "/probe/peer", {"target": target})
-                probes.append({"source": site, **result})
-        return probes
+        return probe_links(self.clients, list(self.cluster.sites))
 
     def _fault_thread(
         self,
@@ -379,20 +423,32 @@ class CellRunner:
         counters: dict[str, Any],
         failures: list[str],
     ) -> None:
-        topology = TOPOLOGIES[config.topology]
+        topology = config.resolved_topology()
+        probe_worker: threading.Thread | None = None
+
+        def probe_during_cut() -> None:
+            try:
+                counters["probes_during_cut"] = self._probe_links()
+            except Exception as exc:
+                failures.append(f"in-cut probes failed: {exc}")
+
+        def sleep_until(offset_s: float) -> None:
+            delay = (start_at_ns + int(offset_s * NS_PER_S) - time.time_ns()) / NS_PER_S
+            if delay > 0:
+                time.sleep(delay)
+
         try:
             for scheduled in fault_schedule(topology, config.pre_s, config.partition_s):
-                target_ns = start_at_ns + int(scheduled.offset_s * NS_PER_S)
-                delay = (target_ns - time.time_ns()) / NS_PER_S
-                if delay > 0:
-                    time.sleep(delay)
                 if scheduled.kind == "heal":
+                    sleep_until(scheduled.offset_s - COUNTER_LEAD_S)
                     counters[f"before_heal_{len(faults)}"] = {
                         site: parse_drop_counters(output)
                         for site, output in self.injector.counters().items()
                     }
+                    sleep_until(scheduled.offset_s)
                     results = self.injector.heal()
                 else:
+                    sleep_until(scheduled.offset_s)
                     results = self.injector.cut(scheduled.links)
                 for result in results:
                     faults.append(
@@ -408,13 +464,20 @@ class CellRunner:
                         }
                     )
                 if scheduled.kind == "cut" and scheduled.offset_s == config.pre_s:
-                    counters["probes_during_cut"] = self._probe_links()
+                    probe_worker = threading.Thread(
+                        target=probe_during_cut, name=f"probes-{config.run_id}", daemon=True
+                    )
+                    probe_worker.start()
         except Exception as exc:
             failures.append(f"fault injection failed: {exc}")
             try:
                 self.injector.heal()
             except Exception as heal_exc:
                 failures.append(f"heal after failure also failed: {heal_exc}")
+        if probe_worker is not None:
+            probe_worker.join(timeout=PROBE_JOIN_S)
+            if probe_worker.is_alive():
+                failures.append("in-cut probes did not finish")
 
     def run_cell(self, cell: Cell) -> dict[str, Any]:
         config = run_config(cell, self.options)
@@ -625,6 +688,63 @@ def write_manifest(output_dir: Path, command: Sequence[str], extra: Mapping[str,
     write_json(output_dir / "MANIFEST.json", manifest, overwrite=True)
 
 
+def read_manifest(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else None
+
+
+def run_record(manifest: Mapping[str, Any]) -> dict[str, Any] | None:
+    command = manifest.get("command")
+    if not isinstance(command, list) or not command:
+        return None
+    if command[0] == "run":
+        run_command, source, environment = (
+            command,
+            manifest.get("source"),
+            manifest.get("environment"),
+        )
+    elif command[0] == "assemble" and isinstance(manifest.get("run_command"), list):
+        run_command = manifest["run_command"]
+        source, environment = manifest.get("run_source"), manifest.get("run_environment")
+    else:
+        return None
+    outcomes = manifest.get("outcomes", {})
+    tally: dict[str, int] = {}
+    for status in outcomes.values():
+        tally[str(status)] = tally.get(str(status), 0) + 1
+    return {
+        "generated_at": manifest.get("generated_at"),
+        "command": run_command,
+        "source": source,
+        "environment": environment,
+        "cells": manifest.get("grid", {}).get("cells"),
+        "outcomes": tally,
+    }
+
+
+def merge_run_history(manifests: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    records: dict[str, dict[str, Any]] = {}
+    for manifest in manifests:
+        for entry in manifest.get("run_history", []):
+            records.setdefault(str(entry.get("generated_at")), dict(entry))
+        own = run_record(manifest)
+        if own is not None and not (
+            manifest.get("command", [""])[0] == "assemble" and manifest.get("run_history")
+        ):
+            records.setdefault(str(own["generated_at"]), own)
+    return [records[key] for key in sorted(records)]
+
+
+def run_outcomes(output_dir: Path) -> dict[str, str]:
+    outcomes = {}
+    for path in run_files(output_dir):
+        result = read_run(path)
+        outcomes[str(result["run_id"])] = str(result.get("status", "unknown"))
+    return outcomes
+
+
 def run_grid(
     clusters: Sequence[Cluster],
     token: str,
@@ -636,6 +756,8 @@ def run_grid(
     overwrite: bool = False,
     log: Any = sys.stderr,
 ) -> dict[str, Any]:
+    if cluster_roster(clusters) != tuple(options.sites):
+        raise ControllerError("the grid's sites do not match the clusters' sites")
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "runs").mkdir(exist_ok=True)
     pending = [
@@ -643,7 +765,7 @@ def run_grid(
     ]
     skipped = len(cells) - len(pending)
     runners = [
-        CellRunner(cluster, token, options, driver or SubprocessFaultDriver(), output_dir, log)
+        CellRunner(cluster, token, options, driver or EndpointFaultDriver(), output_dir, log)
         for cluster in clusters
     ]
     for runner in runners:
@@ -705,19 +827,43 @@ def _float_list(values: Sequence[str]) -> tuple[float, ...]:
     return tuple(float(value) for value in values)
 
 
+def parse_shares(
+    values: Sequence[str] | None, sites: Sequence[str], envelope: int
+) -> dict[str, int] | None:
+    if values is None:
+        return None
+    table: dict[str, int] = {}
+    for item in values:
+        site, separator, units = item.partition("=")
+        if not separator or not units.isdigit():
+            raise ControllerError(f"--shares entries look like SITE=UNITS, not {item!r}")
+        table[site] = int(units)
+    try:
+        return validate_shares(table, sites, envelope, "--shares")
+    except ValueError as exc:
+        raise ControllerError(str(exc)) from None
+
+
 def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run", help="run the grid on the clusters in an endpoints file")
     run.add_argument("--endpoints", type=Path, required=True)
     run.add_argument("--output", type=Path, required=True)
-    run.add_argument("--topologies", nargs="+", default=list(TOPOLOGIES))
+    run.add_argument("--topologies", nargs="+", default=None)
     run.add_argument("--loads", nargs="+", default=["0.7", "2.0"])
     run.add_argument("--thetas", nargs="+", default=["0", "0.5", "1"])
     run.add_argument("--seeds", type=int, default=20)
     run.add_argument("--seed-offset", type=int, default=1)
     run.add_argument("--placements", nargs="+", default=["equal"])
-    run.add_argument("--systems", nargs="+", default=list(DEFAULT_SYSTEMS))
+    run.add_argument(
+        "--shares",
+        nargs="+",
+        default=None,
+        metavar="SITE=UNITS",
+        help="explicit per-site shares for the explicit placement",
+    )
+    run.add_argument("--systems", nargs="+", default=None)
     run.add_argument("--envelope", type=int, default=DEFAULT_ENVELOPE)
     run.add_argument("--pre-s", type=float, default=5.0)
     run.add_argument("--partition-s", type=float, default=30.0)
@@ -729,6 +875,7 @@ def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run.add_argument("--dry-run-faults", action="store_true", help="record fault commands only")
     assemble_parser = sub.add_parser("assemble", help="rebuild the CSVs from runs/*.json")
     assemble_parser.add_argument("--output", type=Path, required=True)
+    assemble_parser.add_argument("--merge-manifest", type=Path, action="append", default=[])
     return parser.parse_args(argv)
 
 
@@ -736,27 +883,40 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _arguments(argv)
     if arguments.command == "assemble":
         counts = assemble(arguments.output)
-        previous_path = arguments.output / "MANIFEST.json"
+        previous = read_manifest(arguments.output / "MANIFEST.json")
+        merged = [m for m in (read_manifest(p) for p in arguments.merge_manifest) if m]
         carried: dict[str, Any] = {}
-        if previous_path.exists():
-            previous = json.loads(previous_path.read_text(encoding="utf-8"))
+        if previous is not None:
             carried = {
                 key: previous[key]
-                for key in ("grid", "outcomes", "run_command", "run_source", "run_environment")
+                for key in ("grid", "run_command", "run_source", "run_environment")
                 if key in previous
             }
-            if "run_command" not in previous:
+            if "run_command" not in previous and run_record(previous) is not None:
                 carried["run_command"] = previous.get("command")
                 carried["run_source"] = previous.get("source")
                 carried["run_environment"] = previous.get("environment")
-        write_manifest(arguments.output, ["assemble"], {**carried, "assembled": counts})
+        outcomes = run_outcomes(arguments.output)
+        if "grid" in carried:
+            carried["grid"] = {**carried["grid"], "cells": len(outcomes)}
+        history = merge_run_history([*([previous] if previous else []), *merged])
+        write_manifest(
+            arguments.output,
+            ["assemble"],
+            {**carried, "outcomes": outcomes, "run_history": history, "assembled": counts},
+        )
         print(json.dumps(counts))
         return 0
-    for name in arguments.systems:
-        SystemSpec.parse(name)
     clusters, token = load_endpoints(arguments.endpoints)
+    sites = cluster_roster(clusters)
+    systems = tuple(arguments.systems or default_systems(sites))
+    for name in systems:
+        SystemSpec.parse(name, sites)
+    shares = parse_shares(arguments.shares, sites, arguments.envelope)
+    if (shares is None) != ("explicit" not in arguments.placements):
+        raise ControllerError("--shares and the explicit placement go together")
     options = GridOptions(
-        systems=tuple(arguments.systems),
+        systems=systems,
         envelope=arguments.envelope,
         pre_s=arguments.pre_s,
         partition_s=arguments.partition_s,
@@ -764,15 +924,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         deadline_s=arguments.deadline_s,
         rtt_ms=arguments.rtt_ms,
         loss_pct=arguments.loss_pct,
+        sites=sites,
+        shares=shares,
     )
     cells = grid_cells(
-        arguments.topologies,
+        arguments.topologies or default_topologies(sites),
         _float_list(arguments.loads),
         _float_list(arguments.thetas),
         range(arguments.seed_offset, arguments.seed_offset + arguments.seeds),
         arguments.placements,
+        sites,
     )
     driver: FaultDriver | None = DryRunFaultDriver() if arguments.dry_run_faults else None
+    previous = read_manifest(arguments.output / "MANIFEST.json")
     outcome = run_grid(
         clusters,
         token,
@@ -790,6 +954,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "grid": {
                 "cells": len(cells),
                 "skipped": outcome["skipped"],
+                "sites": list(sites),
                 "options": dataclasses.asdict(options),
                 "clusters": [
                     {
@@ -800,6 +965,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ],
             },
             "outcomes": outcome["outcomes"],
+            "run_history": merge_run_history([previous] if previous else []),
             "assembled": outcome["assembled"],
         },
     )

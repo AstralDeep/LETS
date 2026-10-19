@@ -802,19 +802,15 @@ def _validate_three_host_scenario(scenario: dict[str, object]) -> tuple[str, str
 def _validate_q1_outputs(artifacts: dict[str, bytes], result: dict[str, object]) -> None:
     try:
         from .remote_three_host import (
-            per_site_timeline_svg,
             phase_end_csv,
             phase_end_markdown,
             report_markdown,
             timeline_csv,
-            timeline_svg,
         )
 
         renderers = {
             "remote/three-host-linux-report.md": report_markdown,
             "remote/three-host-linux-timeline.csv": timeline_csv,
-            "remote/three-host-linux-timeline.svg": timeline_svg,
-            "remote/three-host-linux-per-site-timeline.svg": per_site_timeline_svg,
             "remote/three-host-linux-phase-end.csv": phase_end_csv,
             "remote/three-host-linux-phase-end.md": phase_end_markdown,
         }

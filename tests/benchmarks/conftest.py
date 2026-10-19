@@ -1,5 +1,5 @@
-"""Shared fixtures for the E1 fair-baseline tests: free loopback ports, three in-process site
-agents wired as a cluster, and the endpoint description controller.py expects for them.
+"""Shared fixtures for the E1 fair-baseline tests: free loopback ports, in-process site agents
+wired as a cluster over any site roster, and the endpoint description controller.py expects.
 """
 
 from __future__ import annotations
@@ -10,16 +10,17 @@ import socket
 import threading
 import urllib.error
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 import pytest
 
-from benchmarks.fair_baselines.common import SITES
+from benchmarks.fair_baselines.common import DEFAULT_SITES
 from benchmarks.fair_baselines.site_agent import AgentServer, serve
 from lets.crypto import Ed25519Signer
 
 TOKEN = "test-token-not-a-secret-0123456789"
+FIVE_SITES = ("uk1", "uk2", "az1", "use2", "apse1")
 
 
 def free_port() -> int:
@@ -29,18 +30,19 @@ def free_port() -> int:
 
 
 class LoopbackCluster:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, sites: Sequence[str] = DEFAULT_SITES) -> None:
         self.token = TOKEN
-        self.ports = {site: free_port() for site in SITES}
-        self.raft_ports = {site: free_port() for site in SITES}
+        self.sites = tuple(sites)
+        self.ports = {site: free_port() for site in self.sites}
+        self.raft_ports = {site: free_port() for site in self.sites}
         self.servers: dict[str, AgentServer] = {}
-        for site in SITES:
+        for site in self.sites:
             server = serve(site, "127.0.0.1", self.ports[site], TOKEN, root / site)
             threading.Thread(
                 target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
             ).start()
             self.servers[site] = server
-        signers = {site: Ed25519Signer.generate(site) for site in SITES}
+        signers = {site: Ed25519Signer.generate(site) for site in self.sites}
         self.seeds = {
             site: base64.b64encode(signer.seed_bytes).decode() for site, signer in signers.items()
         }
@@ -84,13 +86,15 @@ class LoopbackCluster:
         return {
             "config": config,
             "peers": {
-                peer: f"http://127.0.0.1:{self.ports[peer]}" for peer in SITES if peer != site
+                peer: f"http://127.0.0.1:{self.ports[peer]}" for peer in self.sites if peer != site
             },
             "keys": {"seed": self.seeds[site], "public_keys": self.public_keys},
             "raft": {
                 "self": f"127.0.0.1:{self.raft_ports[site]}",
                 "peers": {
-                    peer: f"127.0.0.1:{self.raft_ports[peer]}" for peer in SITES if peer != site
+                    peer: f"127.0.0.1:{self.raft_ports[peer]}"
+                    for peer in self.sites
+                    if peer != site
                 },
             },
         }
@@ -99,6 +103,7 @@ class LoopbackCluster:
         return {
             "schema": "lets.fair-baselines-endpoints/v1",
             "token": TOKEN,
+            "sites": list(self.sites),
             "clusters": [
                 {
                     "name": "loopback",
@@ -110,7 +115,7 @@ class LoopbackCluster:
                             "raft_port": self.raft_ports[site],
                             "fault_exec": ["dry-run"],
                         }
-                        for site in SITES
+                        for site in self.sites
                     },
                 }
             ],
@@ -126,6 +131,15 @@ class LoopbackCluster:
 @pytest.fixture
 def loopback_cluster(tmp_path: Path) -> Iterator[LoopbackCluster]:
     cluster = LoopbackCluster(tmp_path / "agents")
+    try:
+        yield cluster
+    finally:
+        cluster.close()
+
+
+@pytest.fixture
+def five_site_cluster(tmp_path: Path) -> Iterator[LoopbackCluster]:
+    cluster = LoopbackCluster(tmp_path / "agents5", FIVE_SITES)
     try:
         yield cluster
     finally:

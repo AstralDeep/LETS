@@ -15,7 +15,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,7 +26,6 @@ from pysyncobj.transport import TCPTransport
 from benchmarks.fair_baselines.common import (
     CAPABILITY,
     ENVELOPE_ID,
-    SITES,
     TENANT,
     canonical_bytes,
     mapping,
@@ -362,6 +361,7 @@ class RaftCounterSystem:
         self._machine = BudgetStateMachine(budget)
         conf = SyncObjConf(
             autoTick=False,
+            bindAddress=f"0.0.0.0:{self_address.rsplit(':', 1)[1]}",
             journalFile=str(state_dir / f"{name}.journal"),
             fullDumpFile=str(state_dir / f"{name}.dump"),
             appendEntriesUseBatch=True,
@@ -791,7 +791,7 @@ class EffectLog:
         self._connection.close()
 
 
-def public_key_table(value: object) -> dict[str, tuple[str, bytes]]:
+def public_key_table(value: object, sites: Sequence[str]) -> dict[str, tuple[str, bytes]]:
     keys = mapping(value, "public_keys")
     table: dict[str, tuple[str, bytes]] = {}
     for warden_id, raw in keys.items():
@@ -800,8 +800,8 @@ def public_key_table(value: object) -> dict[str, tuple[str, bytes]]:
             string(item.get("key_id"), "key_id"),
             base64.b64decode(string(item.get("public_key"), "public_key"), validate=True),
         )
-    if set(table) != set(SITES):
-        raise ValueError("public_keys must contain exactly s1, s2, and s3")
+    if set(table) != set(sites):
+        raise ValueError(f"public_keys must name exactly the run's sites {list(sites)}")
     return table
 
 
