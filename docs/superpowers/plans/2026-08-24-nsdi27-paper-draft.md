@@ -4,7 +4,7 @@
 
 **Goal:** Produce a complete, evidence-backed named arXiv paper and a separately titled, fully anonymous NSDI 2027 Traditional Research Track paper about warden-mediated conservation of effect authority in recursive autonomous systems.
 
-**Architecture:** One shared LaTeX manuscript consumes variant macros from two thin wrappers, so the technical text and evidence cannot drift. Deterministic evidence extraction, citation audits, vector-figure generation, PDF inspection, and anonymity checks fail closed around the two builds. The named wrapper exposes LETS, AstralDeep, and Samuel E. Armstrong, while the anonymous wrapper substitutes Lattice and Helios everywhere, including PDF metadata.
+**Architecture:** One shared LaTeX manuscript consumes variant macros from two thin wrappers, so the technical text and evidence cannot drift. Deterministic evidence extraction, citation audits, vector-figure generation, PDF inspection, and anonymity checks fail closed around the two builds. The named wrapper exposes LETS, AstralDeep, and the owner, while the anonymous wrapper substitutes Lattice and Helios everywhere, including PDF metadata.
 
 **Tech Stack:** LaTeX with the official USENIX style, BibTeX, Python 3.11 standard library, deterministic SVG/PDF figure generation, Docker-pinned TeX Live and Poppler, retained LETS JSON evidence, official provider documentation, and primary research papers.
 
@@ -549,7 +549,7 @@ Make the smallest source or figure change that fixes each observed defect. Repea
 
 - [ ] **Step 5: Record final identities and handoff**
 
-Record SHA-256 digests for source inputs, figures, `paper-arxiv.pdf`, and `paper-nsdi27.pdf`, plus exact page counts and check results. State outside the manuscript that Samuel must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Do not upload or push the ignored submission tree.
+Record SHA-256 digests for source inputs, figures, `paper-arxiv.pdf`, and `paper-nsdi27.pdf`, plus exact page counts and check results. State outside the manuscript that the owner must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Do not upload or push the ignored submission tree.
 
 ### Task 12: Record the private project checkpoint
 

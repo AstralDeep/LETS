@@ -19,10 +19,10 @@ The work has two publication variants. The named arXiv version identifies LETS, 
   <web domain>
   ```
 
-- Samuel must materially rewrite every substantive section before making the NSDI attestation that the paper is primarily human-written. This responsibility stays in the handoff and does not alter the manuscript's language, structure, metadata, argument, or presentation.
+- The owner must materially rewrite every substantive section before making the NSDI attestation that the paper is primarily human-written. This responsibility stays in the handoff and does not alter the manuscript's language, structure, metadata, argument, or presentation.
 - No production, performance, scale, or safety claim may exceed retained evidence.
 - The owner-reported production deployment is provenance, not experimental evidence. It may be described only as a later deployment event unless independently retained deployment measurements support more.
-- The manuscript keeps Samuel's direct style. It avoids em dashes, semicolons, long lists, inflated transitions, and dense strings of abstract nouns. Colons are permitted only where they improve a title, caption, definition, or short lead-in.
+- The manuscript keeps the owner's direct style. It avoids em dashes, semicolons, long lists, inflated transitions, and dense strings of abstract nouns. Colons are permitted only where they improve a title, caption, definition, or short lead-in.
 - The NSDI body is at most 12 pages. References and supplementary appendices follow the body.
 - The Introduction is at most three pages and is written to stand alone for prescreening.
 - Figures are legible at printed column width and remain understandable in grayscale.
@@ -164,4 +164,4 @@ The checker fails closed. A failed anonymity, evidence, formatting, or build che
 
 ## Completion boundary
 
-This phase ends with complete named and anonymous paper-draft PDFs, source, figures, citation audit, evidence matrix, and verification results. It does not include arXiv upload, HotCRP registration, NSDI submission, artifact submission, production-server access, or TDSC submission. Those actions require separate explicit authorization and Samuel's completed rewrite and review.
+This phase ends with complete named and anonymous paper-draft PDFs, source, figures, citation audit, evidence matrix, and verification results. It does not include arXiv upload, HotCRP registration, NSDI submission, artifact submission, production-server access, or TDSC submission. Those actions require separate explicit authorization and the owner's completed rewrite and review.
