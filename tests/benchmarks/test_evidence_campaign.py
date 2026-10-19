@@ -28,12 +28,10 @@ from benchmarks.nsdi_strengthening.evidence_campaign import (
     preflight_campaign,
 )
 from benchmarks.nsdi_strengthening.remote_three_host import (
-    per_site_timeline_svg,
     phase_end_csv,
     phase_end_markdown,
     report_markdown,
     timeline_csv,
-    timeline_svg,
 )
 
 CAMPAIGN_BINDING = "results/nsdi-strengthening-2026-09-02/MANIFEST.json"
@@ -360,8 +358,6 @@ def _add_complete_campaign(staging_root: Path, repository: Path, commit: str) ->
     q1_outputs = {
         "remote/three-host-linux-report.md": report_markdown(remote_result),
         "remote/three-host-linux-timeline.csv": timeline_csv(remote_result),
-        "remote/three-host-linux-timeline.svg": timeline_svg(remote_result),
-        "remote/three-host-linux-per-site-timeline.svg": per_site_timeline_svg(remote_result),
         "remote/three-host-linux-phase-end.csv": phase_end_csv(remote_result),
         "remote/three-host-linux-phase-end.md": phase_end_markdown(remote_result),
     }

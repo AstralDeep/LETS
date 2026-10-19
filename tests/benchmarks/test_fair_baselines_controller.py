@@ -1,4 +1,4 @@
-"""Tests for benchmarks/fair_baselines/controller.py plus analysis.py and figures.py on real
+"""Tests for benchmarks/fair_baselines/controller.py plus analysis.py on real
 output: grid enumeration, endpoint loading for three- and seven-site rosters, safety verification,
 dry-fault grid runs against three and five loopback agents, CSV assembly, the per-site table, and
 figure rendering.
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.fair_baselines import analysis, figures
+from benchmarks.fair_baselines import analysis
 from benchmarks.fair_baselines.common import default_systems, default_topologies
 from benchmarks.fair_baselines.controller import (
     Cell,
@@ -284,10 +284,6 @@ def test_grid_runs_on_loopback_agents_and_renders_everything(
         per_site = list(csv.DictReader(stream))
     assert len(per_site) == 2 * len(_options().systems) * 3
     assert all(float(row["messages_per_run"]) >= 0 for row in per_site)
-    assert figures.main(["--output", str(output), "--formats", "svg"]) == 0
-    assert (output / "figures" / "cdf-panel-L2-T1.svg").exists()
-    assert (output / "figures" / "cdf-flapping-L2-T1.svg").exists()
-    assert (output / "figures" / "completions-T1.svg").exists()
     assert main(["assemble", "--output", str(output)]) == 0
 
 
@@ -356,10 +352,6 @@ def test_grid_runs_on_five_loopback_agents(
     assert {row["site"] for row in per_site} == set(FIVE_SITES)
     assert {row["topology"] for row in per_site} == {"isolate-uk1", "halves"}
     assert all(row["share"] == "2" for row in per_site if row["system"] == "lets")
-    assert figures.main(["--output", str(output), "--formats", "svg"]) == 0
-    assert (output / "figures" / "cdf-panel-L2-T1.svg").exists()
-    assert not (output / "figures" / "cdf-flapping-L2-T1.svg").exists()
-    assert (output / "figures" / "completions-T1.svg").exists()
 
 
 def test_grid_records_errors_from_unreachable_clusters(tmp_path: Path) -> None:

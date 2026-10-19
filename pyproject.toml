@@ -34,7 +34,6 @@ server = [
 ]
 client = ["httpx>=0.28,<1"]
 benchmarks = [
-  "matplotlib>=3.9,<4",
   "paramiko>=3.5,<5",
   "pysyncobj>=0.3.17,<0.4",
 ]

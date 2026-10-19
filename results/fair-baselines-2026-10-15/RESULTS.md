@@ -121,15 +121,12 @@ are equal (10/10/10). Seeds are 1–2 in the local grid (`--seeds 2`); the paper
 | `messages.csv`, `runs.csv` | per-site message counts and per-run safety/outcome summaries |
 | `per-site.md`, `per-site.csv` | the per-site results table (the analogue of `three-host-linux-phase-end.md`) |
 | `summary.csv` | the same aggregated per topology × load × θ × system |
-| `figures/cdf-panel-L<load>-T<θ>.{svg,pdf}` | the 3-topology time-to-authorization CDF panel |
-| `figures/cdf-flapping-L<load>-T<θ>.{svg,pdf}` | the same for the flapping link |
-| `figures/completions-T<θ>.{svg,pdf}` | completions by deadline per topology and system with bootstrap CIs, one panel per load |
 | `MANIFEST.json` | file digests, command line, source and environment identity |
 
 ## Highlights of the local grid (48 runs, 13,923 requests, 2 seeds per cell)
 
 All numbers below come from `local/summary.csv`, `local/per-site.csv`, and `local/runs.csv`;
-two seeds per cell is a smoke grid, so treat the confidence intervals in the figures as wide.
+two seeds per cell is a smoke grid, so treat its confidence intervals as wide.
 
 - **Safety.** Every one of the 48 × 7 run-system pairs satisfied `effects ≤ 30` with no duplicate
   actuation and `effects == authorized records`; the minimum margin is 0, so the ceiling bound in
@@ -178,7 +175,6 @@ uv sync --all-extras --frozen
 uv run python -m benchmarks.fair_baselines.local_cluster up --work-dir benchmarks/results/fair-baselines/local --clusters 3
 uv run python -m benchmarks.fair_baselines.controller run --endpoints benchmarks/results/fair-baselines/local/endpoints.json --output results/fair-baselines-2026-10-15/local --seeds 2
 uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baselines-2026-10-15/local
-uv run python -m benchmarks.fair_baselines.figures --output results/fair-baselines-2026-10-15/local
 uv run python -m benchmarks.fair_baselines.local_cluster down --work-dir benchmarks/results/fair-baselines/local
 ```
 
@@ -187,6 +183,25 @@ flapping-s1-s2 --loads 0.7 2.0 --thetas 0 0.5 1 --pre-s 5 --partition-s 30 --pos
 --deadline-s 20 --rtt-ms 50`). It skips cells whose run file already exists, so an interrupted
 grid resumes; `--overwrite` reruns everything. `benchmarks/results/` is ignored by Git and holds
 the generated compose file and the per-invocation shared token.
+
+## Reproducing the paper's partition table
+
+The numbers in the paper's partition table (completion at 0.7x load with theta = 1, the
+pre-break median time to authorization, stranded unit-seconds under `split-s1`/`isolate-s1`, the
+safety totals, and the 95% seed-bootstrap intervals with their widest widths) come from the
+committed run files alone. From a clone of this repository:
+
+```bash
+uv sync --all-extras --frozen
+uv run python -m benchmarks.fair_baselines.paper --grid three-host=results/fair-baselines-2026-10-15/three-host --grid seven-site=results/fair-baselines-2026-10-15/seven-site --write results/fair-baselines-2026-10-15
+```
+
+The command regenerates `requests.csv` and `events.csv` from `runs/` when they are absent (about
+30 s for both grids), then writes `paper-table.md` and `paper-table.json` next to the grid
+directories; the committed copies of those two files are its output on the retained runs.
+Completion is pooled over seeds (authorized requests divided by all requests), the bootstrap
+resamples the 20 seeds with a fixed generator seed, and the latency column pools the authorized
+requests that arrived in the first 5 s of every run in the grid.
 
 ## Running on remote endpoints (three or more sites)
 
@@ -274,15 +289,13 @@ multi-region grid (for example two UK hosts, one Azure VM, and four AWS regions)
    ```bash
    LETS_E1_TOKEN=... uv run python -m benchmarks.fair_baselines.controller run --endpoints seven-site-endpoints.json --output results/fair-baselines-2026-10-15/seven-site --seeds 20 --rtt-ms 0
    uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baselines-2026-10-15/seven-site
-   uv run python -m benchmarks.fair_baselines.figures --output results/fair-baselines-2026-10-15/seven-site
    ```
 
    480 cells at about 75 s each is roughly 10 hours on one cluster (the 600-cell seven-site grid
    below took 13.3 hours at about 80 s per cell); clocks must agree to within a
    second (NTP) because the synchronized start uses wall-clock time, while every latency is
    measured with each site's monotonic clock. Use `--rtt-ms 0` to measure the real WAN RTT instead
-   of adding netem delay. The per-site table has one row per site, the CDF panel one column per
-   static topology present, and the completion chart one group per topology.
+   of adding netem delay. The per-site table has one row per site.
 
 The N-site path can be smoke-tested on one Docker machine with
 `local_cluster up --sites uk1 uk2 az1 use2 usw2 euw2 apse1 --clusters 1`, which renders one

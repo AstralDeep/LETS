@@ -1,7 +1,7 @@
 """Offline metrics for E1 from the controller's CSVs: completion rates with seed-level bootstrap
 CIs, time-to-authorization distributions with censored timeouts, stranded capacity reconstructed
 from free-unit and waiting events against the fault timeline, message counts, and the per-site
-results table; figures.py plots the same aggregates.
+results table; paper.py reduces the same aggregates to the paper's table.
 """
 
 from __future__ import annotations
@@ -100,6 +100,26 @@ def bootstrap_ci(
     lower_index = math.floor((1 - level) / 2 * (resamples - 1))
     upper_index = math.ceil((1 + level) / 2 * (resamples - 1))
     return mean, means[lower_index], means[upper_index]
+
+
+def pooled_bootstrap_ci(
+    pairs: Sequence[tuple[int, int]], *, resamples: int = 2000, seed: int = 7, level: float = 0.95
+) -> tuple[float, float, float]:
+    if not pairs or sum(total for _, total in pairs) == 0:
+        raise ValueError("pooled bootstrap needs at least one request")
+
+    def pooled(sample: Sequence[tuple[int, int]]) -> float:
+        total = sum(count for _, count in sample)
+        return sum(authorized for authorized, _ in sample) / total if total else 0.0
+
+    mean = pooled(pairs)
+    if len(pairs) == 1:
+        return mean, mean, mean
+    generator = random.Random(seed)
+    ratios = sorted(pooled(generator.choices(pairs, k=len(pairs))) for _ in range(resamples))
+    lower_index = math.floor((1 - level) / 2 * (resamples - 1))
+    upper_index = math.ceil((1 + level) / 2 * (resamples - 1))
+    return mean, ratios[lower_index], ratios[upper_index]
 
 
 def completion_by_seed(rows: Iterable[RequestRow]) -> dict[tuple[CellKey, str], list[float]]:
@@ -444,6 +464,61 @@ def topology_description(name: str, sites: Sequence[str] = DEFAULT_SITES) -> str
     return f"{name}: cut {', '.join(labels)}; intact {', '.join(intact) or 'none'}"
 
 
+@dataclass(frozen=True, slots=True)
+class GridData:
+    requests: list[RequestRow]
+    events: list[dict[str, str]]
+    faults: list[dict[str, str]]
+    runs: list[dict[str, str]]
+    messages: list[dict[str, str]]
+    sites: tuple[str, ...]
+    envelope: int
+    pre_break_s: float
+
+
+def load_grid(output: Path) -> GridData:
+    requests = load_requests(output / "requests.csv")
+    events = load_csv(output / "events.csv")
+    faults = load_csv(output / "faults.csv")
+    runs = load_csv(output / "runs.csv")
+    messages = load_csv(output / "messages.csv")
+    shares_by_run: dict[str, str] = {}
+    sites_by_run: dict[str, str] = {}
+    rosters: set[tuple[str, ...]] = set()
+    envelopes: set[int] = set()
+    pre_breaks: set[float] = set()
+    for path in run_files(output):
+        payload = read_run(path)
+        config = payload.get("config", {})
+        sites = tuple(config.get("sites", DEFAULT_SITES))
+        rosters.add(sites)
+        if "envelope" in config:
+            envelopes.add(int(config["envelope"]))
+        if "pre_s" in config:
+            pre_breaks.add(float(config["pre_s"]))
+        shares_by_run[payload["run_id"]] = json.dumps(
+            next(iter(payload["configured"].values()))["shares"]
+            if payload.get("configured")
+            else {}
+        )
+        sites_by_run[payload["run_id"]] = json.dumps(list(sites))
+    if len(rosters) > 1 or len(envelopes) > 1 or len(pre_breaks) > 1:
+        raise ValueError(f"{output}: runs disagree on roster, envelope, or pre-break length")
+    for row in runs:
+        row["shares"] = shares_by_run.get(row["run_id"], "{}")
+        row["sites"] = sites_by_run.get(row["run_id"], "[]")
+    return GridData(
+        requests,
+        events,
+        faults,
+        runs,
+        messages,
+        next(iter(rosters), tuple(DEFAULT_SITES)),
+        next(iter(envelopes), 0),
+        next(iter(pre_breaks), 0.0),
+    )
+
+
 def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True, help="controller output directory")
@@ -454,27 +529,8 @@ def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _arguments(argv)
     output: Path = arguments.output
-    requests = load_requests(output / "requests.csv")
-    events = load_csv(output / "events.csv")
-    faults = load_csv(output / "faults.csv")
-    runs = load_csv(output / "runs.csv")
-    messages = load_csv(output / "messages.csv")
-    shares_by_run: dict[str, str] = {}
-    sites_by_run: dict[str, str] = {}
-    for path in run_files(output):
-        payload = read_run(path)
-        shares_by_run[payload["run_id"]] = json.dumps(
-            next(iter(payload["configured"].values()))["shares"]
-            if payload.get("configured")
-            else {}
-        )
-        sites_by_run[payload["run_id"]] = json.dumps(
-            list(payload.get("config", {}).get("sites", DEFAULT_SITES))
-        )
-    for row in runs:
-        row["shares"] = shares_by_run.get(row["run_id"], "{}")
-        row["sites"] = sites_by_run.get(row["run_id"], "[]")
-    table = per_site_rows(requests, events, faults, runs, messages)
+    grid = load_grid(output)
+    table = per_site_rows(grid.requests, grid.events, grid.faults, grid.runs, grid.messages)
     write_text(output / "per-site.md", per_site_markdown(table, arguments.title), overwrite=True)
     write_text(output / "per-site.csv", per_site_csv(table), overwrite=True)
     write_text(output / "summary.csv", per_site_csv(summary_rows(table)), overwrite=True)

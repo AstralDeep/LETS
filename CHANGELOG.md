@@ -5,6 +5,23 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Added
+
+- E1 harness: `benchmarks.fair_baselines.paper` reduces one or more grids to the numbers the
+  paper's partition table reports (pooled completion with 95% seed-bootstrap intervals and
+  their widest widths, pre-break median time to authorization, stranded unit-seconds under the
+  topology that isolates the first site, and the safety totals), regenerating the flat CSVs from
+  the committed run files when they are absent. `results/fair-baselines-2026-10-15/paper-table.md`
+  and `.json` are its output on the retained three-host and seven-site grids.
+
+### Removed
+
+- The paper-figure renderers: `benchmarks.fair_baselines.figures` (CDF panels and completion
+  bars), the partition-skew SVG of `benchmarks.nsdi_strengthening.distributed_partition`, and the
+  timeline SVGs of `benchmarks.nsdi_strengthening.remote_three_host`. The retained SVG files
+  stay as static evidence; the evidence campaign no longer re-renders them. `matplotlib` leaves
+  the `benchmarks` extra.
+
 ### Changed
 
 - E1 harness: the controller keeps the fault schedule on time. The in-cut peer probes run on

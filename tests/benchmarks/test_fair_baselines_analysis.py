@@ -1,7 +1,7 @@
-"""Tests for benchmarks/fair_baselines/analysis.py, figures.py, and local_cluster.py on
-synthetic data: bootstrap intervals, censored CDFs, link-state reconstruction, stranded-capacity
-integration per system kind for three and seven sites, table rendering, figure output, and the
-compose/endpoints documents for any roster.
+"""Tests for benchmarks/fair_baselines/analysis.py and local_cluster.py on synthetic data:
+bootstrap intervals, censored CDFs, link-state reconstruction, stranded-capacity integration per
+system kind for three and seven sites, table rendering, and the compose/endpoints documents for
+any roster.
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from benchmarks.fair_baselines.analysis import (
     summary_rows,
     topology_description,
 )
-from benchmarks.fair_baselines.figures import cdf_panel, completion_chart
 
 SEVEN = ("uk1", "uk2", "az1", "use2", "usw2", "euw2", "apse1")
 
@@ -253,7 +252,7 @@ def resolve_halves() -> frozenset[frozenset[str]]:
     return resolve_topology("halves", SEVEN).cut_links
 
 
-def test_per_site_table_and_summary_render(tmp_path: Path) -> None:
+def test_per_site_table_and_summary_render() -> None:
     requests = [
         _row("lets", "s1", "authorized", 50_000_000, seed=1),
         _row("lets", "s1", "timeout", None, seed=1),
@@ -295,10 +294,6 @@ def test_per_site_table_and_summary_render(tmp_path: Path) -> None:
     assert summary[0]["requests_per_run"] == 2.5
     assert topology_description("bridge-s3") == "bridge-s3: cut s1-s2; intact s1-s3, s2-s3"
     assert "toggle every 3 s" in topology_description("flapping-s1-s2")
-    panel = cdf_panel(requests, ["split-s1"], 2.0, 1.0, tmp_path / "cdf.svg")
-    assert panel.exists() and panel.stat().st_size > 0
-    chart = completion_chart(requests, ["split-s1"], 1.0, tmp_path / "bars.png")
-    assert chart.exists()
 
 
 def test_local_cluster_documents_and_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
