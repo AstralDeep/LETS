@@ -4,7 +4,7 @@
 
 **Goal:** Produce a complete, evidence-backed named arXiv paper and a separately titled, fully anonymous NSDI 2027 Traditional Research Track paper about warden-mediated conservation of effect authority in recursive autonomous systems.
 
-**Architecture:** One shared LaTeX manuscript consumes variant macros from two thin wrappers, so the technical text and evidence cannot drift. Deterministic evidence extraction, citation audits, vector-figure generation, PDF inspection, and anonymity checks fail closed around the two builds. The named wrapper exposes LETS, AstralDeep, and Samuel E. Armstrong, while the anonymous wrapper substitutes Lattice and Helios everywhere, including PDF metadata.
+**Architecture:** One shared LaTeX manuscript consumes variant macros from two thin wrappers, so the technical text and evidence cannot drift. Deterministic evidence extraction, citation audits, vector-figure generation, PDF inspection, and anonymity checks fail closed around the two builds. The named wrapper exposes LETS, AstralDeep, and the owner, while the anonymous wrapper substitutes Lattice and Helios everywhere, including PDF metadata.
 
 **Tech Stack:** LaTeX with the official USENIX style, BibTeX, Python 3.11 standard library, deterministic SVG/PDF figure generation, Docker-pinned TeX Live and Poppler, retained LETS JSON evidence, official provider documentation, and primary research papers.
 
@@ -12,8 +12,8 @@
 
 ## Global Constraints
 
-- Samuel E. Armstrong is the only author.
-- The named author block is exactly `Samuel E. Armstrong, MS`, `Kentucky Open Science`, and `kyopenscience.com` on separate lines.
+- The repository owner is the only author.
+- The named author block is the owner's name, affiliation, and web domain on separate lines.
 - The named title is `Conservation of Agentic Authority: A Warden for Recursive Autonomous Systems` unless evidence gathered during the title audit proves that a more precise, non-colliding title is needed.
 - The anonymous title is `Escrowed Effect Rights for Partitioned Autonomous Systems`.
 - The anonymous source maps LETS to `Lattice` and AstralDeep to `Helios`.
@@ -31,7 +31,7 @@
 ## File Map
 
 - `paper/submission/manuscript.tex`: all shared substantive prose, equations, tables, figure placement, labels, bibliography call, and body-page markers.
-- `paper/submission/paper-arxiv.tex`: named title, LETS and AstralDeep macros, Samuel's author block, and named PDF metadata.
+- `paper/submission/paper-arxiv.tex`: named title, LETS and AstralDeep macros, the owner's author block, and named PDF metadata.
 - `paper/submission/paper-nsdi27.tex`: anonymous title, Lattice and Helios macros, Traditional Research Track label, anonymous author field, and neutral PDF metadata.
 - `paper/submission/main.tex`: compatibility wrapper that inputs `paper-arxiv.tex`.
 - `paper/submission/paper-anon.tex`: compatibility wrapper that inputs `paper-nsdi27.tex`.
@@ -126,10 +126,10 @@ Add unit tests that load both wrappers as text and assert all of the following:
 ```python
 self.assertIn(r"\newcommand{\SystemName}{LETS}", named)
 self.assertIn(r"\newcommand{\HostName}{AstralDeep}", named)
-self.assertIn("Samuel E. Armstrong, MS", named)
+self.assertIn(named_author_line, named)
 self.assertIn(r"\newcommand{\SystemName}{Lattice}", anonymous)
 self.assertIn(r"\newcommand{\HostName}{Helios}", anonymous)
-self.assertNotIn("Samuel", anonymous)
+self.assertNotIn(author_surname, anonymous)
 self.assertNotEqual(extract_title(named), extract_title(anonymous))
 ```
 
@@ -549,7 +549,7 @@ Make the smallest source or figure change that fixes each observed defect. Repea
 
 - [ ] **Step 5: Record final identities and handoff**
 
-Record SHA-256 digests for source inputs, figures, `paper-arxiv.pdf`, and `paper-nsdi27.pdf`, plus exact page counts and check results. State outside the manuscript that Samuel must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Do not upload or push the ignored submission tree.
+Record SHA-256 digests for source inputs, figures, `paper-arxiv.pdf`, and `paper-nsdi27.pdf`, plus exact page counts and check results. State outside the manuscript that the owner must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Do not upload or push the ignored submission tree.
 
 ### Task 12: Record the private project checkpoint
 
@@ -560,7 +560,7 @@ Record SHA-256 digests for source inputs, figures, `paper-arxiv.pdf`, and `paper
 
 **Interfaces:**
 - Consumes: final local verification report and the two PDF identities.
-- Produces: a durable private record of the local branch, manuscript state, exact evidence boundary, and actions that still require Samuel's authorization.
+- Produces: a durable private record of the local branch, manuscript state, exact evidence boundary, and actions that still require the owner's authorization.
 
 - [ ] **Step 1: Refresh the knowledge-vault repository anchor**
 

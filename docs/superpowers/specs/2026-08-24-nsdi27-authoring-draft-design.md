@@ -4,25 +4,25 @@ Date: 2026-08-24
 
 ## Purpose
 
-Produce a comprehensive, evidence-backed paper draft that is written and reasoned as a competitive NSDI 2027 Traditional Research Track submission. Samuel E. Armstrong will materially rewrite it in his own words before submission.
+Produce a comprehensive, evidence-backed paper draft that is written and reasoned as a competitive NSDI 2027 Traditional Research Track submission. The repository owner will materially rewrite it in his own words before submission.
 
 The work has two publication variants. The named arXiv version identifies LETS, AstralDeep, and the sole author. The anonymous NSDI version uses a different title and different system names as required by the venue. Both variants derive from one content source so their technical claims cannot drift.
 
 ## Non-negotiable constraints
 
-- Samuel E. Armstrong is the only author.
+- The repository owner is the only author.
 - The named author block is:
 
   ```text
-  Samuel E. Armstrong, MS
-  Kentucky Open Science
-  kyopenscience.com
+  <owner name>
+  <affiliation>
+  <web domain>
   ```
 
-- Samuel must materially rewrite every substantive section before making the NSDI attestation that the paper is primarily human-written. This responsibility stays in the handoff and does not alter the manuscript's language, structure, metadata, argument, or presentation.
+- The owner must materially rewrite every substantive section before making the NSDI attestation that the paper is primarily human-written. This responsibility stays in the handoff and does not alter the manuscript's language, structure, metadata, argument, or presentation.
 - No production, performance, scale, or safety claim may exceed retained evidence.
 - The owner-reported production deployment is provenance, not experimental evidence. It may be described only as a later deployment event unless independently retained deployment measurements support more.
-- The manuscript keeps Samuel's direct style. It avoids em dashes, semicolons, long lists, inflated transitions, and dense strings of abstract nouns. Colons are permitted only where they improve a title, caption, definition, or short lead-in.
+- The manuscript keeps the owner's direct style. It avoids em dashes, semicolons, long lists, inflated transitions, and dense strings of abstract nouns. Colons are permitted only where they improve a title, caption, definition, or short lead-in.
 - The NSDI body is at most 12 pages. References and supplementary appendices follow the body.
 - The Introduction is at most three pages and is written to stand alone for prescreening.
 - Figures are legible at printed column width and remain understandable in grayscale.
@@ -142,7 +142,7 @@ A compact transfer timeline may replace prose if the cross-warden protocol canno
 
 The manuscript contains no visible warning, watermark, draft disclaimer, altered metadata, or rhetorical hedge tied to how it was produced. It is written as a complete conference paper whose objective is acceptance.
 
-The authorship boundary exists outside the manuscript. Samuel must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Automated checks cannot determine whether text is primarily human-written and must not claim to do so.
+The authorship boundary exists outside the manuscript. The owner must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Automated checks cannot determine whether text is primarily human-written and must not claim to do so.
 
 ## Verification
 
@@ -164,4 +164,4 @@ The checker fails closed. A failed anonymity, evidence, formatting, or build che
 
 ## Completion boundary
 
-This phase ends with complete named and anonymous paper-draft PDFs, source, figures, citation audit, evidence matrix, and verification results. It does not include arXiv upload, HotCRP registration, NSDI submission, artifact submission, production-server access, or TDSC submission. Those actions require separate explicit authorization and Samuel's completed rewrite and review.
+This phase ends with complete named and anonymous paper-draft PDFs, source, figures, citation audit, evidence matrix, and verification results. It does not include arXiv upload, HotCRP registration, NSDI submission, artifact submission, production-server access, or TDSC submission. Those actions require separate explicit authorization and the owner's completed rewrite and review.
