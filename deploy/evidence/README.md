@@ -22,7 +22,7 @@ or the scenario: `.dockerignore`, `.gitattributes`, `.gitignore`,
 `.python-version`, `Dockerfile`, `compose.yaml`, `pyproject.toml`, `uv.lock`,
 the package metadata files copied by the image build, `src/`, top-level
 `deploy/*.py`, `protocol/`, and `tests/e2e/`. Tracked evidence summaries and
-paper prose are excluded from that second digest.
+other documentation are excluded from that second digest.
 
 The runner captures both complete provenance objects before the build and
 again after the scenario, before it writes evidence outputs; a source change

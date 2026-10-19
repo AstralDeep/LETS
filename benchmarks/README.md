@@ -41,6 +41,6 @@ lists, and Raft membership derive from it. Site agents replay one seeded Poisson
 against every system at once, measure time-to-authorization per request, and actuate into an
 independent effect log that the controller checks against the envelope. `local_cluster.py` runs
 independent clusters of one container per site in Docker on one machine; `controller.py` runs the
-grid; `analysis.py` writes the per-site table and `paper.py` the numbers behind the paper's table.
+grid; `analysis.py` writes the per-site table and `report.py` a headline summary per grid.
 The commands, platforms, and results are documented in
 `results/fair-baselines-2026-10-15/RESULTS.md`.

@@ -445,7 +445,7 @@ public-key identifiers, receipt identifiers, and host filesystem paths.
   {source["runtime_input_file_count"]} files and had deterministic digest
   `{source["runtime_input_sha256"]}`. That explicit set covers container build
   inputs, top-level deployment programs, protocol artifacts, and `tests/e2e`,
-  while excluding this derived evidence summary and paper prose.
+  while excluding this derived evidence summary and other documentation.
 - Compose digest: `{evidence["compose"]["file_sha256"]}`.
 - Runtime image content ID: `{runtime_image["image_id"]}`.
 - Toxiproxy image content ID: `{toxiproxy_image["image_id"]}`; pulled repository

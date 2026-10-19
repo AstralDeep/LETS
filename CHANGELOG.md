@@ -7,20 +7,27 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Added
 
-- E1 harness: `benchmarks.fair_baselines.paper` reduces one or more grids to the numbers the
-  paper's partition table reports (pooled completion with 95% seed-bootstrap intervals and
-  their widest widths, pre-break median time to authorization, stranded unit-seconds under the
-  topology that isolates the first site, and the safety totals), regenerating the flat CSVs from
-  the committed run files when they are absent. `results/fair-baselines-2026-10-15/paper-table.md`
-  and `.json` are its output on the retained three-host and seven-site grids.
+- E1 harness: `benchmarks.fair_baselines.report` summarizes one or more grids into headline
+  metrics (pooled completion with 95% seed-bootstrap intervals and their widest widths, pre-break
+  median time to authorization, stranded unit-seconds under the topology that isolates the first
+  site, and the safety totals), regenerating the flat CSVs from the committed run files when they
+  are absent. `results/fair-baselines-2026-10-15/report.md` and `.json` are its output on the
+  retained three-host and seven-site grids.
 
 ### Removed
 
-- The paper-figure renderers: `benchmarks.fair_baselines.figures` (CDF panels and completion
-  bars), the partition-skew SVG of `benchmarks.nsdi_strengthening.distributed_partition`, and the
+- The figure renderers: `benchmarks.fair_baselines.figures` (CDF panels and completion bars),
+  the partition-skew SVG of `benchmarks.nsdi_strengthening.distributed_partition`, and the
   timeline SVGs of `benchmarks.nsdi_strengthening.remote_three_host`. The retained SVG files
   stay as static evidence; the evidence campaign no longer re-renders them. `matplotlib` leaves
   the `benchmarks` extra.
+- Every coupling between the evaluation tooling and a manuscript. The root `Makefile` (a LaTeX
+  build) is gone; `evidence_campaign finalize` no longer takes `--paper-input-root` or
+  `--campaign-binding` and seals only the source manifest and the staged evidence, without a
+  `PAPER-INPUT-MANIFEST.json`; the AstralDeep case-study gate is `gate_result_finalization`
+  and writes a `result-readiness.json` record in format `lets.astraldeep-result-readiness/v1`.
+  Committed evidence bundles are unchanged. Manuscripts stay outside the repository, and
+  `paper/` remains ignored.
 
 ### Changed
 

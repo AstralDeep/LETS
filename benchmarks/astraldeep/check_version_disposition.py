@@ -26,7 +26,7 @@ from benchmarks.astraldeep.capture_environment import (
 
 DISPOSITION_FORMAT = "lets.astraldeep-version-disposition/v1"
 HANDOFF_FORMAT = "lets.astraldeep-successor-release-handoff/v1"
-READINESS_FORMAT = "lets.astraldeep-paper-result-readiness/v1"
+READINESS_FORMAT = "lets.astraldeep-result-readiness/v1"
 BASELINE_TAG_OBJECT = "341a4fe96b1c3984d53205cb2692e0ee8d5c0819"
 BASELINE_COMMIT = "6245189920c686353c4ced7a208d56ec266f745c"
 BASELINE_TREE = "a4f316fb7a74d142d41357cd4f356f0d8d3e99d8"
@@ -364,16 +364,6 @@ def _paths_are_distinct(*paths: Path) -> None:
         raise EvidenceError("readiness, handoff, disposition, and evidence paths must be distinct")
 
 
-def _reject_manuscript_output(repository: Path, *paths: Path) -> None:
-    manuscript_root = (repository / "paper").resolve()
-    for path in paths:
-        try:
-            path.resolve().relative_to(manuscript_root)
-        except ValueError:
-            continue
-        raise EvidenceError("version gate outputs must remain separate from manuscript state")
-
-
 def _validate_evidence_runtime_pin(
     evidence: Mapping[str, object], evidence_manifest_path: Path
 ) -> None:
@@ -401,7 +391,7 @@ def _validate_evidence_runtime_pin(
         )
 
 
-def gate_paper_result_finalization(
+def gate_result_finalization(
     *,
     repository: Path,
     disposition_path: Path,
@@ -417,7 +407,6 @@ def gate_paper_result_finalization(
     if evidence_manifest_path is not None:
         paths.append(evidence_manifest_path)
     _paths_are_distinct(*paths)
-    _reject_manuscript_output(repository, readiness_output, handoff_output)
     if readiness_output.exists():
         raise EvidenceError("refusing to trust or replace a pre-existing readiness marker")
 
@@ -443,7 +432,7 @@ def gate_paper_result_finalization(
                 "create and verify a successor LETS release without altering v1.0.11",
                 "update the exact Astral composition pin and version disposition",
                 "rerun every affected case-study experiment from clean exact revisions",
-                "finalize paper results only from the replacement validated evidence bundle",
+                "finalize case-study results only from the replacement validated evidence bundle",
             ],
             "created_at": _timestamp(),
         }
@@ -457,7 +446,7 @@ def gate_paper_result_finalization(
     evidence = read_json_object(evidence_manifest_path)
     validate_evidence_bundle(evidence, evidence_manifest_path.parent)
     if evidence.get("evidence_class") != "astral-integration":
-        raise EvidenceError("paper result finalization refuses release-baseline evidence")
+        raise EvidenceError("result finalization refuses release-baseline evidence")
     if evidence.get("lets_release") != BASELINE_RELEASE:
         raise EvidenceError("unchanged-runtime disposition does not match the evidence release")
     _validate_evidence_runtime_pin(evidence, evidence_manifest_path)
@@ -470,7 +459,7 @@ def gate_paper_result_finalization(
         )
     readiness = {
         "format": READINESS_FORMAT,
-        "status": "ready-for-local-paper-result-finalization",
+        "status": "ready-for-result-finalization",
         "lets_release": BASELINE_RELEASE,
         "lets_runtime_commit": BASELINE_COMMIT,
         "lets_tooling_commit": candidate["commit"],
@@ -520,7 +509,7 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[2])
     compare.add_argument("--release-anchor", type=Path, required=True)
     compare.add_argument("--output", type=Path, required=True)
-    gate = subparsers.add_parser("gate", help="gate local paper-result finalization")
+    gate = subparsers.add_parser("gate", help="gate case-study result finalization")
     gate.add_argument("--repository", type=Path, default=Path(__file__).resolve().parents[2])
     gate.add_argument("--disposition", type=Path, required=True)
     gate.add_argument("--evidence-manifest", type=Path)
@@ -552,7 +541,7 @@ def main(argv: list[str] | None = None) -> int:
             repository, arguments.handoff_output
         ):
             raise EvidenceError("gate outputs must be Git-ignored")
-        ready = gate_paper_result_finalization(
+        ready = gate_result_finalization(
             repository=repository,
             disposition_path=arguments.disposition,
             evidence_manifest_path=arguments.evidence_manifest,
@@ -560,11 +549,9 @@ def main(argv: list[str] | None = None) -> int:
             handoff_output=arguments.handoff_output,
         )
         if ready:
-            print("validated integration evidence is ready for local paper result finalization")
+            print("validated integration evidence is ready for result finalization")
             return 0
-        print(
-            "paper result finalization blocked; successor-release handoff created", file=sys.stderr
-        )
+        print("result finalization blocked; successor-release handoff created", file=sys.stderr)
         return 3
     except (EvidenceError, OSError) as exc:
         print(f"version disposition gate refused: {exc}", file=sys.stderr)

@@ -1,7 +1,7 @@
 # E1: fair-baseline family under kernel-level partitions
 
-This directory holds the E1 experiment that replaces the paper's Table V comparison. The
-earlier three-endpoint study compared LETS against one SQLite counter on s2 behind an
+This directory holds the E1 experiment that replaces the earlier three-endpoint comparison. That
+study compared LETS against one SQLite counter on s2 behind an
 application-path gate, with a fixed schedule whose demand never reached the envelope and whose
 denied requests were never retried. E1 instead compares five authority designs under the same
 randomized demand and the same real network partitions, measures time-to-authorization per
@@ -57,7 +57,7 @@ Linux hosts. The RTT is emulated (25 ms one-way netem on every site, 50 ms RTT b
 
 | System | What it is | Client policy |
 |---|---|---|
-| `central-noretry@s2` | one durable SQLite counter (WAL, `synchronous=FULL`, one transaction per request, idempotent by request id) hosted on s2; other sites call it over HTTP | one attempt; an unreachable or exhausted counter is a denial (the paper's original baseline) |
+| `central-noretry@s2` | one durable SQLite counter (WAL, `synchronous=FULL`, one transaction per request, idempotent by request id) hosted on s2; other sites call it over HTTP | one attempt; an unreachable or exhausted counter is a denial (the three-endpoint study's original baseline) |
 | `central-retry@s1`, `@s2`, `@s3` | the same counter placed on each site in turn | retry with jittered exponential backoff (0.2 s base, ×1.5, 1 s cap) until the request's deadline; exhausted is final |
 | `static-quota` | each site holds a fixed share of the envelope in its own durable counter; no transfer ever (LETS minus escrow) | exhausted is final |
 | `raft-quorum` | a three-node majority counter built on pysyncobj (Raft, 0.1 s heartbeats, 0.4–1.4 s election timeout, journal file) with the same idempotent state machine; each site's requests go to its local node and are forwarded to the leader | retry until deadline on timeout or missing leader (2 s per attempt); exhausted is final |
@@ -76,7 +76,7 @@ favours the Raft baseline slightly on latency.
 | Topology | Links cut during the window |
 |---|---|
 | `split-s1` | s1–s2 and s1–s3: a true two-way split {s1} \| {s2, s3} |
-| `bridge-s3` | s1–s2 only: the paper's cut, with s3 reachable from both |
+| `bridge-s3` | s1–s2 only: the three-endpoint study's cut, with s3 reachable from both |
 | `full-isolation` | all three links: every site alone |
 | `flapping-s1-s2` | s1–s2 toggles every 3 s (down, up, down, …) for the whole window |
 
@@ -85,7 +85,7 @@ after the heal; requests keep retrying for up to their 20 s deadline afterwards.
 Poisson process over the 50 s whose expected count is `load × envelope` (envelope 30 units, one
 unit per request), with each arrival assigned to a site by Zipf weights `1/rank^θ` over (s1, s2,
 s3). Loads are 0.7× and 2× the envelope; θ ∈ {0, 0.5, 1}. Shares for `static-quota` and `lets`
-are equal (10/10/10). Seeds are 1–2 in the local grid (`--seeds 2`); the paper grid uses ≥ 20.
+are equal (10/10/10). Seeds are 1–2 in the local grid (`--seeds 2`); the three-host and seven-site grids use 20.
 
 ## Metrics
 
@@ -134,7 +134,7 @@ two seeds per cell is a smoke grid, so treat its confidence intervals as wide.
   probe over a cut link failed while probes over intact links succeeded.
 - **Completions at 0.7× load, requests arriving inside the 30 s window (all topologies and
   skews pooled, 320 requests per system):** LETS 1.00, static quotas 0.97, central with retry
-  0.87–0.92 depending on placement, Raft 0.79, and the paper's no-retry central counter 0.55.
+  0.87–0.92 depending on placement, Raft 0.79, and the three-endpoint study's no-retry central counter 0.55.
   Retry alone lifts the central baseline from 0.55 to about 0.9; the remaining loss is the
   requests whose 20 s deadline ends before the 30 s cut heals.
 - **Topology matters more than placement for the baselines.** At 0.7× and θ=1, per-topology
@@ -184,20 +184,20 @@ flapping-s1-s2 --loads 0.7 2.0 --thetas 0 0.5 1 --pre-s 5 --partition-s 30 --pos
 grid resumes; `--overwrite` reruns everything. `benchmarks/results/` is ignored by Git and holds
 the generated compose file and the per-invocation shared token.
 
-## Reproducing the paper's partition table
+## Headline metrics from the committed runs
 
-The numbers in the paper's partition table (completion at 0.7x load with theta = 1, the
-pre-break median time to authorization, stranded unit-seconds under `split-s1`/`isolate-s1`, the
-safety totals, and the 95% seed-bootstrap intervals with their widest widths) come from the
-committed run files alone. From a clone of this repository:
+The headline metrics for both grids (completion at 0.7x load with theta = 1, the pre-break median
+time to authorization, stranded unit-seconds under `split-s1`/`isolate-s1`, the safety totals,
+and the 95% seed-bootstrap intervals with their widest widths) come from the committed run files
+alone. From a clone of this repository:
 
 ```bash
 uv sync --all-extras --frozen
-uv run python -m benchmarks.fair_baselines.paper --grid three-host=results/fair-baselines-2026-10-15/three-host --grid seven-site=results/fair-baselines-2026-10-15/seven-site --write results/fair-baselines-2026-10-15
+uv run python -m benchmarks.fair_baselines.report --grid three-host=results/fair-baselines-2026-10-15/three-host --grid seven-site=results/fair-baselines-2026-10-15/seven-site --write results/fair-baselines-2026-10-15
 ```
 
 The command regenerates `requests.csv` and `events.csv` from `runs/` when they are absent (about
-30 s for both grids), then writes `paper-table.md` and `paper-table.json` next to the grid
+30 s for both grids), then writes `report.md` and `report.json` next to the grid
 directories; the committed copies of those two files are its output on the retained runs.
 Completion is pooled over seeds (authorized requests divided by all requests), the bootstrap
 resamples the 20 seeds with a fixed generator seed, and the latency column pools the authorized
@@ -306,7 +306,7 @@ branch; their results are in `three-host/` and `seven-site/` and described below
 
 ## Three-host results (480 runs, 135,093 requests, 20 seeds per cell)
 
-The paper grid on three real hosts: `s1` and `s2` are two Linux servers on one university LAN
+The full grid on three real hosts: `s1` and `s2` are two Linux servers on one university LAN
 (80 and 40 cores, Ubuntu 24.04 and 22.04, 0.18 ms RTT between them) and `s3` is an Azure VM in
 East US (4 cores, Ubuntu 24.04) 23 ms away from both; the controller ran on a Windows 10 desktop
 over a VPN, reaching each agent through an SSH port forward and injecting faults as root through
@@ -332,7 +332,7 @@ digests in the manifest rather than committed.
   2,160 in-cut probes of the three static topologies match their cut sets exactly (1,440 cut links
   unreachable, 720 intact links reachable, zero mismatches).
 - **Completions at 0.7x load (mean cell completion over topologies and skews):** LETS 1.00, static
-  quotas 0.94, central with retry 0.92 to 0.94 by placement, Raft 0.88, the paper's no-retry central
+  quotas 0.94, central with retry 0.92 to 0.94 by placement, Raft 0.88, the three-endpoint study's no-retry central
   counter 0.74. At theta=1 per topology: `split-s1` LETS 0.99, static 0.90, central-retry 0.89 to
   0.90, Raft 0.82; `bridge-s3` LETS 1.00, static 0.93, central-retry 0.88 to 1.00 (1.00 only with the
   counter on the bridging site), Raft 1.00; `full-isolation` LETS 1.00, static 0.90, central-retry

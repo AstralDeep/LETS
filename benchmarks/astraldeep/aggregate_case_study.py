@@ -33,7 +33,7 @@ EXPECTED_INPUTS = {
     "enforce_manifest": ("integration/enforce/manifest.json", "mode-manifest"),
     "runtime_identities": ("runtime-identities.json", "runtime-identities"),
     "version_disposition": ("version-disposition.json", "version-disposition"),
-    "paper_readiness": ("paper-readiness.json", "paper-readiness"),
+    "result_readiness": ("result-readiness.json", "result-readiness"),
 }
 EXPECTED_MODES = {
     "off": ("off_manifest", "release-baseline"),
@@ -45,7 +45,7 @@ _EXPECTED_ROOT_ENTRIES = {
     "integration",
     "runtime-identities.json",
     "version-disposition.json",
-    "paper-readiness.json",
+    "result-readiness.json",
 }
 _EXPECTED_BASELINE_ENTRIES = {"off"}
 _EXPECTED_INTEGRATION_ENTRIES = {"shadow", "enforce"}
@@ -298,15 +298,15 @@ def _validate_disposition_and_readiness(
             "aggregate version disposition is stale for the measured LETS tooling revision"
         )
 
-    readiness_relative, _ = EXPECTED_INPUTS["paper_readiness"]
+    readiness_relative, _ = EXPECTED_INPUTS["result_readiness"]
     readiness_path = root.joinpath(*PurePosixPath(readiness_relative).parts)
-    readiness = _read_canonical(readiness_path, "paper readiness")
+    readiness = _read_canonical(readiness_path, "result readiness")
     if set(readiness) != _READINESS_FIELDS:
-        raise capture.EvidenceError("aggregate paper readiness record is malformed")
+        raise capture.EvidenceError("aggregate result readiness record is malformed")
     enforce_sha = capture.sha256_file(paths["enforce"])
     expected = {
         "format": versioning.READINESS_FORMAT,
-        "status": "ready-for-local-paper-result-finalization",
+        "status": "ready-for-result-finalization",
         "lets_release": versioning.BASELINE_RELEASE,
         "lets_runtime_commit": versioning.BASELINE_COMMIT,
         "lets_tooling_commit": candidate["commit"],
@@ -315,7 +315,7 @@ def _validate_disposition_and_readiness(
     }
     if any(readiness.get(field) != value for field, value in expected.items()):
         raise capture.EvidenceError(
-            "aggregate paper readiness record is stale or bound to the wrong evidence"
+            "aggregate result readiness record is stale or bound to the wrong evidence"
         )
     readiness_time = _parse_timestamp(readiness.get("created_at"), "readiness created_at")
     disposition_time = _parse_timestamp(disposition.get("generated_at"), "disposition generated_at")
@@ -324,7 +324,7 @@ def _validate_disposition_and_readiness(
         for mode, document in documents.items()
     ]
     if readiness_time < max(disposition_time, *reproduction_times):
-        raise capture.EvidenceError("aggregate paper readiness predates its bound evidence")
+        raise capture.EvidenceError("aggregate result readiness predates its bound evidence")
     versioning._validate_evidence_runtime_pin(documents["enforce"], paths["enforce"])
     return disposition, disposition_path, readiness, readiness_path
 
@@ -590,7 +590,7 @@ def _input_records(
         "enforce_manifest": paths["enforce"],
         "runtime_identities": runtime_path,
         "version_disposition": disposition_path,
-        "paper_readiness": readiness_path,
+        "result_readiness": readiness_path,
     }
     return {
         key: _file_record(root, file_paths[key], EXPECTED_INPUTS[key][1]) for key in EXPECTED_INPUTS
@@ -808,7 +808,7 @@ def build_aggregate_documents(root: Path) -> tuple[dict[str, object], dict[str, 
             for mode, mode_summary in mode_summaries.items()
         },
         "version_disposition": disposition["disposition"],
-        "paper_readiness_status": readiness["status"],
+        "result_readiness_status": readiness["status"],
         "statistical_limits": copy.deepcopy(statistical_limits),
         "evidence_scope": copy.deepcopy(summary["evidence_scope"]),
     }

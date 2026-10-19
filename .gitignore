@@ -65,31 +65,8 @@ results/generated/
 benchmarks/results/
 states/
 
-# Venue-specific submission builds. Kept local until the material may be
-# public; do not publish anything from this directory.
-paper/submission/
-
-# Stray in-tree output from running pdflatex directly in paper/ (the
-# canonical build writes to paper/build/ and copies lets.pdf).
-paper/paper.pdf
-
-# LaTeX intermediates (source and final PDFs remain trackable)
-*.aux
-*.bbl
-*.bcf
-*.blg
-*.fdb_latexmk
-*.fls
-*.lof
-*.lot
-*.nav
-*.out
-*.run.xml
-*.snm
-*.synctex.gz
-*.toc
-*.vrb
-paper/build/
+# Manuscripts are kept outside this repository; never commit one here.
+paper/
 
 # Node tooling (used only by optional integrations)
 node_modules/
