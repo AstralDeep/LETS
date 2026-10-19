@@ -4,19 +4,19 @@ Date: 2026-08-24
 
 ## Purpose
 
-Produce a comprehensive, evidence-backed paper draft that is written and reasoned as a competitive NSDI 2027 Traditional Research Track submission. Samuel E. Armstrong will materially rewrite it in his own words before submission.
+Produce a comprehensive, evidence-backed paper draft that is written and reasoned as a competitive NSDI 2027 Traditional Research Track submission. The repository owner will materially rewrite it in his own words before submission.
 
 The work has two publication variants. The named arXiv version identifies LETS, AstralDeep, and the sole author. The anonymous NSDI version uses a different title and different system names as required by the venue. Both variants derive from one content source so their technical claims cannot drift.
 
 ## Non-negotiable constraints
 
-- Samuel E. Armstrong is the only author.
+- The repository owner is the only author.
 - The named author block is:
 
   ```text
-  Samuel E. Armstrong, MS
-  Kentucky Open Science
-  kyopenscience.com
+  <owner name>
+  <affiliation>
+  <web domain>
   ```
 
 - Samuel must materially rewrite every substantive section before making the NSDI attestation that the paper is primarily human-written. This responsibility stays in the handoff and does not alter the manuscript's language, structure, metadata, argument, or presentation.
@@ -142,7 +142,7 @@ A compact transfer timeline may replace prose if the cross-warden protocol canno
 
 The manuscript contains no visible warning, watermark, draft disclaimer, altered metadata, or rhetorical hedge tied to how it was produced. It is written as a complete conference paper whose objective is acceptance.
 
-The authorship boundary exists outside the manuscript. Samuel must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Automated checks cannot determine whether text is primarily human-written and must not claim to do so.
+The authorship boundary exists outside the manuscript. The owner must materially rewrite and approve every substantive section, caption, table, claim, and reference before submission. Automated checks cannot determine whether text is primarily human-written and must not claim to do so.
 
 ## Verification
 
