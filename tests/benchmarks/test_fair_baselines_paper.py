@@ -1,7 +1,8 @@
 """Tests for benchmarks/fair_baselines/paper.py on a synthetic three-site grid written as the
 controller's CSVs plus minimal run files: pooled completion with seed-bootstrap intervals,
 pre-break latency, the isolating topology and its stranded budget, safety totals, widest
-intervals, the Markdown and JSON outputs, and the assemble fallback.
+intervals, the delegation-tree row and its refresh costs, the Markdown and JSON outputs, and the
+assemble fallback.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from benchmarks.fair_baselines.controller import (
 
 SITES = ("s1", "s2", "s3")
 SYSTEMS = ("lets", "static-quota", "central-noretry@s2", "central-retry@s1", "raft-quorum")
+TREE = "lets-tree-d2-f2"
 
 
 def _row(
@@ -52,11 +54,11 @@ def _row(
     )
 
 
-def _requests() -> list[RequestRow]:
+def _requests(systems: tuple[str, ...] = SYSTEMS) -> list[RequestRow]:
     rows = []
     for topology in ("split-s1", "bridge-s3"):
         for seed in (1, 2):
-            for system in SYSTEMS:
+            for system in systems:
                 for index in range(4):
                     approved = system == "lets" or index < 3 or topology == "bridge-s3"
                     latency = 10_000_000 if system == "static-quota" else 20_000_000 * (index + 1)
@@ -81,9 +83,9 @@ def _write_csv(path: Path, fields: tuple[str, ...], rows: list[dict[str, object]
         writer.writerows(rows)
 
 
-def _write_grid(output: Path) -> None:
+def _write_grid(output: Path, systems: tuple[str, ...] = SYSTEMS) -> None:
     (output / "runs").mkdir(parents=True)
-    requests = _requests()
+    requests = _requests(systems)
     _write_csv(
         output / "requests.csv",
         REQUEST_FIELDS,
@@ -118,7 +120,31 @@ def _write_grid(output: Path) -> None:
     messages = []
     for run_id in run_ids:
         topology, _, seed = run_id.partition("-L0.7-T1-equal-S")
-        for system in SYSTEMS:
+        for system in systems:
+            if system == TREE:
+                for site in SITES:
+                    events.append(
+                        {
+                            "run_id": run_id,
+                            "system": system,
+                            "site": site,
+                            "offset_ns": 100_000_000,
+                            "kind": "tree_build",
+                            "value": 7,
+                            "detail": "initial leases=7 leaves=4 us=45000",
+                        }
+                    )
+                events.append(
+                    {
+                        "run_id": run_id,
+                        "system": system,
+                        "site": "s1",
+                        "offset_ns": 8_000_000_000,
+                        "kind": "tree_build",
+                        "value": 14,
+                        "detail": "in-1 leases=7 leaves=4 us=90000",
+                    }
+                )
             events.append(
                 {
                     "run_id": run_id,
@@ -252,6 +278,11 @@ def test_reduce_grid_computes_every_table_column(tmp_path: Path) -> None:
     assert paper.row_key("central-retry@s1") == "central-retry"
     assert paper.row_key("central-noretry@s2") == "central-noretry"
     assert paper.row_key("raft-quorum") == "raft-quorum"
+    assert paper.row_key("lets") == "lets" and paper.row_key(TREE) == "lets-tree"
+    assert reduction.delegation == {}
+    assert paper.row_label("lets", ["lets"]) == "LETS"
+    assert paper.row_label("lets-tree", [TREE]) == "LETS, delegation tree (depth 2, fanout 2)"
+    assert paper.row_label("lets-tree", [TREE, "lets-tree-d1-f4"]) == "LETS, delegation trees"
 
 
 def test_main_writes_markdown_and_json_and_assembles_when_csvs_are_missing(
@@ -288,3 +319,32 @@ def test_main_writes_markdown_and_json_and_assembles_when_csvs_are_missing(
     assert paper.load_or_assemble(grid).requests == [] and calls == [grid]
     with pytest.raises(SystemExit):
         paper.main(["--grid", "nolabel", "--write", str(out)])
+
+
+def test_reduce_grid_reports_the_delegation_tree_row_and_costs(tmp_path: Path) -> None:
+    systems = (*SYSTEMS, TREE)
+    _write_grid(tmp_path, systems)
+    grid = paper.load_or_assemble(tmp_path)
+    reduction = paper.reduce_grid("trees", grid, 0.7, 1.0)
+    assert reduction.systems == ("lets", TREE, *SYSTEMS[1:])
+    assert reduction.completion["split-s1"][TREE].completion == 0.75
+    costs = reduction.delegation
+    assert set(costs) == {TREE}
+    assert costs[TREE]["leases_per_tree"] == 7.0
+    assert costs[TREE]["lease_ops_per_run"] == 35.0
+    assert costs[TREE]["refreshes_per_run"] == 1.0
+    assert costs[TREE]["refresh_ops_mean"] == 14.0
+    assert costs[TREE]["refresh_ms_p50"] == 90.0 and costs[TREE]["refresh_ms_p95"] == 90.0
+    assert paper.delegation_costs(grid, 2.0, 1.0) == {}
+    widest = paper.widest_intervals([reduction])
+    assert set(widest) == {"baselines", "lets", "lets-tree"}
+    assert widest["lets-tree"]["system"] == TREE
+    text = paper.markdown([reduction])
+    assert "| LETS | 1.00 | 1.00 | 40 |" in text
+    assert "| LETS, delegation tree (depth 2, fanout 2) | 0.75 | 1.00 | 40 |" in text
+    assert "### Lease-tree costs" in text
+    assert f"| {TREE} | 7.0 | 35.0 | 1.00 | 14.0 | 90.0 / 90.0 |" in text
+    assert "- lets-tree:" in text
+    payload = paper.payload([reduction])
+    assert payload["grids"][0]["delegation"][TREE]["refresh_ops_mean"] == 14.0
+    assert paper._number(None, 1) == "n/a" and paper._number(2.345, 2) == "2.35"

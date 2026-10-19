@@ -1,6 +1,6 @@
 """Tests for benchmarks/fair_baselines/site_agent.py: a three-agent loopback run through every
-system with safety verification, roster checks in the configure payload, the control and peer API
-denials, and the CLI entry point.
+system with safety verification, the LETS delegation tree refreshing from mid-run transfers,
+roster checks in the configure payload, the control and peer API denials, and the CLI entry point.
 """
 
 from __future__ import annotations
@@ -288,3 +288,52 @@ def test_main_serves_until_shutdown(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(site_agent.AgentServer, "serve_forever", lambda self, poll_interval: None)
     assert main() == 0
     assert (tmp_path / "state").is_dir()
+
+
+def test_three_agents_run_lets_with_and_without_delegation_trees(
+    loopback_cluster: LoopbackCluster,
+) -> None:
+    cluster = loopback_cluster
+    config = short_config(
+        "agent-tree",
+        systems=["lets", "lets-tree-d2-f2"],
+        placement="explicit",
+        explicit_shares={"s1": 1, "s2": 7, "s3": 1},
+    )
+    results = _run_to_completion(cluster, config)
+    safety = verify_safety(int(config["envelope"]), results)  # type: ignore[arg-type]
+    assert set(safety) == {"lets", "lets-tree-d2-f2"}
+    for system, verdict in safety.items():
+        assert verdict["safety_ok"] is True, (system, verdict)
+        assert verdict["effects"] == verdict["authorized_records"] == config["envelope"]
+    trees = {site: payload["snapshots"]["lets-tree-d2-f2"] for site, payload in results.items()}
+    plain = {site: payload["snapshots"]["lets"] for site, payload in results.items()}
+    for site in SITES:
+        assert trees[site]["healthy"] and plain[site]["healthy"]
+        assert (trees[site]["tree_depth"], trees[site]["tree_fanout"]) == (2, 2)
+        assert plain[site]["tree_depth"] == 0 and plain[site]["live_leases"] <= 1
+        assert trees[site]["lease_operations"] >= 6 >= trees[site]["live_leases"]
+        assert trees[site]["lease_operations"] >= plain[site]["lease_operations"]
+    assert sum(t["transferred_in"] for t in trees.values()) == sum(
+        t["transferred_out"] for t in trees.values()
+    )
+    assert sum(t["transfers_in"] for t in trees.values()) >= 1
+    refreshed = [site for site in SITES if trees[site]["tree_builds"] > 1]
+    assert refreshed, trees
+    builds = [
+        event
+        for payload in results.values()
+        for event in payload["events"]
+        if event["kind"] == "tree_build"
+    ]
+    assert {event["system"] for event in builds} == {"lets", "lets-tree-d2-f2"}
+    reasons = {event["detail"].split(" ", 1)[0] for event in builds if event["system"] != "lets"}
+    assert "initial" in reasons and any(reason.startswith("in-") for reason in reasons)
+    for event in builds:
+        assert event["value"] >= 1 and " us=" in event["detail"]
+    status, payload = _peer_post(
+        cluster, "s2", "/peer/lets/lets-tree-d2-f2/request-transfer", {"amount": 1}, alias="s1"
+    )
+    assert status == 200 and {"voucher", "granted"} <= set(payload)
+    for site in SITES:
+        cluster.call(site, "POST", "/run/teardown")

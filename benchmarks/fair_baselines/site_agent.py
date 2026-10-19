@@ -1,7 +1,8 @@
-"""One process per site for E1: hosts every configured authority system (systems.py), replays the
-site's slice of the seeded arrival plan (workload.py) against each of them with the per-system
-retry policy, actuates authorized requests into the independent effect log, and serves the control
-API controller.py drives plus the HMAC peer API other sites call.
+"""One process per site for E1: hosts every configured authority system (systems.py, including
+the LETS delegation-tree variants), replays the site's slice of the seeded arrival plan
+(workload.py) against each of them with the per-system retry policy, actuates authorized requests
+into the independent effect log, and serves the control API controller.py drives plus the HMAC
+peer API other sites call.
 """
 
 from __future__ import annotations
@@ -140,6 +141,8 @@ class Run:
                     public_keys,
                     transport,
                     self.event,
+                    depth=spec.depth,
+                    fanout=spec.fanout,
                 )
 
     def event(self, system: str, kind: str, value: int, detail: str) -> None:

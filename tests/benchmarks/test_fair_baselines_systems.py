@@ -1,6 +1,6 @@
 """Tests for benchmarks/fair_baselines/systems.py: the durable counter, static quotas, the
 central counter's local and remote paths, the pysyncobj Raft counter, the LETS warden wrapper with
-its transfer handlers, and the actuator-side effect log.
+its transfer handlers and its spawn/close delegation trees, and the actuator-side effect log.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from benchmarks.fair_baselines.systems import (
     StaticQuotaSystem,
     parse_peer_urls,
     public_key_table,
+    split_allocation,
 )
 from lets.crypto import Ed25519Signer
 from tests.benchmarks.conftest import free_port
@@ -217,15 +218,25 @@ def test_raft_counter_listens_on_every_interface_for_an_unbindable_advertised_ad
         advertised.close()
 
 
-def _lets(tmp_path: Path, site: str, share: int, sink: object, transport: PeerTransport):  # type: ignore[no-untyped-def]
-    signers = {alias: Ed25519Signer.generate(alias) for alias in SITES}
+def _lets(  # type: ignore[no-untyped-def]
+    tmp_path: Path,
+    site: str,
+    share: int,
+    sink: object,
+    transport: PeerTransport,
+    name: str = "lets",
+    depth: int = 0,
+    fanout: int = 0,
+    signers: dict[str, Ed25519Signer] | None = None,
+):
+    signers = signers or {alias: Ed25519Signer.generate(alias) for alias in SITES}
     public_keys = {
         alias: (signer.key_id, signer.public_key_bytes) for alias, signer in signers.items()
     }
     directory = tmp_path / site
     directory.mkdir(exist_ok=True)
     return LetsSystem(
-        "lets",
+        name,
         site,
         directory,
         30,
@@ -234,6 +245,8 @@ def _lets(tmp_path: Path, site: str, share: int, sink: object, transport: PeerTr
         public_keys,
         transport,
         sink,  # type: ignore[arg-type]
+        depth=depth,
+        fanout=fanout,
     ), signers
 
 
@@ -258,6 +271,10 @@ def test_lets_system_authorizes_locally_until_exhausted(tmp_path: Path) -> None:
         snapshot = system.snapshot()
         assert snapshot["consumed"] == 2 and snapshot["healthy"] is True
         assert snapshot["executor_claim_sequence"] == 2
+        assert (snapshot["tree_depth"], snapshot["tree_fanout"]) == (0, 0)
+        assert (snapshot["live_leases"], snapshot["live_leaves"]) == (1, 1)
+        assert (snapshot["tree_builds"], snapshot["lease_operations"]) == (1, 1)
+        assert snapshot["leaf_residuals"] == [0]
         assert system.serve_request_transfer("s2", 3) == {"voucher": None, "granted": 0}
         system.set_waiting(1)
         system.start()
@@ -352,3 +369,163 @@ def test_key_and_url_parsers() -> None:
     counter.add(2)
     counter.add()
     assert counter.value == 3
+
+
+def _builds(log: list[tuple[str, str, int, str]]) -> list[tuple[int, str]]:
+    return [(value, detail) for _, kind, value, detail in log if kind == "tree_build"]
+
+
+def test_lets_tree_spawns_leaves_and_authorizes_round_robin(tmp_path: Path) -> None:
+    log, sink = _events()
+    system, _ = _lets(
+        tmp_path, "s1", 10, sink, _unreachable_transport(), "lets-tree-d2-f2", depth=2, fanout=2
+    )
+    try:
+        snapshot = system.snapshot()
+        assert (snapshot["tree_depth"], snapshot["tree_fanout"]) == (2, 2)
+        assert (snapshot["live_leases"], snapshot["live_leaves"]) == (7, 4)
+        assert snapshot["leaf_residuals"] == [3, 2, 3, 2]
+        assert (snapshot["tree_builds"], snapshot["lease_operations"]) == (1, 7)
+        assert snapshot["tree_build_us"] > 0
+        assert (snapshot["free_pool"], snapshot["lease_residual"]) == (0, 10)
+        assert system.usable_units() == 10
+        first = system.take("r1")
+        assert (first.authorized, first.reason, first.remaining) == (
+            True,
+            "authorized_and_claimed",
+            9,
+        )
+        assert system.snapshot()["leaf_residuals"] == [2, 2, 3, 2]
+        assert system.take("r2").remaining == 8
+        assert system.snapshot()["leaf_residuals"] == [2, 1, 3, 2]
+        for index in range(3, 11):
+            assert system.take(f"r{index}").authorized is True
+        exhausted = system.take("r11")
+        assert (exhausted.authorized, exhausted.reason, exhausted.retryable) == (
+            False,
+            "exhausted_local",
+            True,
+        )
+        final = system.snapshot()
+        assert final["consumed"] == 10 and final["healthy"] is True
+        assert final["executor_claim_sequence"] == 10
+        assert final["leaf_residuals"] == [0, 0, 0, 0]
+        assert (final["live_leases"], final["lease_residual"], final["free_pool"]) == (7, 0, 0)
+        builds = _builds(log)
+        assert len(builds) == 1 and builds[0][0] == 7
+        assert builds[0][1].startswith("initial leases=7 leaves=4 us=")
+        assert sum(1 for _, kind, _, _ in log if kind == "free") == 10
+    finally:
+        system.close()
+
+
+def test_lets_tree_prunes_children_the_share_cannot_fund(tmp_path: Path) -> None:
+    _log, sink = _events()
+    transport = _unreachable_transport()
+    assert split_allocation(10, 4) == [3, 3, 2, 2]
+    assert split_allocation(1, 2) == [1, 0]
+    assert split_allocation(0, 2) == [0, 0]
+    single, signers = _lets(
+        tmp_path, "s2", 1, sink, transport, "lets-tree-d2-f2", depth=2, fanout=2
+    )
+    try:
+        snapshot = single.snapshot()
+        assert (snapshot["live_leases"], snapshot["live_leaves"]) == (3, 1)
+        assert snapshot["leaf_residuals"] == [1] and snapshot["lease_operations"] == 3
+        assert single.take("r1").authorized is True
+        assert single.take("r2").reason == "exhausted_local"
+        assert single.snapshot()["healthy"] is True
+    finally:
+        single.close()
+    three, _ = _lets(
+        tmp_path, "s3", 3, sink, transport, "lets-tree-d2-f2", depth=2, fanout=2, signers=signers
+    )
+    try:
+        snapshot = three.snapshot()
+        assert (snapshot["live_leases"], snapshot["live_leaves"]) == (6, 3)
+        assert snapshot["leaf_residuals"] == [1, 1, 1]
+    finally:
+        three.close()
+    wide, _ = _lets(
+        tmp_path, "s1", 10, sink, transport, "lets-tree-d1-f4", depth=1, fanout=4, signers=signers
+    )
+    try:
+        snapshot = wide.snapshot()
+        assert (snapshot["live_leases"], snapshot["live_leaves"]) == (5, 4)
+        assert snapshot["leaf_residuals"] == [3, 3, 2, 2]
+    finally:
+        wide.close()
+    with pytest.raises(ValueError, match="delegation tree"):
+        _lets(tmp_path, "s1", 10, sink, transport, "lets-tree-d1-f0", depth=1, fanout=0)
+    with pytest.raises(ValueError, match="delegation tree"):
+        _lets(tmp_path, "s1", 10, sink, transport, "bad", depth=-1, fanout=2)
+
+
+def test_lets_tree_refreshes_from_a_transfer_after_exhaustion(tmp_path: Path) -> None:
+    log, sink = _events()
+    transport = _unreachable_transport()
+    source, signers = _lets(
+        tmp_path, "s2", 10, sink, transport, "lets-tree-d2-f2", depth=2, fanout=2
+    )
+    target, _ = _lets(
+        tmp_path, "s1", 2, sink, transport, "lets-tree-d2-f2", depth=2, fanout=2, signers=signers
+    )
+    try:
+        assert (target.snapshot()["live_leases"], target.snapshot()["live_leaves"]) == (5, 2)
+        assert target.take("r1").authorized and target.take("r2").authorized
+        assert target.take("r3").reason == "exhausted_local"
+        assert target.usable_units() == 0
+        granted = source.serve_request_transfer("s1", 4)
+        assert granted["granted"] == 4
+        voucher = granted["voucher"]
+        assert isinstance(voucher, dict)
+        after_out = source.snapshot()
+        assert source.usable_units() == 6
+        assert (after_out["tree_builds"], after_out["lease_operations"]) == (2, 21)
+        assert after_out["leaf_residuals"] == [2, 1, 2, 1]
+        assert after_out["healthy"] is True and after_out["outstanding_vouchers"] == 1
+        assert source.serve_request_transfer("s1", 9)["voucher"] == voucher
+        assert source.snapshot()["tree_builds"] == 2
+        target._accept("s2", dict(voucher))
+        after_in = target.snapshot()
+        assert target.usable_units() == 4
+        assert (after_in["tree_builds"], after_in["lease_operations"]) == (2, 17)
+        assert (after_in["live_leases"], after_in["live_leaves"]) == (7, 4)
+        assert after_in["leaf_residuals"] == [1, 1, 1, 1]
+        assert after_in["transferred_in"] == 4 and after_in["healthy"] is True
+        assert after_in["pending_acks"] == 1
+        for index in range(3, 7):
+            assert target.take(f"r{index}").authorized is True
+        assert target.take("r7").reason == "exhausted_local"
+        assert target.snapshot()["consumed"] == 6
+        ack = target._pending_acks["s2"]
+        assert source.serve_finalize("s1", ack) == {"finalized": True}
+        assert source.snapshot()["transferred_out"] == 4
+        assert source.snapshot()["outstanding_vouchers"] == 0
+        reasons = [detail.split(" ", 1)[0] for _, detail in _builds(log)]
+        assert reasons == ["initial", "initial", "out-s1-1", "in-1"]
+        operations = [value for value, _ in _builds(log)]
+        assert operations == [7, 5, 14, 12]
+        assert all("leaves=" in detail and "us=" in detail for _, detail in _builds(log))
+        kinds = {kind for _, kind, _, _ in log}
+        assert {"transfer_out", "transfer_in", "free", "lease_reissue", "tree_build"} <= kinds
+    finally:
+        source.close()
+        target.close()
+
+
+def test_lets_tree_transfer_out_can_empty_a_site(tmp_path: Path) -> None:
+    log, sink = _events()
+    source, _ = _lets(
+        tmp_path, "s3", 1, sink, _unreachable_transport(), "lets-tree-d2-f2", depth=2, fanout=2
+    )
+    try:
+        assert source.serve_request_transfer("s1", 5)["granted"] == 1
+        snapshot = source.snapshot()
+        assert (snapshot["live_leases"], snapshot["live_leaves"]) == (0, 0)
+        assert source.usable_units() == 0 and snapshot["healthy"] is True
+        assert source.take("r1").reason == "exhausted_local"
+        operations, detail = _builds(log)[-1]
+        assert operations == 3 and detail.startswith("out-s1-1 leases=0 leaves=0 us=")
+    finally:
+        source.close()

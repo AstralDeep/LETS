@@ -1,7 +1,7 @@
 """The five authority systems E1 compares, each exposing one `take(request_id)` attempt plus the
 peer-side handlers site_agent.py routes to them: a durable central counter, static per-site
-quotas, a pysyncobj Raft counter, and the real LETS warden with reactive cross-warden transfers,
-alongside the independent actuator-side EffectLog used for the safety check.
+quotas, a pysyncobj Raft counter, and the real LETS warden with reactive cross-warden transfers
+and an optional spawn/close delegation tree, alongside the independent actuator-side EffectLog.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -453,6 +453,35 @@ def experiment_policy() -> PolicySpec:
     )
 
 
+LEASE_TTL_NS = 3_000_000_000_000
+
+
+@dataclass(slots=True)
+class LeaseNode:
+    lease_id: str
+    subject_id: str
+    level: int
+    residual: int
+    sequence: int
+    children: list[LeaseNode] = field(default_factory=list)
+
+    def leases(self) -> int:
+        return 1 + sum(child.leases() for child in self.children)
+
+    def leaves(self) -> list[LeaseNode]:
+        if not self.children:
+            return [self]
+        return [leaf for child in self.children for leaf in child.leaves()]
+
+    def residual_total(self) -> int:
+        return self.residual + sum(child.residual_total() for child in self.children)
+
+
+def split_allocation(units: int, fanout: int) -> list[int]:
+    base, extra = divmod(units, fanout)
+    return [base + (1 if index < extra else 0) for index in range(fanout)]
+
+
 class LetsSystem:
     kind = "lets"
 
@@ -468,10 +497,16 @@ class LetsSystem:
         transport: PeerTransport,
         events: EventSink,
         seek_interval_s: float = 0.5,
+        depth: int = 0,
+        fanout: int = 0,
     ) -> None:
+        if depth < 0 or (depth > 0 and fanout < 1):
+            raise ValueError("a delegation tree needs a non-negative depth and a positive fanout")
         self.name = name
         self.site = site
         self.share = share
+        self.depth = depth
+        self.fanout = fanout if depth > 0 else 0
         self.messages = MessageCounter()
         self._transport = transport
         self._events = events
@@ -525,12 +560,14 @@ class LetsSystem:
         self._identity = IdentityContext(
             site, TENANT, frozenset({"lets.admin", "lets.transfer", "lets.peer"}), "experiment"
         )
-        self._lease_id: str | None = None
-        self._sequence = 0
-        self._residual = 0
+        self._root: LeaseNode | None = None
+        self._leaves: list[LeaseNode] = []
+        self._next_leaf = 0
         self._pool = share
         self._operation = 0
-        self._lease_count = 0
+        self._tree_builds = 0
+        self._lease_operations = 0
+        self._tree_build_us = 0
         self._transfer_count: dict[str, int] = dict.fromkeys(self._peers, 0)
         self._outstanding: dict[str, dict[str, Any]] = {}
         self._pending_acks: dict[str, dict[str, Any]] = {}
@@ -540,77 +577,145 @@ class LetsSystem:
         self._seeker: threading.Thread | None = None
         self.transfers_in = 0
         self.transfers_out = 0
-        self._reissue("initial")
+        self._rebuild("initial")
 
     @property
     def audience(self) -> str:
         return f"fair-baselines-executor-{self.site}"
 
-    def _close_lease(self, suffix: str) -> None:
-        with self._lock:
-            if self._lease_id is None:
-                return
-            self._service.close(
-                request_id=f"close-{self.site}-{self._lease_count}-{suffix}",
-                identity=self._identity,
-                lease_id=self._lease_id,
-                expected_sequence=self._sequence,
-            )
-            self._pool += self._residual
-            self._lease_id = None
-            self._residual = 0
-            self._sequence = 0
+    def _close_subtree(self, node: LeaseNode, reason: str) -> int:
+        operations = 0
+        for child in node.children:
+            operations += self._close_subtree(child, reason)
+        self._service.close(
+            request_id=f"close-{self.site}-{self._tree_builds}-{reason}-{node.subject_id}",
+            identity=self._identity,
+            lease_id=node.lease_id,
+            expected_sequence=node.sequence,
+        )
+        self._pool += node.residual
+        node.residual = 0
+        return operations + 1
 
-    def _reissue(self, suffix: str) -> None:
-        with self._lock:
-            self._close_lease(suffix)
-            if self._pool <= 0:
-                return
-            self._lease_count += 1
-            grant = self._service.issue_root(
-                request_id=f"issue-{self.site}-{self._lease_count}-{suffix}",
+    def _teardown_tree(self, reason: str) -> tuple[int, int]:
+        started = time.perf_counter_ns()
+        root = self._root
+        if root is None:
+            return 0, 0
+        operations = self._close_subtree(root, reason)
+        self._root = None
+        self._leaves = []
+        self._next_leaf = 0
+        return operations, (time.perf_counter_ns() - started) // 1000
+
+    def _spawn_children(self, parent: LeaseNode, build: int) -> int:
+        if parent.level >= self.depth:
+            return 0
+        operations = 0
+        for index, units in enumerate(split_allocation(parent.residual, self.fanout)):
+            if units <= 0:
+                break
+            subject = f"{parent.subject_id}.{index}"
+            grant = self._service.spawn(
+                request_id=f"spawn-{self.site}-{build}-{subject}",
                 identity=self._identity,
-                tenant_id=TENANT,
-                envelope_id=ENVELOPE_ID,
-                subject_id=f"{self.site}-worker",
-                allocation=(self._pool,),
+                parent_id=parent.lease_id,
+                subject_id=subject,
+                allocation=(units,),
                 capabilities={CAPABILITY},
-                policy_digest=self._policy.digest,
-                ttl_ns=3_000_000_000_000,
+                ttl_ns=LEASE_TTL_NS,
+                expected_sequence=parent.sequence,
             )
-            self._lease_id = grant.lease_id
-            self._residual = self._pool
-            self._pool = 0
-            self._sequence = 0
+            parent.sequence += 1
+            parent.residual -= units
+            child = LeaseNode(grant.lease_id, subject, parent.level + 1, units, 0)
+            parent.children.append(child)
+            operations += 1 + self._spawn_children(child, build)
+        return operations
+
+    def _build_tree(self, reason: str) -> tuple[int, int]:
+        started = time.perf_counter_ns()
+        if self._pool <= 0:
+            return 0, 0
+        build = self._tree_builds + 1
+        subject = f"{self.site}-worker"
+        grant = self._service.issue_root(
+            request_id=f"issue-{self.site}-{build}-{reason}",
+            identity=self._identity,
+            tenant_id=TENANT,
+            envelope_id=ENVELOPE_ID,
+            subject_id=subject,
+            allocation=(self._pool,),
+            capabilities={CAPABILITY},
+            policy_digest=self._policy.digest,
+            ttl_ns=LEASE_TTL_NS,
+        )
+        root = LeaseNode(grant.lease_id, subject, 0, self._pool, 0)
+        self._pool = 0
+        operations = 1 + self._spawn_children(root, build)
+        self._root = root
+        self._leaves = root.leaves()
+        self._next_leaf = 0
+        return operations, (time.perf_counter_ns() - started) // 1000
+
+    def _record_build(self, reason: str, operations: int, elapsed_us: int) -> None:
+        self._tree_builds += 1
+        self._lease_operations += operations
+        self._tree_build_us += elapsed_us
+        leases = 0 if self._root is None else self._root.leases()
+        self._events(
+            self.name,
+            "tree_build",
+            operations,
+            f"{reason} leases={leases} leaves={len(self._leaves)} us={elapsed_us}",
+        )
+
+    def _rebuild(self, reason: str) -> None:
+        with self._lock:
+            closes, close_us = self._teardown_tree(reason)
+            spawns, build_us = self._build_tree(reason)
+            self._record_build(reason, closes + spawns, close_us + build_us)
+
+    def _next_leaf_with_units(self) -> LeaseNode | None:
+        count = len(self._leaves)
+        for step in range(count):
+            index = (self._next_leaf + step) % count
+            leaf = self._leaves[index]
+            if leaf.residual > 0:
+                self._next_leaf = (index + 1) % count
+                return leaf
+        return None
 
     def take(self, request_id: str) -> Decision:
         with self._lock:
-            if self._lease_id is None or self._residual <= 0:
+            leaf = self._next_leaf_with_units()
+            if leaf is None:
                 return Decision(False, "exhausted_local", True, 0, self.usable_units())
             self._operation += 1
             try:
                 receipt = self._service.authorize(
                     request_id=request_id,
                     identity=self._identity,
-                    lease_id=self._lease_id,
+                    lease_id=leaf.lease_id,
                     transition="act",
                     audience=self.audience,
                     nonce=f"fair-baselines-{self.site}-{self._operation:016d}",
                     expected_state="ready",
-                    expected_sequence=self._sequence,
+                    expected_sequence=leaf.sequence,
                 )
                 self._verifier.verify_and_claim(receipt)
             except LETSError as exc:
                 return Decision(False, exc.code, False, 0, self.usable_units())
-            self._sequence = receipt.resulting_sequence
-            self._residual -= 1
+            leaf.sequence = receipt.resulting_sequence
+            leaf.residual -= 1
             remaining = self.usable_units()
             self._events(self.name, "free", remaining, self.site)
             return Decision(True, "authorized_and_claimed", False, 0, remaining)
 
     def usable_units(self) -> int:
         with self._lock:
-            return self._pool + self._residual
+            held = 0 if self._root is None else self._root.residual_total()
+            return self._pool + held
 
     def set_waiting(self, waiting: int) -> None:
         with self._lock:
@@ -626,7 +731,7 @@ class LetsSystem:
         while not self._stop.wait(self._seek_interval_s):
             self._flush_pending_acks()
             with self._lock:
-                need = self._waiting if self._residual <= 0 and self._pool <= 0 else 0
+                need = self._waiting if self.usable_units() <= 0 else 0
             if need <= 0:
                 continue
             for peer in self._peers:
@@ -661,7 +766,7 @@ class LetsSystem:
             self._pool += amount
             self.transfers_in += 1
             self._events(self.name, "transfer_in", amount, peer)
-            self._reissue(f"in-{self.transfers_in}")
+            self._rebuild(f"in-{self.transfers_in}")
             self._events(self.name, "free", self.usable_units(), self.site)
             self._pending_acks[peer] = ack.to_dict()
         self._flush_pending_acks()
@@ -686,14 +791,16 @@ class LetsSystem:
             outstanding = self._outstanding.get(target)
             if outstanding is not None:
                 return {"voucher": outstanding, "granted": int(outstanding["amount"][0])}
-            available = self._pool + self._residual
+            available = self.usable_units()
             grant = min(requested, (available + 1) // 2)
             if grant <= 0:
                 return {"voucher": None, "granted": 0}
-            self._close_lease(f"out-{target}-{self._transfer_count[target]}")
             self._transfer_count[target] += 1
+            count = self._transfer_count[target]
+            reason = f"out-{target}-{count}"
+            closes, close_us = self._teardown_tree(reason)
             voucher = self._service.prepare_transfer(
-                request_id=f"xfer-{self.site}-{target}-{self._transfer_count[target]}",
+                request_id=f"xfer-{self.site}-{target}-{count}",
                 identity=self._identity,
                 tenant_id=TENANT,
                 envelope_id=ENVELOPE_ID,
@@ -702,8 +809,9 @@ class LetsSystem:
                 policy_digest=self._policy.digest,
             )
             self._pool -= grant
-            self._reissue(f"after-out-{target}-{self._transfer_count[target]}")
-            self._events(self.name, "lease_reissue", self._pool + self._residual, target)
+            spawns, build_us = self._build_tree(reason)
+            self._record_build(reason, closes + spawns, close_us + build_us)
+            self._events(self.name, "lease_reissue", self.usable_units(), target)
             payload = voucher.to_dict()
             self._outstanding[target] = payload
             self.transfers_out += 1
@@ -740,6 +848,14 @@ class LetsSystem:
                 "pending_acks": len(self._pending_acks),
                 "executor_claim_sequence": replay.claim_sequence,
                 "messages": self.messages.value,
+                "tree_depth": self.depth,
+                "tree_fanout": self.fanout,
+                "live_leases": 0 if self._root is None else self._root.leases(),
+                "live_leaves": len(self._leaves),
+                "leaf_residuals": [leaf.residual for leaf in self._leaves],
+                "tree_builds": self._tree_builds,
+                "lease_operations": self._lease_operations,
+                "tree_build_us": self._tree_build_us,
             }
 
     def close(self) -> None:

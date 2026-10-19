@@ -1,6 +1,7 @@
 """Tests for benchmarks/fair_baselines/common.py and workload.py: the site roster and what derives
 from it (links, parametric topologies, Zipf placement, shares) for the default three sites and a
-seven-site roster, run configuration validation, and the deterministic arrival plan.
+seven-site roster, the system catalogue including the LETS delegation-tree names, run
+configuration validation, and the deterministic arrival plan.
 """
 
 from __future__ import annotations
@@ -365,3 +366,30 @@ def test_arrival_plan_splits_seven_sites_in_roster_order() -> None:
     assert totals["uk1"] > totals["uk2"] > totals["apse1"] > 0
     flat = site_demand(arrival_plan(_seven_config(theta=0.0, seed=9)), SEVEN)
     assert set(flat) == set(SEVEN)
+
+
+def test_lets_tree_system_specs_parse_depth_and_fanout() -> None:
+    tree = SystemSpec.parse("lets-tree-d2-f2")
+    assert (tree.kind, tree.retry, tree.host) == ("lets", True, None)
+    assert (tree.depth, tree.fanout, tree.delegates) == (2, 2, True)
+    plain = SystemSpec.parse("lets")
+    assert (plain.depth, plain.fanout, plain.delegates) == (0, 0, False)
+    assert SystemSpec.parse("lets-tree-d8-f8", SEVEN).depth == 8
+    for bad in (
+        "lets-tree",
+        "lets-tree-d0-f2",
+        "lets-tree-d2-f0",
+        "lets-tree-d2",
+        "lets-tree-d2-f2x",
+        "LETS-tree-d2-f2",
+        "lets-tree-d02-f2",
+    ):
+        with pytest.raises(ValueError, match="unknown system"):
+            SystemSpec.parse(bad)
+    for bad in ("lets-tree-d9-f2", "lets-tree-d2-f9", "lets-tree-d16-f16"):
+        with pytest.raises(ValueError, match="exceeds the tree limits"):
+            SystemSpec.parse(bad)
+    config = _config(systems=["lets", "lets-tree-d2-f2", "static-quota"])
+    assert RunConfig.from_dict(config.to_dict()).systems == config.systems
+    assert config.systems == ("lets", "lets-tree-d2-f2", "static-quota")
+    assert "lets-tree-d2-f2" not in default_systems()
