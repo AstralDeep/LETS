@@ -1,6 +1,6 @@
 """Fail-closed staging and sealing of an evidence campaign: binds finished remote-runner
-artifacts, the exact source commit, and paper inputs into deterministic manifests,
-never handling or copying credential files.
+artifacts and the exact source commit into deterministic manifests, never handling or
+copying credential files.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from pathlib import Path
 
 CAMPAIGN_PREFLIGHT_NAME = "CAMPAIGN-PREFLIGHT.json"
 SOURCE_MANIFEST_NAME = "SOURCE-MANIFEST.json"
-PAPER_INPUT_MANIFEST_NAME = "PAPER-INPUT-MANIFEST.json"
 MANIFEST_NAME = "MANIFEST.json"
 
 CAMPAIGN_SCHEMA = "lets.nsdi-clean-evidence-campaign/v1"
@@ -31,8 +30,6 @@ EVIDENCE_MANIFEST_SCHEMA = "lets.evidence-manifest/v1"
 
 _FULL_COMMIT = re.compile(r"[0-9a-fA-F]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-_CAMPAIGN_BINDING = re.compile(r"results/nsdi-strengthening-\d{4}-\d{2}-\d{2}/MANIFEST\.json")
-_CAMPAIGN_BINDING_PREFIX = "% Evidence campaign manifest: "
 _SOURCE_PATTERNS = (
     "Dockerfile",
     "benchmarks/nsdi_strengthening/*",
@@ -61,24 +58,6 @@ _REQUIRED_SOURCE_FILES = frozenset(
         "tests/e2e/test_production_profile.py",
         "uv.lock",
     }
-)
-_PAPER_EXCLUDED_DIRECTORIES = frozenset({"__pycache__", ".pytest_cache", ".ruff_cache", "build"})
-_PAPER_EXCLUDED_ENDINGS = (
-    ".aux",
-    ".bbl",
-    ".bcf",
-    ".blg",
-    ".fdb_latexmk",
-    ".fls",
-    ".log",
-    ".nav",
-    ".out",
-    ".pyc",
-    ".run.xml",
-    ".snm",
-    ".synctex.gz",
-    ".toc",
-    ".vrb",
 )
 _ALLOWED_EVIDENCE_ENDINGS = (
     ".csv",
@@ -162,29 +141,6 @@ _REQUIRED_ARTIFACTS = frozenset(
         "vector/VECTOR-RESULTS.md",
         "vector/vector-transitions.csv",
         "vector/vector-workload.json",
-    }
-)
-_REQUIRED_PAPER_INPUTS = frozenset(
-    {
-        "evaluation-strengthened.tex",
-        "evidence.tex",
-        "figures/control-gap.pdf",
-        "figures/fonts/GUST-FONT-LICENSE.txt",
-        "figures/fonts/qhvb.afm",
-        "figures/fonts/qhvb.pfb",
-        "figures/fonts/qhvr.afm",
-        "figures/fonts/qhvr.pfb",
-        "figures/generate_partition_progress_figure.py",
-        "figures/three-endpoint-progress-comparison.pdf",
-        "figures/trusted-effect-path.pdf",
-        "latexmkrc",
-        "main.tex",
-        "manuscript.tex",
-        "paper-anon.tex",
-        "paper-arxiv.tex",
-        "paper-nsdi27.tex",
-        "references.bib",
-        "usenix-2020-09.sty",
     }
 )
 
@@ -449,80 +405,6 @@ def _source_manifest(repository: Path, identity: GitIdentity) -> dict[str, objec
         "purpose": "bind evidence sources to an exact clean Git commit",
         "schema": SOURCE_MANIFEST_SCHEMA,
     }
-
-
-def _paper_manifest(repository: Path, paper_input_root: Path) -> dict[str, object]:
-    paper = paper_input_root.resolve(strict=True)
-    if not paper.is_dir():
-        raise CampaignError(f"paper input root is not a directory: {paper}")
-    if not _is_within(paper, repository) or paper == repository:
-        raise CampaignError("paper input root must be a directory within the repository")
-    entries = []
-    for path in sorted(paper.rglob("*")):
-        relative_path = path.relative_to(paper)
-        if path.is_symlink():
-            raise CampaignError(
-                f"symbolic links are not permitted in paper inputs: {relative_path.as_posix()}"
-            )
-        if not path.is_file():
-            continue
-        if _PAPER_EXCLUDED_DIRECTORIES.intersection(relative_path.parts):
-            continue
-        if path.name.lower().endswith(_PAPER_EXCLUDED_ENDINGS):
-            continue
-        _reject_sensitive_path(relative_path)
-        content = _read_regular_file(path)
-        entries.append(_file_entry(relative_path.as_posix(), content))
-    if not entries:
-        raise CampaignError("paper input root contains no stable input files")
-    retained_paths = {str(entry["path"]) for entry in entries}
-    missing = sorted(_REQUIRED_PAPER_INPUTS.difference(retained_paths))
-    if missing:
-        raise CampaignError("paper input dependency closure is incomplete: " + ", ".join(missing))
-    return {
-        "files": entries,
-        "purpose": "content snapshot of the paper inputs bound to this evidence campaign",
-        "schema": EVIDENCE_MANIFEST_SCHEMA,
-        "source_directory": paper.relative_to(repository).as_posix(),
-    }
-
-
-def _validated_campaign_binding(value: str) -> str:
-    if _CAMPAIGN_BINDING.fullmatch(value) is None:
-        raise CampaignError(
-            "campaign binding must be a repository-relative "
-            "results/nsdi-strengthening-YYYY-MM-DD/MANIFEST.json path"
-        )
-    return value
-
-
-def _validate_paper_campaign_binding(paper_input_root: Path, campaign_binding: str) -> None:
-    expected = _validated_campaign_binding(campaign_binding)
-    evidence_path = paper_input_root.resolve(strict=True) / "evidence.tex"
-    try:
-        evidence = _read_regular_file(evidence_path).decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise CampaignError("paper evidence.tex is not valid UTF-8") from error
-    marker = _CAMPAIGN_BINDING_PREFIX + expected
-    marker_lines = [line.strip() for line in evidence.splitlines() if line.strip() == marker]
-    if len(marker_lines) != 1:
-        raise CampaignError(
-            "paper evidence.tex must contain exactly one campaign binding marker: " + marker
-        )
-    referenced = set(_CAMPAIGN_BINDING.findall(evidence))
-    if referenced != {expected}:
-        raise CampaignError("paper evidence.tex retains a different evidence-bundle reference")
-
-    for tex_path in sorted(paper_input_root.resolve(strict=True).rglob("*.tex")):
-        relative = tex_path.relative_to(paper_input_root.resolve(strict=True))
-        if _PAPER_EXCLUDED_DIRECTORIES.intersection(relative.parts):
-            continue
-        try:
-            content = _read_regular_file(tex_path).decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise CampaignError("paper TeX input is not valid UTF-8") from error
-        if re.search(r"TODO\s*\(\s*author\s*\)", content, flags=re.IGNORECASE):
-            raise CampaignError("paper inputs retain a TODO(author) submission decision")
 
 
 def _validate_evidence_path(relative: Path) -> None:
@@ -1381,7 +1263,6 @@ def _staged_artifacts(
 ) -> tuple[list[dict[str, object]], dict[str, bytes]]:
     reserved = {
         MANIFEST_NAME,
-        PAPER_INPUT_MANIFEST_NAME,
         SOURCE_MANIFEST_NAME,
     }
     for name in reserved:
@@ -1451,36 +1332,27 @@ def _render_campaign_manifests(
     *,
     repository: Path,
     staging_root: Path,
-    paper_input_root: Path,
     identity: GitIdentity,
-    campaign_binding: str,
     allowed_manifests: dict[str, bytes] | None = None,
-) -> tuple[bytes, bytes, bytes]:
+) -> tuple[bytes, bytes]:
     current_identity = _clean_git_identity(repository, identity.commit)
     _require(current_identity == identity, "campaign Git identity changed while finalizing")
     _read_preflight(staging_root, identity)
-    _validate_paper_campaign_binding(paper_input_root, campaign_binding)
     source_bytes = _json_bytes(_source_manifest(repository, identity))
-    paper_bytes = _json_bytes(_paper_manifest(repository, paper_input_root))
     evidence_entries, _ = _staged_artifacts(
         staging_root,
         repository,
         identity,
         allowed_manifests=allowed_manifests,
     )
-    evidence_entries.extend(
-        [
-            _file_entry(PAPER_INPUT_MANIFEST_NAME, paper_bytes),
-            _file_entry(SOURCE_MANIFEST_NAME, source_bytes),
-        ]
-    )
+    evidence_entries.append(_file_entry(SOURCE_MANIFEST_NAME, source_bytes))
     top_level_bytes = _json_bytes(
         {
             "files": sorted(evidence_entries, key=lambda entry: str(entry["path"])),
             "schema": EVIDENCE_MANIFEST_SCHEMA,
         }
     )
-    return source_bytes, paper_bytes, top_level_bytes
+    return source_bytes, top_level_bytes
 
 
 def _remove_created_campaign_file(path: Path, expected_content: bytes) -> None:
@@ -1495,10 +1367,8 @@ def finalize_campaign(
     *,
     repository: Path,
     staging_root: Path,
-    paper_input_root: Path,
     expected_commit: str,
-    campaign_binding: str,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path]:
     root = _repository_root(repository)
     expected = _expected_commit(expected_commit)
     identity = _clean_git_identity(root, expected)
@@ -1508,49 +1378,33 @@ def finalize_campaign(
     _validate_staging_location(root, staging)
     _read_preflight(staging, identity)
 
-    paper_root = paper_input_root
-    if not paper_root.is_absolute():
-        paper_root = root / paper_root
-    binding = _validated_campaign_binding(campaign_binding)
     rendered = _render_campaign_manifests(
         repository=root,
         staging_root=staging,
-        paper_input_root=paper_root,
         identity=identity,
-        campaign_binding=binding,
     )
     _require(
         _render_campaign_manifests(
             repository=root,
             staging_root=staging,
-            paper_input_root=paper_root,
             identity=identity,
-            campaign_binding=binding,
         )
         == rendered,
         "campaign inputs changed while finalizing",
     )
-    source_bytes, paper_bytes, top_level_bytes = rendered
+    source_bytes, top_level_bytes = rendered
     source_path = staging / SOURCE_MANIFEST_NAME
-    paper_path = staging / PAPER_INPUT_MANIFEST_NAME
     manifest_path = staging / MANIFEST_NAME
     created: list[tuple[Path, bytes]] = []
     try:
         _write_new(source_path, source_bytes)
         created.append((source_path, source_bytes))
-        _write_new(paper_path, paper_bytes)
-        created.append((paper_path, paper_bytes))
-        allowed = {
-            SOURCE_MANIFEST_NAME: source_bytes,
-            PAPER_INPUT_MANIFEST_NAME: paper_bytes,
-        }
+        allowed = {SOURCE_MANIFEST_NAME: source_bytes}
         _require(
             _render_campaign_manifests(
                 repository=root,
                 staging_root=staging,
-                paper_input_root=paper_root,
                 identity=identity,
-                campaign_binding=binding,
                 allowed_manifests=allowed,
             )
             == rendered,
@@ -1563,9 +1417,7 @@ def finalize_campaign(
             _render_campaign_manifests(
                 repository=root,
                 staging_root=staging,
-                paper_input_root=paper_root,
                 identity=identity,
-                campaign_binding=binding,
                 allowed_manifests=allowed,
             )
             == rendered,
@@ -1575,12 +1427,12 @@ def finalize_campaign(
         for path, content in reversed(created):
             _remove_created_campaign_file(path, content)
         raise
-    return source_path, paper_path, manifest_path
+    return source_path, manifest_path
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Prepare or deterministically finalize a clean NSDI evidence campaign."
+        description="Prepare or deterministically finalize a clean evidence campaign."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name in ("preflight", "compress-matched-host", "finalize"):
@@ -1588,9 +1440,6 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--repository", type=Path, default=Path("."))
         command.add_argument("--staging-root", type=Path, required=True)
         command.add_argument("--expected-commit", required=True)
-        if name == "finalize":
-            command.add_argument("--paper-input-root", type=Path, default=Path("paper/submission"))
-            command.add_argument("--campaign-binding", required=True)
     return parser
 
 
@@ -1615,9 +1464,7 @@ def main(arguments: list[str] | None = None) -> int:
             outputs = finalize_campaign(
                 repository=options.repository,
                 staging_root=options.staging_root,
-                paper_input_root=options.paper_input_root,
                 expected_commit=options.expected_commit,
-                campaign_binding=options.campaign_binding,
             )
             print("clean campaign manifests finalized:")
             for output in outputs:

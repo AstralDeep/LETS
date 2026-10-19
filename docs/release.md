@@ -42,8 +42,7 @@ attestations, acceptance evidence, and transparency-log records for the system's
 1. Resolve every P0/P1 issue and confirm `ci` plus `security` are green on the exact commit.
 2. Update the version in `pyproject.toml`, `src/lets/__init__.py`, and the FastAPI application;
    regenerate `protocol/openapi.yaml`, then run `uv lock` in the repository-local environment.
-   Do not edit `uv.lock` by hand. If the paper describes the current release, regenerate every
-   version-bound evidence field and rebuild/render it rather than merely relabeling old evidence.
+   Do not edit `uv.lock` by hand.
 3. Move the relevant `Unreleased` entries in `CHANGELOG.md` under
    `## [X.Y.Z] - YYYY-MM-DD`. State protocol/schema compatibility, migration steps, and rollback
    boundaries explicitly.
@@ -163,7 +162,7 @@ validator/stager, and the matching operations, provider, recovery, and release r
 from that bundle and the verified OCI digest; do not copy deployment files from a mutable branch
 checkout. Its tar input is the exact Git tree with an explicit source-date timestamp; unrelated
 commit metadata is deliberately excluded from the bundle bytes. That timestamp comes from the
-newest actual Python-package or operator-bundle input, not from an unrelated merge or paper edit.
+newest actual Python-package or operator-bundle input, not from an unrelated merge.
 
 Read `image-digest.txt`, then verify the immutable image, its keyless signature, and the
 SLSA/in-toto candidate provenance attached to that same digest. The certificate identity is

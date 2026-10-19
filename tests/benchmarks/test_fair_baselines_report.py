@@ -1,4 +1,4 @@
-"""Tests for benchmarks/fair_baselines/paper.py on a synthetic three-site grid written as the
+"""Tests for benchmarks/fair_baselines/report.py on a synthetic three-site grid written as the
 controller's CSVs plus minimal run files: pooled completion with seed-bootstrap intervals,
 pre-break latency, the isolating topology and its stranded budget, safety totals, widest
 intervals, the Markdown and JSON outputs, and the assemble fallback.
@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.fair_baselines import paper
+from benchmarks.fair_baselines import report
 from benchmarks.fair_baselines.analysis import GridData, RequestRow, pooled_bootstrap_ci
 from benchmarks.fair_baselines.controller import (
     EVENT_FIELDS,
@@ -227,9 +227,9 @@ def test_pooled_bootstrap_matches_pooled_ratio_and_rejects_empty() -> None:
 
 def test_reduce_grid_computes_every_table_column(tmp_path: Path) -> None:
     _write_grid(tmp_path)
-    grid = paper.load_or_assemble(tmp_path)
+    grid = report.load_or_assemble(tmp_path)
     assert isinstance(grid, GridData) and grid.pre_break_s == 5.0 and grid.envelope == 30
-    reduction = paper.reduce_grid("synthetic", grid, 0.7, 1.0)
+    reduction = report.reduce_grid("synthetic", grid, 0.7, 1.0)
     assert reduction.topologies == ("split-s1", "bridge-s3")
     assert reduction.systems == SYSTEMS
     assert reduction.stranded_topology == "split-s1"
@@ -244,14 +244,14 @@ def test_reduce_grid_computes_every_table_column(tmp_path: Path) -> None:
     assert reduction.stranded_unit_seconds["lets"] >= 0.0
     assert reduction.run_system_pairs == 20 and reduction.max_authorized == 4
     assert reduction.all_safety_ok and reduction.all_effects_match
-    widest = paper.widest_intervals([reduction])
+    widest = report.widest_intervals([reduction])
     assert widest["lets"]["width_points"] == 0.0
     assert widest["baselines"]["topology"] == "split-s1"
-    assert paper.isolating_topology(("bridge-s3",), SITES) is None
-    assert paper.isolating_topology(("split-s1",), ()) is None
-    assert paper.row_key("central-retry@s1") == "central-retry"
-    assert paper.row_key("central-noretry@s2") == "central-noretry"
-    assert paper.row_key("raft-quorum") == "raft-quorum"
+    assert report.isolating_topology(("bridge-s3",), SITES) is None
+    assert report.isolating_topology(("split-s1",), ()) is None
+    assert report.row_key("central-retry@s1") == "central-retry"
+    assert report.row_key("central-noretry@s2") == "central-noretry"
+    assert report.row_key("raft-quorum") == "raft-quorum"
 
 
 def test_main_writes_markdown_and_json_and_assembles_when_csvs_are_missing(
@@ -260,20 +260,20 @@ def test_main_writes_markdown_and_json_and_assembles_when_csvs_are_missing(
     grid = tmp_path / "grid"
     _write_grid(grid)
     out = tmp_path / "out"
-    assert paper.main(["--grid", f"synthetic={grid}", "--write", str(out)]) == 0
-    text = (out / "paper-table.md").read_text(encoding="utf-8")
+    assert report.main(["--grid", f"synthetic={grid}", "--write", str(out)]) == 0
+    text = (out / "report.md").read_text(encoding="utf-8")
     assert "| LETS | 1.00 | 1.00 | 40 |" in text
     assert "| Static per-site quotas | 0.75 | 1.00 | 10 | 40 |" in text
     assert "Central counter, no retry" in text and "Central counter, retry" in text
     assert "20 run-system pairs, maximum authorized 4 of 30 units" in text
     assert "every safety check passed, effects equal authorized counts" in text
     assert "## Widest completion intervals" in text
-    payload = json.loads((out / "paper-table.json").read_text(encoding="utf-8"))
-    assert payload["schema"] == "lets.fair-baselines-paper/v1"
+    payload = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert payload["schema"] == "lets.fair-baselines-report/v1"
     assert payload["grids"][0]["completion"]["split-s1"]["lets"]["width_points"] == 0.0
     assert set(payload["widest_intervals"]) == {"baselines", "lets"}
-    assert paper._range([], 2) == "n/a" and paper._latency([]) == "n/a"
-    assert paper._range([0.5, 0.5004], 2) == "0.50" and paper._latency([4.6, 46.0]) == "5 to 46"
+    assert report._range([], 2) == "n/a" and report._latency([]) == "n/a"
+    assert report._range([0.5, 0.5004], 2) == "0.50" and report._latency([4.6, 46.0]) == "5 to 46"
     (grid / "requests.csv").unlink()
     calls: list[Path] = []
 
@@ -284,7 +284,7 @@ def test_main_writes_markdown_and_json_and_assembles_when_csvs_are_missing(
         )
         return {"runs": 0}
 
-    monkeypatch.setattr(paper, "assemble", fake_assemble)
-    assert paper.load_or_assemble(grid).requests == [] and calls == [grid]
+    monkeypatch.setattr(report, "assemble", fake_assemble)
+    assert report.load_or_assemble(grid).requests == [] and calls == [grid]
     with pytest.raises(SystemExit):
-        paper.main(["--grid", "nolabel", "--write", str(out)])
+        report.main(["--grid", "nolabel", "--write", str(out)])

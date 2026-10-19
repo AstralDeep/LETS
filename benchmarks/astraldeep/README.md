@@ -90,7 +90,7 @@ secret/credential and PHI scanner. A
 `release-baseline` bundle is valid only in `off` mode and must remain distinct
 from `astral-integration` evidence.
 
-## Runtime disposition and paper gate
+## Runtime disposition and result gate
 
 After committing the tracked harness, compare its clean tree with the trusted
 signed-release anchor recorded by AstralDeep:
@@ -107,14 +107,15 @@ verified SSH-signature anchor. Changes to LETS runtime, wire, packaging, or
 executable deployment inputs produce `successor-required`; benchmark, test,
 documentation, and case-study-only changes produce `unchanged-runtime`.
 
-The `gate` subcommand creates a readiness marker only when an unchanged-runtime
-disposition matches both the current clean Git tree and a validated integration
-bundle whose composition still pins the exact signed v1.0.11 commit. The gate
-recomputes the path partition and runtime/protocol tree identities rather than
-trusting stale disposition fields. Otherwise it exits non-zero and, for
-runtime/wire changes, creates a separate successor-release handoff. Gate
-outputs are forbidden under `paper/`, and no command in this directory changes
-tag `v1.0.11`, publishes a release, or finalizes a manuscript.
+The `gate` subcommand creates a case-study result-readiness marker
+(`result-readiness.json` at the evidence root for the aggregate) only when an
+unchanged-runtime disposition matches both the current clean Git tree and a
+validated integration bundle whose composition still pins the exact signed
+v1.0.11 commit. The gate recomputes the path partition and runtime/protocol tree
+identities rather than trusting stale disposition fields. Otherwise it exits
+non-zero and, for runtime/wire changes, creates a separate successor-release
+handoff. No command in this directory changes tag `v1.0.11` or publishes a
+release.
 
 ## Cross-mode aggregate
 
@@ -142,8 +143,8 @@ evidence, and records sample counts plus explicit p95/p99 tail-resolution and
 inferential-statistics limitations. It deliberately records that no distinct
 historical release-result bundle, recovery-time measurement, manuscript check,
 or reproduction attestation is included. This command never creates
-`reproduction.json` and its input readiness marker remains only the
-successor-version gate, not whole-paper readiness.
+`reproduction.json`, and its input readiness marker is only the
+successor-version gate.
 
 Retained v1.0.10 Astral case-study bytes remain historical records bound to
 tooling commit `126b494c0676af7c216f5caa9367d127ebc9078f`, aggregate-schema

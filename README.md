@@ -239,8 +239,7 @@ not-applicable decision for a change that has none; `docs/development.md` shows 
 it.
 
 Research evidence lives under `results/`: each sealed bundle is never edited, and later
-corrections are separate scope records beside it. The root `Makefile` renders and checks a local,
-untracked manuscript build under `paper/submission/`.
+corrections are separate scope records beside it.
 
 ## Current boundaries
 

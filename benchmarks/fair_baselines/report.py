@@ -1,7 +1,7 @@
-"""Reduces one or more E1 grids to the numbers the paper's partition table reports: pooled
-completion with seed-bootstrap intervals, pre-break authorization latency, stranded budget, and
-the safety totals, read through analysis.py from the controller's run files (regenerating the
-flat CSVs with controller.assemble when they are absent).
+"""Summarizes one or more E1 grids into headline metrics: pooled completion with seed-bootstrap
+intervals, pre-break authorization latency, stranded budget, and the safety totals, read through
+analysis.py from the controller's run files (regenerating the flat CSVs with controller.assemble
+when they are absent).
 """
 
 from __future__ import annotations
@@ -201,7 +201,7 @@ def widest_intervals(reductions: Sequence[GridReduction]) -> dict[str, dict[str,
 
 
 def markdown(reductions: Sequence[GridReduction]) -> str:
-    lines = ["# Partition-study numbers", ""]
+    lines = ["# E1 grid report", ""]
     for reduction in reductions:
         lines.append(
             f"## {reduction.label}: completion at {reduction.load:g}x load, "
@@ -299,7 +299,7 @@ def payload(reductions: Sequence[GridReduction]) -> dict[str, object]:
         }
         grids.append(record)
     return {
-        "schema": "lets.fair-baselines-paper/v1",
+        "schema": "lets.fair-baselines-report/v1",
         "grids": grids,
         "widest_intervals": widest_intervals(reductions),
     }
@@ -330,7 +330,7 @@ def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--load", type=float, default=0.7)
     parser.add_argument("--theta", type=float, default=1.0)
     parser.add_argument("--write", type=Path, required=True, help="directory for the outputs")
-    parser.add_argument("--basename", default="paper-table")
+    parser.add_argument("--basename", default="report")
     return parser.parse_args(argv)
 
 

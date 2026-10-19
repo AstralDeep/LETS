@@ -1476,12 +1476,14 @@ def test_strict_json_and_exclusive_records_fail_closed(tmp_path: Path) -> None:
 def test_cli_output_guards_require_the_dedicated_ignored_result_root(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     _initialize_repository(repository, "guard")
-    (repository / ".gitignore").write_text("/results/astraldeep-case-study/\n", encoding="utf-8")
+    (repository / ".gitignore").write_text(
+        "/results/astraldeep-case-study/\n/scratch/\n", encoding="utf-8"
+    )
     output = repository / "results/astraldeep-case-study/integration/manifest.json"
     assert runner._is_ignored_output(repository, output)
     assert capture._is_ignored_case_study_path(repository, output)
     assert versioning._is_ignored(repository, output)
-    assert not runner._is_ignored_output(repository, repository / "paper/submission/result.json")
+    assert not runner._is_ignored_output(repository, repository / "scratch/result.json")
 
 
 def test_cli_entrypoints_preserve_fail_closed_status_codes(
@@ -1544,7 +1546,7 @@ def test_cli_entrypoints_preserve_fail_closed_status_codes(
         )
         == 0
     )
-    monkeypatch.setattr(versioning, "gate_paper_result_finalization", lambda **kwargs: False)
+    monkeypatch.setattr(versioning, "gate_result_finalization", lambda **kwargs: False)
     gate_argv = [
         "gate",
         "--repository",
@@ -1557,6 +1559,8 @@ def test_cli_entrypoints_preserve_fail_closed_status_codes(
         str(tmp_path / "handoff.json"),
     ]
     assert versioning.main(gate_argv) == 3
+    monkeypatch.setattr(versioning, "gate_result_finalization", lambda **kwargs: True)
+    assert versioning.main(gate_argv) == 0
 
 
 def test_baseline_and_integration_classes_cannot_be_mixed(tmp_path: Path) -> None:
@@ -1800,9 +1804,9 @@ def test_successor_gate_blocks_finalization_and_emits_separate_handoff(
     disposition_path = tmp_path / "version-disposition.json"
     capture.write_canonical_json_exclusive(disposition_path, disposition)
     monkeypatch.setattr(versioning, "_validate_current_candidate", lambda *args: None)
-    readiness = tmp_path / "paper-ready.json"
+    readiness = tmp_path / "result-ready.json"
     handoff = tmp_path / "successor-handoff.json"
-    assert not versioning.gate_paper_result_finalization(
+    assert not versioning.gate_result_finalization(
         repository=repository,
         disposition_path=disposition_path,
         evidence_manifest_path=None,
@@ -1817,7 +1821,7 @@ def test_successor_gate_blocks_finalization_and_emits_separate_handoff(
     assert handoff_document["disposition_sha256"] == capture.sha256_file(disposition_path)
 
 
-def test_finalization_gate_rejects_missing_evidence_and_manuscript_outputs(
+def test_finalization_gate_rejects_missing_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1827,19 +1831,11 @@ def test_finalization_gate_rejects_missing_evidence_and_manuscript_outputs(
     capture.write_canonical_json_exclusive(disposition_path, _disposition(repository, []))
     monkeypatch.setattr(versioning, "_validate_current_candidate", lambda *args: None)
     with pytest.raises(capture.EvidenceError, match="validated evidence bundle"):
-        versioning.gate_paper_result_finalization(
+        versioning.gate_result_finalization(
             repository=repository,
             disposition_path=disposition_path,
             evidence_manifest_path=None,
             readiness_output=tmp_path / "ready.json",
-            handoff_output=tmp_path / "handoff.json",
-        )
-    with pytest.raises(capture.EvidenceError, match="separate from manuscript"):
-        versioning.gate_paper_result_finalization(
-            repository=repository,
-            disposition_path=disposition_path,
-            evidence_manifest_path=None,
-            readiness_output=repository / "paper/submission/ready.json",
             handoff_output=tmp_path / "handoff.json",
         )
 
@@ -1852,18 +1848,16 @@ def test_unchanged_runtime_gate_requires_matching_validated_integration_bundle(
     disposition_path = tmp_path / "version-disposition.json"
     capture.write_canonical_json_exclusive(disposition_path, disposition)
     monkeypatch.setattr(versioning, "_validate_current_candidate", lambda *args: None)
-    readiness = tmp_path / "paper-ready.json"
+    readiness = tmp_path / "result-ready.json"
     handoff = tmp_path / "successor-handoff.json"
-    assert versioning.gate_paper_result_finalization(
+    assert versioning.gate_result_finalization(
         repository=repository,
         disposition_path=disposition_path,
         evidence_manifest_path=captured_bundle["manifest"],
         readiness_output=readiness,
         handoff_output=handoff,
     )
-    assert capture.read_json_object(readiness)["status"] == (
-        "ready-for-local-paper-result-finalization"
-    )
+    assert capture.read_json_object(readiness)["status"] == "ready-for-result-finalization"
     assert capture.read_json_object(readiness)["lets_runtime_commit"] == (
         versioning.BASELINE_COMMIT
     )
@@ -1899,10 +1893,30 @@ def test_unchanged_runtime_gate_rejects_nonbaseline_composition_pin(
     capture.write_canonical_json_exclusive(disposition_path, _disposition(repository, []))
     monkeypatch.setattr(versioning, "_validate_current_candidate", lambda *args: None)
     with pytest.raises(capture.EvidenceError, match="execution imports"):
-        versioning.gate_paper_result_finalization(
+        versioning.gate_result_finalization(
             repository=repository,
             disposition_path=disposition_path,
             evidence_manifest_path=manifest,
+            readiness_output=tmp_path / "ready.json",
+            handoff_output=tmp_path / "handoff.json",
+        )
+
+
+def test_unchanged_runtime_gate_refuses_release_baseline_evidence(
+    captured_bundle: dict[str, Any],
+    aggregate_bundle: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = captured_bundle["repositories"]["lets"]
+    disposition_path = tmp_path / "version-disposition.json"
+    capture.write_canonical_json_exclusive(disposition_path, _disposition(repository, []))
+    monkeypatch.setattr(versioning, "_validate_current_candidate", lambda *args: None)
+    with pytest.raises(capture.EvidenceError, match="refuses release-baseline evidence"):
+        versioning.gate_result_finalization(
+            repository=repository,
+            disposition_path=disposition_path,
+            evidence_manifest_path=aggregate_bundle["root"] / "baseline/off/manifest.json",
             readiness_output=tmp_path / "ready.json",
             handoff_output=tmp_path / "handoff.json",
         )
@@ -1948,12 +1962,12 @@ def aggregate_bundle(
     disposition_path = root / "version-disposition.json"
     disposition = _disposition(captured_bundle["repositories"]["lets"], [])
     capture.write_canonical_json_exclusive(disposition_path, disposition)
-    readiness_path = root / "paper-readiness.json"
+    readiness_path = root / "result-readiness.json"
     capture.write_canonical_json_exclusive(
         readiness_path,
         {
             "format": versioning.READINESS_FORMAT,
-            "status": "ready-for-local-paper-result-finalization",
+            "status": "ready-for-result-finalization",
             "lets_release": versioning.BASELINE_RELEASE,
             "lets_runtime_commit": versioning.BASELINE_COMMIT,
             "lets_tooling_commit": disposition["candidate"]["commit"],
@@ -2073,18 +2087,29 @@ def test_cross_mode_aggregate_rejects_individually_valid_mixed_identity(
         aggregate.aggregate_case_study(root)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("evidence_manifest_sha256", "0" * 64, "stale or bound to the wrong evidence"),
+        ("created_at", "2000-01-01T00:00:00Z", "predates its bound evidence"),
+        ("unexpected_field", True, "readiness record is malformed"),
+    ],
+)
 def test_cross_mode_aggregate_rejects_stale_readiness_binding(
     aggregate_bundle: dict[str, Path],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+    message: str,
 ) -> None:
     root, _ = _copy_aggregate_root(aggregate_bundle, tmp_path)
-    readiness_path = root / "paper-readiness.json"
+    readiness_path = root / "result-readiness.json"
     readiness = capture.read_json_object(readiness_path)
-    readiness["evidence_manifest_sha256"] = "0" * 64
+    readiness[field] = value
     readiness_path.write_bytes(capture.canonical_json_bytes(readiness) + b"\n")
     monkeypatch.setattr(aggregate, "_validate_historical_candidate", lambda *args: None)
-    with pytest.raises(capture.EvidenceError, match="stale or bound to the wrong evidence"):
+    with pytest.raises(capture.EvidenceError, match=message):
         aggregate.aggregate_case_study(root)
 
 

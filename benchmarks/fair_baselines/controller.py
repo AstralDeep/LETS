@@ -1,7 +1,7 @@
 """Grid runner for E1: enumerates cells (topology x load x skew x seed), drives one cell at a time
 on each cluster described by an endpoints file that carries the ordered site roster (configure,
 synchronized start, timed iptables faults via faults.py, collection, teardown), verifies the
-actuator-side safety bound, and writes per-run JSON plus flat CSVs for analysis.py and paper.py.
+actuator-side safety bound, and writes per-run JSON plus flat CSVs for analysis.py and report.py.
 """
 
 from __future__ import annotations
