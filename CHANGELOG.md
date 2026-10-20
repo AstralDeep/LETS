@@ -7,6 +7,13 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Added
 
+- MCP tool-execution profile: the optional `lets.integrations.mcp` adapter maps host-verified MCP
+  `2026-07-28` tool calls to stable LETS request IDs, digest-bound effect evidence, executor
+  audiences and claimable receipts, with a host permission/confirmation gate. It keeps the MCP
+  server, transport and user IAM in the host, adds no core runtime dependency, and documents
+  at-most-once authorization separately from effect idempotency. `examples/mcp_host.py` and
+  `docs/adapters/mcp.md` show the complete seam; conformance fixtures cover retries, changed
+  arguments, lost replies, cancellation, wrong audience/tenant and duplicate claims.
 - E1 harness: `benchmarks.fair_baselines.report` summarizes one or more grids into headline
   metrics (pooled completion with 95% seed-bootstrap intervals and their widest widths, pre-break
   median time to authorization, stranded unit-seconds under the topology that isolates the first
