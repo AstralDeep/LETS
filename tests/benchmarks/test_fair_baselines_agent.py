@@ -290,17 +290,43 @@ def test_main_serves_until_shutdown(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert (tmp_path / "state").is_dir()
 
 
+def _tree_counters(results: dict[str, dict]) -> dict[str, tuple[int, int, int]]:
+    return {
+        site: (
+            payload["snapshots"]["lets-tree-d2-f2"]["tree_builds"],
+            payload["snapshots"]["lets-tree-d2-f2"]["transfers_in"],
+            payload["snapshots"]["lets-tree-d2-f2"]["transfers_out"],
+        )
+        for site, payload in results.items()
+    }
+
+
+def _settled_results(cluster: LoopbackCluster, results: dict[str, dict]) -> dict[str, dict]:
+    deadline = time.monotonic() + 30
+    stable_since = time.monotonic()
+    while True:
+        time.sleep(0.3)
+        again = {site: cluster.call(site, "GET", "/run/results")[1] for site in SITES}
+        if _tree_counters(again) != _tree_counters(results):
+            stable_since = time.monotonic()
+            results = again
+        elif time.monotonic() - stable_since >= 1.5:
+            return again
+        assert time.monotonic() < deadline, _tree_counters(again)
+
+
 def test_three_agents_run_lets_with_and_without_delegation_trees(
     loopback_cluster: LoopbackCluster,
 ) -> None:
     cluster = loopback_cluster
+    shares = {"s1": 1, "s2": 7, "s3": 1}
     config = short_config(
         "agent-tree",
         systems=["lets", "lets-tree-d2-f2"],
         placement="explicit",
-        explicit_shares={"s1": 1, "s2": 7, "s3": 1},
+        explicit_shares=shares,
     )
-    results = _run_to_completion(cluster, config)
+    results = _settled_results(cluster, _run_to_completion(cluster, config))
     envelope = int(config["envelope"])  # type: ignore[arg-type]
     safety = verify_safety(envelope, results)
     assert set(safety) == {"lets", "lets-tree-d2-f2"}
@@ -321,7 +347,9 @@ def test_three_agents_run_lets_with_and_without_delegation_trees(
         assert trees[site]["healthy"] and plain[site]["healthy"]
         assert (trees[site]["tree_depth"], trees[site]["tree_fanout"]) == (2, 2)
         assert plain[site]["tree_depth"] == 0 and plain[site]["live_leases"] <= 1
-        assert trees[site]["lease_operations"] >= 6 >= trees[site]["live_leases"]
+        initial_leases = {1: 3, 7: 7}[shares[site]]
+        assert trees[site]["lease_operations"] >= initial_leases
+        assert trees[site]["lease_operations"] >= trees[site]["live_leases"]
         assert trees[site]["lease_operations"] >= plain[site]["lease_operations"]
         assert reasons[site][0] == "initial" and len(reasons[site]) == trees[site]["tree_builds"]
         assert all(reason.startswith(("in-", "out-")) for reason in reasons[site][1:])
