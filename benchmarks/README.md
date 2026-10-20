@@ -44,6 +44,6 @@ independent effect log that the controller checks against the envelope. The syst
 through a spawn tree whose leaves issue the protected calls, so delegation and partitions are
 exercised together; `lets` keeps the one-lease behaviour of the original grids. `local_cluster.py`
 runs independent clusters of one container per site in Docker on one machine; `controller.py` runs
-the grid; `analysis.py` writes the per-site table and the lease-tree cost table, and `paper.py` the
-numbers behind the paper's table. The commands, platforms, and results are documented in
+the grid; `analysis.py` writes the per-site table and the lease-tree cost table, and `report.py` a
+headline summary per grid. The commands, platforms, and results are documented in
 `results/fair-baselines-2026-10-15/RESULTS.md`.

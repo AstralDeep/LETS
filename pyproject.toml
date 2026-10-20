@@ -1,5 +1,5 @@
 [build-system]
-requires = ["uv_build==0.12.23"]
+requires = ["uv_build==0.13.1"]
 build-backend = "uv_build"
 
 [project]
@@ -34,7 +34,7 @@ server = [
 ]
 client = ["httpx>=0.28,<1"]
 benchmarks = [
-  "paramiko>=3.5,<5",
+  "paramiko>=3.5,<6",
   "pysyncobj>=0.3.17,<0.4",
 ]
 dev = [

@@ -1,7 +1,7 @@
-"""Tests for the NSDI evidence-campaign packager
+"""Tests for the evidence-campaign packager
 (benchmarks/nsdi_strengthening/evidence_campaign.py): deterministic
-preflight/finalize manifests, exact-artifact-set requirements, and rejection of
-dirty, tampered, or privacy-leaking evidence.
+preflight/finalize manifests, exact-artifact-set requirements, the command-line
+entry point, and rejection of dirty, tampered, or privacy-leaking evidence.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from benchmarks.nsdi_strengthening.evidence_campaign import (
     _REQUIRED_ARTIFACTS,
     CAMPAIGN_PREFLIGHT_NAME,
     MANIFEST_NAME,
-    PAPER_INPUT_MANIFEST_NAME,
     SOURCE_MANIFEST_NAME,
     CampaignError,
     compress_matched_host_result,
@@ -34,7 +33,6 @@ from benchmarks.nsdi_strengthening.remote_three_host import (
     timeline_csv,
 )
 
-CAMPAIGN_BINDING = "results/nsdi-strengthening-2026-09-02/MANIFEST.json"
 REAL_RESULT_TEMPLATE = (
     Path(__file__).parents[2]
     / "results/nsdi-strengthening-2026-08-31/remote/three-host-linux-result.json"
@@ -62,7 +60,7 @@ def _clean_repository(tmp_path: Path) -> tuple[Path, str]:
     repository = tmp_path / "repository"
     repository.mkdir()
     _git(repository, "init", "--initial-branch=main")
-    _write(repository / ".gitignore", "paper/submission/\nstaging/\n")
+    _write(repository / ".gitignore", "staging/\n")
     _write(
         repository / "benchmarks/nsdi_strengthening/evidence_campaign.py",
         '"""campaign source"""\n',
@@ -98,35 +96,6 @@ def _clean_repository(tmp_path: Path) -> tuple[Path, str]:
         "-m",
         "fixture",
     )
-    _write(repository / "paper/submission/main.tex", "paper input\n")
-    _write(repository / "paper/submission/figures/plot.svg", "<svg/>\n")
-    for relative in (
-        "evaluation-strengthened.tex",
-        "evidence.tex",
-        "figures/control-gap.pdf",
-        "figures/fonts/GUST-FONT-LICENSE.txt",
-        "figures/fonts/qhvb.afm",
-        "figures/fonts/qhvb.pfb",
-        "figures/fonts/qhvr.afm",
-        "figures/fonts/qhvr.pfb",
-        "figures/generate_partition_progress_figure.py",
-        "figures/three-endpoint-progress-comparison.pdf",
-        "figures/trusted-effect-path.pdf",
-        "latexmkrc",
-        "manuscript.tex",
-        "paper-anon.tex",
-        "paper-arxiv.tex",
-        "paper-nsdi27.tex",
-        "references.bib",
-        "usenix-2020-09.sty",
-    ):
-        _write(repository / "paper/submission" / relative, f"paper input: {relative}\n")
-    _write(
-        repository / "paper/submission/evidence.tex",
-        f"% Evidence campaign manifest: {CAMPAIGN_BINDING}\n",
-    )
-    _write(repository / "paper/submission/build/paper.log", "excluded output\n")
-    _write(repository / "paper/submission/figures/__pycache__/plot.pyc", "excluded cache\n")
     commit = _git(repository, "rev-parse", "HEAD")
     assert _git(repository, "status", "--porcelain=v1", "--untracked-files=all") == ""
     return repository, commit
@@ -406,10 +375,9 @@ def test_preflight_and_finalize_create_deterministic_manifests(tmp_path: Path) -
         outputs = finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=Path("paper/submission"),
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
+        assert [path.name for path in outputs] == [SOURCE_MANIFEST_NAME, MANIFEST_NAME]
         rendered_manifests.append(tuple(path.read_bytes() for path in outputs))
 
         source = _load(staging / SOURCE_MANIFEST_NAME)
@@ -425,15 +393,6 @@ def test_preflight_and_finalize_create_deterministic_manifests(tmp_path: Path) -
         assert "tests/e2e/test_compose_cluster.py" in source_paths
         assert "tests/e2e/test_production_profile.py" in source_paths
 
-        paper = _load(staging / PAPER_INPUT_MANIFEST_NAME)
-        assert paper["source_directory"] == "paper/submission"
-        paper_paths = {entry["path"] for entry in paper["files"]}
-        assert "evaluation-strengthened.tex" in paper_paths
-        assert "figures/generate_partition_progress_figure.py" in paper_paths
-        assert "figures/three-endpoint-progress-comparison.pdf" in paper_paths
-        assert "build/paper.log" not in paper_paths
-        assert "figures/__pycache__/plot.pyc" not in paper_paths
-
         manifest = _load(staging / MANIFEST_NAME)
         manifest_paths = [entry["path"] for entry in manifest["files"]]
         assert manifest_paths == sorted(manifest_paths)
@@ -441,7 +400,6 @@ def test_preflight_and_finalize_create_deterministic_manifests(tmp_path: Path) -
         assert manifest_paths == sorted(
             [
                 CAMPAIGN_PREFLIGHT_NAME,
-                PAPER_INPUT_MANIFEST_NAME,
                 SOURCE_MANIFEST_NAME,
                 *_REQUIRED_ARTIFACTS,
             ]
@@ -578,13 +536,10 @@ def test_finalize_rechecks_clean_checkout_and_writes_nothing(tmp_path: Path) -> 
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert not (staging / SOURCE_MANIFEST_NAME).exists()
-    assert not (staging / PAPER_INPUT_MANIFEST_NAME).exists()
     assert not (staging / MANIFEST_NAME).exists()
 
 
@@ -598,9 +553,7 @@ def test_finalize_requires_the_exact_campaign_artifact_set(tmp_path: Path) -> No
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
 
@@ -649,9 +602,7 @@ def test_finalize_rejects_failed_required_success_contracts(
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
 
@@ -670,9 +621,7 @@ def test_finalize_rejects_uncommitted_matched_host_harness(tmp_path: Path, field
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
 
@@ -697,9 +646,7 @@ def test_finalize_rejects_dirty_provenance_inside_matched_host_archive(tmp_path:
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
 
@@ -726,9 +673,7 @@ def test_finalize_rejects_unsafe_or_mismatched_json_provenance(
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert not (staging / MANIFEST_NAME).exists()
@@ -744,9 +689,7 @@ def test_finalize_rejects_credential_file_without_manifesting_it(tmp_path: Path)
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert not (staging / MANIFEST_NAME).exists()
@@ -782,9 +725,7 @@ def test_finalize_rejects_local_absolute_paths_in_retained_text(
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert not (staging / MANIFEST_NAME).exists()
@@ -806,9 +747,7 @@ def test_finalize_rejects_local_absolute_path_in_compressed_text(tmp_path: Path)
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert not (staging / MANIFEST_NAME).exists()
@@ -833,9 +772,7 @@ def test_finalize_allows_drive_and_model_labels_without_absolute_paths(tmp_path:
     finalize_campaign(
         repository=repository,
         staging_root=staging,
-        paper_input_root=repository / "paper/submission",
         expected_commit=commit,
-        campaign_binding=CAMPAIGN_BINDING,
     )
 
     assert (staging / MANIFEST_NAME).is_file()
@@ -852,9 +789,7 @@ def test_finalize_never_overwrites_an_existing_manifest(tmp_path: Path) -> None:
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert (staging / SOURCE_MANIFEST_NAME).read_text(encoding="utf-8") == "prior manifest\n"
@@ -916,9 +851,7 @@ def test_finalize_rejects_false_three_host_claims(
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert not (staging / MANIFEST_NAME).exists()
@@ -935,49 +868,7 @@ def test_finalize_rejects_noncanonical_q1_derived_output(tmp_path: Path) -> None
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
-        )
-
-
-@pytest.mark.parametrize(
-    "paper_edit,binding,error",
-    [
-        (
-            lambda paper: _write(
-                paper / "evidence.tex",
-                "% Evidence campaign manifest: "
-                "results/nsdi-strengthening-2026-08-31/MANIFEST.json\n",
-            ),
-            CAMPAIGN_BINDING,
-            "campaign binding marker",
-        ),
-        (
-            lambda paper: _write(
-                paper / "evaluation-strengthened.tex",
-                "TODO(author): decide whether evidence is clean\n",
-            ),
-            CAMPAIGN_BINDING,
-            r"TODO\(author\)",
-        ),
-    ],
-)
-def test_finalize_rejects_unbound_or_unresolved_paper(
-    tmp_path: Path, paper_edit: object, binding: str, error: str
-) -> None:
-    repository, commit = _clean_repository(tmp_path)
-    staging = repository / "staging/campaign"
-    preflight_campaign(repository=repository, staging_root=staging, expected_commit=commit)
-    paper_edit(repository / "paper/submission")  # type: ignore[operator]
-
-    with pytest.raises(CampaignError, match=error):
-        finalize_campaign(
-            repository=repository,
-            staging_root=staging,
-            paper_input_root=repository / "paper/submission",
-            expected_commit=commit,
-            campaign_binding=binding,
         )
 
 
@@ -991,7 +882,7 @@ def test_finalize_removes_the_seal_if_inputs_change_after_publication(
     original = evidence_campaign._render_campaign_manifests
     calls = 0
 
-    def render_with_late_drift(**kwargs: object) -> tuple[bytes, bytes, bytes]:
+    def render_with_late_drift(**kwargs: object) -> tuple[bytes, bytes]:
         nonlocal calls
         calls += 1
         if calls == 4:
@@ -1003,11 +894,70 @@ def test_finalize_removes_the_seal_if_inputs_change_after_publication(
         finalize_campaign(
             repository=repository,
             staging_root=staging,
-            paper_input_root=repository / "paper/submission",
             expected_commit=commit,
-            campaign_binding=CAMPAIGN_BINDING,
         )
 
     assert not (staging / SOURCE_MANIFEST_NAME).exists()
-    assert not (staging / PAPER_INPUT_MANIFEST_NAME).exists()
+    assert not (staging / MANIFEST_NAME).exists()
+
+
+def test_finalize_rejects_a_staging_root_that_is_not_a_directory(tmp_path: Path) -> None:
+    repository, commit = _clean_repository(tmp_path)
+    staging_file = repository / "staging/campaign.json"
+    _write(staging_file, "{}\n")
+
+    with pytest.raises(CampaignError, match="not a directory"):
+        finalize_campaign(
+            repository=repository,
+            staging_root=staging_file,
+            expected_commit=commit,
+        )
+
+
+def _cli_arguments(repository: Path, staging: Path, commit: str) -> list[str]:
+    return [
+        "--repository",
+        str(repository),
+        "--staging-root",
+        str(staging),
+        "--expected-commit",
+        commit,
+    ]
+
+
+def test_command_line_prepares_compresses_and_finalizes_a_campaign(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository, commit = _clean_repository(tmp_path)
+    staging = repository / "staging/campaign"
+    arguments = _cli_arguments(repository, staging, commit)
+
+    assert evidence_campaign.main(["preflight", *arguments]) == 0
+    raw = staging / "remote/matched-host/matched-host-path.json"
+    raw.parent.mkdir(parents=True)
+    raw.write_bytes(b'{"schema":"matched-host-result"}\n')
+    assert evidence_campaign.main(["compress-matched-host", *arguments]) == 0
+    assert not raw.exists()
+    _add_complete_campaign(staging, repository, commit)
+    assert evidence_campaign.main(["finalize", *arguments]) == 0
+
+    printed = capsys.readouterr().out.splitlines()
+    assert printed[-3] == "clean campaign manifests finalized:"
+    assert [Path(line).name for line in printed[-2:]] == [SOURCE_MANIFEST_NAME, MANIFEST_NAME]
+    assert (staging / MANIFEST_NAME).is_file()
+    assert _git(repository, "status", "--porcelain=v1", "--untracked-files=all") == ""
+
+
+def test_command_line_reports_a_rejected_finalize_without_sealing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository, commit = _clean_repository(tmp_path)
+    staging = repository / "staging/campaign"
+    preflight_campaign(repository=repository, staging_root=staging, expected_commit=commit)
+
+    status = evidence_campaign.main(["finalize", *_cli_arguments(repository, staging, commit)])
+
+    assert status == 2
+    assert "error: staged artifact set is not exact" in capsys.readouterr().err
+    assert not (staging / SOURCE_MANIFEST_NAME).exists()
     assert not (staging / MANIFEST_NAME).exists()

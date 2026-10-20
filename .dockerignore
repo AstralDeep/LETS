@@ -16,14 +16,7 @@ results/generated
 output
 tmp
 benchmarks/results
-paper/build
-paper/submission
-paper/paper.pdf
-paper/*.aux
-paper/*.bbl
-paper/*.blg
-paper/*.fls
-paper/*.fdb_latexmk
+paper
 deploy/.state
 states
 node_modules

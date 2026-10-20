@@ -1,4 +1,4 @@
-# Partition-study numbers
+# E1 grid report
 
 ## local-delegation: completion at 0.7x load, theta=1
 

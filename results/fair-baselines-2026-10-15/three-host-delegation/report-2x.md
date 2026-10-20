@@ -1,4 +1,4 @@
-# Partition-study numbers
+# E1 grid report
 
 ## three-host-delegation: completion at 2x load, theta=1
 

@@ -1,8 +1,8 @@
 """Offline metrics for E1 from the controller's CSVs: completion rates with seed-level bootstrap
 CIs, time-to-authorization distributions with censored timeouts, stranded capacity reconstructed
 from free-unit and waiting events against the fault timeline, message counts, the per-site
-results table, and the delegation-tree build costs from tree_build events; paper.py reduces the
-same aggregates to the paper's table.
+results table, and the delegation-tree build costs from tree_build events; report.py summarizes
+the same aggregates per grid.
 """
 
 from __future__ import annotations

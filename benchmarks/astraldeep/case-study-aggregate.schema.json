@@ -69,7 +69,7 @@
             "mode-manifest",
             "runtime-identities",
             "version-disposition",
-            "paper-readiness",
+            "result-readiness",
             "aggregate-summary"
           ]
         },
@@ -87,7 +87,7 @@
         "enforce_manifest",
         "runtime_identities",
         "version_disposition",
-        "paper_readiness"
+        "result_readiness"
       ],
       "properties": {
         "off_manifest": {"$ref": "#/$defs/offManifestRecord"},
@@ -95,7 +95,7 @@
         "enforce_manifest": {"$ref": "#/$defs/enforceManifestRecord"},
         "runtime_identities": {"$ref": "#/$defs/runtimeIdentitiesRecord"},
         "version_disposition": {"$ref": "#/$defs/versionDispositionRecord"},
-        "paper_readiness": {"$ref": "#/$defs/paperReadinessRecord"}
+        "result_readiness": {"$ref": "#/$defs/resultReadinessRecord"}
       }
     },
     "offManifestRecord": {
@@ -153,13 +153,13 @@
         }
       ]
     },
-    "paperReadinessRecord": {
+    "resultReadinessRecord": {
       "allOf": [
         {"$ref": "#/$defs/fileRecord"},
         {
           "properties": {
-            "kind": {"const": "paper-readiness"},
-            "relative_path": {"const": "paper-readiness.json"}
+            "kind": {"const": "result-readiness"},
+            "relative_path": {"const": "result-readiness.json"}
           }
         }
       ]
@@ -652,7 +652,7 @@
         "summary",
         "mode_counts",
         "version_disposition",
-        "paper_readiness_status",
+        "result_readiness_status",
         "statistical_limits",
         "evidence_scope"
       ],
@@ -679,9 +679,7 @@
           }
         },
         "version_disposition": {"const": "unchanged-runtime"},
-        "paper_readiness_status": {
-          "const": "ready-for-local-paper-result-finalization"
-        },
+        "result_readiness_status": {"const": "ready-for-result-finalization"},
         "statistical_limits": {"$ref": "#/$defs/statisticalLimits"},
         "evidence_scope": {"$ref": "#/$defs/evidenceScope"}
       }

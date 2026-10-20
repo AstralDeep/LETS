@@ -311,7 +311,7 @@
       ]
     }
   ],
-  "schema": "lets.fair-baselines-paper/v1",
+  "schema": "lets.fair-baselines-report/v1",
   "widest_intervals": {
     "baselines": {
       "grid": "three-host-delegation",

@@ -48,16 +48,6 @@
       "sha256": "67fcd3e14a7b4ee6931e4511a4d1f518f71d86d4b5389045b7ba3987fb55ba49"
     },
     {
-      "bytes": 2624,
-      "path": "paper-table.json",
-      "sha256": "596c333133f6ef49b8e1a05b263f25cfdae96b595d17d11b1e74bd2c976084d0"
-    },
-    {
-      "bytes": 1744,
-      "path": "paper-table.md",
-      "sha256": "169b685e88c5656605332183f41bae7b776f2177939841a7d99083b640cf66b3"
-    },
-    {
       "bytes": 3361,
       "path": "per-site.csv",
       "sha256": "da2a3aa1e56202c665bcbd8b679b097a909115a167d6206435796d0dec218682"
@@ -66,6 +56,16 @@
       "bytes": 3894,
       "path": "per-site.md",
       "sha256": "6af75a67143d48e3af452ad4b102ea49967f5e1904ca8648dc34ea55e89eeae6"
+    },
+    {
+      "bytes": 2625,
+      "path": "report.json",
+      "sha256": "69f176b5ab0e3661d824ea22abb10e98740f9310f19454dd88ea8a90ed872e21"
+    },
+    {
+      "bytes": 1735,
+      "path": "report.md",
+      "sha256": "492e0def6e8ed2a83ffcb9ae768cbc2d040ff63070229b9bd8fe1e35d4565c0a"
     },
     {
       "bytes": 56594,
@@ -123,7 +123,7 @@
       "sha256": "d5ff1f56b8de48dc0291c3cfb80fc8d2ffe84794013b108f15800fcf345768b3"
     }
   ],
-  "generated_at": "2026-10-19T23:53:32.070316Z",
+  "generated_at": "2026-10-20T11:12:27.948109Z",
   "grid": {
     "cells": 8,
     "clusters": [
@@ -402,8 +402,8 @@
   "schema": "lets.fair-baselines-manifest/v1",
   "source": {
     "branch": "claude/e1-delegation-partition-20261019",
-    "commit": "a85e1772e17d00a303054ed018e855b49174de85",
+    "commit": "669a9c5ac84d1a09317c99e4b0c54848490600c1",
     "dirty": true,
-    "tracked_diff": ""
+    "tracked_diff": ".dockerignore                                      |   9 +-\n .github/workflows/ci.yml                           |   6 +-\n .github/workflows/release.yml                      |   4 +-\n .github/workflows/security.yml                     |   2 +-\n .gitignore                                         |  27 +--\n CHANGELOG.md                                       |  23 ++-\n Dockerfile                                         |   2 +-\n Makefile                                           |  30 ---\n README.md                                          |   3 +-\n benchmarks/README.md                               |   4 +-\n benchmarks/astraldeep/README.md                    |  23 +--\n benchmarks/astraldeep/aggregate_case_study.py      |  20 +-\n .../astraldeep/case-study-aggregate.schema.json    |  18 +-\n benchmarks/astraldeep/check_version_disposition.py |  31 +--\n benchmarks/fair_baselines/__init__.py              |   2 +-\n benchmarks/fair_baselines/analysis.py              |   4 +-\n benchmarks/fair_baselines/controller.py            |   2 +-\n benchmarks/fair_baselines/{paper.py => report.py}  |  12 +-\n benchmarks/nsdi_strengthening/evidence_campaign.py | 173 +----------------\n deploy/evidence/README.md                          |   2 +-\n deploy/run_acceptance.py                           |   2 +-\n docs/release.md                                    |   5 +-\n .../plans/2026-08-24-nsdi27-paper-draft.md         |  16 +-\n .../2026-08-24-nsdi27-authoring-draft-design.md    |  18 +-\n pyproject.toml                                     |   4 +-\n results/fair-baselines-2026-10-15/RESULTS.md       |  78 +++-----\n .../local-delegation/paper-table.json              | 103 ----------\n .../local-delegation/paper-table.md                |  33 ----\n .../{paper-table.json => report.json}              |   2 +-\n .../{paper-table.md => report.md}                  |   2 +-\n tests/benchmarks/test_astraldeep_case_study.py     |  77 +++++---\n tests/benchmarks/test_evidence_campaign.py         | 186 +++++++-----------\n ...ines_paper.py => test_fair_baselines_report.py} |  60 +++---\n tests/test_ci_workflow.py                          |   2 +-\n uv.lock                                            | 210 ++++++++++-----------\n 35 files changed, 398 insertions(+), 797 deletions(-)"
   }
 }
