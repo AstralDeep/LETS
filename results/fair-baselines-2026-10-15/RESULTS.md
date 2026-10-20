@@ -538,8 +538,8 @@ uv run python -m benchmarks.fair_baselines.paper --grid local-delegation=results
 uv run python -m benchmarks.fair_baselines.local_cluster down --work-dir benchmarks/results/fair-baselines/local-deleg
 ```
 
-**Three-host grid (prepared, not yet run).** The paper's cells on the three real hosts, with the
-seven original systems and the tree in every run so that every comparison is paired:
+**Three-host grid.** The paper's cells were then run on the three real hosts (next section), with
+the seven original systems and the tree in every run so that every comparison is paired:
 
 ```bash
 LETS_E1_TOKEN=... uv run python -m benchmarks.fair_baselines.controller run --endpoints three-host-endpoints.json --output results/fair-baselines-2026-10-15/three-host-delegation --seeds 20 --rtt-ms 0 --systems central-noretry@s2 central-retry@s1 central-retry@s2 central-retry@s3 static-quota raft-quorum lets lets-tree-d2-f2
@@ -549,11 +549,12 @@ uv run python -m benchmarks.fair_baselines.paper --grid three-host-delegation=re
 
 The endpoints file is the one of the three-host run above (`s1` 128.163.202.61 on `eno50`, `s2`
 128.163.202.50 on `enp5s0np0`, `s3` 4.227.163.14 on `eth0`, control through SSH port forwards
-9731 to 9733, faults through persistent sudo-over-SSH). The 480 cells take about ten hours. Before
-it runs the hosts need the openings that the 2026-10-18 teardown removed: passwordless sudo for the
-fault user on `s1` and `s2`, the `lets-e1` ufw rules admitting TCP 9701 and 9801 between the three
-hosts, and the Azure network-security-group rule admitting the same ports from the two LAN hosts,
-plus the harness at this commit deployed to `~/lets-e1/src` and the site agents started.
+9731 to 9733, faults through persistent sudo-over-SSH). The 480 cells took about nine hours. Before
+the run the hosts needed the openings that the 2026-10-18 teardown had removed: passwordless sudo
+for the fault user on `s1` and `s2`, the `lets-e1` ufw rules admitting TCP 9701 and 9801 between
+the three hosts, and the Azure network-security-group rule admitting the same ports from the two
+LAN hosts, plus the harness deployed to `~/lets-e1/src` and the site agents started; all of it was
+removed again after the run.
 
 **What the new evidence replaces in the paper.** In Section V-B the sentences "LETS runs one
 warden, executor claim store, and worker lease per site" and "Each LETS site initially holds its
@@ -569,6 +570,74 @@ multi-level delegation with partitions, and lineage depth was measured separatel
 is replaced by the measured cost of combining them (the same completions and stranding, under a
 millisecond of extra authorization latency, and a refresh of about 12 lease operations per
 transfer), leaving only the deeper trees of the lineage benchmark as separately measured.
+
+## Three-host delegation results (480 runs, 154,392 requests, 20 seeds per cell)
+
+The paper's grid, rerun on the same three hosts as the three-host run above (`s1` and `s2` on
+the university LAN, `s3` the Azure VM in East US, controller on the Windows desktop over the VPN,
+faults through persistent sudo-over-SSH, no netem), with the seven original systems and
+`lets-tree-d2-f2` in every run, so every number below is paired with one-lease LETS on the same
+arrivals (`three-host-delegation/`). The sites ran harness commit `a85e177` (deployed as a Git
+archive, CPython 3.12.13, SQLite 3.53.1, LETS 1.1.0, PyNaCl 1.6.2, pysyncobj 0.3.17 under uv
+0.11.21) and the controller ran from commit `f168c3d` of this branch. The grid took two
+invocations of the same command: the first ran 342 cells from 2026-10-20 00:10 to 06:28 UTC and
+was stopped when the controller's VPN link reset (32 cells that then errored on the dead link in
+two minutes were deleted); the second ran the remaining 138 cells from 06:31 to 09:09 UTC,
+rerunning the one cell the link loss had cut short. `MANIFEST.json` carries both invocations in
+`run_history` and every run file records its own start and finish.
+
+- **Fault fidelity.** The 2,160 in-cut probes of the three static topologies match their cut
+  sets exactly (1,440 cut links unreachable, 720 intact links reachable); every cut had formed
+  within 0.38 s of its offset (median 0.13 s) and every final heal within 0.19 s (median 0.14 s);
+  the `LETS_E1` chains dropped 183,014 packets.
+- **Safety.** All 3,840 run-system pairs satisfied `effects <= 30`, `effects == authorized
+  records`, and no duplicate actuation; the margin ranges from 0 (every 2x cell) to 25, and every
+  LETS invariant snapshot on every site (one-lease and tree) was healthy at the end of its run.
+- **Completion.** At 0.7x load and skew 1, the delegation tree completes exactly what one-lease
+  LETS completes: `split-s1` 0.99 (95% seed-bootstrap interval 0.972 to 1.000, 2.8 points wide),
+  `bridge-s3` 1.00, `full-isolation` 1.00, `flapping-s1-s2` 1.00 (all three with zero-width
+  intervals), against static quotas 0.87 to 0.93, central with retry 0.86 to 1.00, Raft 0.67 to
+  1.00, and the no-retry counter 0.56 to 0.88. The two LETS systems have the same pooled
+  completion to three decimals in all 24 cells of the grid, including 2x load, where every system
+  except Raft completes 0.48 to 0.53 because the envelope binds.
+- **Time to authorization before the break (p50 / p95 over about 1,920 authorized requests per
+  system).** One-lease LETS 28.4 / 78.4 ms, the tree 28.6 / 80.5 ms; by site, one lease against
+  tree: `s1` 28.7 against 28.8 ms, `s2` 22.5 against 22.9 ms, `s3` 72.6 against 75.3 ms. The leaf
+  authorization carries a two-level ancestor path that the warden checks for revocation; its cost
+  is 0.2 ms at the median over the grid and at most 2.7 ms at the median on the Azure VM. The
+  absolute LETS latencies are higher than in the three-host run above (18.1 / 55.4 ms) because
+  each site now hosts eight systems, two of them LETS wardens committing with `synchronous=FULL`,
+  and the 4-core Azure VM's disk serialises those commits (`s3` is the slowest site for every
+  system that commits locally); the paired one-lease row is the comparator, not the earlier grid.
+- **Stranded capacity at 0.7x, skew 1 (peak units / unit-seconds per run).** `split-s1`: one
+  lease 20 / 15.7, tree 20 / 15.5; `full-isolation`: one lease 20 / 15.7, tree 20 / 15.9. At 2x
+  load `split-s1` 18 / 106 against 18 / 105 and `full-isolation` 20 / 121 against 20 / 121.
+- **Messages per run.** Both LETS systems send 1 to 446 (the upper range is 2x load, where
+  exhausted sites poll peers every 0.5 s); the tree adds no network messages because spawn and
+  close are local warden transactions.
+- **Lease-tree costs.** Every 10-unit site builds a seven-lease tree with four leaves (3/2/3/2
+  units). The initial build is 7 lease operations and 66.5 ms at the median (95th percentile 149
+  ms) against 1 operation and 9.1 ms for one lease. Over the grid the tree refreshed 3.88 times
+  per run and one-lease LETS reissued 3.96 times per run (a refresh happens once per transfer in
+  or out, and the counts differ slightly because voucher timing differs between runs). A tree
+  refresh costs 8.8 lease operations on average (9.9 at 0.7x load and skew 1; fewer when the
+  remaining share funds fewer than four leaves) and 113.7 ms at the median, 340 ms at the 95th
+  percentile, 433 ms at most; the one-lease reissue costs 1.8 operations and 22.8 ms at the
+  median, 74 ms at the 95th percentile, 104 ms at most. By site the median refresh is 92.6 ms on
+  `s1`, 91.8 ms on `s2`, and 218 ms on the Azure VM, against 22.0, 18.7, and 44.0 ms for one
+  lease, so a refresh is about 4.5 to 5 times the one-lease reissue everywhere, roughly 10 to 25
+  ms per lease operation. The busiest cells (2x load, skew 1, `split-s1` and `full-isolation`,
+  about eight transfers per run) spend up to 2.0 s per run rebuilding trees against 0.47 s
+  reissuing single leases, spread over three sites and 50 s. `delegation.md` has the per-cell
+  table and `paper-table.md` / `paper-table-2x.md` the paper-style reductions at 0.7x and 2x.
+
+The answer to the reviewers' question is therefore measured rather than argued: with each site's
+budget delegated through a two-level tree whose leaves issue every call, real network breaks of
+30 s on three hosts leave the conservation check, the completions, the stranded budget, and the
+transfer traffic indistinguishable from the one-lease study, at a cost of a few tenths of a
+millisecond per approval and about 0.1 s of warden work each time a site takes up or gives away
+budget. What this grid does not cover is unchanged: deeper or wider trees (the lineage benchmark
+measures those on one warden) and children spawned on a remote warden during a break.
 
 ## Known limitations
 
