@@ -39,8 +39,11 @@ counter, and the real LETS warden with reactive transfers under kernel-level `ip
 faults. The endpoints file names the ordered site roster; topologies, Zipf demand, shares, peer
 lists, and Raft membership derive from it. Site agents replay one seeded Poisson/Zipf arrival plan
 against every system at once, measure time-to-authorization per request, and actuate into an
-independent effect log that the controller checks against the envelope. `local_cluster.py` runs
-independent clusters of one container per site in Docker on one machine; `controller.py` runs the
-grid; `analysis.py` writes the per-site table and `report.py` a headline summary per grid.
-The commands, platforms, and results are documented in
+independent effect log that the controller checks against the envelope. The system name
+`lets-tree-d<depth>-f<fanout>` runs the same LETS warden with each site's root lease delegated
+through a spawn tree whose leaves issue the protected calls, so delegation and partitions are
+exercised together; `lets` keeps the one-lease behaviour of the original grids. `local_cluster.py`
+runs independent clusters of one container per site in Docker on one machine; `controller.py` runs
+the grid; `analysis.py` writes the per-site table and the lease-tree cost table, and `report.py` a
+headline summary per grid. The commands, platforms, and results are documented in
 `results/fair-baselines-2026-10-15/RESULTS.md`.

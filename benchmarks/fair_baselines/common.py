@@ -1,6 +1,7 @@
 """Shared vocabulary for the E1 experiment: the ordered site roster and everything derived from it
-(links, Zipf weights, shares, parametric topologies), the system catalogue, the run configuration
-record exchanged between controller.py and site_agent.py, and the JSON/HMAC helpers both ends use.
+(links, Zipf weights, shares, parametric topologies), the system catalogue including the
+`lets-tree-d<depth>-f<fanout>` delegation variants, the run configuration record exchanged between
+controller.py and site_agent.py, and the JSON/HMAC helpers both ends use.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ TENANT = "fair-baselines"
 ENVELOPE_ID = "fair-baselines-envelope"
 CAPABILITY = "fair-baselines.act"
 SYSTEM_KINDS = ("central", "static-quota", "raft-quorum", "lets")
+LETS_TREE = re.compile(r"lets-tree-d([1-9][0-9]?)-f([1-9][0-9]?)")
+MAX_TREE_DEPTH = 8
+MAX_TREE_FANOUT = 8
 PLACEMENTS = ("equal", "proportional", "explicit")
 DEFAULT_ENVELOPE = 30
 FLAP_PERIOD_S = 3.0
@@ -73,6 +77,12 @@ class SystemSpec:
     kind: str
     retry: bool
     host: str | None = None
+    depth: int = 0
+    fanout: int = 0
+
+    @property
+    def delegates(self) -> bool:
+        return self.depth > 0
 
     @classmethod
     def parse(cls, name: str, sites: Sequence[str] | None = None) -> SystemSpec:
@@ -82,6 +92,15 @@ class SystemSpec:
             return cls(name, "raft-quorum", retry=True)
         if name == "lets":
             return cls(name, "lets", retry=True)
+        tree = LETS_TREE.fullmatch(name)
+        if tree:
+            depth, fanout = int(tree.group(1)), int(tree.group(2))
+            if depth > MAX_TREE_DEPTH or fanout > MAX_TREE_FANOUT:
+                raise ValueError(
+                    f"{name!r} exceeds the tree limits (depth {MAX_TREE_DEPTH}, "
+                    f"fanout {MAX_TREE_FANOUT})"
+                )
+            return cls(name, "lets", retry=True, depth=depth, fanout=fanout)
         base, separator, host = name.partition("@")
         if (
             separator

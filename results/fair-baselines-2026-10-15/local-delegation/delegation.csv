@@ -1,0 +1,9 @@
+topology,load,theta,placement,system,depth,fanout,runs,leases_per_tree,leaves_per_tree,initial_ops_per_site,initial_ms_p50,refreshes_per_run,refresh_ops_mean,refresh_ms_p50,refresh_ms_p95,refresh_ms_max,lease_ops_per_run,build_ms_per_run
+full-isolation,0.7,0.0,equal,lets,0,0,2,1.0,1.0,1.0,3.186,0.0,,,,,3.0,9.779000000000002
+full-isolation,0.7,0.0,equal,lets-tree-d2-f2,2,2,2,7.0,4.0,7.0,24.304,0.0,,,,,21.0,72.9875
+full-isolation,0.7,1.0,equal,lets,0,0,2,1.0,1.0,1.0,3.166,1.0,2.0,7.5729999999999995,27.018,27.018,5.0,27.156000000000002
+full-isolation,0.7,1.0,equal,lets-tree-d2-f2,2,2,2,7.0,4.0,7.0,24.151,1.0,12.0,41.51,79.271,79.271,33.0,133.594
+split-s1,0.7,0.0,equal,lets,0,0,2,1.0,1.0,1.0,3.982,1.0,2.0,8.033999999999999,27.333,27.333,5.0,29.700999999999997
+split-s1,0.7,0.0,equal,lets-tree-d2-f2,2,2,2,7.0,4.0,7.0,28.354,1.0,12.0,43.069,87.073,87.073,33.0,150.0135
+split-s1,0.7,1.0,equal,lets,0,0,2,1.0,1.0,1.0,3.179,5.0,1.8,8.572,20.886,20.886,12.0,64.12899999999999
+split-s1,0.7,1.0,equal,lets-tree-d2-f2,2,2,2,7.0,4.0,7.0,23.929,5.0,9.8,49.844,72.687,72.687,70.0,305.55299999999994
