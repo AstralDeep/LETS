@@ -547,8 +547,8 @@ uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baseli
 uv run python -m benchmarks.fair_baselines.paper --grid three-host-delegation=results/fair-baselines-2026-10-15/three-host-delegation --write results/fair-baselines-2026-10-15/three-host-delegation
 ```
 
-The endpoints file is the one of the three-host run above (`s1` 128.163.202.61 on `eno50`, `s2`
-128.163.202.50 on `enp5s0np0`, `s3` 4.227.163.14 on `eth0`, control through SSH port forwards
+The endpoints file is the one of the three-host run above (`s1` <s1-ip> on `eno50`, `s2`
+<s2-ip> on `enp5s0np0`, `s3` <s3-ip> on `eth0`, control through SSH port forwards
 9731 to 9733, faults through persistent sudo-over-SSH). The 480 cells took about nine hours. Before
 the run the hosts needed the openings that the 2026-10-18 teardown had removed: passwordless sudo
 for the fault user on `s1` and `s2`, the `lets-e1` ufw rules admitting TCP 9701 and 9801 between

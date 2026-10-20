@@ -16,7 +16,7 @@
     "os_system": "Windows",
     "platform": "Windows-10-10.0.19045-SP0",
     "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
-    "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+    "python_executable": "<python-executable>",
     "python_implementation": "CPython",
     "python_version": "3.11.15",
     "sqlite_version": "3.53.1"
@@ -295,7 +295,7 @@
     "os_system": "Windows",
     "platform": "Windows-10-10.0.19045-SP0",
     "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
-    "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+    "python_executable": "<python-executable>",
     "python_implementation": "CPython",
     "python_version": "3.11.15",
     "sqlite_version": "3.53.1"
@@ -330,7 +330,7 @@
         "os_system": "Windows",
         "platform": "Windows-10-10.0.19045-SP0",
         "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
-        "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+        "python_executable": "<python-executable>",
         "python_implementation": "CPython",
         "python_version": "3.11.15",
         "sqlite_version": "3.53.1"
@@ -376,7 +376,7 @@
         "os_system": "Windows",
         "platform": "Windows-10-10.0.19045-SP0",
         "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
-        "python_executable": "C:\\Users\\Sam\\AppData\\Local\\Temp\\claude\\Y--WORK-MCP-AstralDeep\\7453860e-2591-453e-8050-360bba10dd57\\scratchpad\\lets-deleg\\.venv\\Scripts\\python.exe",
+        "python_executable": "<python-executable>",
         "python_implementation": "CPython",
         "python_version": "3.11.15",
         "sqlite_version": "3.53.1"
