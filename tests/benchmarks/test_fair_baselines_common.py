@@ -393,3 +393,35 @@ def test_lets_tree_system_specs_parse_depth_and_fanout() -> None:
     assert RunConfig.from_dict(config.to_dict()).systems == config.systems
     assert config.systems == ("lets", "lets-tree-d2-f2", "static-quota")
     assert "lets-tree-d2-f2" not in default_systems()
+
+
+def test_anchored_and_restore_system_specs() -> None:
+    anchored = SystemSpec.parse("lets-anchored")
+    assert (anchored.kind, anchored.anchored, anchored.restore_site) == ("lets", True, None)
+    assert anchored.expected_unsafe is False and anchored.delegates is False
+    guarded = SystemSpec.parse("lets-anchored-restore@s1", DEFAULT_SITES)
+    assert (guarded.anchored, guarded.restore_site, guarded.expected_unsafe) == (True, "s1", False)
+    control = SystemSpec.parse("lets-restore@s2")
+    assert (control.anchored, control.restore_site, control.expected_unsafe) == (False, "s2", True)
+    assert SystemSpec.parse("lets").expected_unsafe is False
+    for bad in ("lets-restore@s9", "lets-anchored-restore", "lets-tree-anchored"):
+        with pytest.raises(ValueError, match="unknown system"):
+            SystemSpec.parse(bad, DEFAULT_SITES)
+
+
+def test_restore_schedule_follows_the_partition_window() -> None:
+    base = {
+        "run_id": "r",
+        "topology": "split-s1",
+        "load": 2.0,
+        "theta": 1.0,
+        "seed": 1,
+        "placement": "equal",
+        "envelope": 30,
+        "systems": ["lets-anchored-restore@s1"],
+        "deadline_s": 20.0,
+    }
+    paper = RunConfig.from_dict({**base, "pre_s": 5.0, "partition_s": 30.0, "post_s": 15.0})
+    assert paper.restore_schedule_s == (6.0, 20.0)
+    short = RunConfig.from_dict({**base, "pre_s": 0.5, "partition_s": 1.0, "post_s": 0.5})
+    assert short.restore_schedule_s == (0.75, 1.0)

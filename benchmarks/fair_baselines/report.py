@@ -38,6 +38,9 @@ from benchmarks.nsdi_strengthening.common import write_json, write_text
 ROW_ORDER = (
     "lets",
     "lets-tree",
+    "lets-anchored",
+    "lets-anchored-restore",
+    "lets-restore",
     "static-quota",
     "central-noretry",
     "central-retry",
@@ -46,12 +49,17 @@ ROW_ORDER = (
 ROW_LABELS = {
     "lets": "LETS",
     "lets-tree": "LETS, delegation tree",
+    "lets-anchored": "LETS, rollback anchors",
+    "lets-anchored-restore": "LETS, rollback anchors, stale restore",
+    "lets-restore": "LETS, no anchors, stale restore",
     "static-quota": "Static per-site quotas",
     "central-noretry": "Central counter, no retry",
     "central-retry": "Central counter, retry",
     "raft-quorum": "Raft quorum counter",
 }
-LETS_GROUPS = frozenset({"lets", "lets-tree"})
+LETS_GROUPS = frozenset(
+    {"lets", "lets-tree", "lets-anchored", "lets-anchored-restore", "lets-restore"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +98,10 @@ class GridReduction:
 def row_key(system: str) -> str:
     spec = SystemSpec.parse(system)
     if spec.kind == "lets":
+        if spec.restore_site is not None:
+            return "lets-anchored-restore" if spec.anchored else "lets-restore"
+        if spec.anchored:
+            return "lets-anchored"
         return "lets-tree" if spec.delegates else "lets"
     if spec.kind != "central":
         return spec.kind

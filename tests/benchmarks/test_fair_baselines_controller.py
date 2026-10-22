@@ -35,6 +35,7 @@ from benchmarks.fair_baselines.controller import (
     run_path,
     run_record,
     summarize,
+    unexpected_safety_failures,
     verify_safety,
     write_manifest,
 )
@@ -597,3 +598,12 @@ def test_main_run_with_explicit_shares(
     assert {fault["link"] for fault in payload["faults"]} == {"s2-s3"}
     manifest = json.loads((output / "MANIFEST.json").read_text(encoding="utf-8"))
     assert manifest["grid"]["sites"] == ["s1", "s2", "s3"]
+
+
+def test_only_unanchored_restore_controls_may_break_the_safety_bound() -> None:
+    broken = {"safety_ok": False}
+    safe = {"safety_ok": True}
+    assert unexpected_safety_failures({"lets-restore@s1": broken, "lets": safe}) == []
+    assert unexpected_safety_failures(
+        {"lets-anchored-restore@s1": broken, "lets-anchored": broken, "lets-restore@s1": broken}
+    ) == ["lets-anchored", "lets-anchored-restore@s1"]

@@ -279,6 +279,12 @@ def test_reduce_grid_computes_every_table_column(tmp_path: Path) -> None:
     assert report.row_key("central-noretry@s2") == "central-noretry"
     assert report.row_key("raft-quorum") == "raft-quorum"
     assert report.row_key("lets") == "lets" and report.row_key(TREE) == "lets-tree"
+    assert report.row_key("lets-anchored") == "lets-anchored"
+    assert report.row_key("lets-anchored-restore@s1") == "lets-anchored-restore"
+    assert report.row_key("lets-restore@s1") == "lets-restore"
+    assert report.row_label("lets-restore", ["lets-restore@s1"]) == (
+        "LETS, no anchors, stale restore"
+    )
     assert reduction.delegation == {}
     assert report.row_label("lets", ["lets"]) == "LETS"
     assert report.row_label("lets-tree", [TREE]) == "LETS, delegation tree (depth 2, fanout 2)"

@@ -17,6 +17,7 @@ import pytest
 
 from benchmarks.fair_baselines.common import DEFAULT_SITES
 from benchmarks.fair_baselines.site_agent import AgentServer, serve
+from benchmarks.fair_baselines.systems import AnchorSettings
 from lets.crypto import Ed25519Signer
 
 TOKEN = "test-token-not-a-secret-0123456789"
@@ -30,14 +31,20 @@ def free_port() -> int:
 
 
 class LoopbackCluster:
-    def __init__(self, root: Path, sites: Sequence[str] = DEFAULT_SITES) -> None:
+    def __init__(
+        self, root: Path, sites: Sequence[str] = DEFAULT_SITES, anchor_root: Path | None = None
+    ) -> None:
         self.token = TOKEN
         self.sites = tuple(sites)
         self.ports = {site: free_port() for site in self.sites}
         self.raft_ports = {site: free_port() for site in self.sites}
         self.servers: dict[str, AgentServer] = {}
         for site in self.sites:
-            server = serve(site, "127.0.0.1", self.ports[site], TOKEN, root / site)
+            anchor = None
+            if anchor_root is not None:
+                (anchor_root / site).mkdir(parents=True, exist_ok=True)
+                anchor = AnchorSettings(anchor_root / site)
+            server = serve(site, "127.0.0.1", self.ports[site], TOKEN, root / site, anchor)
             threading.Thread(
                 target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
             ).start()
@@ -131,6 +138,15 @@ class LoopbackCluster:
 @pytest.fixture
 def loopback_cluster(tmp_path: Path) -> Iterator[LoopbackCluster]:
     cluster = LoopbackCluster(tmp_path / "agents")
+    try:
+        yield cluster
+    finally:
+        cluster.close()
+
+
+@pytest.fixture
+def anchored_cluster(tmp_path: Path) -> Iterator[LoopbackCluster]:
+    cluster = LoopbackCluster(tmp_path / "agents", anchor_root=tmp_path / "anchors")
     try:
         yield cluster
     finally:
