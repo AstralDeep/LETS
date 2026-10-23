@@ -5,8 +5,26 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-23
+
+The first published release of the 1.1 line. The `v1.1.0` tag was created but never published,
+because CI on its commit failed on the hosted Windows runners; 1.1.1 carries the same runtime.
+
 ### Added
 
+- E1 harness: rollback-anchored LETS. `lets-anchored` runs the warden and the executor with
+  process-file rollback anchors whose root and helper command come from the site agent
+  (`--anchor-root`, `--anchor-helper`), so the helper can run under a separate account.
+  `lets-anchored-restore@<site>` and `lets-restore@<site>` back up both databases one second into
+  the break and restore that backup halfway through it; the unanchored control may exceed the
+  envelope without failing the run, and the report counts it separately. Every LETS authorization
+  records its warden and executor time (`auth_cost` events), and
+  `benchmarks.fair_baselines.anchor_cost` measures the anchor cost on a quiet host.
+  `results/fair-baselines-2026-10-15/three-host-anchored`, `three-host-anchored-restore`, and
+  `anchor-cost` hold the scrubbed three-host grids and quiet-host costs.
+- `results/astraldeep-case-study-2026-10-23/`: a fresh run of the 19-scenario AstralDeep
+  host-mediation case study in `off`, `shadow`, and `enforce` modes with every raw artifact
+  retained.
 - E1 harness: `benchmarks.fair_baselines.report` summarizes one or more grids into headline
   metrics (pooled completion with 95% seed-bootstrap intervals and their widest widths, pre-break
   median time to authorization, stranded unit-seconds under the topology that isolates the first
@@ -64,6 +82,26 @@ image together; the Git tag is the package version prefixed with `v`.
   roster, so the recorded three-host grid regenerates unchanged. `local_cluster up --sites ...`
   renders one container per site. `benchmarks/fair_baselines/examples/seven-site-endpoints.json`
   is a placeholder seven-site endpoints file. The runtime package, API, and schema are unchanged.
+
+### Fixed
+
+- Test reliability on slower runners: the three-agent loopback tests check conservation (held
+  units plus units in flight equal the envelope, debits equal effects) instead of assuming every
+  transfer landed or the whole envelope was spent; the real mTLS request test allows 30 s instead
+  of 2 s; and audit-exporter tests that publish several records in one pass use the 30 s publish
+  budget. The runtime is unchanged.
+
+### Security
+
+- Locked runtime dependencies: certifi 2026.10.19 (PYSEC-2026-4320) and opentelemetry-api 1.45.1
+  (CVE-2026-114603).
+
+### Compatibility, migration, and rollback
+
+- The API, protocol, storage schema (version 3), and configuration are unchanged from 1.1.0, so
+  a 1.1.0 node needs no migration. Coming from 1.0.x, migrate every warden to schema 3 with
+  `lets migrate --backup <dir>` as described for 1.1.0; the pre-migration recovery bundle remains
+  the rollback boundary, because 1.0.x refuses a schema-3 database.
 
 ## [1.1.0] - 2026-10-15
 
