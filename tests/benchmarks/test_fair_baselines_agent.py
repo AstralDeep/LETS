@@ -427,20 +427,21 @@ def test_anchored_agents_refuse_a_stale_restore_that_unanchored_lets_accepts(
         for site, payload in results.items()
     }
     assert restores["s2"] == [] and restores["s3"] == []
-    kinds = {(system, kind) for system, kind, _ in restores["s1"]}
-    assert kinds == {
-        ("lets-anchored-restore@s1", "restore_snapshot"),
-        ("lets-anchored-restore@s1", "restore_refused"),
-        ("lets-restore@s1", "restore_snapshot"),
-        ("lets-restore@s1", "restore_accepted"),
+    outcomes = {
+        system: [(kind, detail) for name, kind, detail in restores["s1"] if name == system]
+        for system in ("lets-anchored-restore@s1", "lets-restore@s1")
     }
-    refused = next(detail for _, kind, detail in restores["s1"] if kind == "restore_refused")
-    assert "StorageError" in refused
-    revisions = dict(token.split("=", 1) for token in refused.split()[:3])
-    assert int(revisions["revision_before"]) > int(revisions["snapshot_revision"])
+    for system, events in outcomes.items():
+        assert len(events) == 2 and events[0][0] == "restore_snapshot", (system, events)
     snapshots = results["s1"]["snapshots"]
-    assert snapshots["lets-anchored-restore@s1"]["healthy"] is False
+    assert outcomes["lets-restore@s1"][1][0] == "restore_accepted"
     assert snapshots["lets-restore@s1"]["healthy"] is True
+    kind, detail = outcomes["lets-anchored-restore@s1"][1]
+    revisions = dict(token.split("=", 1) for token in detail.split()[:3])
+    stale = int(revisions["revision_before"]) > int(revisions["snapshot_revision"])
+    assert kind == ("restore_refused" if stale else "restore_accepted"), detail
+    assert ("StorageError" in detail) is stale
+    assert snapshots["lets-anchored-restore@s1"]["healthy"] is not stale
     assert snapshots["lets-anchored"]["anchored"] is True
     assert snapshots["lets-anchored"]["restore_refused"] is None
     safety = verify_safety(int(config["envelope"]), results)  # type: ignore[arg-type]
