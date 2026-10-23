@@ -1,0 +1,98 @@
+{
+  "grids": [
+    {
+      "all_effects_match": true,
+      "all_safety_ok": true,
+      "completion": {
+        "bridge-s3": {
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "lets-anchored": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          }
+        },
+        "flapping-s1-s2": {
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "lets-anchored": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          }
+        }
+      },
+      "delegation": {
+        "lets": {
+          "lease_ops_per_run": 10.55,
+          "leases_per_tree": 1.0,
+          "refresh_ms_p50": 22.488999999999997,
+          "refresh_ms_p95": 57.174,
+          "refresh_ops_mean": 1.935897435897436,
+          "refreshes_per_run": 3.9
+        },
+        "lets-anchored": {
+          "lease_ops_per_run": 10.75,
+          "leases_per_tree": 1.0,
+          "refresh_ms_p50": 44.53,
+          "refresh_ms_p95": 100.176,
+          "refresh_ops_mean": 1.9375,
+          "refreshes_per_run": 4.0
+        }
+      },
+      "envelope": 30,
+      "label": "three-host-anchored",
+      "load": 0.7,
+      "max_authorized": 30,
+      "pre_break_p50_ms": {
+        "lets": 23.6256845,
+        "lets-anchored": 41.8794835
+      },
+      "pre_break_s": 5.0,
+      "run_system_pairs": 160,
+      "stranded_peak_units": {},
+      "stranded_topology": null,
+      "stranded_unit_seconds": {},
+      "systems": [
+        "lets",
+        "lets-anchored"
+      ],
+      "theta": 1.0,
+      "topologies": [
+        "bridge-s3",
+        "flapping-s1-s2"
+      ],
+      "unsafe_controls": 0
+    }
+  ],
+  "schema": "lets.fair-baselines-report/v1",
+  "widest_intervals": {
+    "lets": {
+      "grid": "three-host-anchored",
+      "system": "lets",
+      "topology": "flapping-s1-s2",
+      "width_points": 0.0
+    },
+    "lets-anchored": {
+      "grid": "three-host-anchored",
+      "system": "lets-anchored",
+      "topology": "flapping-s1-s2",
+      "width_points": 0.0
+    }
+  }
+}

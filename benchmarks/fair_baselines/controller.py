@@ -1,7 +1,8 @@
 """Grid runner for E1: enumerates cells (topology x load x skew x seed), drives one cell at a time
 on each cluster described by an endpoints file that carries the ordered site roster (configure,
 synchronized start, timed iptables faults via faults.py, collection, teardown), verifies the
-actuator-side safety bound, and writes per-run JSON plus flat CSVs for analysis.py and report.py.
+actuator-side safety bound (unanchored restore controls may break it without failing a run), and
+writes per-run JSON plus flat CSVs for analysis.py and report.py.
 """
 
 from __future__ import annotations
@@ -327,6 +328,14 @@ def verify_safety(
     return verdicts
 
 
+def unexpected_safety_failures(safety: Mapping[str, Mapping[str, object]]) -> list[str]:
+    return [
+        system
+        for system, verdict in sorted(safety.items())
+        if not verdict["safety_ok"] and not SystemSpec.parse(system).expected_unsafe
+    ]
+
+
 class CellRunner:
     def __init__(
         self,
@@ -534,7 +543,7 @@ class CellRunner:
                 except ControllerError as exc:
                     failures.append(f"{site} teardown failed: {exc}")
         safety = verify_safety(config.envelope, site_results)
-        if any(not verdict["safety_ok"] for verdict in safety.values()):
+        if unexpected_safety_failures(safety):
             failures.append("safety check failed")
         result = {
             "schema": SCHEMA,

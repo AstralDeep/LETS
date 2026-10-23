@@ -1,0 +1,1321 @@
+run_id,scheduled_offset_s,kind,link,site,command,ok,sent_offset_s,returned_offset_s
+bridge-s3-L0.7-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006726,5.1019406
+bridge-s3-L0.7-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006726,5.0928116
+bridge-s3-L0.7-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.001718,35.1156319
+bridge-s3-L0.7-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.001718,35.1272596
+bridge-s3-L0.7-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.001718,35.1312595
+bridge-s3-L0.7-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0075732,5.117971
+bridge-s3-L0.7-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0075732,5.0960493
+bridge-s3-L0.7-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0030061,35.1118213
+bridge-s3-L0.7-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0030061,35.1158368
+bridge-s3-L0.7-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0030061,35.1332991
+bridge-s3-L0.7-T1-equal-S003,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0033563,5.1095669
+bridge-s3-L0.7-T1-equal-S003,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0033563,5.0951599
+bridge-s3-L0.7-T1-equal-S003,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0011164,35.1199557
+bridge-s3-L0.7-T1-equal-S003,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0011164,35.1239486
+bridge-s3-L0.7-T1-equal-S003,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0011164,35.1239486
+bridge-s3-L0.7-T1-equal-S004,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0054394,5.1092658
+bridge-s3-L0.7-T1-equal-S004,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0054394,5.1002665
+bridge-s3-L0.7-T1-equal-S004,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0008714,35.1375772
+bridge-s3-L0.7-T1-equal-S004,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0008714,35.1375772
+bridge-s3-L0.7-T1-equal-S004,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0008714,35.1280615
+bridge-s3-L0.7-T1-equal-S005,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0021931,5.1089302
+bridge-s3-L0.7-T1-equal-S005,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0021931,5.0972279
+bridge-s3-L0.7-T1-equal-S005,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0007752,35.1174048
+bridge-s3-L0.7-T1-equal-S005,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0007752,35.1254583
+bridge-s3-L0.7-T1-equal-S005,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0007752,35.1385392
+bridge-s3-L0.7-T1-equal-S006,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0019224,5.1077286
+bridge-s3-L0.7-T1-equal-S006,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0019224,5.0941354
+bridge-s3-L0.7-T1-equal-S006,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0031937,35.1136917
+bridge-s3-L0.7-T1-equal-S006,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0036703,35.1264549
+bridge-s3-L0.7-T1-equal-S006,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0036703,35.1430115
+bridge-s3-L0.7-T1-equal-S007,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.000531,5.101742
+bridge-s3-L0.7-T1-equal-S007,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.000531,5.0911791
+bridge-s3-L0.7-T1-equal-S007,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0004113,35.119732
+bridge-s3-L0.7-T1-equal-S007,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0004113,35.135316
+bridge-s3-L0.7-T1-equal-S007,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0004113,35.1373168
+bridge-s3-L0.7-T1-equal-S008,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0055769,5.1153524
+bridge-s3-L0.7-T1-equal-S008,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0055769,5.1016617
+bridge-s3-L0.7-T1-equal-S008,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0021952,35.1166288
+bridge-s3-L0.7-T1-equal-S008,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0021952,35.124446
+bridge-s3-L0.7-T1-equal-S008,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0021952,35.1307765
+bridge-s3-L0.7-T1-equal-S009,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0068015,5.1140669
+bridge-s3-L0.7-T1-equal-S009,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0068015,5.0979198
+bridge-s3-L0.7-T1-equal-S009,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.003422,35.1221418
+bridge-s3-L0.7-T1-equal-S009,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.003422,35.1221418
+bridge-s3-L0.7-T1-equal-S009,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.003422,35.1319349
+bridge-s3-L0.7-T1-equal-S010,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.003143,5.1059964
+bridge-s3-L0.7-T1-equal-S010,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.003143,5.0987035
+bridge-s3-L0.7-T1-equal-S010,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0027301,35.1047662
+bridge-s3-L0.7-T1-equal-S010,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0027301,35.1305604
+bridge-s3-L0.7-T1-equal-S010,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0027301,35.1305604
+bridge-s3-L0.7-T1-equal-S011,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0022921,5.1084103
+bridge-s3-L0.7-T1-equal-S011,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0022921,5.0985502
+bridge-s3-L0.7-T1-equal-S011,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0019272,35.1227135
+bridge-s3-L0.7-T1-equal-S011,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0019272,35.1227135
+bridge-s3-L0.7-T1-equal-S011,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0019272,35.1306478
+bridge-s3-L0.7-T1-equal-S012,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0013272,5.1106434
+bridge-s3-L0.7-T1-equal-S012,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0013272,5.0969377
+bridge-s3-L0.7-T1-equal-S012,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0006422,35.1247185
+bridge-s3-L0.7-T1-equal-S012,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0006422,35.1422185
+bridge-s3-L0.7-T1-equal-S012,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0006422,35.1330831
+bridge-s3-L0.7-T1-equal-S013,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008257,5.1081706
+bridge-s3-L0.7-T1-equal-S013,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008257,5.0880293
+bridge-s3-L0.7-T1-equal-S013,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0042146,35.1252342
+bridge-s3-L0.7-T1-equal-S013,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0042146,35.1311292
+bridge-s3-L0.7-T1-equal-S013,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0042146,35.1311292
+bridge-s3-L0.7-T1-equal-S014,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0027303,5.1083466
+bridge-s3-L0.7-T1-equal-S014,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0027303,5.0963467
+bridge-s3-L0.7-T1-equal-S014,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0010239,35.1141349
+bridge-s3-L0.7-T1-equal-S014,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0010239,35.118135
+bridge-s3-L0.7-T1-equal-S014,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0010239,35.1281359
+bridge-s3-L0.7-T1-equal-S015,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0014156,5.1060411
+bridge-s3-L0.7-T1-equal-S015,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0014156,5.0979868
+bridge-s3-L0.7-T1-equal-S015,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0023705,35.1155344
+bridge-s3-L0.7-T1-equal-S015,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0023705,35.1315352
+bridge-s3-L0.7-T1-equal-S015,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0023705,35.1315352
+bridge-s3-L0.7-T1-equal-S016,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0034891,5.105531
+bridge-s3-L0.7-T1-equal-S016,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0034891,5.0975285
+bridge-s3-L0.7-T1-equal-S016,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0061391,35.1318605
+bridge-s3-L0.7-T1-equal-S016,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0061391,35.1318605
+bridge-s3-L0.7-T1-equal-S016,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0061391,35.1355253
+bridge-s3-L0.7-T1-equal-S017,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0040696,5.1078965
+bridge-s3-L0.7-T1-equal-S017,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0040696,5.0998892
+bridge-s3-L0.7-T1-equal-S017,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0009869,35.1209458
+bridge-s3-L0.7-T1-equal-S017,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0009869,35.1155734
+bridge-s3-L0.7-T1-equal-S017,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0009869,35.1289442
+bridge-s3-L0.7-T1-equal-S018,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009577,5.0987499
+bridge-s3-L0.7-T1-equal-S018,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009577,5.0831126
+bridge-s3-L0.7-T1-equal-S018,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0009134,35.1227592
+bridge-s3-L0.7-T1-equal-S018,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0009134,35.1227592
+bridge-s3-L0.7-T1-equal-S018,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0009134,35.1396556
+bridge-s3-L0.7-T1-equal-S019,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008331,5.1096406
+bridge-s3-L0.7-T1-equal-S019,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008331,5.0930633
+bridge-s3-L0.7-T1-equal-S019,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0011206,35.1151156
+bridge-s3-L0.7-T1-equal-S019,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0011206,35.125512
+bridge-s3-L0.7-T1-equal-S019,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0011206,35.1505437
+bridge-s3-L0.7-T1-equal-S020,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0045699,5.1023994
+bridge-s3-L0.7-T1-equal-S020,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0045699,5.098394
+bridge-s3-L0.7-T1-equal-S020,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0011017,35.1183957
+bridge-s3-L0.7-T1-equal-S020,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0011017,35.1089704
+bridge-s3-L0.7-T1-equal-S020,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0011017,35.1404709
+bridge-s3-L2-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008206,5.1033787
+bridge-s3-L2-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008206,5.0869369
+bridge-s3-L2-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0144214,35.1237171
+bridge-s3-L2-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0144214,35.1378678
+bridge-s3-L2-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0144214,35.1566095
+bridge-s3-L2-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0019829,5.1090104
+bridge-s3-L2-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0019829,5.097503
+bridge-s3-L2-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0044316,35.1316703
+bridge-s3-L2-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0044316,35.1356857
+bridge-s3-L2-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0044316,35.1436782
+bridge-s3-L2-T1-equal-S003,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0042248,5.1132322
+bridge-s3-L2-T1-equal-S003,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.004741,5.1016977
+bridge-s3-L2-T1-equal-S003,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0019305,35.1199497
+bridge-s3-L2-T1-equal-S003,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0019305,35.1199497
+bridge-s3-L2-T1-equal-S003,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0019305,35.1387602
+bridge-s3-L2-T1-equal-S004,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0032959,5.108526
+bridge-s3-L2-T1-equal-S004,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0032959,5.0980708
+bridge-s3-L2-T1-equal-S004,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0038223,35.1159567
+bridge-s3-L2-T1-equal-S004,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0038223,35.1159567
+bridge-s3-L2-T1-equal-S004,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0038223,35.1379776
+bridge-s3-L2-T1-equal-S005,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0026693,5.108289
+bridge-s3-L2-T1-equal-S005,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0026693,5.0962888
+bridge-s3-L2-T1-equal-S005,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0002838,35.1210134
+bridge-s3-L2-T1-equal-S005,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0002838,35.1150066
+bridge-s3-L2-T1-equal-S005,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0002838,35.139823
+bridge-s3-L2-T1-equal-S006,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0002246,5.1062169
+bridge-s3-L2-T1-equal-S006,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0002246,5.0938336
+bridge-s3-L2-T1-equal-S006,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0047157,35.1250248
+bridge-s3-L2-T1-equal-S006,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0047157,35.1250248
+bridge-s3-L2-T1-equal-S006,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0047157,35.1376582
+bridge-s3-L2-T1-equal-S007,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006666,5.1041963
+bridge-s3-L2-T1-equal-S007,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006666,5.0921896
+bridge-s3-L2-T1-equal-S007,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0024943,35.1219975
+bridge-s3-L2-T1-equal-S007,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0024943,35.1219975
+bridge-s3-L2-T1-equal-S007,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0024943,35.1248986
+bridge-s3-L2-T1-equal-S008,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0047198,5.1129469
+bridge-s3-L2-T1-equal-S008,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0047198,5.1009318
+bridge-s3-L2-T1-equal-S008,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0026545,35.1143801
+bridge-s3-L2-T1-equal-S008,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0026545,35.1194879
+bridge-s3-L2-T1-equal-S008,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0026545,35.1308997
+bridge-s3-L2-T1-equal-S009,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0021965,5.1101777
+bridge-s3-L2-T1-equal-S009,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0021965,5.0993756
+bridge-s3-L2-T1-equal-S009,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.00657,35.1138163
+bridge-s3-L2-T1-equal-S009,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.00657,35.1218244
+bridge-s3-L2-T1-equal-S009,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.00657,35.1330966
+bridge-s3-L2-T1-equal-S010,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0026166,5.1106392
+bridge-s3-L2-T1-equal-S010,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0026166,5.0971964
+bridge-s3-L2-T1-equal-S010,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0005585,35.1173966
+bridge-s3-L2-T1-equal-S010,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0005585,35.1143959
+bridge-s3-L2-T1-equal-S010,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0005585,35.1286935
+bridge-s3-L2-T1-equal-S011,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.000868,5.1045055
+bridge-s3-L2-T1-equal-S011,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.000868,5.087943
+bridge-s3-L2-T1-equal-S011,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0011418,35.1104189
+bridge-s3-L2-T1-equal-S011,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0011418,35.1214203
+bridge-s3-L2-T1-equal-S011,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0011418,35.129833
+bridge-s3-L2-T1-equal-S012,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0013643,5.1050383
+bridge-s3-L2-T1-equal-S012,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0013643,5.097036
+bridge-s3-L2-T1-equal-S012,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0016173,35.1203193
+bridge-s3-L2-T1-equal-S012,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0016173,35.1366936
+bridge-s3-L2-T1-equal-S012,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0016173,35.1283182
+bridge-s3-L2-T1-equal-S013,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0036999,5.1005011
+bridge-s3-L2-T1-equal-S013,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0036999,5.0943655
+bridge-s3-L2-T1-equal-S013,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.001081,35.1079431
+bridge-s3-L2-T1-equal-S013,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.001081,35.1178147
+bridge-s3-L2-T1-equal-S013,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.001081,35.1302035
+bridge-s3-L2-T1-equal-S014,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008761,5.1044824
+bridge-s3-L2-T1-equal-S014,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008761,5.0961139
+bridge-s3-L2-T1-equal-S014,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.000691,35.105603
+bridge-s3-L2-T1-equal-S014,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.000691,35.1212289
+bridge-s3-L2-T1-equal-S014,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.001193,35.1363077
+bridge-s3-L2-T1-equal-S015,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0002986,5.1046757
+bridge-s3-L2-T1-equal-S015,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0002986,5.0938684
+bridge-s3-L2-T1-equal-S015,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0013428,35.1155025
+bridge-s3-L2-T1-equal-S015,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0013428,35.1337438
+bridge-s3-L2-T1-equal-S015,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.001791,35.1537527
+bridge-s3-L2-T1-equal-S016,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0110815,5.1515191
+bridge-s3-L2-T1-equal-S016,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0110815,5.1434573
+bridge-s3-L2-T1-equal-S016,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0029626,35.1172516
+bridge-s3-L2-T1-equal-S016,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0029626,35.121252
+bridge-s3-L2-T1-equal-S016,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0029626,35.130822
+bridge-s3-L2-T1-equal-S017,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007545,5.1075039
+bridge-s3-L2-T1-equal-S017,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007545,5.0948825
+bridge-s3-L2-T1-equal-S017,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0009417,35.1214686
+bridge-s3-L2-T1-equal-S017,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0009417,35.133336
+bridge-s3-L2-T1-equal-S017,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0009417,35.1291335
+bridge-s3-L2-T1-equal-S018,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.00604,5.1121981
+bridge-s3-L2-T1-equal-S018,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.00604,5.0901139
+bridge-s3-L2-T1-equal-S018,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0000627,35.1087245
+bridge-s3-L2-T1-equal-S018,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0000627,35.1383457
+bridge-s3-L2-T1-equal-S018,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0000627,35.1273465
+bridge-s3-L2-T1-equal-S019,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0018526,5.1045032
+bridge-s3-L2-T1-equal-S019,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0018526,5.0975764
+bridge-s3-L2-T1-equal-S019,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0003509,35.1197782
+bridge-s3-L2-T1-equal-S019,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0003509,35.1197782
+bridge-s3-L2-T1-equal-S019,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0003509,35.140566
+bridge-s3-L2-T1-equal-S020,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0032092,5.0992304
+bridge-s3-L2-T1-equal-S020,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0032092,5.0836053
+bridge-s3-L2-T1-equal-S020,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0028643,35.1138058
+bridge-s3-L2-T1-equal-S020,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0028643,35.1138058
+bridge-s3-L2-T1-equal-S020,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0028643,35.1294498
+flapping-s1-s2-L0.7-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0138025,5.111139
+flapping-s1-s2-L0.7-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0138025,5.0955113
+flapping-s1-s2-L0.7-T1-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0005038,8.1232598
+flapping-s1-s2-L0.7-T1-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0005038,8.1162699
+flapping-s1-s2-L0.7-T1-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0005038,8.1371879
+flapping-s1-s2-L0.7-T1-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.001149,11.0973036
+flapping-s1-s2-L0.7-T1-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.001149,11.0816784
+flapping-s1-s2-L0.7-T1-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0153511,14.1199535
+flapping-s1-s2-L0.7-T1-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0153511,14.1199535
+flapping-s1-s2-L0.7-T1-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0153511,14.152213
+flapping-s1-s2-L0.7-T1-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0040942,17.1096796
+flapping-s1-s2-L0.7-T1-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0040942,17.0978135
+flapping-s1-s2-L0.7-T1-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0011093,20.1098812
+flapping-s1-s2-L0.7-T1-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0011093,20.1262882
+flapping-s1-s2-L0.7-T1-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0011093,20.1383009
+flapping-s1-s2-L0.7-T1-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0019701,23.1065301
+flapping-s1-s2-L0.7-T1-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0019701,23.0873859
+flapping-s1-s2-L0.7-T1-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0085816,26.1183686
+flapping-s1-s2-L0.7-T1-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0085816,26.1183686
+flapping-s1-s2-L0.7-T1-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0085816,26.1340066
+flapping-s1-s2-L0.7-T1-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0154417,29.109555
+flapping-s1-s2-L0.7-T1-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0154417,29.109555
+flapping-s1-s2-L0.7-T1-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0060177,32.125316
+flapping-s1-s2-L0.7-T1-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0060177,32.1311073
+flapping-s1-s2-L0.7-T1-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0060177,32.1452143
+flapping-s1-s2-L0.7-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0008102,35.0964419
+flapping-s1-s2-L0.7-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0008102,35.0808174
+flapping-s1-s2-L0.7-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0008102,35.1366991
+flapping-s1-s2-L0.7-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0003645,5.1055521
+flapping-s1-s2-L0.7-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0003645,5.0883961
+flapping-s1-s2-L0.7-T1-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0014432,8.1151693
+flapping-s1-s2-L0.7-T1-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0014432,8.1151693
+flapping-s1-s2-L0.7-T1-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0014432,8.1396116
+flapping-s1-s2-L0.7-T1-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0007263,11.1051229
+flapping-s1-s2-L0.7-T1-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0007263,11.0913088
+flapping-s1-s2-L0.7-T1-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0080525,14.1243495
+flapping-s1-s2-L0.7-T1-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0080525,14.1196491
+flapping-s1-s2-L0.7-T1-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0080525,14.1414969
+flapping-s1-s2-L0.7-T1-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0110573,17.1123854
+flapping-s1-s2-L0.7-T1-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0110573,17.105334
+flapping-s1-s2-L0.7-T1-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0080564,20.1148265
+flapping-s1-s2-L0.7-T1-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0080564,20.1304553
+flapping-s1-s2-L0.7-T1-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0080564,20.1460802
+flapping-s1-s2-L0.7-T1-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0141502,23.119475
+flapping-s1-s2-L0.7-T1-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0141502,23.1055765
+flapping-s1-s2-L0.7-T1-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.000613,26.1101979
+flapping-s1-s2-L0.7-T1-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.000613,26.1127356
+flapping-s1-s2-L0.7-T1-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.000613,26.128364
+flapping-s1-s2-L0.7-T1-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0153447,29.1207063
+flapping-s1-s2-L0.7-T1-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0154559,29.1113382
+flapping-s1-s2-L0.7-T1-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0049648,32.1117111
+flapping-s1-s2-L0.7-T1-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0049648,32.1290199
+flapping-s1-s2-L0.7-T1-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0049648,32.1290199
+flapping-s1-s2-L0.7-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0011,35.0964756
+flapping-s1-s2-L0.7-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0011,35.0864229
+flapping-s1-s2-L0.7-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0011,35.1387892
+flapping-s1-s2-L0.7-T1-equal-S003,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0038732,5.1113225
+flapping-s1-s2-L0.7-T1-equal-S003,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0038732,5.0976421
+flapping-s1-s2-L0.7-T1-equal-S003,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0019574,8.1183908
+flapping-s1-s2-L0.7-T1-equal-S003,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0019574,8.111687
+flapping-s1-s2-L0.7-T1-equal-S003,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0019574,8.1391778
+flapping-s1-s2-L0.7-T1-equal-S003,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0005814,11.0977161
+flapping-s1-s2-L0.7-T1-equal-S003,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0005814,11.0908718
+flapping-s1-s2-L0.7-T1-equal-S003,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0061998,14.119824
+flapping-s1-s2-L0.7-T1-equal-S003,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0061998,14.111749
+flapping-s1-s2-L0.7-T1-equal-S003,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0061998,14.1395092
+flapping-s1-s2-L0.7-T1-equal-S003,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.000036,17.1050006
+flapping-s1-s2-L0.7-T1-equal-S003,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.000036,17.0950687
+flapping-s1-s2-L0.7-T1-equal-S003,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0064896,20.1190151
+flapping-s1-s2-L0.7-T1-equal-S003,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0064896,20.1190151
+flapping-s1-s2-L0.7-T1-equal-S003,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0064896,20.1467676
+flapping-s1-s2-L0.7-T1-equal-S003,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0015272,23.1059866
+flapping-s1-s2-L0.7-T1-equal-S003,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0015272,23.0913739
+flapping-s1-s2-L0.7-T1-equal-S003,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0027787,26.1122515
+flapping-s1-s2-L0.7-T1-equal-S003,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0027787,26.1122515
+flapping-s1-s2-L0.7-T1-equal-S003,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0027787,26.1467611
+flapping-s1-s2-L0.7-T1-equal-S003,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0002984,29.1055517
+flapping-s1-s2-L0.7-T1-equal-S003,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0009258,29.091532
+flapping-s1-s2-L0.7-T1-equal-S003,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0010222,32.114689
+flapping-s1-s2-L0.7-T1-equal-S003,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0010222,32.1247724
+flapping-s1-s2-L0.7-T1-equal-S003,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0010222,32.1400018
+flapping-s1-s2-L0.7-T1-equal-S003,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0006366,35.0987843
+flapping-s1-s2-L0.7-T1-equal-S003,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0006366,35.0919474
+flapping-s1-s2-L0.7-T1-equal-S003,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0013159,35.1335508
+flapping-s1-s2-L0.7-T1-equal-S004,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0040478,5.1073025
+flapping-s1-s2-L0.7-T1-equal-S004,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0040478,5.0993479
+flapping-s1-s2-L0.7-T1-equal-S004,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0155798,8.11531
+flapping-s1-s2-L0.7-T1-equal-S004,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.015801,8.1309389
+flapping-s1-s2-L0.7-T1-equal-S004,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.015801,8.1465636
+flapping-s1-s2-L0.7-T1-equal-S004,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0140728,11.1091329
+flapping-s1-s2-L0.7-T1-equal-S004,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0140728,11.1082341
+flapping-s1-s2-L0.7-T1-equal-S004,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0018741,14.1232504
+flapping-s1-s2-L0.7-T1-equal-S004,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0022471,14.1232504
+flapping-s1-s2-L0.7-T1-equal-S004,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0022471,14.1342532
+flapping-s1-s2-L0.7-T1-equal-S004,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0055773,17.1075505
+flapping-s1-s2-L0.7-T1-equal-S004,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0055773,17.099563
+flapping-s1-s2-L0.7-T1-equal-S004,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0128617,20.1082497
+flapping-s1-s2-L0.7-T1-equal-S004,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0128617,20.135387
+flapping-s1-s2-L0.7-T1-equal-S004,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0128617,20.1517371
+flapping-s1-s2-L0.7-T1-equal-S004,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0006871,23.107316
+flapping-s1-s2-L0.7-T1-equal-S004,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0006871,23.0927745
+flapping-s1-s2-L0.7-T1-equal-S004,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0032394,26.1145939
+flapping-s1-s2-L0.7-T1-equal-S004,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0032394,26.1302216
+flapping-s1-s2-L0.7-T1-equal-S004,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0032394,26.1382238
+flapping-s1-s2-L0.7-T1-equal-S004,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0034772,29.1083366
+flapping-s1-s2-L0.7-T1-equal-S004,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0034772,29.0999862
+flapping-s1-s2-L0.7-T1-equal-S004,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0004414,32.1086928
+flapping-s1-s2-L0.7-T1-equal-S004,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0004414,32.1153571
+flapping-s1-s2-L0.7-T1-equal-S004,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0004414,32.1444867
+flapping-s1-s2-L0.7-T1-equal-S004,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0024763,35.106882
+flapping-s1-s2-L0.7-T1-equal-S004,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0028484,35.0934736
+flapping-s1-s2-L0.7-T1-equal-S004,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.00309,35.1387018
+flapping-s1-s2-L0.7-T1-equal-S005,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0010474,5.1087875
+flapping-s1-s2-L0.7-T1-equal-S005,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0010474,5.0967873
+flapping-s1-s2-L0.7-T1-equal-S005,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0000817,8.1166592
+flapping-s1-s2-L0.7-T1-equal-S005,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0000817,8.1276569
+flapping-s1-s2-L0.7-T1-equal-S005,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0000817,8.1316627
+flapping-s1-s2-L0.7-T1-equal-S005,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0006765,11.1046965
+flapping-s1-s2-L0.7-T1-equal-S005,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0006765,11.0934409
+flapping-s1-s2-L0.7-T1-equal-S005,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0026541,14.1185262
+flapping-s1-s2-L0.7-T1-equal-S005,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0026541,14.1185262
+flapping-s1-s2-L0.7-T1-equal-S005,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0026541,14.1185262
+flapping-s1-s2-L0.7-T1-equal-S005,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0138114,17.1136876
+flapping-s1-s2-L0.7-T1-equal-S005,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0138114,17.1034207
+flapping-s1-s2-L0.7-T1-equal-S005,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0005446,20.1167829
+flapping-s1-s2-L0.7-T1-equal-S005,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0005446,20.1167829
+flapping-s1-s2-L0.7-T1-equal-S005,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0005446,20.127336
+flapping-s1-s2-L0.7-T1-equal-S005,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0018184,23.1095552
+flapping-s1-s2-L0.7-T1-equal-S005,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0018184,23.0979976
+flapping-s1-s2-L0.7-T1-equal-S005,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0081622,26.1222978
+flapping-s1-s2-L0.7-T1-equal-S005,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0081622,26.1222978
+flapping-s1-s2-L0.7-T1-equal-S005,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0081622,26.1382197
+flapping-s1-s2-L0.7-T1-equal-S005,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0089742,29.1018531
+flapping-s1-s2-L0.7-T1-equal-S005,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0089742,29.1018531
+flapping-s1-s2-L0.7-T1-equal-S005,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0038864,32.1228951
+flapping-s1-s2-L0.7-T1-equal-S005,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0038864,32.1228951
+flapping-s1-s2-L0.7-T1-equal-S005,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0038864,32.1228951
+flapping-s1-s2-L0.7-T1-equal-S005,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0120259,35.1138095
+flapping-s1-s2-L0.7-T1-equal-S005,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0120259,35.0972502
+flapping-s1-s2-L0.7-T1-equal-S005,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0120259,35.1333748
+flapping-s1-s2-L0.7-T1-equal-S006,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0027203,5.1072624
+flapping-s1-s2-L0.7-T1-equal-S006,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0027203,5.09133
+flapping-s1-s2-L0.7-T1-equal-S006,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0161124,8.1269035
+flapping-s1-s2-L0.7-T1-equal-S006,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0161124,8.1389101
+flapping-s1-s2-L0.7-T1-equal-S006,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0161124,8.1429096
+flapping-s1-s2-L0.7-T1-equal-S006,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0042766,11.1096307
+flapping-s1-s2-L0.7-T1-equal-S006,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0047814,11.0974704
+flapping-s1-s2-L0.7-T1-equal-S006,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0035082,14.1253543
+flapping-s1-s2-L0.7-T1-equal-S006,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0035082,14.1231181
+flapping-s1-s2-L0.7-T1-equal-S006,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0035082,14.1337699
+flapping-s1-s2-L0.7-T1-equal-S006,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0032199,17.1072214
+flapping-s1-s2-L0.7-T1-equal-S006,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0032199,17.0952223
+flapping-s1-s2-L0.7-T1-equal-S006,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0005306,20.1153673
+flapping-s1-s2-L0.7-T1-equal-S006,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0005306,20.1349652
+flapping-s1-s2-L0.7-T1-equal-S006,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0005306,20.1308885
+flapping-s1-s2-L0.7-T1-equal-S006,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0019537,23.1055162
+flapping-s1-s2-L0.7-T1-equal-S006,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0019537,23.1015091
+flapping-s1-s2-L0.7-T1-equal-S006,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.001071,26.1211804
+flapping-s1-s2-L0.7-T1-equal-S006,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.001071,26.1171811
+flapping-s1-s2-L0.7-T1-equal-S006,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.001071,26.1290957
+flapping-s1-s2-L0.7-T1-equal-S006,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0021628,29.1155977
+flapping-s1-s2-L0.7-T1-equal-S006,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0021628,29.0956163
+flapping-s1-s2-L0.7-T1-equal-S006,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0028163,32.1206181
+flapping-s1-s2-L0.7-T1-equal-S006,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0028163,32.112619
+flapping-s1-s2-L0.7-T1-equal-S006,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0028163,32.1332773
+flapping-s1-s2-L0.7-T1-equal-S006,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0018574,35.1078714
+flapping-s1-s2-L0.7-T1-equal-S006,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0018574,35.0934585
+flapping-s1-s2-L0.7-T1-equal-S006,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0018574,35.130518
+flapping-s1-s2-L0.7-T1-equal-S007,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0041457,5.1102216
+flapping-s1-s2-L0.7-T1-equal-S007,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0041457,5.0977355
+flapping-s1-s2-L0.7-T1-equal-S007,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0014255,8.1178719
+flapping-s1-s2-L0.7-T1-equal-S007,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0014255,8.1178719
+flapping-s1-s2-L0.7-T1-equal-S007,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0014255,8.1329416
+flapping-s1-s2-L0.7-T1-equal-S007,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0003426,11.1103743
+flapping-s1-s2-L0.7-T1-equal-S007,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0003426,11.0935038
+flapping-s1-s2-L0.7-T1-equal-S007,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.000634,14.1172776
+flapping-s1-s2-L0.7-T1-equal-S007,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.000634,14.1147954
+flapping-s1-s2-L0.7-T1-equal-S007,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.000634,14.1424701
+flapping-s1-s2-L0.7-T1-equal-S007,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0022052,17.1069102
+flapping-s1-s2-L0.7-T1-equal-S007,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0022052,17.0998481
+flapping-s1-s2-L0.7-T1-equal-S007,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0013312,20.1180359
+flapping-s1-s2-L0.7-T1-equal-S007,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0013312,20.1220364
+flapping-s1-s2-L0.7-T1-equal-S007,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0013312,20.1315902
+flapping-s1-s2-L0.7-T1-equal-S007,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0037487,23.1127277
+flapping-s1-s2-L0.7-T1-equal-S007,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0037487,23.0998369
+flapping-s1-s2-L0.7-T1-equal-S007,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0006278,26.1139921
+flapping-s1-s2-L0.7-T1-equal-S007,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0006278,26.1309667
+flapping-s1-s2-L0.7-T1-equal-S007,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0006278,26.1341323
+flapping-s1-s2-L0.7-T1-equal-S007,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0003921,29.1059249
+flapping-s1-s2-L0.7-T1-equal-S007,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0003921,29.095411
+flapping-s1-s2-L0.7-T1-equal-S007,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0004832,32.1312054
+flapping-s1-s2-L0.7-T1-equal-S007,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0004832,32.1390503
+flapping-s1-s2-L0.7-T1-equal-S007,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0004832,32.1292053
+flapping-s1-s2-L0.7-T1-equal-S007,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0005747,35.1001667
+flapping-s1-s2-L0.7-T1-equal-S007,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0005747,35.0897145
+flapping-s1-s2-L0.7-T1-equal-S007,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0005747,35.139151
+flapping-s1-s2-L0.7-T1-equal-S008,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007618,5.1051249
+flapping-s1-s2-L0.7-T1-equal-S008,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007618,5.0938238
+flapping-s1-s2-L0.7-T1-equal-S008,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0017243,8.1264567
+flapping-s1-s2-L0.7-T1-equal-S008,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0017243,8.1314576
+flapping-s1-s2-L0.7-T1-equal-S008,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0017243,8.1354569
+flapping-s1-s2-L0.7-T1-equal-S008,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0004901,11.1090008
+flapping-s1-s2-L0.7-T1-equal-S008,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0004901,11.0944931
+flapping-s1-s2-L0.7-T1-equal-S008,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0004491,14.1199612
+flapping-s1-s2-L0.7-T1-equal-S008,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0004491,14.1239631
+flapping-s1-s2-L0.7-T1-equal-S008,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0004491,14.1309621
+flapping-s1-s2-L0.7-T1-equal-S008,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.000979,17.1040456
+flapping-s1-s2-L0.7-T1-equal-S008,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.000979,17.0940455
+flapping-s1-s2-L0.7-T1-equal-S008,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0011597,20.1227304
+flapping-s1-s2-L0.7-T1-equal-S008,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0011597,20.1317306
+flapping-s1-s2-L0.7-T1-equal-S008,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0011597,20.1297305
+flapping-s1-s2-L0.7-T1-equal-S008,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0011175,23.1031055
+flapping-s1-s2-L0.7-T1-equal-S008,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0011175,23.0908135
+flapping-s1-s2-L0.7-T1-equal-S008,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0101039,26.1234016
+flapping-s1-s2-L0.7-T1-equal-S008,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0101039,26.1234016
+flapping-s1-s2-L0.7-T1-equal-S008,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0101039,26.1304955
+flapping-s1-s2-L0.7-T1-equal-S008,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0101079,29.1169008
+flapping-s1-s2-L0.7-T1-equal-S008,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0101079,29.1051146
+flapping-s1-s2-L0.7-T1-equal-S008,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0043245,32.1237503
+flapping-s1-s2-L0.7-T1-equal-S008,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0043245,32.1237503
+flapping-s1-s2-L0.7-T1-equal-S008,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0048313,32.1306715
+flapping-s1-s2-L0.7-T1-equal-S008,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0045111,35.1047822
+flapping-s1-s2-L0.7-T1-equal-S008,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0045111,35.0891464
+flapping-s1-s2-L0.7-T1-equal-S008,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0045111,35.1209502
+flapping-s1-s2-L0.7-T1-equal-S009,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.003531,5.1030402
+flapping-s1-s2-L0.7-T1-equal-S009,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.003531,5.0963204
+flapping-s1-s2-L0.7-T1-equal-S009,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0106188,8.121736
+flapping-s1-s2-L0.7-T1-equal-S009,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0106188,8.121736
+flapping-s1-s2-L0.7-T1-equal-S009,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0106188,8.1378248
+flapping-s1-s2-L0.7-T1-equal-S009,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0017048,11.103434
+flapping-s1-s2-L0.7-T1-equal-S009,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0017048,11.0967126
+flapping-s1-s2-L0.7-T1-equal-S009,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.00049,14.111728
+flapping-s1-s2-L0.7-T1-equal-S009,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.00049,14.1191737
+flapping-s1-s2-L0.7-T1-equal-S009,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.00049,14.1657037
+flapping-s1-s2-L0.7-T1-equal-S009,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0001329,17.1040523
+flapping-s1-s2-L0.7-T1-equal-S009,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0001329,17.0908664
+flapping-s1-s2-L0.7-T1-equal-S009,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0016703,20.1125927
+flapping-s1-s2-L0.7-T1-equal-S009,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0016703,20.1327081
+flapping-s1-s2-L0.7-T1-equal-S009,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0016703,20.1282158
+flapping-s1-s2-L0.7-T1-equal-S009,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.001041,23.1038496
+flapping-s1-s2-L0.7-T1-equal-S009,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.001041,23.0896669
+flapping-s1-s2-L0.7-T1-equal-S009,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0050467,26.1176836
+flapping-s1-s2-L0.7-T1-equal-S009,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0050467,26.1334289
+flapping-s1-s2-L0.7-T1-equal-S009,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0050467,26.1324344
+flapping-s1-s2-L0.7-T1-equal-S009,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0003239,29.1039415
+flapping-s1-s2-L0.7-T1-equal-S009,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0003239,29.0903003
+flapping-s1-s2-L0.7-T1-equal-S009,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0033019,32.1087166
+flapping-s1-s2-L0.7-T1-equal-S009,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0033019,32.1261898
+flapping-s1-s2-L0.7-T1-equal-S009,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0033019,32.1261898
+flapping-s1-s2-L0.7-T1-equal-S009,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0046142,35.1041996
+flapping-s1-s2-L0.7-T1-equal-S009,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0046142,35.0915953
+flapping-s1-s2-L0.7-T1-equal-S009,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0046142,35.1331093
+flapping-s1-s2-L0.7-T1-equal-S010,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009511,5.1044782
+flapping-s1-s2-L0.7-T1-equal-S010,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009511,5.0907394
+flapping-s1-s2-L0.7-T1-equal-S010,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0084699,8.1146988
+flapping-s1-s2-L0.7-T1-equal-S010,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0084699,8.1146988
+flapping-s1-s2-L0.7-T1-equal-S010,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0084699,8.1358495
+flapping-s1-s2-L0.7-T1-equal-S010,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0020128,11.1064867
+flapping-s1-s2-L0.7-T1-equal-S010,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0020128,11.0937291
+flapping-s1-s2-L0.7-T1-equal-S010,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0074094,14.12206
+flapping-s1-s2-L0.7-T1-equal-S010,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0074094,14.1208168
+flapping-s1-s2-L0.7-T1-equal-S010,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0074094,14.12206
+flapping-s1-s2-L0.7-T1-equal-S010,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0153086,17.1229281
+flapping-s1-s2-L0.7-T1-equal-S010,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0153086,17.1105365
+flapping-s1-s2-L0.7-T1-equal-S010,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0007591,20.1118725
+flapping-s1-s2-L0.7-T1-equal-S010,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0007591,20.1168711
+flapping-s1-s2-L0.7-T1-equal-S010,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0007591,20.1289122
+flapping-s1-s2-L0.7-T1-equal-S010,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0007735,23.1078848
+flapping-s1-s2-L0.7-T1-equal-S010,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0007735,23.0938067
+flapping-s1-s2-L0.7-T1-equal-S010,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0009929,26.1164438
+flapping-s1-s2-L0.7-T1-equal-S010,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0009929,26.1084429
+flapping-s1-s2-L0.7-T1-equal-S010,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0009929,26.125905
+flapping-s1-s2-L0.7-T1-equal-S010,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0005619,29.105859
+flapping-s1-s2-L0.7-T1-equal-S010,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0005619,29.0948189
+flapping-s1-s2-L0.7-T1-equal-S010,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0008106,32.1197145
+flapping-s1-s2-L0.7-T1-equal-S010,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0008106,32.1207216
+flapping-s1-s2-L0.7-T1-equal-S010,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0008106,32.1297209
+flapping-s1-s2-L0.7-T1-equal-S010,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0014679,35.1035852
+flapping-s1-s2-L0.7-T1-equal-S010,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0014679,35.0910755
+flapping-s1-s2-L0.7-T1-equal-S010,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0014679,35.1276316
+flapping-s1-s2-L0.7-T1-equal-S011,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0036973,5.1084565
+flapping-s1-s2-L0.7-T1-equal-S011,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0036973,5.097123
+flapping-s1-s2-L0.7-T1-equal-S011,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0074963,8.1088851
+flapping-s1-s2-L0.7-T1-equal-S011,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0074963,8.1250153
+flapping-s1-s2-L0.7-T1-equal-S011,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0080042,8.1250153
+flapping-s1-s2-L0.7-T1-equal-S011,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0116408,11.1142911
+flapping-s1-s2-L0.7-T1-equal-S011,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0116408,11.1056912
+flapping-s1-s2-L0.7-T1-equal-S011,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0093552,14.1146951
+flapping-s1-s2-L0.7-T1-equal-S011,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0093552,14.1310219
+flapping-s1-s2-L0.7-T1-equal-S011,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0093552,14.1310219
+flapping-s1-s2-L0.7-T1-equal-S011,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0093279,17.1171008
+flapping-s1-s2-L0.7-T1-equal-S011,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0093279,17.1042678
+flapping-s1-s2-L0.7-T1-equal-S011,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0067104,20.1274358
+flapping-s1-s2-L0.7-T1-equal-S011,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0067104,20.1208878
+flapping-s1-s2-L0.7-T1-equal-S011,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0067104,20.1415107
+flapping-s1-s2-L0.7-T1-equal-S011,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0007065,23.100616
+flapping-s1-s2-L0.7-T1-equal-S011,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0007065,23.0925907
+flapping-s1-s2-L0.7-T1-equal-S011,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0041284,26.1174264
+flapping-s1-s2-L0.7-T1-equal-S011,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0041284,26.1174264
+flapping-s1-s2-L0.7-T1-equal-S011,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0041284,26.1335595
+flapping-s1-s2-L0.7-T1-equal-S011,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0009541,29.1031276
+flapping-s1-s2-L0.7-T1-equal-S011,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0009541,29.0942304
+flapping-s1-s2-L0.7-T1-equal-S011,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0149533,32.1227224
+flapping-s1-s2-L0.7-T1-equal-S011,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0149533,32.1227224
+flapping-s1-s2-L0.7-T1-equal-S011,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0149533,32.1332254
+flapping-s1-s2-L0.7-T1-equal-S011,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0024581,35.1039398
+flapping-s1-s2-L0.7-T1-equal-S011,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0024581,35.0944853
+flapping-s1-s2-L0.7-T1-equal-S011,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0029817,35.1288737
+flapping-s1-s2-L0.7-T1-equal-S012,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0069933,5.1006379
+flapping-s1-s2-L0.7-T1-equal-S012,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0069933,5.1006379
+flapping-s1-s2-L0.7-T1-equal-S012,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0031151,8.1160137
+flapping-s1-s2-L0.7-T1-equal-S012,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0031151,8.128612
+flapping-s1-s2-L0.7-T1-equal-S012,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0031151,8.1306194
+flapping-s1-s2-L0.7-T1-equal-S012,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0005668,11.10166
+flapping-s1-s2-L0.7-T1-equal-S012,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0005668,11.0855854
+flapping-s1-s2-L0.7-T1-equal-S012,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0031828,14.1175686
+flapping-s1-s2-L0.7-T1-equal-S012,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0031828,14.1335219
+flapping-s1-s2-L0.7-T1-equal-S012,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0031828,14.1300046
+flapping-s1-s2-L0.7-T1-equal-S012,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0004111,17.1016859
+flapping-s1-s2-L0.7-T1-equal-S012,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0004111,17.0961497
+flapping-s1-s2-L0.7-T1-equal-S012,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0048229,20.1149142
+flapping-s1-s2-L0.7-T1-equal-S012,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0048229,20.1450022
+flapping-s1-s2-L0.7-T1-equal-S012,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0048229,20.132246
+flapping-s1-s2-L0.7-T1-equal-S012,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0016933,23.1063826
+flapping-s1-s2-L0.7-T1-equal-S012,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0016933,23.0897461
+flapping-s1-s2-L0.7-T1-equal-S012,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0004987,26.1149417
+flapping-s1-s2-L0.7-T1-equal-S012,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0004987,26.1209968
+flapping-s1-s2-L0.7-T1-equal-S012,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0010074,26.1274357
+flapping-s1-s2-L0.7-T1-equal-S012,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0007325,29.0987553
+flapping-s1-s2-L0.7-T1-equal-S012,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0007325,29.0932535
+flapping-s1-s2-L0.7-T1-equal-S012,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0033339,32.1069732
+flapping-s1-s2-L0.7-T1-equal-S012,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0033339,32.1341589
+flapping-s1-s2-L0.7-T1-equal-S012,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0038875,32.1297606
+flapping-s1-s2-L0.7-T1-equal-S012,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0025304,35.0967773
+flapping-s1-s2-L0.7-T1-equal-S012,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0025304,35.0922571
+flapping-s1-s2-L0.7-T1-equal-S012,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0025304,35.1334508
+flapping-s1-s2-L0.7-T1-equal-S013,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0133312,5.1179548
+flapping-s1-s2-L0.7-T1-equal-S013,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0133312,5.1038255
+flapping-s1-s2-L0.7-T1-equal-S013,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0003198,8.1129381
+flapping-s1-s2-L0.7-T1-equal-S013,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0003198,8.1129381
+flapping-s1-s2-L0.7-T1-equal-S013,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0003198,8.1305578
+flapping-s1-s2-L0.7-T1-equal-S013,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0006297,11.0913598
+flapping-s1-s2-L0.7-T1-equal-S013,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0006297,11.0913598
+flapping-s1-s2-L0.7-T1-equal-S013,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0025472,14.1212871
+flapping-s1-s2-L0.7-T1-equal-S013,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0025472,14.1153945
+flapping-s1-s2-L0.7-T1-equal-S013,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0025472,14.1279778
+flapping-s1-s2-L0.7-T1-equal-S013,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0025537,17.1088853
+flapping-s1-s2-L0.7-T1-equal-S013,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0025537,17.0973234
+flapping-s1-s2-L0.7-T1-equal-S013,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0027967,20.1169674
+flapping-s1-s2-L0.7-T1-equal-S013,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0027967,20.1275856
+flapping-s1-s2-L0.7-T1-equal-S013,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0033634,20.1275856
+flapping-s1-s2-L0.7-T1-equal-S013,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0055018,23.11243
+flapping-s1-s2-L0.7-T1-equal-S013,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0055018,23.099053
+flapping-s1-s2-L0.7-T1-equal-S013,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0005505,26.1193929
+flapping-s1-s2-L0.7-T1-equal-S013,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0005505,26.1193929
+flapping-s1-s2-L0.7-T1-equal-S013,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0005505,26.1285192
+flapping-s1-s2-L0.7-T1-equal-S013,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0006961,29.0979359
+flapping-s1-s2-L0.7-T1-equal-S013,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0006961,29.0942681
+flapping-s1-s2-L0.7-T1-equal-S013,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0026035,32.1191857
+flapping-s1-s2-L0.7-T1-equal-S013,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0026035,32.1191857
+flapping-s1-s2-L0.7-T1-equal-S013,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0026035,32.1261621
+flapping-s1-s2-L0.7-T1-equal-S013,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.001423,35.1028519
+flapping-s1-s2-L0.7-T1-equal-S013,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.001423,35.0957509
+flapping-s1-s2-L0.7-T1-equal-S013,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.001423,35.1263694
+flapping-s1-s2-L0.7-T1-equal-S014,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0016472,5.1113521
+flapping-s1-s2-L0.7-T1-equal-S014,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0016472,5.0904287
+flapping-s1-s2-L0.7-T1-equal-S014,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0058007,8.1113636
+flapping-s1-s2-L0.7-T1-equal-S014,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0063467,8.118322
+flapping-s1-s2-L0.7-T1-equal-S014,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0063467,8.1322809
+flapping-s1-s2-L0.7-T1-equal-S014,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0024384,11.1053763
+flapping-s1-s2-L0.7-T1-equal-S014,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0024384,11.0907165
+flapping-s1-s2-L0.7-T1-equal-S014,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0045314,14.1185729
+flapping-s1-s2-L0.7-T1-equal-S014,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0045314,14.1255621
+flapping-s1-s2-L0.7-T1-equal-S014,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0045314,14.1325247
+flapping-s1-s2-L0.7-T1-equal-S014,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0020095,17.1088224
+flapping-s1-s2-L0.7-T1-equal-S014,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0020095,17.0939095
+flapping-s1-s2-L0.7-T1-equal-S014,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0018116,20.1188771
+flapping-s1-s2-L0.7-T1-equal-S014,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0018116,20.130837
+flapping-s1-s2-L0.7-T1-equal-S014,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0018116,20.130837
+flapping-s1-s2-L0.7-T1-equal-S014,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0018277,23.1050443
+flapping-s1-s2-L0.7-T1-equal-S014,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0018277,23.0946958
+flapping-s1-s2-L0.7-T1-equal-S014,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0066943,26.1192141
+flapping-s1-s2-L0.7-T1-equal-S014,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0066943,26.1263143
+flapping-s1-s2-L0.7-T1-equal-S014,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0066943,26.1329639
+flapping-s1-s2-L0.7-T1-equal-S014,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0017132,29.1054349
+flapping-s1-s2-L0.7-T1-equal-S014,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0017132,29.0934278
+flapping-s1-s2-L0.7-T1-equal-S014,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0070335,32.1262668
+flapping-s1-s2-L0.7-T1-equal-S014,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0070335,32.1262668
+flapping-s1-s2-L0.7-T1-equal-S014,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0070335,32.1332621
+flapping-s1-s2-L0.7-T1-equal-S014,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.002038,35.10554
+flapping-s1-s2-L0.7-T1-equal-S014,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.002038,35.0916577
+flapping-s1-s2-L0.7-T1-equal-S014,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.002038,35.1264519
+flapping-s1-s2-L0.7-T1-equal-S015,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.001432,5.1045173
+flapping-s1-s2-L0.7-T1-equal-S015,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.001432,5.0975796
+flapping-s1-s2-L0.7-T1-equal-S015,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0019304,8.1186716
+flapping-s1-s2-L0.7-T1-equal-S015,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0019304,8.1186716
+flapping-s1-s2-L0.7-T1-equal-S015,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0019304,8.1254383
+flapping-s1-s2-L0.7-T1-equal-S015,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0055599,11.1048769
+flapping-s1-s2-L0.7-T1-equal-S015,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0055599,11.0978887
+flapping-s1-s2-L0.7-T1-equal-S015,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.00226,14.1049337
+flapping-s1-s2-L0.7-T1-equal-S015,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.00226,14.1297673
+flapping-s1-s2-L0.7-T1-equal-S015,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.00226,14.1297673
+flapping-s1-s2-L0.7-T1-equal-S015,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0033662,17.1049626
+flapping-s1-s2-L0.7-T1-equal-S015,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0033662,17.0986638
+flapping-s1-s2-L0.7-T1-equal-S015,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.007015,20.1189714
+flapping-s1-s2-L0.7-T1-equal-S015,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.007015,20.1189714
+flapping-s1-s2-L0.7-T1-equal-S015,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0077667,20.1259377
+flapping-s1-s2-L0.7-T1-equal-S015,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.007111,23.1122195
+flapping-s1-s2-L0.7-T1-equal-S015,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.007111,23.0983065
+flapping-s1-s2-L0.7-T1-equal-S015,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0042496,26.1228546
+flapping-s1-s2-L0.7-T1-equal-S015,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0042496,26.1122898
+flapping-s1-s2-L0.7-T1-equal-S015,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0042496,26.1331917
+flapping-s1-s2-L0.7-T1-equal-S015,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0004318,29.0986252
+flapping-s1-s2-L0.7-T1-equal-S015,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0004318,29.091571
+flapping-s1-s2-L0.7-T1-equal-S015,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0069304,32.1145302
+flapping-s1-s2-L0.7-T1-equal-S015,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0069304,32.1197224
+flapping-s1-s2-L0.7-T1-equal-S015,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0069304,32.1473491
+flapping-s1-s2-L0.7-T1-equal-S015,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0046529,35.0987733
+flapping-s1-s2-L0.7-T1-equal-S015,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0046529,35.0918195
+flapping-s1-s2-L0.7-T1-equal-S015,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0046529,35.1265461
+flapping-s1-s2-L0.7-T1-equal-S016,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007891,5.1044036
+flapping-s1-s2-L0.7-T1-equal-S016,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007891,5.0905115
+flapping-s1-s2-L0.7-T1-equal-S016,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0038787,8.1184061
+flapping-s1-s2-L0.7-T1-equal-S016,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0038787,8.1392672
+flapping-s1-s2-L0.7-T1-equal-S016,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0038787,8.1323577
+flapping-s1-s2-L0.7-T1-equal-S016,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0049982,11.1047161
+flapping-s1-s2-L0.7-T1-equal-S016,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0049982,11.0937086
+flapping-s1-s2-L0.7-T1-equal-S016,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0031495,14.1256751
+flapping-s1-s2-L0.7-T1-equal-S016,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0031495,14.1187526
+flapping-s1-s2-L0.7-T1-equal-S016,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0031495,14.1326279
+flapping-s1-s2-L0.7-T1-equal-S016,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0008332,17.1049133
+flapping-s1-s2-L0.7-T1-equal-S016,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0008332,17.0935109
+flapping-s1-s2-L0.7-T1-equal-S016,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0035204,20.1260199
+flapping-s1-s2-L0.7-T1-equal-S016,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0035204,20.1292036
+flapping-s1-s2-L0.7-T1-equal-S016,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0035204,20.1292036
+flapping-s1-s2-L0.7-T1-equal-S016,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0030535,23.1052577
+flapping-s1-s2-L0.7-T1-equal-S016,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0030535,23.0981037
+flapping-s1-s2-L0.7-T1-equal-S016,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0066946,26.1123303
+flapping-s1-s2-L0.7-T1-equal-S016,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0066946,26.1263242
+flapping-s1-s2-L0.7-T1-equal-S016,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0066946,26.1330779
+flapping-s1-s2-L0.7-T1-equal-S016,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0018124,29.1054026
+flapping-s1-s2-L0.7-T1-equal-S016,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0018124,29.0917174
+flapping-s1-s2-L0.7-T1-equal-S016,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0066665,32.1194813
+flapping-s1-s2-L0.7-T1-equal-S016,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0066665,32.1263666
+flapping-s1-s2-L0.7-T1-equal-S016,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0066665,32.1263666
+flapping-s1-s2-L0.7-T1-equal-S016,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0035384,35.0987713
+flapping-s1-s2-L0.7-T1-equal-S016,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0035384,35.0987713
+flapping-s1-s2-L0.7-T1-equal-S016,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0035384,35.1265439
+flapping-s1-s2-L0.7-T1-equal-S017,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0033034,5.102164
+flapping-s1-s2-L0.7-T1-equal-S017,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0033034,5.0950221
+flapping-s1-s2-L0.7-T1-equal-S017,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.006439,8.1160687
+flapping-s1-s2-L0.7-T1-equal-S017,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.006439,8.1368186
+flapping-s1-s2-L0.7-T1-equal-S017,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.006439,8.1299366
+flapping-s1-s2-L0.7-T1-equal-S017,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0036001,11.1047767
+flapping-s1-s2-L0.7-T1-equal-S017,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0036001,11.0956084
+flapping-s1-s2-L0.7-T1-equal-S017,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0030326,14.1162094
+flapping-s1-s2-L0.7-T1-equal-S017,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0030326,14.1306193
+flapping-s1-s2-L0.7-T1-equal-S017,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0030326,14.1370846
+flapping-s1-s2-L0.7-T1-equal-S017,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.003087,17.1096044
+flapping-s1-s2-L0.7-T1-equal-S017,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.003087,17.0957229
+flapping-s1-s2-L0.7-T1-equal-S017,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0013803,20.1095527
+flapping-s1-s2-L0.7-T1-equal-S017,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0013803,20.1166725
+flapping-s1-s2-L0.7-T1-equal-S017,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0013803,20.1305615
+flapping-s1-s2-L0.7-T1-equal-S017,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0017526,23.1028172
+flapping-s1-s2-L0.7-T1-equal-S017,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0017526,23.0894538
+flapping-s1-s2-L0.7-T1-equal-S017,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0060528,26.1236732
+flapping-s1-s2-L0.7-T1-equal-S017,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0060528,26.1236732
+flapping-s1-s2-L0.7-T1-equal-S017,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0060528,26.1308446
+flapping-s1-s2-L0.7-T1-equal-S017,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0040589,29.1081286
+flapping-s1-s2-L0.7-T1-equal-S017,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0040589,29.0960704
+flapping-s1-s2-L0.7-T1-equal-S017,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0015464,32.1242015
+flapping-s1-s2-L0.7-T1-equal-S017,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0015464,32.1242015
+flapping-s1-s2-L0.7-T1-equal-S017,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0015464,32.1242015
+flapping-s1-s2-L0.7-T1-equal-S017,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0057508,35.1035003
+flapping-s1-s2-L0.7-T1-equal-S017,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0057508,35.0963966
+flapping-s1-s2-L0.7-T1-equal-S017,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0057508,35.131061
+flapping-s1-s2-L0.7-T1-equal-S018,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0060161,5.1116157
+flapping-s1-s2-L0.7-T1-equal-S018,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0060161,5.1045157
+flapping-s1-s2-L0.7-T1-equal-S018,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0004828,8.1129781
+flapping-s1-s2-L0.7-T1-equal-S018,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0004828,8.1184875
+flapping-s1-s2-L0.7-T1-equal-S018,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0004828,8.1254152
+flapping-s1-s2-L0.7-T1-equal-S018,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0036284,11.1118474
+flapping-s1-s2-L0.7-T1-equal-S018,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0036284,11.0978308
+flapping-s1-s2-L0.7-T1-equal-S018,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0026875,14.1187147
+flapping-s1-s2-L0.7-T1-equal-S018,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0026875,14.1256567
+flapping-s1-s2-L0.7-T1-equal-S018,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0026875,14.1296607
+flapping-s1-s2-L0.7-T1-equal-S018,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.00136,17.1075614
+flapping-s1-s2-L0.7-T1-equal-S018,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.00136,17.0911293
+flapping-s1-s2-L0.7-T1-equal-S018,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0049005,20.1190485
+flapping-s1-s2-L0.7-T1-equal-S018,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0049005,20.1190485
+flapping-s1-s2-L0.7-T1-equal-S018,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0049005,20.1328448
+flapping-s1-s2-L0.7-T1-equal-S018,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0020537,23.0983103
+flapping-s1-s2-L0.7-T1-equal-S018,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0020537,23.0913355
+flapping-s1-s2-L0.7-T1-equal-S018,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0026537,26.1123938
+flapping-s1-s2-L0.7-T1-equal-S018,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0026537,26.1400925
+flapping-s1-s2-L0.7-T1-equal-S018,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0026537,26.1261532
+flapping-s1-s2-L0.7-T1-equal-S018,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0003983,29.1054648
+flapping-s1-s2-L0.7-T1-equal-S018,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0003983,29.0917796
+flapping-s1-s2-L0.7-T1-equal-S018,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0064802,32.1125235
+flapping-s1-s2-L0.7-T1-equal-S018,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0064802,32.1264057
+flapping-s1-s2-L0.7-T1-equal-S018,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0064802,32.133356
+flapping-s1-s2-L0.7-T1-equal-S018,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0031322,35.1057725
+flapping-s1-s2-L0.7-T1-equal-S018,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0031322,35.0918734
+flapping-s1-s2-L0.7-T1-equal-S018,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0031322,35.1266565
+flapping-s1-s2-L0.7-T1-equal-S019,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007977,5.1045022
+flapping-s1-s2-L0.7-T1-equal-S019,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007977,5.0971225
+flapping-s1-s2-L0.7-T1-equal-S019,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0059188,8.1254698
+flapping-s1-s2-L0.7-T1-equal-S019,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0059188,8.1462463
+flapping-s1-s2-L0.7-T1-equal-S019,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0059188,8.1324819
+flapping-s1-s2-L0.7-T1-equal-S019,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0010048,11.1046498
+flapping-s1-s2-L0.7-T1-equal-S019,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0010048,11.0907721
+flapping-s1-s2-L0.7-T1-equal-S019,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0002339,14.1187214
+flapping-s1-s2-L0.7-T1-equal-S019,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0007827,14.1187214
+flapping-s1-s2-L0.7-T1-equal-S019,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0007827,14.1256552
+flapping-s1-s2-L0.7-T1-equal-S019,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.001285,17.1097869
+flapping-s1-s2-L0.7-T1-equal-S019,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.001285,17.0980032
+flapping-s1-s2-L0.7-T1-equal-S019,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0054619,20.1120417
+flapping-s1-s2-L0.7-T1-equal-S019,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0054619,20.1189711
+flapping-s1-s2-L0.7-T1-equal-S019,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0054619,20.1259416
+flapping-s1-s2-L0.7-T1-equal-S019,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0055309,23.1146392
+flapping-s1-s2-L0.7-T1-equal-S019,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0055309,23.0982756
+flapping-s1-s2-L0.7-T1-equal-S019,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0051699,26.119382
+flapping-s1-s2-L0.7-T1-equal-S019,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0051699,26.1349385
+flapping-s1-s2-L0.7-T1-equal-S019,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0051699,26.1263365
+flapping-s1-s2-L0.7-T1-equal-S019,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0008089,29.1056023
+flapping-s1-s2-L0.7-T1-equal-S019,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.001362,29.0917197
+flapping-s1-s2-L0.7-T1-equal-S019,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.003229,32.1263557
+flapping-s1-s2-L0.7-T1-equal-S019,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.003229,32.123203
+flapping-s1-s2-L0.7-T1-equal-S019,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.003229,32.1263557
+flapping-s1-s2-L0.7-T1-equal-S019,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0030201,35.0988237
+flapping-s1-s2-L0.7-T1-equal-S019,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0030201,35.0918133
+flapping-s1-s2-L0.7-T1-equal-S019,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0030201,35.1265765
+flapping-s1-s2-L0.7-T1-equal-S020,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0062803,5.1121082
+flapping-s1-s2-L0.7-T1-equal-S020,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0062803,5.097475
+flapping-s1-s2-L0.7-T1-equal-S020,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0011853,8.1182898
+flapping-s1-s2-L0.7-T1-equal-S020,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0011853,8.1182898
+flapping-s1-s2-L0.7-T1-equal-S020,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0011853,8.125315
+flapping-s1-s2-L0.7-T1-equal-S020,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0044193,11.106104
+flapping-s1-s2-L0.7-T1-equal-S020,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0044193,11.0976211
+flapping-s1-s2-L0.7-T1-equal-S020,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0048189,14.1260752
+flapping-s1-s2-L0.7-T1-equal-S020,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0048189,14.1326462
+flapping-s1-s2-L0.7-T1-equal-S020,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0048189,14.1326462
+flapping-s1-s2-L0.7-T1-equal-S020,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0037034,17.1048585
+flapping-s1-s2-L0.7-T1-equal-S020,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0037034,17.0979437
+flapping-s1-s2-L0.7-T1-equal-S020,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0022433,20.1203823
+flapping-s1-s2-L0.7-T1-equal-S020,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0022433,20.118864
+flapping-s1-s2-L0.7-T1-equal-S020,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0022433,20.1283344
+flapping-s1-s2-L0.7-T1-equal-S020,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0017578,23.105114
+flapping-s1-s2-L0.7-T1-equal-S020,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0017578,23.0941245
+flapping-s1-s2-L0.7-T1-equal-S020,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0005735,26.1191376
+flapping-s1-s2-L0.7-T1-equal-S020,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0011194,26.1260133
+flapping-s1-s2-L0.7-T1-equal-S020,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0011194,26.1260133
+flapping-s1-s2-L0.7-T1-equal-S020,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.006735,29.1123003
+flapping-s1-s2-L0.7-T1-equal-S020,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.006735,29.1022266
+flapping-s1-s2-L0.7-T1-equal-S020,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0150905,32.1263848
+flapping-s1-s2-L0.7-T1-equal-S020,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0150905,32.1331305
+flapping-s1-s2-L0.7-T1-equal-S020,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0150905,32.1432381
+flapping-s1-s2-L0.7-T1-equal-S020,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0098159,35.1126863
+flapping-s1-s2-L0.7-T1-equal-S020,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0098159,35.0987955
+flapping-s1-s2-L0.7-T1-equal-S020,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0098159,35.1333769
+flapping-s1-s2-L2-T1-equal-S001,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0071871,5.1095755
+flapping-s1-s2-L2-T1-equal-S001,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0071871,5.102312
+flapping-s1-s2-L2-T1-equal-S001,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0067886,8.1164336
+flapping-s1-s2-L2-T1-equal-S001,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0067886,8.123416
+flapping-s1-s2-L2-T1-equal-S001,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0067886,8.1371658
+flapping-s1-s2-L2-T1-equal-S001,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0060938,11.1095214
+flapping-s1-s2-L2-T1-equal-S001,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0060938,11.0957138
+flapping-s1-s2-L2-T1-equal-S001,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0051101,14.1200854
+flapping-s1-s2-L2-T1-equal-S001,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.005529,14.1165818
+flapping-s1-s2-L2-T1-equal-S001,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0056994,14.130531
+flapping-s1-s2-L2-T1-equal-S001,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0029278,17.1098207
+flapping-s1-s2-L2-T1-equal-S001,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0029278,17.0959357
+flapping-s1-s2-L2-T1-equal-S001,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0008656,20.1293576
+flapping-s1-s2-L2-T1-equal-S001,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0008656,20.1446908
+flapping-s1-s2-L2-T1-equal-S001,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0008656,20.1446908
+flapping-s1-s2-L2-T1-equal-S001,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0009924,23.1030638
+flapping-s1-s2-L2-T1-equal-S001,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0009924,23.0961103
+flapping-s1-s2-L2-T1-equal-S001,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0032522,26.1241019
+flapping-s1-s2-L2-T1-equal-S001,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0032522,26.1241019
+flapping-s1-s2-L2-T1-equal-S001,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0032522,26.1241019
+flapping-s1-s2-L2-T1-equal-S001,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0063585,29.1103374
+flapping-s1-s2-L2-T1-equal-S001,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0063585,29.0964367
+flapping-s1-s2-L2-T1-equal-S001,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0020354,32.1242836
+flapping-s1-s2-L2-T1-equal-S001,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0020354,32.1184732
+flapping-s1-s2-L2-T1-equal-S001,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0020354,32.1242836
+flapping-s1-s2-L2-T1-equal-S001,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0051889,35.1035586
+flapping-s1-s2-L2-T1-equal-S001,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0051889,35.0969555
+flapping-s1-s2-L2-T1-equal-S001,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0051889,35.1243979
+flapping-s1-s2-L2-T1-equal-S002,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0059076,5.1046588
+flapping-s1-s2-L2-T1-equal-S002,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0059076,5.0977305
+flapping-s1-s2-L2-T1-equal-S002,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0029341,8.1187589
+flapping-s1-s2-L2-T1-equal-S002,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0029341,8.1187589
+flapping-s1-s2-L2-T1-equal-S002,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0029341,8.125742
+flapping-s1-s2-L2-T1-equal-S002,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0040651,11.1053218
+flapping-s1-s2-L2-T1-equal-S002,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0040651,11.0977729
+flapping-s1-s2-L2-T1-equal-S002,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0008031,14.1117735
+flapping-s1-s2-L2-T1-equal-S002,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0008031,14.1258085
+flapping-s1-s2-L2-T1-equal-S002,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0008031,14.1396498
+flapping-s1-s2-L2-T1-equal-S002,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0053397,17.1049665
+flapping-s1-s2-L2-T1-equal-S002,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0053397,17.0910756
+flapping-s1-s2-L2-T1-equal-S002,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0035152,20.1126049
+flapping-s1-s2-L2-T1-equal-S002,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0035152,20.1329418
+flapping-s1-s2-L2-T1-equal-S002,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0035152,20.1329418
+flapping-s1-s2-L2-T1-equal-S002,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0026282,23.1052203
+flapping-s1-s2-L2-T1-equal-S002,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0026282,23.0982738
+flapping-s1-s2-L2-T1-equal-S002,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0007386,26.1193822
+flapping-s1-s2-L2-T1-equal-S002,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0012438,26.1122832
+flapping-s1-s2-L2-T1-equal-S002,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0012438,26.1298696
+flapping-s1-s2-L2-T1-equal-S002,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0009455,29.1055399
+flapping-s1-s2-L2-T1-equal-S002,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0013582,29.0915626
+flapping-s1-s2-L2-T1-equal-S002,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0039977,32.1125438
+flapping-s1-s2-L2-T1-equal-S002,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0039977,32.1195391
+flapping-s1-s2-L2-T1-equal-S002,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0039977,32.1334768
+flapping-s1-s2-L2-T1-equal-S002,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0052003,35.1057196
+flapping-s1-s2-L2-T1-equal-S002,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0052003,35.0918882
+flapping-s1-s2-L2-T1-equal-S002,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0052003,35.1335019
+flapping-s1-s2-L2-T1-equal-S003,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0068432,5.1094111
+flapping-s1-s2-L2-T1-equal-S003,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0068432,5.1019788
+flapping-s1-s2-L2-T1-equal-S003,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0109731,8.1229725
+flapping-s1-s2-L2-T1-equal-S003,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0109731,8.1229725
+flapping-s1-s2-L2-T1-equal-S003,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0109731,8.136894
+flapping-s1-s2-L2-T1-equal-S003,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0030832,11.1111813
+flapping-s1-s2-L2-T1-equal-S003,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0030832,11.09528
+flapping-s1-s2-L2-T1-equal-S003,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0146201,14.1347293
+flapping-s1-s2-L2-T1-equal-S003,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0146201,14.1347293
+flapping-s1-s2-L2-T1-equal-S003,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0146201,14.137117
+flapping-s1-s2-L2-T1-equal-S003,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0067639,17.1094805
+flapping-s1-s2-L2-T1-equal-S003,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0067639,17.0964054
+flapping-s1-s2-L2-T1-equal-S003,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0029412,20.109539
+flapping-s1-s2-L2-T1-equal-S003,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0029412,20.1166145
+flapping-s1-s2-L2-T1-equal-S003,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0029412,20.1235209
+flapping-s1-s2-L2-T1-equal-S003,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0001305,23.1117356
+flapping-s1-s2-L2-T1-equal-S003,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0001305,23.0958188
+flapping-s1-s2-L2-T1-equal-S003,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0146593,26.1306835
+flapping-s1-s2-L2-T1-equal-S003,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0146593,26.1306835
+flapping-s1-s2-L2-T1-equal-S003,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0146593,26.1445673
+flapping-s1-s2-L2-T1-equal-S003,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0018254,29.1030642
+flapping-s1-s2-L2-T1-equal-S003,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0018254,29.0961011
+flapping-s1-s2-L2-T1-equal-S003,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0016685,32.1169952
+flapping-s1-s2-L2-T1-equal-S003,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0016685,32.1169952
+flapping-s1-s2-L2-T1-equal-S003,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0016685,32.1240045
+flapping-s1-s2-L2-T1-equal-S003,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0050961,35.1033171
+flapping-s1-s2-L2-T1-equal-S003,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0050961,35.0925122
+flapping-s1-s2-L2-T1-equal-S003,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0050961,35.1310823
+flapping-s1-s2-L2-T1-equal-S004,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.000346,5.1040955
+flapping-s1-s2-L2-T1-equal-S004,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.000346,5.0902067
+flapping-s1-s2-L2-T1-equal-S004,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0124849,8.1388758
+flapping-s1-s2-L2-T1-equal-S004,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0124849,8.1388758
+flapping-s1-s2-L2-T1-equal-S004,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0124849,8.1388758
+flapping-s1-s2-L2-T1-equal-S004,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.001679,11.1042592
+flapping-s1-s2-L2-T1-equal-S004,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.001679,11.0834302
+flapping-s1-s2-L2-T1-equal-S004,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0002184,14.1183434
+flapping-s1-s2-L2-T1-equal-S004,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0002184,14.1183434
+flapping-s1-s2-L2-T1-equal-S004,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0002184,14.1252292
+flapping-s1-s2-L2-T1-equal-S004,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0053514,17.1115259
+flapping-s1-s2-L2-T1-equal-S004,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0053514,17.1002149
+flapping-s1-s2-L2-T1-equal-S004,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.000983,20.1185951
+flapping-s1-s2-L2-T1-equal-S004,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.000983,20.1394209
+flapping-s1-s2-L2-T1-equal-S004,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.000983,20.1255305
+flapping-s1-s2-L2-T1-equal-S004,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0006892,23.1047556
+flapping-s1-s2-L2-T1-equal-S004,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0006892,23.0909536
+flapping-s1-s2-L2-T1-equal-S004,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0028016,26.1118291
+flapping-s1-s2-L2-T1-equal-S004,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0028016,26.1187875
+flapping-s1-s2-L2-T1-equal-S004,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0028016,26.1259256
+flapping-s1-s2-L2-T1-equal-S004,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0054374,29.1050109
+flapping-s1-s2-L2-T1-equal-S004,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0054374,29.0981921
+flapping-s1-s2-L2-T1-equal-S004,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0145506,32.1285497
+flapping-s1-s2-L2-T1-equal-S004,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0149739,32.1329495
+flapping-s1-s2-L2-T1-equal-S004,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0151398,32.139931
+flapping-s1-s2-L2-T1-equal-S004,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0006778,35.098382
+flapping-s1-s2-L2-T1-equal-S004,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0011907,35.0914331
+flapping-s1-s2-L2-T1-equal-S004,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0011907,35.1260946
+flapping-s1-s2-L2-T1-equal-S005,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0092649,5.1114044
+flapping-s1-s2-L2-T1-equal-S005,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0092649,5.1004002
+flapping-s1-s2-L2-T1-equal-S005,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0066609,8.1151513
+flapping-s1-s2-L2-T1-equal-S005,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0066609,8.1307834
+flapping-s1-s2-L2-T1-equal-S005,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0066609,8.1307834
+flapping-s1-s2-L2-T1-equal-S005,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0061343,11.0995539
+flapping-s1-s2-L2-T1-equal-S005,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0061343,11.0995539
+flapping-s1-s2-L2-T1-equal-S005,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0015785,14.1194993
+flapping-s1-s2-L2-T1-equal-S005,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0015785,14.1194993
+flapping-s1-s2-L2-T1-equal-S005,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0015785,14.1194993
+flapping-s1-s2-L2-T1-equal-S005,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0113214,17.1183013
+flapping-s1-s2-L2-T1-equal-S005,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0113214,17.1018344
+flapping-s1-s2-L2-T1-equal-S005,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0035203,20.1124892
+flapping-s1-s2-L2-T1-equal-S005,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0035203,20.1205726
+flapping-s1-s2-L2-T1-equal-S005,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0035203,20.1295761
+flapping-s1-s2-L2-T1-equal-S005,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0054879,23.1052615
+flapping-s1-s2-L2-T1-equal-S005,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0054879,23.1052615
+flapping-s1-s2-L2-T1-equal-S005,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0043271,26.1142745
+flapping-s1-s2-L2-T1-equal-S005,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0043271,26.0986464
+flapping-s1-s2-L2-T1-equal-S005,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0043271,26.1415223
+flapping-s1-s2-L2-T1-equal-S005,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0027337,29.1076856
+flapping-s1-s2-L2-T1-equal-S005,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0027337,29.0908562
+flapping-s1-s2-L2-T1-equal-S005,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0014834,32.118823
+flapping-s1-s2-L2-T1-equal-S005,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0014834,32.118823
+flapping-s1-s2-L2-T1-equal-S005,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0014834,32.118823
+flapping-s1-s2-L2-T1-equal-S005,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0072126,35.0984782
+flapping-s1-s2-L2-T1-equal-S005,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0072126,35.0828478
+flapping-s1-s2-L2-T1-equal-S005,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0072126,35.1309085
+flapping-s1-s2-L2-T1-equal-S006,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0074234,5.1115638
+flapping-s1-s2-L2-T1-equal-S006,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0074234,5.0976659
+flapping-s1-s2-L2-T1-equal-S006,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0015444,8.1117549
+flapping-s1-s2-L2-T1-equal-S006,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0015444,8.1185746
+flapping-s1-s2-L2-T1-equal-S006,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0015444,8.1254944
+flapping-s1-s2-L2-T1-equal-S006,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0061419,11.105479
+flapping-s1-s2-L2-T1-equal-S006,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0061419,11.0978467
+flapping-s1-s2-L2-T1-equal-S006,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0112434,14.1249492
+flapping-s1-s2-L2-T1-equal-S006,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0112434,14.1259482
+flapping-s1-s2-L2-T1-equal-S006,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0112434,14.1396666
+flapping-s1-s2-L2-T1-equal-S006,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0027489,17.1052151
+flapping-s1-s2-L2-T1-equal-S006,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0027489,17.0911402
+flapping-s1-s2-L2-T1-equal-S006,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0050626,20.1190644
+flapping-s1-s2-L2-T1-equal-S006,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0050626,20.1260262
+flapping-s1-s2-L2-T1-equal-S006,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0050626,20.1329368
+flapping-s1-s2-L2-T1-equal-S006,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0020612,23.0984017
+flapping-s1-s2-L2-T1-equal-S006,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0020612,23.0914855
+flapping-s1-s2-L2-T1-equal-S006,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0102896,26.1192997
+flapping-s1-s2-L2-T1-equal-S006,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0102896,26.1262628
+flapping-s1-s2-L2-T1-equal-S006,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0102896,26.1332508
+flapping-s1-s2-L2-T1-equal-S006,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0053841,29.1055271
+flapping-s1-s2-L2-T1-equal-S006,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0053841,29.092144
+flapping-s1-s2-L2-T1-equal-S006,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0035608,32.1195539
+flapping-s1-s2-L2-T1-equal-S006,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0035608,32.1195539
+flapping-s1-s2-L2-T1-equal-S006,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0035608,32.1266527
+flapping-s1-s2-L2-T1-equal-S006,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0155585,35.1128282
+flapping-s1-s2-L2-T1-equal-S006,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0155585,35.0988425
+flapping-s1-s2-L2-T1-equal-S006,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0155585,35.1420704
+flapping-s1-s2-L2-T1-equal-S007,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0018466,5.1063188
+flapping-s1-s2-L2-T1-equal-S007,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0018466,5.091475
+flapping-s1-s2-L2-T1-equal-S007,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0046117,8.1191578
+flapping-s1-s2-L2-T1-equal-S007,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0046117,8.1291987
+flapping-s1-s2-L2-T1-equal-S007,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0046117,8.133056
+flapping-s1-s2-L2-T1-equal-S007,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0017913,11.1054911
+flapping-s1-s2-L2-T1-equal-S007,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0017913,11.0915958
+flapping-s1-s2-L2-T1-equal-S007,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0033694,14.1126783
+flapping-s1-s2-L2-T1-equal-S007,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0033694,14.1194353
+flapping-s1-s2-L2-T1-equal-S007,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0033694,14.1296078
+flapping-s1-s2-L2-T1-equal-S007,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.002501,17.1056767
+flapping-s1-s2-L2-T1-equal-S007,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.002501,17.0918566
+flapping-s1-s2-L2-T1-equal-S007,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0036144,20.1168191
+flapping-s1-s2-L2-T1-equal-S007,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0036144,20.1196648
+flapping-s1-s2-L2-T1-equal-S007,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0041244,20.1266213
+flapping-s1-s2-L2-T1-equal-S007,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0048703,23.1058984
+flapping-s1-s2-L2-T1-equal-S007,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0048703,23.0930721
+flapping-s1-s2-L2-T1-equal-S007,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.00089,26.1199804
+flapping-s1-s2-L2-T1-equal-S007,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.00089,26.1348351
+flapping-s1-s2-L2-T1-equal-S007,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.00089,26.1269522
+flapping-s1-s2-L2-T1-equal-S007,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0059943,29.1062132
+flapping-s1-s2-L2-T1-equal-S007,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0059943,29.0924109
+flapping-s1-s2-L2-T1-equal-S007,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0029771,32.1132959
+flapping-s1-s2-L2-T1-equal-S007,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0029771,32.1216614
+flapping-s1-s2-L2-T1-equal-S007,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0029771,32.1271921
+flapping-s1-s2-L2-T1-equal-S007,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0057856,35.0994618
+flapping-s1-s2-L2-T1-equal-S007,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0057856,35.0925829
+flapping-s1-s2-L2-T1-equal-S007,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0057856,35.1272362
+flapping-s1-s2-L2-T1-equal-S008,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008728,5.0910162
+flapping-s1-s2-L2-T1-equal-S008,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008728,5.0910162
+flapping-s1-s2-L2-T1-equal-S008,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0010867,8.1205971
+flapping-s1-s2-L2-T1-equal-S008,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0010867,8.1205971
+flapping-s1-s2-L2-T1-equal-S008,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0010867,8.1205971
+flapping-s1-s2-L2-T1-equal-S008,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0143563,11.1143795
+flapping-s1-s2-L2-T1-equal-S008,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0143563,11.0981755
+flapping-s1-s2-L2-T1-equal-S008,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0063848,14.1251734
+flapping-s1-s2-L2-T1-equal-S008,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0063848,14.1271964
+flapping-s1-s2-L2-T1-equal-S008,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0063848,14.1352154
+flapping-s1-s2-L2-T1-equal-S008,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.004676,17.1086339
+flapping-s1-s2-L2-T1-equal-S008,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.004676,17.0930078
+flapping-s1-s2-L2-T1-equal-S008,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0103589,20.1233042
+flapping-s1-s2-L2-T1-equal-S008,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0103589,20.1233042
+flapping-s1-s2-L2-T1-equal-S008,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0103589,20.1386165
+flapping-s1-s2-L2-T1-equal-S008,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0057648,23.1151552
+flapping-s1-s2-L2-T1-equal-S008,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0057648,23.0992162
+flapping-s1-s2-L2-T1-equal-S008,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0100406,26.1254591
+flapping-s1-s2-L2-T1-equal-S008,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0100406,26.124455
+flapping-s1-s2-L2-T1-equal-S008,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0100406,26.1410888
+flapping-s1-s2-L2-T1-equal-S008,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0016685,29.0970288
+flapping-s1-s2-L2-T1-equal-S008,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0016685,29.0872412
+flapping-s1-s2-L2-T1-equal-S008,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0046867,32.1287451
+flapping-s1-s2-L2-T1-equal-S008,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0046867,32.1287451
+flapping-s1-s2-L2-T1-equal-S008,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0046867,32.1287451
+flapping-s1-s2-L2-T1-equal-S008,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0065232,35.1074733
+flapping-s1-s2-L2-T1-equal-S008,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0065232,35.091839
+flapping-s1-s2-L2-T1-equal-S008,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0065232,35.1260247
+flapping-s1-s2-L2-T1-equal-S009,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.010391,5.1110155
+flapping-s1-s2-L2-T1-equal-S009,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0108991,5.0981682
+flapping-s1-s2-L2-T1-equal-S009,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0004657,8.1021365
+flapping-s1-s2-L2-T1-equal-S009,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0004657,8.1021365
+flapping-s1-s2-L2-T1-equal-S009,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0004657,8.117455
+flapping-s1-s2-L2-T1-equal-S009,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0158599,11.111614
+flapping-s1-s2-L2-T1-equal-S009,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0158599,11.111614
+flapping-s1-s2-L2-T1-equal-S009,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0133122,14.1347527
+flapping-s1-s2-L2-T1-equal-S009,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0133122,14.1347527
+flapping-s1-s2-L2-T1-equal-S009,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0133122,14.1347527
+flapping-s1-s2-L2-T1-equal-S009,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0115914,17.1059178
+flapping-s1-s2-L2-T1-equal-S009,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0115914,17.1059178
+flapping-s1-s2-L2-T1-equal-S009,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.002193,20.117824
+flapping-s1-s2-L2-T1-equal-S009,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.002193,20.1335292
+flapping-s1-s2-L2-T1-equal-S009,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.002193,20.1335292
+flapping-s1-s2-L2-T1-equal-S009,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0048652,23.1368234
+flapping-s1-s2-L2-T1-equal-S009,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0048652,23.1212587
+flapping-s1-s2-L2-T1-equal-S009,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.004033,26.1227442
+flapping-s1-s2-L2-T1-equal-S009,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.004033,26.1312501
+flapping-s1-s2-L2-T1-equal-S009,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.004033,26.1227442
+flapping-s1-s2-L2-T1-equal-S009,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0072623,29.1048851
+flapping-s1-s2-L2-T1-equal-S009,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0072623,29.08972
+flapping-s1-s2-L2-T1-equal-S009,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.014936,32.1157471
+flapping-s1-s2-L2-T1-equal-S009,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.014936,32.1157471
+flapping-s1-s2-L2-T1-equal-S009,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.014936,32.1360213
+flapping-s1-s2-L2-T1-equal-S009,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0038349,35.0965046
+flapping-s1-s2-L2-T1-equal-S009,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0038349,35.0965046
+flapping-s1-s2-L2-T1-equal-S009,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0038349,35.1282004
+flapping-s1-s2-L2-T1-equal-S010,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0068178,5.100112
+flapping-s1-s2-L2-T1-equal-S010,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0068178,5.100112
+flapping-s1-s2-L2-T1-equal-S010,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.007036,8.1190381
+flapping-s1-s2-L2-T1-equal-S010,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.007036,8.1190381
+flapping-s1-s2-L2-T1-equal-S010,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.007036,8.1342996
+flapping-s1-s2-L2-T1-equal-S010,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0072906,11.1118376
+flapping-s1-s2-L2-T1-equal-S010,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0072906,11.09439
+flapping-s1-s2-L2-T1-equal-S010,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0016415,14.1228171
+flapping-s1-s2-L2-T1-equal-S010,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0016415,14.1228171
+flapping-s1-s2-L2-T1-equal-S010,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0016415,14.1228171
+flapping-s1-s2-L2-T1-equal-S010,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0111438,17.1177343
+flapping-s1-s2-L2-T1-equal-S010,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0111438,17.1019782
+flapping-s1-s2-L2-T1-equal-S010,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.01065,20.1315764
+flapping-s1-s2-L2-T1-equal-S010,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.01065,20.1162484
+flapping-s1-s2-L2-T1-equal-S010,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.01065,20.1315764
+flapping-s1-s2-L2-T1-equal-S010,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0118077,23.1149587
+flapping-s1-s2-L2-T1-equal-S010,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0118077,23.0976632
+flapping-s1-s2-L2-T1-equal-S010,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0099558,26.130875
+flapping-s1-s2-L2-T1-equal-S010,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0099558,26.130875
+flapping-s1-s2-L2-T1-equal-S010,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0099558,26.130875
+flapping-s1-s2-L2-T1-equal-S010,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.010983,29.1125135
+flapping-s1-s2-L2-T1-equal-S010,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.010983,29.0968831
+flapping-s1-s2-L2-T1-equal-S010,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0093329,32.1302658
+flapping-s1-s2-L2-T1-equal-S010,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0093329,32.1302658
+flapping-s1-s2-L2-T1-equal-S010,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0093329,32.1302658
+flapping-s1-s2-L2-T1-equal-S010,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0031503,35.0971876
+flapping-s1-s2-L2-T1-equal-S010,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0031503,35.0818627
+flapping-s1-s2-L2-T1-equal-S010,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0031503,35.1287418
+flapping-s1-s2-L2-T1-equal-S011,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0129925,5.1054665
+flapping-s1-s2-L2-T1-equal-S011,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0129925,5.1054665
+flapping-s1-s2-L2-T1-equal-S011,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0111915,8.1165118
+flapping-s1-s2-L2-T1-equal-S011,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0111915,8.1336288
+flapping-s1-s2-L2-T1-equal-S011,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0111915,8.1336288
+flapping-s1-s2-L2-T1-equal-S011,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0057428,11.1024775
+flapping-s1-s2-L2-T1-equal-S011,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0057428,11.1024775
+flapping-s1-s2-L2-T1-equal-S011,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0026634,14.1144842
+flapping-s1-s2-L2-T1-equal-S011,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0026634,14.1301029
+flapping-s1-s2-L2-T1-equal-S011,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0026634,14.1301029
+flapping-s1-s2-L2-T1-equal-S011,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0106283,17.1064719
+flapping-s1-s2-L2-T1-equal-S011,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0106283,17.090907
+flapping-s1-s2-L2-T1-equal-S011,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0031415,20.1152103
+flapping-s1-s2-L2-T1-equal-S011,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0031415,20.1305383
+flapping-s1-s2-L2-T1-equal-S011,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0031415,20.1305383
+flapping-s1-s2-L2-T1-equal-S011,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0049494,23.1085966
+flapping-s1-s2-L2-T1-equal-S011,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0049494,23.092972
+flapping-s1-s2-L2-T1-equal-S011,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0030574,26.1196582
+flapping-s1-s2-L2-T1-equal-S011,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0030574,26.1196582
+flapping-s1-s2-L2-T1-equal-S011,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0030574,26.1348735
+flapping-s1-s2-L2-T1-equal-S011,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.001324,29.0945757
+flapping-s1-s2-L2-T1-equal-S011,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.001324,29.0945757
+flapping-s1-s2-L2-T1-equal-S011,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0048312,32.1270781
+flapping-s1-s2-L2-T1-equal-S011,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0048312,32.1316377
+flapping-s1-s2-L2-T1-equal-S011,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0048312,32.1316377
+flapping-s1-s2-L2-T1-equal-S011,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0073608,35.1016949
+flapping-s1-s2-L2-T1-equal-S011,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0073608,35.0888835
+flapping-s1-s2-L2-T1-equal-S011,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0073608,35.1385734
+flapping-s1-s2-L2-T1-equal-S012,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0038203,5.1008556
+flapping-s1-s2-L2-T1-equal-S012,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0038203,5.0855303
+flapping-s1-s2-L2-T1-equal-S012,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0027421,8.146588
+flapping-s1-s2-L2-T1-equal-S012,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0027421,8.146588
+flapping-s1-s2-L2-T1-equal-S012,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0027421,8.162224
+flapping-s1-s2-L2-T1-equal-S012,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0092772,11.11612
+flapping-s1-s2-L2-T1-equal-S012,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0092772,11.1004906
+flapping-s1-s2-L2-T1-equal-S012,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0037461,14.1217989
+flapping-s1-s2-L2-T1-equal-S012,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0037461,14.1217989
+flapping-s1-s2-L2-T1-equal-S012,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0037461,14.1217989
+flapping-s1-s2-L2-T1-equal-S012,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.013934,17.1133067
+flapping-s1-s2-L2-T1-equal-S012,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.013934,17.0976921
+flapping-s1-s2-L2-T1-equal-S012,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0083124,20.1180612
+flapping-s1-s2-L2-T1-equal-S012,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0083124,20.1180612
+flapping-s1-s2-L2-T1-equal-S012,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0083124,20.1339898
+flapping-s1-s2-L2-T1-equal-S012,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0043785,23.0968599
+flapping-s1-s2-L2-T1-equal-S012,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0043785,23.0968599
+flapping-s1-s2-L2-T1-equal-S012,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0063194,26.1206403
+flapping-s1-s2-L2-T1-equal-S012,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0063194,26.1206403
+flapping-s1-s2-L2-T1-equal-S012,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0063194,26.1308727
+flapping-s1-s2-L2-T1-equal-S012,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0053989,29.1078819
+flapping-s1-s2-L2-T1-equal-S012,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0053989,29.0918724
+flapping-s1-s2-L2-T1-equal-S012,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0130893,32.111617
+flapping-s1-s2-L2-T1-equal-S012,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0130893,32.1428729
+flapping-s1-s2-L2-T1-equal-S012,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0130893,32.1428729
+flapping-s1-s2-L2-T1-equal-S012,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0085979,35.1081759
+flapping-s1-s2-L2-T1-equal-S012,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0085979,35.098763
+flapping-s1-s2-L2-T1-equal-S012,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0085979,35.1761019
+flapping-s1-s2-L2-T1-equal-S013,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0013795,5.1078586
+flapping-s1-s2-L2-T1-equal-S013,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0013795,5.0922258
+flapping-s1-s2-L2-T1-equal-S013,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0123977,8.1262072
+flapping-s1-s2-L2-T1-equal-S013,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0123977,8.1262072
+flapping-s1-s2-L2-T1-equal-S013,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0123977,8.1387112
+flapping-s1-s2-L2-T1-equal-S013,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0070502,11.108629
+flapping-s1-s2-L2-T1-equal-S013,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0070502,11.0926819
+flapping-s1-s2-L2-T1-equal-S013,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0040751,14.1176308
+flapping-s1-s2-L2-T1-equal-S013,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0040751,14.1176308
+flapping-s1-s2-L2-T1-equal-S013,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0040751,14.1347792
+flapping-s1-s2-L2-T1-equal-S013,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0047918,17.1106036
+flapping-s1-s2-L2-T1-equal-S013,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0047918,17.1000923
+flapping-s1-s2-L2-T1-equal-S013,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0007395,20.1230307
+flapping-s1-s2-L2-T1-equal-S013,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0007395,20.1153747
+flapping-s1-s2-L2-T1-equal-S013,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0007395,20.1230307
+flapping-s1-s2-L2-T1-equal-S013,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0108048,23.1066824
+flapping-s1-s2-L2-T1-equal-S013,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0108048,23.0910433
+flapping-s1-s2-L2-T1-equal-S013,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0128486,26.1287999
+flapping-s1-s2-L2-T1-equal-S013,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0128486,26.1287999
+flapping-s1-s2-L2-T1-equal-S013,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0128486,26.143347
+flapping-s1-s2-L2-T1-equal-S013,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0025483,29.0964246
+flapping-s1-s2-L2-T1-equal-S013,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0025483,29.0964246
+flapping-s1-s2-L2-T1-equal-S013,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0063047,32.1125184
+flapping-s1-s2-L2-T1-equal-S013,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0063047,32.1125184
+flapping-s1-s2-L2-T1-equal-S013,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0063047,32.1277811
+flapping-s1-s2-L2-T1-equal-S013,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0033298,35.0996938
+flapping-s1-s2-L2-T1-equal-S013,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0033298,35.0921624
+flapping-s1-s2-L2-T1-equal-S013,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0033298,35.1227408
+flapping-s1-s2-L2-T1-equal-S014,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.002774,5.1020731
+flapping-s1-s2-L2-T1-equal-S014,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.002774,5.0848694
+flapping-s1-s2-L2-T1-equal-S014,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0010005,8.0999812
+flapping-s1-s2-L2-T1-equal-S014,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0010005,8.1297202
+flapping-s1-s2-L2-T1-equal-S014,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0010005,8.1297202
+flapping-s1-s2-L2-T1-equal-S014,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0078068,11.1121892
+flapping-s1-s2-L2-T1-equal-S014,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0078068,11.0962523
+flapping-s1-s2-L2-T1-equal-S014,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0140307,14.1760051
+flapping-s1-s2-L2-T1-equal-S014,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0140307,14.1760051
+flapping-s1-s2-L2-T1-equal-S014,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0140307,14.1760051
+flapping-s1-s2-L2-T1-equal-S014,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0031145,17.1044737
+flapping-s1-s2-L2-T1-equal-S014,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0031145,17.0851213
+flapping-s1-s2-L2-T1-equal-S014,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0087894,20.1111404
+flapping-s1-s2-L2-T1-equal-S014,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0087894,20.1267797
+flapping-s1-s2-L2-T1-equal-S014,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0087894,20.1267797
+flapping-s1-s2-L2-T1-equal-S014,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0156831,23.1206076
+flapping-s1-s2-L2-T1-equal-S014,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0156831,23.1019615
+flapping-s1-s2-L2-T1-equal-S014,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0018412,26.111037
+flapping-s1-s2-L2-T1-equal-S014,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0018412,26.1269747
+flapping-s1-s2-L2-T1-equal-S014,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0018412,26.1269747
+flapping-s1-s2-L2-T1-equal-S014,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0070789,29.1115616
+flapping-s1-s2-L2-T1-equal-S014,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0070789,29.0973435
+flapping-s1-s2-L2-T1-equal-S014,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0012967,32.1816016
+flapping-s1-s2-L2-T1-equal-S014,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0012967,32.1972904
+flapping-s1-s2-L2-T1-equal-S014,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0012967,32.1972904
+flapping-s1-s2-L2-T1-equal-S014,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0111798,35.1101275
+flapping-s1-s2-L2-T1-equal-S014,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0111798,35.0980717
+flapping-s1-s2-L2-T1-equal-S014,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0111798,35.1385723
+flapping-s1-s2-L2-T1-equal-S015,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0067387,5.1010849
+flapping-s1-s2-L2-T1-equal-S015,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0067387,5.1005761
+flapping-s1-s2-L2-T1-equal-S015,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0075165,8.115018
+flapping-s1-s2-L2-T1-equal-S015,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0080275,8.115018
+flapping-s1-s2-L2-T1-equal-S015,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0080275,8.1303356
+flapping-s1-s2-L2-T1-equal-S015,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.009051,11.1097313
+flapping-s1-s2-L2-T1-equal-S015,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.009051,11.0942015
+flapping-s1-s2-L2-T1-equal-S015,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0004516,14.1181501
+flapping-s1-s2-L2-T1-equal-S015,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0004516,14.1265371
+flapping-s1-s2-L2-T1-equal-S015,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0004516,14.12856
+flapping-s1-s2-L2-T1-equal-S015,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0037851,17.1050003
+flapping-s1-s2-L2-T1-equal-S015,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0037851,17.0839911
+flapping-s1-s2-L2-T1-equal-S015,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0082785,20.1334937
+flapping-s1-s2-L2-T1-equal-S015,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0082785,20.1175558
+flapping-s1-s2-L2-T1-equal-S015,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0082785,20.1334937
+flapping-s1-s2-L2-T1-equal-S015,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.006736,23.1116167
+flapping-s1-s2-L2-T1-equal-S015,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.006736,23.095996
+flapping-s1-s2-L2-T1-equal-S015,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0117018,26.1125412
+flapping-s1-s2-L2-T1-equal-S015,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0117018,26.1125412
+flapping-s1-s2-L2-T1-equal-S015,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0117018,26.1308627
+flapping-s1-s2-L2-T1-equal-S015,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0126375,29.1098711
+flapping-s1-s2-L2-T1-equal-S015,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0126375,29.0946189
+flapping-s1-s2-L2-T1-equal-S015,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0008743,32.1177547
+flapping-s1-s2-L2-T1-equal-S015,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0008743,32.1177547
+flapping-s1-s2-L2-T1-equal-S015,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0008743,32.1177547
+flapping-s1-s2-L2-T1-equal-S015,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0065751,35.1098076
+flapping-s1-s2-L2-T1-equal-S015,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0065751,35.0938683
+flapping-s1-s2-L2-T1-equal-S015,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0065751,35.1254262
+flapping-s1-s2-L2-T1-equal-S016,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0048628,5.1086172
+flapping-s1-s2-L2-T1-equal-S016,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0048628,5.1000235
+flapping-s1-s2-L2-T1-equal-S016,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0044647,8.1110884
+flapping-s1-s2-L2-T1-equal-S016,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0044647,8.1263489
+flapping-s1-s2-L2-T1-equal-S016,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0044647,8.1263489
+flapping-s1-s2-L2-T1-equal-S016,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0095743,11.1124112
+flapping-s1-s2-L2-T1-equal-S016,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0095743,11.1044699
+flapping-s1-s2-L2-T1-equal-S016,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0018852,14.1033787
+flapping-s1-s2-L2-T1-equal-S016,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0018852,14.1193248
+flapping-s1-s2-L2-T1-equal-S016,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0018852,14.1274125
+flapping-s1-s2-L2-T1-equal-S016,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.005689,17.1165778
+flapping-s1-s2-L2-T1-equal-S016,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.005689,17.0996087
+flapping-s1-s2-L2-T1-equal-S016,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0110198,20.1291402
+flapping-s1-s2-L2-T1-equal-S016,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0110198,20.1412227
+flapping-s1-s2-L2-T1-equal-S016,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0110198,20.1291402
+flapping-s1-s2-L2-T1-equal-S016,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0033625,23.1025832
+flapping-s1-s2-L2-T1-equal-S016,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0033625,23.0870446
+flapping-s1-s2-L2-T1-equal-S016,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0039595,26.1168645
+flapping-s1-s2-L2-T1-equal-S016,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0039595,26.1168645
+flapping-s1-s2-L2-T1-equal-S016,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0039595,26.1328028
+flapping-s1-s2-L2-T1-equal-S016,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0050013,29.1077344
+flapping-s1-s2-L2-T1-equal-S016,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0050013,29.0917715
+flapping-s1-s2-L2-T1-equal-S016,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0109958,32.1169794
+flapping-s1-s2-L2-T1-equal-S016,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0109958,32.1327953
+flapping-s1-s2-L2-T1-equal-S016,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0109958,32.1327953
+flapping-s1-s2-L2-T1-equal-S016,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0022399,35.0987943
+flapping-s1-s2-L2-T1-equal-S016,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0022399,35.0834752
+flapping-s1-s2-L2-T1-equal-S016,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0022399,35.1562123
+flapping-s1-s2-L2-T1-equal-S017,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0056472,5.1052357
+flapping-s1-s2-L2-T1-equal-S017,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0056472,5.0899183
+flapping-s1-s2-L2-T1-equal-S017,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0116921,8.1246408
+flapping-s1-s2-L2-T1-equal-S017,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0116921,8.1246408
+flapping-s1-s2-L2-T1-equal-S017,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0116921,8.1346451
+flapping-s1-s2-L2-T1-equal-S017,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0095432,11.1165696
+flapping-s1-s2-L2-T1-equal-S017,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0095432,11.1006299
+flapping-s1-s2-L2-T1-equal-S017,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0064568,14.1161555
+flapping-s1-s2-L2-T1-equal-S017,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0064568,14.1161555
+flapping-s1-s2-L2-T1-equal-S017,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0064568,14.1320966
+flapping-s1-s2-L2-T1-equal-S017,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0089986,17.1057513
+flapping-s1-s2-L2-T1-equal-S017,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0089986,17.1047388
+flapping-s1-s2-L2-T1-equal-S017,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.014398,20.115602
+flapping-s1-s2-L2-T1-equal-S017,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.014398,20.1312337
+flapping-s1-s2-L2-T1-equal-S017,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.014398,20.1372368
+flapping-s1-s2-L2-T1-equal-S017,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0111522,23.1062406
+flapping-s1-s2-L2-T1-equal-S017,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0111522,23.0906154
+flapping-s1-s2-L2-T1-equal-S017,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0151117,26.1247859
+flapping-s1-s2-L2-T1-equal-S017,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0151117,26.1348453
+flapping-s1-s2-L2-T1-equal-S017,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0151117,26.1448865
+flapping-s1-s2-L2-T1-equal-S017,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0041647,29.1042276
+flapping-s1-s2-L2-T1-equal-S017,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0041647,29.0904285
+flapping-s1-s2-L2-T1-equal-S017,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0024158,32.1030569
+flapping-s1-s2-L2-T1-equal-S017,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0024158,32.118383
+flapping-s1-s2-L2-T1-equal-S017,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0024158,32.1343061
+flapping-s1-s2-L2-T1-equal-S017,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.015102,35.1076522
+flapping-s1-s2-L2-T1-equal-S017,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.015102,35.1076522
+flapping-s1-s2-L2-T1-equal-S017,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.015102,35.1388967
+flapping-s1-s2-L2-T1-equal-S018,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0029208,5.1071813
+flapping-s1-s2-L2-T1-equal-S018,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0029208,5.0915436
+flapping-s1-s2-L2-T1-equal-S018,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.000484,8.1086264
+flapping-s1-s2-L2-T1-equal-S018,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.000484,8.1178103
+flapping-s1-s2-L2-T1-equal-S018,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.000484,8.1178103
+flapping-s1-s2-L2-T1-equal-S018,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0132671,11.108586
+flapping-s1-s2-L2-T1-equal-S018,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0132671,11.108586
+flapping-s1-s2-L2-T1-equal-S018,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0009345,14.101877
+flapping-s1-s2-L2-T1-equal-S018,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0009345,14.1174011
+flapping-s1-s2-L2-T1-equal-S018,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0009345,14.1331503
+flapping-s1-s2-L2-T1-equal-S018,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0015001,17.10217
+flapping-s1-s2-L2-T1-equal-S018,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0015001,17.0868562
+flapping-s1-s2-L2-T1-equal-S018,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0136578,20.1295732
+flapping-s1-s2-L2-T1-equal-S018,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0136578,20.1295732
+flapping-s1-s2-L2-T1-equal-S018,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0136578,20.1295732
+flapping-s1-s2-L2-T1-equal-S018,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0149635,23.1161853
+flapping-s1-s2-L2-T1-equal-S018,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0149635,23.1002469
+flapping-s1-s2-L2-T1-equal-S018,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0094293,26.1236998
+flapping-s1-s2-L2-T1-equal-S018,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0094293,26.1236998
+flapping-s1-s2-L2-T1-equal-S018,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0094293,26.139339
+flapping-s1-s2-L2-T1-equal-S018,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0042719,29.1149722
+flapping-s1-s2-L2-T1-equal-S018,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0042719,29.098327
+flapping-s1-s2-L2-T1-equal-S018,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0073472,32.1135163
+flapping-s1-s2-L2-T1-equal-S018,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0073472,32.1135163
+flapping-s1-s2-L2-T1-equal-S018,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0073472,32.1438208
+flapping-s1-s2-L2-T1-equal-S018,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0110873,35.099199
+flapping-s1-s2-L2-T1-equal-S018,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0110873,35.099199
+flapping-s1-s2-L2-T1-equal-S018,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0110873,35.1385929
+flapping-s1-s2-L2-T1-equal-S019,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0056133,5.1120388
+flapping-s1-s2-L2-T1-equal-S019,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0056133,5.0964141
+flapping-s1-s2-L2-T1-equal-S019,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.012562,8.1255833
+flapping-s1-s2-L2-T1-equal-S019,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.012562,8.1540529
+flapping-s1-s2-L2-T1-equal-S019,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.012562,8.1460257
+flapping-s1-s2-L2-T1-equal-S019,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0055046,11.0984213
+flapping-s1-s2-L2-T1-equal-S019,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0055046,11.0984213
+flapping-s1-s2-L2-T1-equal-S019,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0069622,14.1199167
+flapping-s1-s2-L2-T1-equal-S019,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0069622,14.1199167
+flapping-s1-s2-L2-T1-equal-S019,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0069622,14.1355535
+flapping-s1-s2-L2-T1-equal-S019,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0046946,17.1031984
+flapping-s1-s2-L2-T1-equal-S019,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0046946,17.0875861
+flapping-s1-s2-L2-T1-equal-S019,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.0062945,20.1308753
+flapping-s1-s2-L2-T1-equal-S019,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.0062945,20.1308753
+flapping-s1-s2-L2-T1-equal-S019,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.0062945,20.1328941
+flapping-s1-s2-L2-T1-equal-S019,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0063771,23.1067054
+flapping-s1-s2-L2-T1-equal-S019,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0063771,23.096878
+flapping-s1-s2-L2-T1-equal-S019,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.004679,26.1088303
+flapping-s1-s2-L2-T1-equal-S019,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.004679,26.1245872
+flapping-s1-s2-L2-T1-equal-S019,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.004679,26.1245872
+flapping-s1-s2-L2-T1-equal-S019,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0081867,29.1079188
+flapping-s1-s2-L2-T1-equal-S019,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0081867,29.0919799
+flapping-s1-s2-L2-T1-equal-S019,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0154603,32.1157675
+flapping-s1-s2-L2-T1-equal-S019,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0154603,32.1313997
+flapping-s1-s2-L2-T1-equal-S019,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0154603,32.1313997
+flapping-s1-s2-L2-T1-equal-S019,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0050075,35.1063074
+flapping-s1-s2-L2-T1-equal-S019,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0050075,35.0903605
+flapping-s1-s2-L2-T1-equal-S019,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0050075,35.1358512
+flapping-s1-s2-L2-T1-equal-S020,5.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0051568,5.1126955
+flapping-s1-s2-L2-T1-equal-S020,5.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0051568,5.0973728
+flapping-s1-s2-L2-T1-equal-S020,8.0,heal,s1-s2,s1,iptables -F LETS_E1,True,8.0017826,8.1213946
+flapping-s1-s2-L2-T1-equal-S020,8.0,heal,s1-s2,s2,iptables -F LETS_E1,True,8.0017826,8.1213946
+flapping-s1-s2-L2-T1-equal-S020,8.0,heal,s1-s2,s3,iptables -F LETS_E1,True,8.0017826,8.1338012
+flapping-s1-s2-L2-T1-equal-S020,11.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,11.0008996,11.0966059
+flapping-s1-s2-L2-T1-equal-S020,11.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,11.0008996,11.0956012
+flapping-s1-s2-L2-T1-equal-S020,14.0,heal,s1-s2,s1,iptables -F LETS_E1,True,14.0144545,14.1145917
+flapping-s1-s2-L2-T1-equal-S020,14.0,heal,s1-s2,s2,iptables -F LETS_E1,True,14.0144545,14.1327414
+flapping-s1-s2-L2-T1-equal-S020,14.0,heal,s1-s2,s3,iptables -F LETS_E1,True,14.0144545,14.1514287
+flapping-s1-s2-L2-T1-equal-S020,17.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,17.0019102,17.1016746
+flapping-s1-s2-L2-T1-equal-S020,17.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,17.0019102,17.0860353
+flapping-s1-s2-L2-T1-equal-S020,20.0,heal,s1-s2,s1,iptables -F LETS_E1,True,20.001204,20.1192368
+flapping-s1-s2-L2-T1-equal-S020,20.0,heal,s1-s2,s2,iptables -F LETS_E1,True,20.001204,20.1039339
+flapping-s1-s2-L2-T1-equal-S020,20.0,heal,s1-s2,s3,iptables -F LETS_E1,True,20.001204,20.1272731
+flapping-s1-s2-L2-T1-equal-S020,23.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,23.0075033,23.1107629
+flapping-s1-s2-L2-T1-equal-S020,23.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,23.0075033,23.0948249
+flapping-s1-s2-L2-T1-equal-S020,26.0,heal,s1-s2,s1,iptables -F LETS_E1,True,26.0011793,26.1056688
+flapping-s1-s2-L2-T1-equal-S020,26.0,heal,s1-s2,s2,iptables -F LETS_E1,True,26.0011793,26.1216059
+flapping-s1-s2-L2-T1-equal-S020,26.0,heal,s1-s2,s3,iptables -F LETS_E1,True,26.0011793,26.1216059
+flapping-s1-s2-L2-T1-equal-S020,29.0,cut,s1-s2,s1,iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,29.0099839,29.1171336
+flapping-s1-s2-L2-T1-equal-S020,29.0,cut,s1-s2,s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,29.0099839,29.1018207
+flapping-s1-s2-L2-T1-equal-S020,32.0,heal,s1-s2,s1,iptables -F LETS_E1,True,32.0009439,32.1132287
+flapping-s1-s2-L2-T1-equal-S020,32.0,heal,s1-s2,s2,iptables -F LETS_E1,True,32.0009439,32.1132287
+flapping-s1-s2-L2-T1-equal-S020,32.0,heal,s1-s2,s3,iptables -F LETS_E1,True,32.0009439,32.1291661
+flapping-s1-s2-L2-T1-equal-S020,35.0,heal,s1-s2,s1,iptables -F LETS_E1,True,35.0073167,35.1048958
+flapping-s1-s2-L2-T1-equal-S020,35.0,heal,s1-s2,s2,iptables -F LETS_E1,True,35.0073167,35.0892673
+flapping-s1-s2-L2-T1-equal-S020,35.0,heal,s1-s2,s3,iptables -F LETS_E1,True,35.0073167,35.1361438

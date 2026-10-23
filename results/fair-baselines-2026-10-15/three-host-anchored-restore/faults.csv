@@ -1,0 +1,481 @@
+run_id,scheduled_offset_s,kind,link,site,command,ok,sent_offset_s,returned_offset_s
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008605,5.1121443
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008605,5.1029523
+full-isolation-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008605,5.1353636
+full-isolation-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0010667,35.1115842
+full-isolation-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0010667,35.1155991
+full-isolation-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0010667,35.132217
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005289,5.1135854
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005289,5.1024093
+full-isolation-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005289,5.1363949
+full-isolation-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0010014,35.1199651
+full-isolation-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0010014,35.1311492
+full-isolation-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0010014,35.1382236
+full-isolation-L0.7-T1-equal-S003,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005242,5.1114471
+full-isolation-L0.7-T1-equal-S003,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005242,5.1015333
+full-isolation-L0.7-T1-equal-S003,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005242,5.1325198
+full-isolation-L0.7-T1-equal-S003,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0006791,35.1044623
+full-isolation-L0.7-T1-equal-S003,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0006791,35.1271751
+full-isolation-L0.7-T1-equal-S003,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0006791,35.1300912
+full-isolation-L0.7-T1-equal-S004,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0004045,5.1119816
+full-isolation-L0.7-T1-equal-S004,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004045,5.0989813
+full-isolation-L0.7-T1-equal-S004,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0004045,5.1323429
+full-isolation-L0.7-T1-equal-S004,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0003539,35.1192743
+full-isolation-L0.7-T1-equal-S004,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0003539,35.1255805
+full-isolation-L0.7-T1-equal-S004,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0003539,35.1425872
+full-isolation-L0.7-T1-equal-S005,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0000575,5.1102667
+full-isolation-L0.7-T1-equal-S005,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0000575,5.0927897
+full-isolation-L0.7-T1-equal-S005,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0000575,5.1335046
+full-isolation-L0.7-T1-equal-S005,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0004641,35.1095455
+full-isolation-L0.7-T1-equal-S005,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0004641,35.1178235
+full-isolation-L0.7-T1-equal-S005,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0004641,35.1365643
+full-isolation-L0.7-T1-equal-S006,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0043197,5.1122119
+full-isolation-L0.7-T1-equal-S006,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0043197,5.103247
+full-isolation-L0.7-T1-equal-S006,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0043197,5.135205
+full-isolation-L0.7-T1-equal-S006,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0012405,35.1122507
+full-isolation-L0.7-T1-equal-S006,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0012405,35.1282583
+full-isolation-L0.7-T1-equal-S006,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0012405,35.1322582
+full-isolation-L0.7-T1-equal-S007,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0026869,5.1087506
+full-isolation-L0.7-T1-equal-S007,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0026869,5.0986334
+full-isolation-L0.7-T1-equal-S007,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0026869,5.1381164
+full-isolation-L0.7-T1-equal-S007,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0005652,35.1162443
+full-isolation-L0.7-T1-equal-S007,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0005652,35.1264973
+full-isolation-L0.7-T1-equal-S007,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0005652,35.1349892
+full-isolation-L0.7-T1-equal-S008,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008458,5.1014084
+full-isolation-L0.7-T1-equal-S008,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008458,5.1014084
+full-isolation-L0.7-T1-equal-S008,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008458,5.1305259
+full-isolation-L0.7-T1-equal-S008,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0012906,35.1131518
+full-isolation-L0.7-T1-equal-S008,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0012906,35.1274733
+full-isolation-L0.7-T1-equal-S008,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0012906,35.1358729
+full-isolation-L0.7-T1-equal-S009,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0055248,5.1158946
+full-isolation-L0.7-T1-equal-S009,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0055248,5.1040544
+full-isolation-L0.7-T1-equal-S009,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0055248,5.1376726
+full-isolation-L0.7-T1-equal-S009,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0015691,35.1241512
+full-isolation-L0.7-T1-equal-S009,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0015691,35.1132699
+full-isolation-L0.7-T1-equal-S009,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0020943,35.1322026
+full-isolation-L0.7-T1-equal-S010,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005163,5.105369
+full-isolation-L0.7-T1-equal-S010,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0011996,5.0983716
+full-isolation-L0.7-T1-equal-S010,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005163,5.1330877
+full-isolation-L0.7-T1-equal-S010,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0005855,35.1118991
+full-isolation-L0.7-T1-equal-S010,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0005855,35.1148522
+full-isolation-L0.7-T1-equal-S010,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0005855,35.1344695
+full-isolation-L0.7-T1-equal-S011,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0017887,5.1114463
+full-isolation-L0.7-T1-equal-S011,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0017887,5.1007286
+full-isolation-L0.7-T1-equal-S011,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0017887,5.1337414
+full-isolation-L0.7-T1-equal-S011,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0007775,35.1156083
+full-isolation-L0.7-T1-equal-S011,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0007775,35.1175141
+full-isolation-L0.7-T1-equal-S011,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0007775,35.132932
+full-isolation-L0.7-T1-equal-S012,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005897,5.1100862
+full-isolation-L0.7-T1-equal-S012,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005897,5.1008393
+full-isolation-L0.7-T1-equal-S012,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005897,5.1319452
+full-isolation-L0.7-T1-equal-S012,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0027178,35.1117581
+full-isolation-L0.7-T1-equal-S012,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0027178,35.1260028
+full-isolation-L0.7-T1-equal-S012,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0027178,35.1463374
+full-isolation-L0.7-T1-equal-S013,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006549,5.1104024
+full-isolation-L0.7-T1-equal-S013,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.001271,5.098812
+full-isolation-L0.7-T1-equal-S013,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006549,5.1373574
+full-isolation-L0.7-T1-equal-S013,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0016059,35.1200376
+full-isolation-L0.7-T1-equal-S013,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0016059,35.1200376
+full-isolation-L0.7-T1-equal-S013,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0016059,35.1358625
+full-isolation-L0.7-T1-equal-S014,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005403,5.1184563
+full-isolation-L0.7-T1-equal-S014,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005403,5.1095532
+full-isolation-L0.7-T1-equal-S014,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005403,5.1998902
+full-isolation-L0.7-T1-equal-S014,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0011358,35.1196012
+full-isolation-L0.7-T1-equal-S014,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0011358,35.120601
+full-isolation-L0.7-T1-equal-S014,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0011358,35.1356938
+full-isolation-L0.7-T1-equal-S015,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007611,5.109326
+full-isolation-L0.7-T1-equal-S015,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007611,5.1002247
+full-isolation-L0.7-T1-equal-S015,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007611,5.1324409
+full-isolation-L0.7-T1-equal-S015,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0004712,35.111146
+full-isolation-L0.7-T1-equal-S015,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0004712,35.1221463
+full-isolation-L0.7-T1-equal-S015,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0004712,35.1528406
+full-isolation-L0.7-T1-equal-S016,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0017141,5.1081905
+full-isolation-L0.7-T1-equal-S016,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0017141,5.1001918
+full-isolation-L0.7-T1-equal-S016,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0017141,5.1333907
+full-isolation-L0.7-T1-equal-S016,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0029583,35.1191153
+full-isolation-L0.7-T1-equal-S016,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0029583,35.139536
+full-isolation-L0.7-T1-equal-S016,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0029583,35.1360015
+full-isolation-L0.7-T1-equal-S017,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009284,5.1106391
+full-isolation-L0.7-T1-equal-S017,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0014542,5.100011
+full-isolation-L0.7-T1-equal-S017,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009284,5.1329878
+full-isolation-L0.7-T1-equal-S017,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0041825,35.1230157
+full-isolation-L0.7-T1-equal-S017,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0041825,35.13269
+full-isolation-L0.7-T1-equal-S017,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0041825,35.13269
+full-isolation-L0.7-T1-equal-S018,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0013105,5.1076713
+full-isolation-L0.7-T1-equal-S018,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0013105,5.1031269
+full-isolation-L0.7-T1-equal-S018,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0013105,5.1393644
+full-isolation-L0.7-T1-equal-S018,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.000982,35.1150842
+full-isolation-L0.7-T1-equal-S018,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.000982,35.1280059
+full-isolation-L0.7-T1-equal-S018,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.000982,35.1359511
+full-isolation-L0.7-T1-equal-S019,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0041275,5.1159875
+full-isolation-L0.7-T1-equal-S019,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0041275,5.0987795
+full-isolation-L0.7-T1-equal-S019,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0041275,5.139665
+full-isolation-L0.7-T1-equal-S019,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0024064,35.1204706
+full-isolation-L0.7-T1-equal-S019,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0024064,35.1381299
+full-isolation-L0.7-T1-equal-S019,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0024064,35.1430173
+full-isolation-L0.7-T1-equal-S020,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0019934,5.1105186
+full-isolation-L0.7-T1-equal-S020,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0019934,5.1001331
+full-isolation-L0.7-T1-equal-S020,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0019934,5.1312744
+full-isolation-L0.7-T1-equal-S020,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0025593,35.1289947
+full-isolation-L0.7-T1-equal-S020,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0025593,35.1328071
+full-isolation-L0.7-T1-equal-S020,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0025593,35.1289947
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0003584,5.1115828
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0003584,5.1026686
+full-isolation-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0003584,5.1343012
+full-isolation-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0045354,35.1228815
+full-isolation-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0047861,35.1380584
+full-isolation-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0047861,35.1380584
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008448,5.1074347
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008448,5.101899
+full-isolation-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008448,5.1337449
+full-isolation-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0013811,35.1190598
+full-isolation-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0013811,35.1223139
+full-isolation-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0013811,35.1522701
+full-isolation-L2-T1-equal-S003,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007947,5.1084157
+full-isolation-L2-T1-equal-S003,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007947,5.1024139
+full-isolation-L2-T1-equal-S003,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007947,5.133252
+full-isolation-L2-T1-equal-S003,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0003544,35.1180023
+full-isolation-L2-T1-equal-S003,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0003544,35.1180023
+full-isolation-L2-T1-equal-S003,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0003544,35.1338368
+full-isolation-L2-T1-equal-S004,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008452,5.1091525
+full-isolation-L2-T1-equal-S004,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008452,5.10063
+full-isolation-L2-T1-equal-S004,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008452,5.1317934
+full-isolation-L2-T1-equal-S004,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0011177,35.1189056
+full-isolation-L2-T1-equal-S004,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0015025,35.1109053
+full-isolation-L2-T1-equal-S004,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0015025,35.1354723
+full-isolation-L2-T1-equal-S005,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009695,5.1082767
+full-isolation-L2-T1-equal-S005,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009695,5.0997264
+full-isolation-L2-T1-equal-S005,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009695,5.1314154
+full-isolation-L2-T1-equal-S005,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0012573,35.1145241
+full-isolation-L2-T1-equal-S005,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0012573,35.1192882
+full-isolation-L2-T1-equal-S005,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.001764,35.1296956
+full-isolation-L2-T1-equal-S006,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0026131,5.1129219
+full-isolation-L2-T1-equal-S006,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0026131,5.1009141
+full-isolation-L2-T1-equal-S006,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0026131,5.133988
+full-isolation-L2-T1-equal-S006,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0007758,35.1140507
+full-isolation-L2-T1-equal-S006,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0007758,35.1184856
+full-isolation-L2-T1-equal-S006,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0007758,35.1391587
+full-isolation-L2-T1-equal-S007,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0017263,5.1161634
+full-isolation-L2-T1-equal-S007,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0017263,5.1029915
+full-isolation-L2-T1-equal-S007,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0017263,5.1327795
+full-isolation-L2-T1-equal-S007,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0036041,35.1142009
+full-isolation-L2-T1-equal-S007,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0036041,35.1201806
+full-isolation-L2-T1-equal-S007,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0036041,35.136366
+full-isolation-L2-T1-equal-S008,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0036612,5.1071907
+full-isolation-L2-T1-equal-S008,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0036612,5.1071907
+full-isolation-L2-T1-equal-S008,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0036612,5.1349933
+full-isolation-L2-T1-equal-S008,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0016956,35.1175267
+full-isolation-L2-T1-equal-S008,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0016956,35.142883
+full-isolation-L2-T1-equal-S008,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0016956,35.1448899
+full-isolation-L2-T1-equal-S009,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0004222,5.109314
+full-isolation-L2-T1-equal-S009,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004222,5.1028108
+full-isolation-L2-T1-equal-S009,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0004222,5.1409625
+full-isolation-L2-T1-equal-S009,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0005125,35.1148
+full-isolation-L2-T1-equal-S009,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0005125,35.1188072
+full-isolation-L2-T1-equal-S009,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0005125,35.1318732
+full-isolation-L2-T1-equal-S010,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0014651,5.111463
+full-isolation-L2-T1-equal-S010,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0014651,5.1005928
+full-isolation-L2-T1-equal-S010,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0014651,5.1330276
+full-isolation-L2-T1-equal-S010,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0010376,35.1231068
+full-isolation-L2-T1-equal-S010,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0010376,35.1341073
+full-isolation-L2-T1-equal-S010,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0010376,35.147037
+full-isolation-L2-T1-equal-S011,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0001755,5.1154892
+full-isolation-L2-T1-equal-S011,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0001755,5.1030579
+full-isolation-L2-T1-equal-S011,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0001755,5.140445
+full-isolation-L2-T1-equal-S011,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0027885,35.1208065
+full-isolation-L2-T1-equal-S011,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0027885,35.1414729
+full-isolation-L2-T1-equal-S011,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0027885,35.1383816
+full-isolation-L2-T1-equal-S012,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0039334,5.1153989
+full-isolation-L2-T1-equal-S012,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0039334,5.1019647
+full-isolation-L2-T1-equal-S012,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0039334,5.1392526
+full-isolation-L2-T1-equal-S012,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0002671,35.1175034
+full-isolation-L2-T1-equal-S012,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0002671,35.1090869
+full-isolation-L2-T1-equal-S012,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0002671,35.1312033
+full-isolation-L2-T1-equal-S013,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0016279,5.1126323
+full-isolation-L2-T1-equal-S013,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0016279,5.1017185
+full-isolation-L2-T1-equal-S013,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0016279,5.1334426
+full-isolation-L2-T1-equal-S013,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0005298,35.1135759
+full-isolation-L2-T1-equal-S013,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0005298,35.1258829
+full-isolation-L2-T1-equal-S013,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0005298,35.1341204
+full-isolation-L2-T1-equal-S014,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0020965,5.112419
+full-isolation-L2-T1-equal-S014,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0027249,5.1032247
+full-isolation-L2-T1-equal-S014,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0020965,5.1353958
+full-isolation-L2-T1-equal-S014,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0004355,35.1266419
+full-isolation-L2-T1-equal-S014,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0004355,35.128945
+full-isolation-L2-T1-equal-S014,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0004355,35.1340125
+full-isolation-L2-T1-equal-S015,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007126,5.1102014
+full-isolation-L2-T1-equal-S015,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007126,5.1021251
+full-isolation-L2-T1-equal-S015,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007126,5.1349246
+full-isolation-L2-T1-equal-S015,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0006787,35.142159
+full-isolation-L2-T1-equal-S015,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0006787,35.1426981
+full-isolation-L2-T1-equal-S015,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0006787,35.1608443
+full-isolation-L2-T1-equal-S016,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.003092,5.1142061
+full-isolation-L2-T1-equal-S016,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.003202,5.1050057
+full-isolation-L2-T1-equal-S016,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.003202,5.1490125
+full-isolation-L2-T1-equal-S016,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0010226,35.1194013
+full-isolation-L2-T1-equal-S016,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0010226,35.1255591
+full-isolation-L2-T1-equal-S016,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0010226,35.1348244
+full-isolation-L2-T1-equal-S017,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0057944,5.1149715
+full-isolation-L2-T1-equal-S017,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0057944,5.101332
+full-isolation-L2-T1-equal-S017,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0057944,5.1428545
+full-isolation-L2-T1-equal-S017,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0004434,35.1160678
+full-isolation-L2-T1-equal-S017,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0004434,35.1270954
+full-isolation-L2-T1-equal-S017,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0011279,35.1439855
+full-isolation-L2-T1-equal-S018,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007753,5.106002
+full-isolation-L2-T1-equal-S018,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007753,5.0995903
+full-isolation-L2-T1-equal-S018,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007753,5.1362453
+full-isolation-L2-T1-equal-S018,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0004653,35.1106434
+full-isolation-L2-T1-equal-S018,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0004653,35.1203841
+full-isolation-L2-T1-equal-S018,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0004653,35.1332918
+full-isolation-L2-T1-equal-S019,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0002805,5.1223911
+full-isolation-L2-T1-equal-S019,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0002805,5.1013219
+full-isolation-L2-T1-equal-S019,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0002805,5.1335866
+full-isolation-L2-T1-equal-S019,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0006732,35.1165957
+full-isolation-L2-T1-equal-S019,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0006732,35.1336872
+full-isolation-L2-T1-equal-S019,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0006732,35.1326874
+full-isolation-L2-T1-equal-S020,5.0,cut,"s1-s2,s1-s3,s2-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008026,5.1126531
+full-isolation-L2-T1-equal-S020,5.0,cut,"s1-s2,s1-s3,s2-s3",s2,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008026,5.1006464
+full-isolation-L2-T1-equal-S020,5.0,cut,"s1-s2,s1-s3,s2-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008026,5.132625
+full-isolation-L2-T1-equal-S020,35.0,heal,"s1-s2,s1-s3,s2-s3",s1,iptables -F LETS_E1,True,35.0004406,35.1226948
+full-isolation-L2-T1-equal-S020,35.0,heal,"s1-s2,s1-s3,s2-s3",s2,iptables -F LETS_E1,True,35.0004406,35.115962
+full-isolation-L2-T1-equal-S020,35.0,heal,"s1-s2,s1-s3,s2-s3",s3,iptables -F LETS_E1,True,35.0004406,35.1475585
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0025221,5.1131072
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0025221,5.0956506
+split-s1-L0.7-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0025221,5.133487
+split-s1-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0008695,35.1087661
+split-s1-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0008695,35.1217745
+split-s1-L0.7-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0008695,35.1367103
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0007069,5.1103227
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007069,5.0946994
+split-s1-L0.7-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007069,5.1324283
+split-s1-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0009543,35.1226771
+split-s1-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0009543,35.1162403
+split-s1-L0.7-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0009543,35.1355395
+split-s1-L0.7-T1-equal-S003,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006522,5.1144876
+split-s1-L0.7-T1-equal-S003,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006522,5.1041808
+split-s1-L0.7-T1-equal-S003,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006522,5.131419
+split-s1-L0.7-T1-equal-S003,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0011009,35.1171289
+split-s1-L0.7-T1-equal-S003,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0011009,35.1265844
+split-s1-L0.7-T1-equal-S003,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0016387,35.1408672
+split-s1-L0.7-T1-equal-S004,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009091,5.1085444
+split-s1-L0.7-T1-equal-S004,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009091,5.0941071
+split-s1-L0.7-T1-equal-S004,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009091,5.1365612
+split-s1-L0.7-T1-equal-S004,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0006069,35.1222924
+split-s1-L0.7-T1-equal-S004,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0006069,35.1409398
+split-s1-L0.7-T1-equal-S004,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.001244,35.1312922
+split-s1-L0.7-T1-equal-S005,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008447,5.1084304
+split-s1-L0.7-T1-equal-S005,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0015,5.0984385
+split-s1-L0.7-T1-equal-S005,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008447,5.15144
+split-s1-L0.7-T1-equal-S005,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0002906,35.1132161
+split-s1-L0.7-T1-equal-S005,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0008561,35.1412497
+split-s1-L0.7-T1-equal-S005,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0008561,35.1312433
+split-s1-L0.7-T1-equal-S006,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008178,5.1119699
+split-s1-L0.7-T1-equal-S006,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008178,5.0999896
+split-s1-L0.7-T1-equal-S006,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008178,5.1375212
+split-s1-L0.7-T1-equal-S006,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0006894,35.1244097
+split-s1-L0.7-T1-equal-S006,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0006894,35.1264104
+split-s1-L0.7-T1-equal-S006,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0006894,35.1382586
+split-s1-L0.7-T1-equal-S007,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006046,5.1101705
+split-s1-L0.7-T1-equal-S007,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006046,5.0969134
+split-s1-L0.7-T1-equal-S007,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006046,5.130496
+split-s1-L0.7-T1-equal-S007,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0006881,35.1190646
+split-s1-L0.7-T1-equal-S007,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0006881,35.1190646
+split-s1-L0.7-T1-equal-S007,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0013365,35.1352533
+split-s1-L0.7-T1-equal-S008,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0020131,5.1102153
+split-s1-L0.7-T1-equal-S008,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0020131,5.0973299
+split-s1-L0.7-T1-equal-S008,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0020131,5.1292512
+split-s1-L0.7-T1-equal-S008,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.003492,35.1114165
+split-s1-L0.7-T1-equal-S008,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.003492,35.1162709
+split-s1-L0.7-T1-equal-S008,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.003492,35.1367622
+split-s1-L0.7-T1-equal-S009,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.001294,5.1106186
+split-s1-L0.7-T1-equal-S009,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.001294,5.0963686
+split-s1-L0.7-T1-equal-S009,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.001294,5.1327883
+split-s1-L0.7-T1-equal-S009,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0032477,35.1211855
+split-s1-L0.7-T1-equal-S009,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0032477,35.1251843
+split-s1-L0.7-T1-equal-S009,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0032477,35.1363127
+split-s1-L0.7-T1-equal-S010,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0009879,5.1115012
+split-s1-L0.7-T1-equal-S010,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009879,5.0982765
+split-s1-L0.7-T1-equal-S010,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009879,5.1334663
+split-s1-L0.7-T1-equal-S010,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0008949,35.1265137
+split-s1-L0.7-T1-equal-S010,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0008949,35.1246514
+split-s1-L0.7-T1-equal-S010,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0008949,35.1378066
+split-s1-L0.7-T1-equal-S011,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005624,5.1116484
+split-s1-L0.7-T1-equal-S011,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005624,5.0949672
+split-s1-L0.7-T1-equal-S011,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005624,5.1388218
+split-s1-L0.7-T1-equal-S011,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0008754,35.1114837
+split-s1-L0.7-T1-equal-S011,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0008754,35.107483
+split-s1-L0.7-T1-equal-S011,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0008754,35.1355425
+split-s1-L0.7-T1-equal-S012,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008778,5.1094256
+split-s1-L0.7-T1-equal-S012,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0013855,5.0965785
+split-s1-L0.7-T1-equal-S012,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008778,5.1305141
+split-s1-L0.7-T1-equal-S012,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0012316,35.1071453
+split-s1-L0.7-T1-equal-S012,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0012316,35.1277725
+split-s1-L0.7-T1-equal-S012,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0017536,35.1324667
+split-s1-L0.7-T1-equal-S013,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005395,5.1112548
+split-s1-L0.7-T1-equal-S013,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005395,5.0945195
+split-s1-L0.7-T1-equal-S013,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005395,5.129447
+split-s1-L0.7-T1-equal-S013,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0019396,35.1326826
+split-s1-L0.7-T1-equal-S013,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0019396,35.1366827
+split-s1-L0.7-T1-equal-S013,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0019396,35.1366827
+split-s1-L0.7-T1-equal-S014,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0004742,5.105755
+split-s1-L0.7-T1-equal-S014,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004742,5.0942875
+split-s1-L0.7-T1-equal-S014,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004742,5.1311912
+split-s1-L0.7-T1-equal-S014,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0009514,35.113588
+split-s1-L0.7-T1-equal-S014,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0009514,35.1262928
+split-s1-L0.7-T1-equal-S014,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0009514,35.1341188
+split-s1-L0.7-T1-equal-S015,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008076,5.110713
+split-s1-L0.7-T1-equal-S015,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008076,5.0964007
+split-s1-L0.7-T1-equal-S015,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008076,5.1268316
+split-s1-L0.7-T1-equal-S015,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0002815,35.1155588
+split-s1-L0.7-T1-equal-S015,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0002815,35.1245663
+split-s1-L0.7-T1-equal-S015,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0002815,35.1362855
+split-s1-L0.7-T1-equal-S016,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0045164,5.1148592
+split-s1-L0.7-T1-equal-S016,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0045164,5.1004944
+split-s1-L0.7-T1-equal-S016,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0045164,5.1359235
+split-s1-L0.7-T1-equal-S016,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0053915,35.1175086
+split-s1-L0.7-T1-equal-S016,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0053915,35.1135102
+split-s1-L0.7-T1-equal-S016,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0053915,35.1435648
+split-s1-L0.7-T1-equal-S017,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0011294,5.1091265
+split-s1-L0.7-T1-equal-S017,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0011294,5.093835
+split-s1-L0.7-T1-equal-S017,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0011294,5.1379571
+split-s1-L0.7-T1-equal-S017,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0015368,35.1153708
+split-s1-L0.7-T1-equal-S017,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0015368,35.1273715
+split-s1-L0.7-T1-equal-S017,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0015368,35.1408949
+split-s1-L0.7-T1-equal-S018,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0032618,5.1118651
+split-s1-L0.7-T1-equal-S018,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0032618,5.0972424
+split-s1-L0.7-T1-equal-S018,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0032618,5.131059
+split-s1-L0.7-T1-equal-S018,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0006702,35.1238084
+split-s1-L0.7-T1-equal-S018,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0006702,35.1161838
+split-s1-L0.7-T1-equal-S018,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0006702,35.1369015
+split-s1-L0.7-T1-equal-S019,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.002195,5.1113695
+split-s1-L0.7-T1-equal-S019,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.002195,5.098191
+split-s1-L0.7-T1-equal-S019,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.002195,5.1286772
+split-s1-L0.7-T1-equal-S019,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0049794,35.1117802
+split-s1-L0.7-T1-equal-S019,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0049794,35.1301379
+split-s1-L0.7-T1-equal-S019,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0049794,35.142153
+split-s1-L0.7-T1-equal-S020,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0028305,5.1119854
+split-s1-L0.7-T1-equal-S020,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0028305,5.0970767
+split-s1-L0.7-T1-equal-S020,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0028305,5.1385376
+split-s1-L0.7-T1-equal-S020,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0017237,35.1172477
+split-s1-L0.7-T1-equal-S020,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0017237,35.1325534
+split-s1-L0.7-T1-equal-S020,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0017237,35.1276218
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0000218,5.1128874
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0000218,5.0933757
+split-s1-L2-T1-equal-S001,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0000218,5.1278876
+split-s1-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0008671,35.1160729
+split-s1-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0008671,35.1190662
+split-s1-L2-T1-equal-S001,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0008671,35.1429368
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0033476,5.1262049
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0040152,5.1114882
+split-s1-L2-T1-equal-S002,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0033476,5.1460812
+split-s1-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0022992,35.1186904
+split-s1-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0022992,35.1284781
+split-s1-L2-T1-equal-S002,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0022992,35.1389869
+split-s1-L2-T1-equal-S003,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0028206,5.1123868
+split-s1-L2-T1-equal-S003,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0028206,5.0975653
+split-s1-L2-T1-equal-S003,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0028206,5.1361996
+split-s1-L2-T1-equal-S003,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0002817,35.1160563
+split-s1-L2-T1-equal-S003,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0002817,35.1248371
+split-s1-L2-T1-equal-S003,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0002817,35.1323913
+split-s1-L2-T1-equal-S004,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.001262,5.1068624
+split-s1-L2-T1-equal-S004,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.001262,5.0983311
+split-s1-L2-T1-equal-S004,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.001262,5.1264913
+split-s1-L2-T1-equal-S004,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0001851,35.1180685
+split-s1-L2-T1-equal-S004,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0001851,35.1177398
+split-s1-L2-T1-equal-S004,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0001851,35.1349332
+split-s1-L2-T1-equal-S005,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0003601,5.1076329
+split-s1-L2-T1-equal-S005,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009022,5.0936135
+split-s1-L2-T1-equal-S005,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0009022,5.1308733
+split-s1-L2-T1-equal-S005,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.000642,35.1168585
+split-s1-L2-T1-equal-S005,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.000642,35.1221246
+split-s1-L2-T1-equal-S005,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0011519,35.1334984
+split-s1-L2-T1-equal-S006,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0004786,5.1130606
+split-s1-L2-T1-equal-S006,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004786,5.0924346
+split-s1-L2-T1-equal-S006,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004786,5.1293223
+split-s1-L2-T1-equal-S006,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0005242,35.1115704
+split-s1-L2-T1-equal-S006,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0005242,35.1333652
+split-s1-L2-T1-equal-S006,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0005242,35.1351705
+split-s1-L2-T1-equal-S007,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0013308,5.1132675
+split-s1-L2-T1-equal-S007,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0013308,5.0960074
+split-s1-L2-T1-equal-S007,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0013308,5.1295005
+split-s1-L2-T1-equal-S007,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0008021,35.1204853
+split-s1-L2-T1-equal-S007,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0008021,35.1343911
+split-s1-L2-T1-equal-S007,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0008021,35.2751779
+split-s1-L2-T1-equal-S008,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0003608,5.1110841
+split-s1-L2-T1-equal-S008,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0003608,5.0946971
+split-s1-L2-T1-equal-S008,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0003608,5.2065865
+split-s1-L2-T1-equal-S008,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0020637,35.1177184
+split-s1-L2-T1-equal-S008,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0020637,35.1339922
+split-s1-L2-T1-equal-S008,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0020637,35.1339922
+split-s1-L2-T1-equal-S009,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006694,5.1113755
+split-s1-L2-T1-equal-S009,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006694,5.0874392
+split-s1-L2-T1-equal-S009,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006694,5.1275463
+split-s1-L2-T1-equal-S009,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0051949,35.1168016
+split-s1-L2-T1-equal-S009,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0051949,35.1248165
+split-s1-L2-T1-equal-S009,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0051949,35.1612172
+split-s1-L2-T1-equal-S010,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0015812,5.1060707
+split-s1-L2-T1-equal-S010,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0015812,5.0938499
+split-s1-L2-T1-equal-S010,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0015812,5.1231095
+split-s1-L2-T1-equal-S010,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0006792,35.1194203
+split-s1-L2-T1-equal-S010,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0006792,35.1194203
+split-s1-L2-T1-equal-S010,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0006792,35.1325822
+split-s1-L2-T1-equal-S011,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0008752,5.1104398
+split-s1-L2-T1-equal-S011,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008752,5.095855
+split-s1-L2-T1-equal-S011,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0008752,5.1399368
+split-s1-L2-T1-equal-S011,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0012293,35.120608
+split-s1-L2-T1-equal-S011,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0012293,35.1192764
+split-s1-L2-T1-equal-S011,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0012293,35.1331493
+split-s1-L2-T1-equal-S012,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0037783,5.1126875
+split-s1-L2-T1-equal-S012,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0037783,5.0985271
+split-s1-L2-T1-equal-S012,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0037783,5.133583
+split-s1-L2-T1-equal-S012,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0031938,35.1117163
+split-s1-L2-T1-equal-S012,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0031938,35.125553
+split-s1-L2-T1-equal-S012,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0031938,35.1409465
+split-s1-L2-T1-equal-S013,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0006521,5.1153976
+split-s1-L2-T1-equal-S013,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006521,5.0903116
+split-s1-L2-T1-equal-S013,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0006521,5.1423282
+split-s1-L2-T1-equal-S013,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0007046,35.1299179
+split-s1-L2-T1-equal-S013,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0007046,35.1391151
+split-s1-L2-T1-equal-S013,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0007046,35.1329901
+split-s1-L2-T1-equal-S014,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005274,5.1108785
+split-s1-L2-T1-equal-S014,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005274,5.0943555
+split-s1-L2-T1-equal-S014,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005274,5.1286672
+split-s1-L2-T1-equal-S014,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0031265,35.117648
+split-s1-L2-T1-equal-S014,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0031265,35.1258237
+split-s1-L2-T1-equal-S014,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0031265,35.1378238
+split-s1-L2-T1-equal-S015,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0005459,5.1135553
+split-s1-L2-T1-equal-S015,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005459,5.0962472
+split-s1-L2-T1-equal-S015,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0005459,5.1278625
+split-s1-L2-T1-equal-S015,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0010915,35.1239609
+split-s1-L2-T1-equal-S015,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0010915,35.116808
+split-s1-L2-T1-equal-S015,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0010915,35.1316873
+split-s1-L2-T1-equal-S016,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.00053,5.1125417
+split-s1-L2-T1-equal-S016,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007606,5.0909382
+split-s1-L2-T1-equal-S016,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0007606,5.1327869
+split-s1-L2-T1-equal-S016,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0006302,35.1176093
+split-s1-L2-T1-equal-S016,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0006302,35.1199311
+split-s1-L2-T1-equal-S016,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0006302,35.1372192
+split-s1-L2-T1-equal-S017,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0018461,5.1140084
+split-s1-L2-T1-equal-S017,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0018461,5.0978931
+split-s1-L2-T1-equal-S017,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0018461,5.1314833
+split-s1-L2-T1-equal-S017,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0040394,35.1269215
+split-s1-L2-T1-equal-S017,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0040394,35.1234385
+split-s1-L2-T1-equal-S017,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0040394,35.1374011
+split-s1-L2-T1-equal-S018,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0022949,5.1087133
+split-s1-L2-T1-equal-S018,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0022949,5.0958904
+split-s1-L2-T1-equal-S018,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0022949,5.1306318
+split-s1-L2-T1-equal-S018,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0004438,35.1121749
+split-s1-L2-T1-equal-S018,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0004438,35.1169919
+split-s1-L2-T1-equal-S018,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0004438,35.1375477
+split-s1-L2-T1-equal-S019,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0025759,5.1138419
+split-s1-L2-T1-equal-S019,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0025759,5.0966396
+split-s1-L2-T1-equal-S019,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0025759,5.1336826
+split-s1-L2-T1-equal-S019,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0017962,35.1262705
+split-s1-L2-T1-equal-S019,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0017962,35.1201984
+split-s1-L2-T1-equal-S019,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0023111,35.1302778
+split-s1-L2-T1-equal-S020,5.0,cut,"s1-s2,s1-s3",s1,iptables -A LETS_E1 -s <s3-ip> -j DROP && iptables -A LETS_E1 -d <s3-ip> -j DROP && iptables -A LETS_E1 -s <s2-ip> -j DROP && iptables -A LETS_E1 -d <s2-ip> -j DROP,True,5.0004819,5.111129
+split-s1-L2-T1-equal-S020,5.0,cut,"s1-s2,s1-s3",s2,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004819,5.0961662
+split-s1-L2-T1-equal-S020,5.0,cut,"s1-s2,s1-s3",s3,iptables -A LETS_E1 -s <s1-ip> -j DROP && iptables -A LETS_E1 -d <s1-ip> -j DROP,True,5.0004819,5.1302488
+split-s1-L2-T1-equal-S020,35.0,heal,"s1-s2,s1-s3",s1,iptables -F LETS_E1,True,35.0030569,35.1212342
+split-s1-L2-T1-equal-S020,35.0,heal,"s1-s2,s1-s3",s2,iptables -F LETS_E1,True,35.0030569,35.1264954
+split-s1-L2-T1-equal-S020,35.0,heal,"s1-s2,s1-s3",s3,iptables -F LETS_E1,True,35.0030569,35.1374626

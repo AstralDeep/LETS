@@ -1,7 +1,7 @@
 """Shared vocabulary for the E1 experiment: the ordered site roster and everything derived from it
 (links, Zipf weights, shares, parametric topologies), the system catalogue including the
-`lets-tree-d<depth>-f<fanout>` delegation variants, the run configuration record exchanged between
-controller.py and site_agent.py, and the JSON/HMAC helpers both ends use.
+`lets-tree-d<depth>-f<fanout>` delegation, `lets-anchored`, and stale-restore variants, the run
+configuration record exchanged between controller.py and site_agent.py, and JSON/HMAC helpers.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ ENVELOPE_ID = "fair-baselines-envelope"
 CAPABILITY = "fair-baselines.act"
 SYSTEM_KINDS = ("central", "static-quota", "raft-quorum", "lets")
 LETS_TREE = re.compile(r"lets-tree-d([1-9][0-9]?)-f([1-9][0-9]?)")
+LETS_RESTORE = re.compile(r"(lets|lets-anchored)-restore@([A-Za-z0-9_]{1,32})")
+RESTORE_SNAPSHOT_AFTER_CUT_S = 1.0
 MAX_TREE_DEPTH = 8
 MAX_TREE_FANOUT = 8
 PLACEMENTS = ("equal", "proportional", "explicit")
@@ -79,10 +81,16 @@ class SystemSpec:
     host: str | None = None
     depth: int = 0
     fanout: int = 0
+    anchored: bool = False
+    restore_site: str | None = None
 
     @property
     def delegates(self) -> bool:
         return self.depth > 0
+
+    @property
+    def expected_unsafe(self) -> bool:
+        return self.restore_site is not None and not self.anchored
 
     @classmethod
     def parse(cls, name: str, sites: Sequence[str] | None = None) -> SystemSpec:
@@ -92,6 +100,17 @@ class SystemSpec:
             return cls(name, "raft-quorum", retry=True)
         if name == "lets":
             return cls(name, "lets", retry=True)
+        if name == "lets-anchored":
+            return cls(name, "lets", retry=True, anchored=True)
+        restore = LETS_RESTORE.fullmatch(name)
+        if restore and (sites is None or restore.group(2) in sites):
+            return cls(
+                name,
+                "lets",
+                retry=True,
+                anchored=restore.group(1) == "lets-anchored",
+                restore_site=restore.group(2),
+            )
         tree = LETS_TREE.fullmatch(name)
         if tree:
             depth, fanout = int(tree.group(1)), int(tree.group(2))
@@ -281,6 +300,11 @@ class RunConfig:
     @property
     def arrival_window_s(self) -> float:
         return self.pre_s + self.partition_s + self.post_s
+
+    @property
+    def restore_schedule_s(self) -> tuple[float, float]:
+        snapshot = self.pre_s + min(RESTORE_SNAPSHOT_AFTER_CUT_S, self.partition_s / 4)
+        return snapshot, self.pre_s + self.partition_s / 2
 
     @property
     def shares(self) -> dict[str, int]:

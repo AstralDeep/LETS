@@ -30,6 +30,7 @@ source identity the controller observed.
 | stranded capacity, unit-seconds | Budget sitting unused at one site while requests wait at another site that cannot reach it; the peak number of such units and how many unit-seconds they sat idle. |
 | the five systems | The ways of sharing the budget that were compared: LETS (each site holds a share and can hand unused units to a site it can reach); static quotas (the budget split once and never moved); a central counter (the whole budget at one site that everyone must call, either giving up after one failed try or retrying until the deadline); a Raft quorum counter (a majority of sites must agree to each approval). |
 | delegation tree, leaf, refresh | The LETS variant `lets-tree-d2-f2`, in which each site's root lease hands its units down through two levels of child leases and the four leaves at the bottom are the leases that approve requests; a refresh is the site closing the whole tree and building it again from a new root, which is how it takes up budget transferred from another site. |
+| rollback anchor, stale restore | A rollback anchor is a small file, kept outside a database's own storage, that records how far the database has advanced; a database found behind its anchor is refused when it is opened. A stale restore puts a site's databases back to an earlier backup, as an operator restoring from backup would. The variants `lets-anchored`, `lets-anchored-restore@s1`, and `lets-restore@s1` run LETS with anchors, with anchors and a stale restore at `s1`, and with the same restore but no anchors. |
 | in-cut probes | While the network was blocked, each site tried to contact every other site; the record shows which pairs could and could not reach each other, which proves the block was real. |
 | drop counters | The number of packets the firewall rule discarded during the block. |
 | safety, margin | After each run the actions that actually happened are counted and checked against the 30-unit budget; the margin is how far below 30 a run stayed. |
@@ -622,6 +623,147 @@ transfer traffic indistinguishable from the one-lease study, at a cost of a few 
 millisecond per approval and about 0.1 s of warden work each time a site takes up or gives away
 budget. What this grid does not cover is unchanged: deeper or wider trees (the lineage benchmark
 measures those on one warden) and children spawned on a remote warden during a break.
+
+## Anchored partition results (160 runs, 19,414 requests, 20 seeds per cell)
+
+Every LETS warden and executor in the grids above ran without rollback anchors, so none of them
+showed what a site does when its databases are put back to an older state while it is cut off.
+Three LETS variants answer that on the same three hosts. `lets-anchored` is `lets` with a
+process-file rollback anchor beside the warden and another beside the executor: the warden anchor
+records the audit position and state of the warden database as the warden commits, the executor
+anchor does the same for the executor's claim store, and a database found behind its anchor is
+refused when it is opened. `lets-anchored-restore@s1` adds a stale restore at `s1`: one second into
+the break the site takes an online SQLite backup of both databases of that system, and halfway
+through the break (20 s into the run), still cut off, it closes them, replaces the database files
+with the backup, and reopens them, leaving the anchors as they are. `lets-restore@s1` does the same
+restore with no anchors. It is the control: the controller expects it may exceed the envelope,
+records its safety verdict, and does not count the run as failed for it. The restore event of each
+run (`restore_snapshot`, then `restore_refused` or `restore_accepted` in `events.csv`) carries the
+warden revision at the backup and just before the restore.
+
+**Keeping the anchors out of the databases' rollback domain.** On each host the anchors lived on
+their own 512 MB ext4 filesystem (a loop-mounted image) at `/srv/lets-anchor`, owned by a dedicated
+system account `lets-anchor` with mode 700. The site agents, and with them the databases, the
+backups, and the restores, ran under the experiment account on the host's main filesystem; before
+the grid that account was checked on all three hosts to be unable to list or write the anchor
+filesystem. It reached the anchors only through the LETS anchor helper, started as `lets-anchor`
+through a sudo rule that permits that one command
+(`sudo -n -u lets-anchor /opt/lets-anchor/venv/bin/python -m lets.authority_helper`), so a backup
+or restore could not copy or replace an anchor even by mistake. The account, filesystem, helper,
+and sudo rule were removed after the run.
+
+**Grid.** The three-host setup of the delegation grid (`s1` and `s2` on the university LAN, `s3`
+the Azure VM in East US, controller on the Windows desktop through SSH port forwards, faults
+through persistent sudo-over-SSH, no netem), skew 1, 0.7x and 2x load, 20 seeds. The sites ran
+harness commit `b9f48d3` (deployed as a Git archive, CPython 3.12.13, LETS 1.1.0 in the anchor
+helper) and the controller ran the same commit. Two directories:
+
+- `three-host-anchored-restore/`: `split-s1` and `full-isolation` with `lets`, `lets-anchored`,
+  `lets-anchored-restore@s1`, and `lets-restore@s1` in every run (80 runs, 2026-10-22 20:10 to
+  21:44 UTC). Its `MANIFEST.json` also records a second invocation of the same command, which found
+  all 80 cells present and ran none.
+- `three-host-anchored/`: `bridge-s3` and `flapping-s1-s2` with `lets` and `lets-anchored` (80 runs,
+  21:44 to 23:24 UTC). The first invocation ran 44 cells and stopped at 22:33 UTC when the
+  controller process and its SSH port forwards ended; after the site agents and forwards were
+  restarted, the same command skipped those 44 cells and ran the other 36 from 22:42 UTC.
+
+**Fault fidelity.** All 160 runs passed. The 720 in-cut probes of the static topologies match their
+cut sets exactly (480 cut links unreachable, 240 intact links reachable); every cut had formed
+within 0.21 s of its offset (median 0.11 s) and every heal within 0.28 s (median 0.13 s); the
+`LETS_E1` chains dropped 6,405 packets.
+
+**Stale restores.** The anchored warden refused every restore of a database that had advanced since
+the backup, with `StorageError: warden database is older than its monotonic authority anchor`, and
+`s1` then refused every later request of that system (`stale_state_refused`) and approved none.
+The unanchored control accepted every restore, which handed `s1` back the units it had spent since
+the backup. A site's allocation below is its share plus the units transferred to it minus the
+units it transferred away (the `transfer_in` and `transfer_out` events of that system at `s1`);
+overspend is the actuations in `s1`'s effect log beyond that allocation.
+
+| Cell (skew 1) | Anchored: refused / stale restores | Anchored: runs over 30 | Unanchored: restores accepted | Unanchored: runs where `s1` overspent (max units) | Unanchored: runs over 30 (max actuations) |
+|---|---|---:|---:|---|---|
+| `split-s1`, 0.7x | 20 / 20 | 0 | 20 | 11 (6) | 1 (34) |
+| `full-isolation`, 0.7x | 20 / 20 | 0 | 20 | 12 (5) | 0 (25) |
+| `split-s1`, 2x | 20 / 20 | 0 | 20 | 20 (10) | 20 (40) |
+| `full-isolation`, 2x | 19 / 19, plus 1 unchanged and accepted | 0 | 20 | 19 (8) | 19 (38) |
+| All | 79 / 79 | 0 of 80 | 80 of 80 | 62 of 79 stale restores (1 to 10 units) | 40 of 80 (at most 40) |
+
+In the one accepted anchored restore (`full-isolation-L2-T1-equal-S006`), `s1` had used up its
+units before the backup, so the warden revision was 11 at both the backup and the restore and the
+restored database was not stale; accepting it is the correct outcome. With anchors, `s1` never
+actuated beyond its allocation and every one of the 80 runs stayed within the envelope. Refusing
+has a price in completion: the anchored-restore copy completes 0.65 (`split-s1`) and 0.665
+(`full-isolation`) at 0.7x, against 0.99 and 1.00 for `lets`, and 0.486 and 0.485 at 2x, against
+0.497 and 0.493, where the envelope binds anyway. The unanchored control completes 1.00 at 0.7x and
+0.599 and 0.587 at 2x only because it spends units it does not hold.
+
+**Availability with anchors.** `lets-anchored` approved exactly as many requests as `lets` in every
+one of the 160 runs, so the pooled completions are identical: at 0.7x, 0.99 for `split-s1` and
+1.00 for `bridge-s3`, `full-isolation`, and `flapping-s1-s2`; at 2x, 0.497, 0.476, 0.493, and
+0.519. That includes what a cut-off site serves from its own share: of the requests that arrived at
+`s1` between cut formation and heal at 0.7x, both systems approved all 126 in `split-s1` and all
+129 in `full-isolation`. Both systems satisfied `effects <= 30`, `effects == authorized records`,
+and no duplicate actuation in all 160 runs.
+
+**What the anchors cost.** Every LETS approval records an `auth_cost` event with its warden debit
+and executor claim times. In `three-host-anchored/`, where each site hosts the two LETS systems,
+the median time to authorization before the break (306 authorized requests per system) is 23.6 ms
+without anchors and 41.9 ms with them (95th percentile 67.8 and 119.5 ms). By site, the median
+warden step goes from 18.8 to 28.4 ms on `s1`, 17.2 to 25.1 ms on `s2`, and 36.0 to 72.7 ms on
+`s3`, and the executor step from 4.5 to 13.0, 3.3 to 13.7, and 28.4 to 40.9 ms. In the restore
+grid, where four LETS systems share each site's disk, the median time to authorization before the
+break is 43.6 ms without anchors and 70.4 ms with them. To isolate the anchor's own cost,
+`anchor_cost.py` was run on each host before the grids started: ten trials per configuration,
+alternating which configuration goes first, each of 20 warm-up calls and 200 timed calls (2,000
+samples per configuration per host), written to `anchor-cost/anchor-cost-<site>.json` with every
+sample.
+
+| Host | Median approval, no anchors / anchors (ms) | Anchors, 95th percentile (ms) | Warden step, no anchors / anchors (ms) | Executor step, no anchors / anchors (ms) |
+|---|---|---:|---|---|
+| `s1` | 15.1 / 32.1 | 34.3 | 11.1 / 20.1 (+8.9) | 4.0 / 12.0 (+8.0) |
+| `s2` | 11.2 / 34.7 | 38.7 | 8.3 / 21.3 (+13.1) | 2.9 / 13.4 (+10.5) |
+| `s3` | 42.9 / 92.4 | 125.4 | 23.8 / 48.9 (+25.1) | 18.7 / 43.2 (+24.6) |
+
+The added cost in parentheses is the difference of the medians.
+
+**What this grid does not cover.** The anchor filesystem was a separate volume and account on the
+same disk and host, not separate hardware or a remote service, so the grid tests independence from
+a database rollback, not from the loss of a disk or host. The experiment account also held the
+general passwordless sudo the fault injector needs; the backups and restores did not use it, but an
+administrator with root on a host can still roll back a database and its anchor together, which
+remains outside what anchors protect against. Each stale restore replaced both databases of the
+system together and the warden refused first, so the executor anchor's own refusal was not reached
+under partition.
+
+Reproduce on the three hosts. Each site agent needs the anchor root and the helper command (the
+host prerequisites are those of the delegation grid plus the anchor account, filesystem, and sudo
+rule described above):
+
+```bash
+LETS_E1_TOKEN="$(cat ~/.lets-e1/token)" uv run python -m benchmarks.fair_baselines.site_agent --site s1 --bind 0.0.0.0 --port 9701 --state-root ~/.lets-e1/state --anchor-root /srv/lets-anchor --anchor-helper "sudo -n -u lets-anchor /opt/lets-anchor/venv/bin/python -m lets.authority_helper"
+```
+
+An agent started without `--anchor-root` rejects the anchored systems. Then, from the controller:
+
+```bash
+LETS_E1_TOKEN=... uv run python -m benchmarks.fair_baselines.controller run --endpoints three-host-endpoints.json --output results/fair-baselines-2026-10-15/three-host-anchored-restore --thetas 1 --rtt-ms 0 --topologies split-s1 full-isolation --loads 0.7 2.0 --seeds 20 --systems lets lets-anchored lets-anchored-restore@s1 lets-restore@s1
+LETS_E1_TOKEN=... uv run python -m benchmarks.fair_baselines.controller run --endpoints three-host-endpoints.json --output results/fair-baselines-2026-10-15/three-host-anchored --thetas 1 --rtt-ms 0 --topologies bridge-s3 flapping-s1-s2 --loads 0.7 2.0 --seeds 20 --systems lets lets-anchored
+uv run python -m benchmarks.fair_baselines.analysis --output results/fair-baselines-2026-10-15/three-host-anchored-restore
+uv run python -m benchmarks.fair_baselines.report --grid three-host-anchored-restore=results/fair-baselines-2026-10-15/three-host-anchored-restore --write results/fair-baselines-2026-10-15/three-host-anchored-restore
+uv run python -m benchmarks.fair_baselines.report --grid three-host-anchored-restore=results/fair-baselines-2026-10-15/three-host-anchored-restore --load 2 --basename report-2x --write results/fair-baselines-2026-10-15/three-host-anchored-restore
+```
+
+(`analysis` and both `report` calls run the same way for `three-host-anchored/`.) The quiet-host
+cost, on each host while no grid runs:
+
+```bash
+uv run python -m benchmarks.fair_baselines.anchor_cost --site s1 --state-root ~/.lets-e1/anchor-cost --anchor-root /srv/lets-anchor --anchor-helper "sudo -n -u lets-anchor /opt/lets-anchor/venv/bin/python -m lets.authority_helper" --output anchor-cost-s1.json
+```
+
+The grid reports count the unanchored control apart in their safety sentence. The stale-restore
+table and the per-site anchor costs above are reductions of `events.csv` (the restore, transfer,
+and `auth_cost` events), `runs.csv` (actuations and safety verdicts), and each run file's effect
+log; `report.md` and `report-2x.md` in each directory have the completion tables and intervals.
 
 ## Known limitations
 
