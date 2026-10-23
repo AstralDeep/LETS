@@ -34,7 +34,7 @@ from typing import Any
 from lets.crypto import Ed25519Signer
 
 from .common import utc_now, write_json, write_text
-from .remote_cluster import ALIASES, Credential, load_credentials
+from .remote_cluster import ALIASES, Credential, load_credentials, ssh_auth
 
 SCHEMA = "lets.three-host-linux-experiment/v1"
 RUN_ROOT_NAME = ".lets-nsdi-three-host"
@@ -388,7 +388,7 @@ class RemoteHost:
             client.connect(
                 self.credential.host,
                 username=self.credential.username,
-                password=self.credential.password,
+                **ssh_auth(self.credential),  # type: ignore[arg-type]
                 look_for_keys=False,
                 allow_agent=False,
                 timeout=15,

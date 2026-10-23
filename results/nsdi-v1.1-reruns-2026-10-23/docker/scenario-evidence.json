@@ -1,0 +1,111 @@
+{
+  "conservation": {
+    "audit_chains_valid": {
+      "warden-a": true,
+      "warden-b": true,
+      "warden-c": true
+    },
+    "free_plus_residual_plus_consumed": [
+      300
+    ],
+    "initial_budget": [
+      300
+    ],
+    "local_invariants_healthy": [
+      true,
+      true,
+      true
+    ],
+    "transferred_in": [
+      20
+    ],
+    "transferred_out": [
+      20
+    ]
+  },
+  "dispatcher_convergence": {
+    "automatic_accept_finalize_checkpoint": true,
+    "source_compacted_high_water": 2,
+    "source_peer_dispatcher": {
+      "configured_peers": 2,
+      "delivered_records": 4,
+      "durable_retry": null,
+      "failed_records": 0,
+      "healthy": true,
+      "last_cycle_ns": 1792734300926853310,
+      "last_error": null,
+      "pending_records": 0,
+      "prepared_transfers": 0,
+      "running": true,
+      "superseded_records": 0
+    },
+    "target_compacted_high_water": 2
+  },
+  "independent_executor": {
+    "durable_replay_rejected_after_reopen": true,
+    "receipt_id": "receipt_f5591f279ea44e628315e1a8ed164a88",
+    "replay_store_integrity": [
+      "ok"
+    ],
+    "signature_verified": true
+  },
+  "nodes": {
+    "distinct_key_ids": {
+      "warden-a": "warden-a/ed25519-af5b629e2afe2883a56fdf7fbb5b5912",
+      "warden-b": "warden-b/ed25519-7e456b5e9b7ab57bf8de8030da582b22",
+      "warden-c": "warden-c/ed25519-74fd16112f413f494963c7a2ef929309"
+    },
+    "distinct_process_ids": [
+      1401,
+      1467,
+      1337
+    ],
+    "manifest_digest": "sha256:5b9bb4ae6f7c7942346123577f14ee6471322d9e53e4b95d2872a7dcf75d4e84"
+  },
+  "partition": {
+    "durable_peer_delivery": {
+      "configured_peers": 2,
+      "delivered_records": 0,
+      "durable_retry": {
+        "attempt_count": 1,
+        "exception_class": "ConnectError",
+        "next_retry_delay_seconds": 0.099,
+        "record_kind": "transfer",
+        "target_warden": "warden-b"
+      },
+      "failed_records": 1,
+      "healthy": false,
+      "last_cycle_ns": 1792734292251516205,
+      "last_error": "ConnectError",
+      "pending_records": 2,
+      "prepared_transfers": 2,
+      "running": true,
+      "superseded_records": 0
+    },
+    "links_disabled": [
+      "a_to_b",
+      "b_to_a"
+    ],
+    "local_progress_receipts": [
+      "receipt_f5591f279ea44e628315e1a8ed164a88",
+      "receipt_5540f6900bd44176b91ef82fe96457bc"
+    ]
+  },
+  "reordered_transfer": {
+    "contiguous_watermark": 0,
+    "exact_http_replay_code": "replay_detected",
+    "exact_http_replay_status": 409,
+    "missing_sequence": 1,
+    "sent_sequence_first": 2
+  },
+  "restart_recovery": {
+    "application_duplicate_ack_stable": true,
+    "exact_http_replay_code_after_restart": "replay_detected",
+    "exact_http_replay_status_after_restart": 409,
+    "pid_after": 1911,
+    "pid_before": 1467,
+    "signal": "SIGKILL",
+    "signing_key_stable": true
+  },
+  "schema": "lets.acceptance-scenario/v1"
+}

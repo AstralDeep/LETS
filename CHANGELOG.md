@@ -5,6 +5,18 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+### Added
+
+- `results/nsdi-v1.1-reruns-2026-10-23/`: the 2026-09-02 same-host, formal, Docker, and native-Linux
+  host-path experiments rerun on the LETS 1.1 runtime from a clean checkout, with a README giving
+  every command.
+
+### Changed
+
+- The remote evidence runners accept a private-key file per host (`sN_KEY`) as an alternative to a
+  password (`sN_PASS`), and the matched-host benchmark pins the current AstralDeep composition
+  (AstralDeep `3627625e`, AstralPlane `5ecce4cc`, LETS `ed5c1e4`).
+
 ## [1.1.2] - 2026-10-23
 
 The `v1.1.1` tag was not published: its release run built and signed the image candidate but could
