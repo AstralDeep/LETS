@@ -1,6 +1,7 @@
 """Tests for benchmarks/fair_baselines/site_agent.py: a three-agent loopback run through every
 system with safety verification, the LETS delegation tree refreshing from mid-run transfers,
-roster checks in the configure payload, the control and peer API denials, and the CLI entry point.
+anchored LETS with scheduled stale restores, roster checks in the configure payload, the control
+and peer API denials, and the CLI entry point.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import pytest
 
 from benchmarks.fair_baselines.common import SITES, peer_mac
 from benchmarks.fair_baselines.controller import verify_safety
-from benchmarks.fair_baselines.site_agent import AgentError, AgentState, main
+from benchmarks.fair_baselines.site_agent import AgentError, AgentState, anchor_settings, main
 from tests.benchmarks.conftest import TOKEN, LoopbackCluster, short_config
 
 
@@ -414,3 +415,74 @@ def test_three_agents_run_lets_with_and_without_delegation_trees(
         assert last["detail"].startswith(f"out-{requester}-")
     for site in SITES:
         cluster.call(site, "POST", "/run/teardown")
+
+
+def test_anchored_agents_refuse_a_stale_restore_that_unanchored_lets_accepts(
+    anchored_cluster: LoopbackCluster, tmp_path: Path
+) -> None:
+    systems = ["lets-anchored", "lets-anchored-restore@s1", "lets-restore@s1"]
+    config = short_config(
+        "agent-anchored",
+        systems=systems,
+        envelope=30,
+        placement="explicit",
+        explicit_shares={"s1": 20, "s2": 5, "s3": 5},
+        partition_s=3.0,
+    )
+    results = _run_to_completion(anchored_cluster, config)
+    restores = {
+        site: [
+            (event["system"], event["kind"], event["detail"])
+            for event in payload["events"]
+            if event["kind"].startswith("restore_")
+        ]
+        for site, payload in results.items()
+    }
+    assert restores["s2"] == [] and restores["s3"] == []
+    outcomes = {
+        system: [(kind, detail) for name, kind, detail in restores["s1"] if name == system]
+        for system in ("lets-anchored-restore@s1", "lets-restore@s1")
+    }
+    for system, events in outcomes.items():
+        assert len(events) == 2 and events[0][0] == "restore_snapshot", (system, events)
+    snapshots = results["s1"]["snapshots"]
+    assert outcomes["lets-restore@s1"][1][0] == "restore_accepted"
+    assert snapshots["lets-restore@s1"]["healthy"] is True
+    kind, detail = outcomes["lets-anchored-restore@s1"][1]
+    revisions = dict(token.split("=", 1) for token in detail.split()[:3])
+    stale = int(revisions["revision_before"]) > int(revisions["snapshot_revision"])
+    assert kind == ("restore_refused" if stale else "restore_accepted"), detail
+    assert ("StorageError" in detail) is stale
+    assert snapshots["lets-anchored-restore@s1"]["healthy"] is not stale
+    assert snapshots["lets-anchored"]["anchored"] is True
+    assert snapshots["lets-anchored"]["restore_refused"] is None
+    safety = verify_safety(int(config["envelope"]), results)  # type: ignore[arg-type]
+    assert safety["lets-anchored"]["safety_ok"] is True
+    assert safety["lets-anchored-restore@s1"]["safety_ok"] is True
+    late = [
+        record
+        for record in results["s1"]["records"]
+        if record["system"] == "lets-anchored-restore@s1"
+        and record["reason"] == "stale_state_refused"
+    ]
+    assert all(record["outcome"] == "denied" for record in late)
+    anchors = sorted(path.name for path in (tmp_path / "anchors" / "s1").glob("*.anchor"))
+    assert len(anchors) == 4
+
+
+def test_anchored_systems_need_an_anchor_root(loopback_cluster: LoopbackCluster) -> None:
+    config = short_config("agent-unanchored-host", systems=["lets-anchored"])
+    status, payload = loopback_cluster.call(
+        "s1", "POST", "/run/configure", loopback_cluster.configure_body("s1", config)
+    )
+    assert status == 400 and "--anchor-root" in str(payload["error"])
+
+
+def test_anchor_settings_parse_the_helper_command(tmp_path: Path) -> None:
+    assert anchor_settings(None, "", 5.0) is None
+    with pytest.raises(SystemExit, match="--anchor-root"):
+        anchor_settings(None, "sudo -n -u lets-anchor python", 5.0)
+    settings = anchor_settings(tmp_path, "sudo -n -u 'lets anchor' python -m x", 2.5)
+    assert settings is not None
+    assert settings.helper == ("sudo", "-n", "-u", "lets anchor", "python", "-m", "x")
+    assert (settings.root, settings.timeout_s) == (tmp_path, 2.5)

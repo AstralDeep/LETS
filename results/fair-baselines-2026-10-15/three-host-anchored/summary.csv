@@ -1,0 +1,9 @@
+topology,load,theta,placement,system,requests_per_run,authorized_per_run,completion,stranded_peak_units,stranded_unit_seconds_mean,messages_per_run
+bridge-s3,0.7,1.0,equal,lets,19.2,19.2,1.0,10,4.642105263157899,5.5
+bridge-s3,0.7,1.0,equal,lets-anchored,19.2,19.2,1.0,10,6.0105263157894795,5.5
+bridge-s3,2.0,1.0,equal,lets,63.0,30.0,0.47619047619047616,10,25.985000000000003,432.54999999999995
+bridge-s3,2.0,1.0,equal,lets-anchored,63.0,30.0,0.47619047619047616,10,27.865,435.25
+flapping-s1-s2,0.7,1.0,equal,lets,20.65,20.65,1.0,9,5.495,11.649999999999999
+flapping-s1-s2,0.7,1.0,equal,lets-anchored,20.65,20.65,1.0,10,6.209999999999999,12.049999999999999
+flapping-s1-s2,2.0,1.0,equal,lets,57.8,30.0,0.5190311418685122,10,12.134999999999998,448.34999999999997
+flapping-s1-s2,2.0,1.0,equal,lets-anchored,57.8,30.0,0.5190311418685122,10,13.169999999999998,448.79999999999995
