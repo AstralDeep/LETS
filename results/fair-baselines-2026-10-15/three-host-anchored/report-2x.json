@@ -1,0 +1,98 @@
+{
+  "grids": [
+    {
+      "all_effects_match": true,
+      "all_safety_ok": true,
+      "completion": {
+        "bridge-s3": {
+          "lets": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "lets-anchored": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          }
+        },
+        "flapping-s1-s2": {
+          "lets": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "lets-anchored": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          }
+        }
+      },
+      "delegation": {
+        "lets": {
+          "lease_ops_per_run": 23.15,
+          "leases_per_tree": 1.0,
+          "refresh_ms_p50": 23.414,
+          "refresh_ms_p95": 71.128,
+          "refresh_ops_mean": 1.8657407407407407,
+          "refreshes_per_run": 10.8
+        },
+        "lets-anchored": {
+          "lease_ops_per_run": 23.175,
+          "leases_per_tree": 1.0,
+          "refresh_ms_p50": 46.795,
+          "refresh_ms_p95": 118.40100000000001,
+          "refresh_ops_mean": 1.8509174311926606,
+          "refreshes_per_run": 10.9
+        }
+      },
+      "envelope": 30,
+      "label": "three-host-anchored",
+      "load": 2.0,
+      "max_authorized": 30,
+      "pre_break_p50_ms": {
+        "lets": 23.6256845,
+        "lets-anchored": 41.8794835
+      },
+      "pre_break_s": 5.0,
+      "run_system_pairs": 160,
+      "stranded_peak_units": {},
+      "stranded_topology": null,
+      "stranded_unit_seconds": {},
+      "systems": [
+        "lets",
+        "lets-anchored"
+      ],
+      "theta": 1.0,
+      "topologies": [
+        "bridge-s3",
+        "flapping-s1-s2"
+      ],
+      "unsafe_controls": 0
+    }
+  ],
+  "schema": "lets.fair-baselines-report/v1",
+  "widest_intervals": {
+    "lets": {
+      "grid": "three-host-anchored",
+      "system": "lets",
+      "topology": "bridge-s3",
+      "width_points": 5.689091167685967
+    },
+    "lets-anchored": {
+      "grid": "three-host-anchored",
+      "system": "lets-anchored",
+      "topology": "bridge-s3",
+      "width_points": 5.689091167685967
+    }
+  }
+}

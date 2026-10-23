@@ -1,14 +1,16 @@
 """The five authority systems E1 compares, each exposing one `take(request_id)` attempt plus the
-peer-side handlers site_agent.py routes to them: a durable central counter, static per-site
-quotas, a pysyncobj Raft counter, and the real LETS warden with reactive cross-warden transfers
-and an optional spawn/close delegation tree, alongside the independent actuator-side EffectLog.
+peer-side handlers site_agent.py routes to them: a durable central counter, static per-site quotas,
+a pysyncobj Raft counter, and the real LETS warden with reactive transfers, an optional delegation
+tree, optional process-file rollback anchors, and stale-snapshot restores, beside the EffectLog.
 """
 
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -16,6 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import closing, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,10 +36,17 @@ from benchmarks.fair_baselines.common import (
     sha256_hex,
     string,
 )
+from lets.authority import ProcessFileAuthorityAnchor
 from lets.clock import SystemClock
 from lets.crypto import Ed25519Signer, PublicKeyRegistry
 from lets.errors import LETSError
-from lets.executor import ExecutorPolicy, ReceiptVerifier, SQLiteReceiptReplayStore
+from lets.executor import (
+    ExecutorPolicy,
+    ReceiptVerifier,
+    SQLiteReceiptReplayStore,
+    executor_replay_identity,
+)
+from lets.executor_authority import ProcessFileExecutorAuthorityAnchor
 from lets.models import IdentityContext
 from lets.policy import MachineSpec, PolicySpec, ResourceDimension, TransitionSpec
 from lets.service import WardenService
@@ -482,6 +492,34 @@ def split_allocation(units: int, fanout: int) -> list[int]:
     return [base + (1 if index < extra else 0) for index in range(fanout)]
 
 
+@dataclass(frozen=True, slots=True)
+class AnchorSettings:
+    root: Path
+    helper: tuple[str, ...] = ()
+    timeout_s: float = 5.0
+
+    def warden(self, key: str) -> ProcessFileAuthorityAnchor:
+        return ProcessFileAuthorityAnchor(
+            self.root / f"{key}-warden.anchor",
+            timeout_s=self.timeout_s,
+            helper_command=self.helper or None,
+        )
+
+    def executor(self, key: str) -> ProcessFileExecutorAuthorityAnchor:
+        return ProcessFileExecutorAuthorityAnchor(
+            self.root / f"{key}-executor.anchor",
+            timeout_s=self.timeout_s,
+            helper_command=(*self.helper, "--format", "executor") if self.helper else None,
+        )
+
+
+def sqlite_snapshot(source: Path, target: Path) -> None:
+    target.unlink(missing_ok=True)
+    with closing(sqlite3.connect(source)) as live, closing(sqlite3.connect(target)) as copied:
+        live.backup(copied)
+        copied.execute("PRAGMA journal_mode=WAL").fetchone()
+
+
 class LetsSystem:
     kind = "lets"
 
@@ -499,6 +537,7 @@ class LetsSystem:
         seek_interval_s: float = 0.5,
         depth: int = 0,
         fanout: int = 0,
+        anchor: AnchorSettings | None = None,
     ) -> None:
         if depth < 0 or (depth > 0 and fanout < 1):
             raise ValueError("a delegation tree needs a non-negative depth and a positive fanout")
@@ -518,45 +557,43 @@ class LetsSystem:
         for warden_id, (key_id, public_key) in sorted(public_keys.items()):
             self._registry.register(warden_id, key_id, public_key)
         self._signer = Ed25519Signer.from_seed(site, seed)
-        self._store = SQLiteStorage.initialize(
-            state_dir / f"{name}-warden.sqlite3",
-            site,
-            (budget,),
-            signing_key_id=self._signer.key_id,
-            signing_public_key=self._signer.public_key_bytes,
+        self._peers = tuple(sorted(set(public_keys) - {site}))
+        self._budget = budget
+        self._anchor = anchor
+        self._anchor_key = f"{state_dir.parent.name}.{state_dir.name}.{name}"
+        self._warden_path = state_dir / f"{name}-warden.sqlite3"
+        self._executor_path = state_dir / f"{name}-executor.sqlite3"
+        self._snapshot_dir = state_dir / "snapshots" / name
+        self._store_options: dict[str, Any] = {
+            "signing_key_id": self._signer.key_id,
+            "signing_public_key": self._signer.public_key_bytes,
+            "tenant_id": TENANT,
+            "envelope_id": ENVELOPE_ID,
+            "initial_local_share": (share,),
+            "receipt_ttl_ns": self._policy.receipt_ttl_ns,
+            "max_clock_uncertainty_ns": 0,
+            "transfer_gap_window": self._policy.transfer_gap_window,
+        }
+        self._executor_policy = ExecutorPolicy(
+            audience=self.audience,
             tenant_id=TENANT,
             envelope_id=ENVELOPE_ID,
-            initial_local_share=(share,),
-            receipt_ttl_ns=self._policy.receipt_ttl_ns,
-            max_clock_uncertainty_ns=0,
-            transfer_gap_window=self._policy.transfer_gap_window,
+            config_epoch=1,
+            allowed_policy_digests=frozenset({self._policy.digest}),
+            allowed_machine_digests=frozenset({self._policy.machine.digest}),
+            trusted_wardens=frozenset({site}),
         )
-        self._peers = tuple(sorted(set(public_keys) - {site}))
-        self._service = WardenService(
-            self._store,
-            signer=self._signer,
-            clock=self._clock,
-            trust_registry=self._registry,
-            allowed_peer_wardens=set(self._peers),
-        )
-        self._service.register_policy(self._policy)
-        self._replay = SQLiteReceiptReplayStore.initialize(
-            state_dir / f"{name}-executor.sqlite3", allow_unanchored=True
-        )
-        self._verifier = ReceiptVerifier(
-            self._registry,
-            self._replay,
-            ExecutorPolicy(
-                audience=self.audience,
-                tenant_id=TENANT,
-                envelope_id=ENVELOPE_ID,
-                config_epoch=1,
-                allowed_policy_digests=frozenset({self._policy.digest}),
-                allowed_machine_digests=frozenset({self._policy.machine.digest}),
-                trusted_wardens=frozenset({site}),
-            ),
-            clock=self._clock,
-        )
+        self._warden_anchor: ProcessFileAuthorityAnchor | None = None
+        self._executor_anchor: ProcessFileExecutorAuthorityAnchor | None = None
+        self._store: SQLiteStorage | None = None
+        self._failed: str | None = None
+        self._saved: tuple[LeaseNode | None, int, int] | None = None
+        self._saved_revision = 0
+        try:
+            self._open_storage(create=True)
+        except BaseException:
+            self._close_storage()
+            raise
         self._identity = IdentityContext(
             site, TENANT, frozenset({"lets.admin", "lets.transfer", "lets.peer"}), "experiment"
         )
@@ -582,6 +619,122 @@ class LetsSystem:
     @property
     def audience(self) -> str:
         return f"fair-baselines-executor-{self.site}"
+
+    @property
+    def anchored(self) -> bool:
+        return self._anchor is not None
+
+    def _open_storage(self, *, create: bool) -> None:
+        anchor = self._anchor
+        if anchor is not None:
+            self._warden_anchor = anchor.warden(self._anchor_key)
+            self._executor_anchor = anchor.executor(self._anchor_key)
+        if create:
+            self._store = SQLiteStorage.initialize(
+                self._warden_path,
+                self.site,
+                (self._budget,),
+                authority_anchor=self._warden_anchor,
+                **self._store_options,
+            )
+        else:
+            self._store = SQLiteStorage(
+                self._warden_path,
+                self.site,
+                (self._budget,),
+                authority_anchor=self._warden_anchor,
+                **self._store_options,
+            )
+        self._service = WardenService(
+            self._store,
+            signer=self._signer,
+            clock=self._clock,
+            trust_registry=self._registry,
+            allowed_peer_wardens=set(self._peers),
+        )
+        if create:
+            self._service.register_policy(self._policy)
+        identity = (
+            None
+            if anchor is None
+            else executor_replay_identity(self._executor_policy, self._registry)
+        )
+        if create:
+            self._replay = SQLiteReceiptReplayStore.initialize(
+                self._executor_path,
+                authority_anchor=self._executor_anchor,
+                identity=identity,
+                allow_unanchored=anchor is None,
+            )
+        else:
+            self._replay = SQLiteReceiptReplayStore(
+                self._executor_path,
+                authority_anchor=self._executor_anchor,
+                allow_unanchored=anchor is None,
+            )
+        self._verifier = ReceiptVerifier(
+            self._registry, self._replay, self._executor_policy, clock=self._clock
+        )
+
+    def _close_storage(self) -> None:
+        if self._store is not None:
+            with suppress(Exception):
+                self._store.close()
+        for anchor in (self._warden_anchor, self._executor_anchor):
+            if anchor is not None:
+                with suppress(Exception):
+                    anchor.close()
+        self._warden_anchor = None
+        self._executor_anchor = None
+
+    def _warden_revision(self) -> int:
+        uri = f"{self._warden_path.resolve().as_uri()}?mode=ro"
+        with closing(sqlite3.connect(uri, uri=True)) as connection:
+            row = connection.execute("SELECT revision FROM warden_state").fetchone()
+        return int(row[0])
+
+    def take_snapshot(self) -> str:
+        with self._lock:
+            if self._failed is not None:
+                raise RuntimeError("cannot snapshot a system that refused its restored state")
+            self._snapshot_dir.mkdir(parents=True, exist_ok=True)
+            for live in (self._warden_path, self._executor_path):
+                sqlite_snapshot(live, self._snapshot_dir / live.name)
+            self._saved = (copy.deepcopy(self._root), self._pool, self._next_leaf)
+            self._saved_revision = self._warden_revision()
+            return (
+                f"usable={self.usable_units()} revision={self._saved_revision} "
+                f"outstanding={len(self._outstanding)} pending_acks={len(self._pending_acks)}"
+            )
+
+    def restore_snapshot(self) -> tuple[bool, str]:
+        with self._lock:
+            if self._saved is None:
+                raise RuntimeError("no snapshot was taken")
+            before = (
+                f"usable_before={self.usable_units()} revision_before={self._warden_revision()} "
+                f"snapshot_revision={self._saved_revision}"
+            )
+            self._close_storage()
+            for live in (self._warden_path, self._executor_path):
+                for suffix in ("", "-wal", "-shm"):
+                    Path(f"{live}{suffix}").unlink(missing_ok=True)
+                shutil.copyfile(self._snapshot_dir / live.name, live)
+            try:
+                self._open_storage(create=False)
+            except Exception as exc:
+                self._close_storage()
+                self._failed = f"{type(exc).__name__}: {exc}"[:240]
+                self._root = None
+                self._leaves = []
+                self._pool = 0
+                return False, f"{before} {self._failed}"
+            root, pool, next_leaf = copy.deepcopy(self._saved)
+            self._root = root
+            self._leaves = [] if root is None else root.leaves()
+            self._pool = pool
+            self._next_leaf = next_leaf
+            return True, f"{before} usable_after={self.usable_units()}"
 
     def _close_subtree(self, node: LeaseNode, reason: str) -> int:
         operations = 0
@@ -688,10 +841,13 @@ class LetsSystem:
 
     def take(self, request_id: str) -> Decision:
         with self._lock:
+            if self._failed is not None:
+                return Decision(False, "stale_state_refused", False, 0, 0)
             leaf = self._next_leaf_with_units()
             if leaf is None:
                 return Decision(False, "exhausted_local", True, 0, self.usable_units())
             self._operation += 1
+            started = time.perf_counter_ns()
             try:
                 receipt = self._service.authorize(
                     request_id=request_id,
@@ -703,12 +859,20 @@ class LetsSystem:
                     expected_state="ready",
                     expected_sequence=leaf.sequence,
                 )
+                signed = time.perf_counter_ns()
                 self._verifier.verify_and_claim(receipt)
             except LETSError as exc:
                 return Decision(False, exc.code, False, 0, self.usable_units())
+            claimed = time.perf_counter_ns()
             leaf.sequence = receipt.resulting_sequence
             leaf.residual -= 1
             remaining = self.usable_units()
+            self._events(
+                self.name,
+                "auth_cost",
+                (claimed - started) // 1000,
+                f"warden_us={(signed - started) // 1000} executor_us={(claimed - signed) // 1000}",
+            )
             self._events(self.name, "free", remaining, self.site)
             return Decision(True, "authorized_and_claimed", False, 0, remaining)
 
@@ -731,7 +895,8 @@ class LetsSystem:
         while not self._stop.wait(self._seek_interval_s):
             self._flush_pending_acks()
             with self._lock:
-                need = self._waiting if self.usable_units() <= 0 else 0
+                usable = self._failed is None and self.usable_units() <= 0
+                need = self._waiting if usable else 0
             if need <= 0:
                 continue
             for peer in self._peers:
@@ -761,8 +926,16 @@ class LetsSystem:
 
     def _accept(self, peer: str, voucher: dict[str, Any]) -> None:
         with self._lock:
-            ack = self._service.accept_transfer(identity=self._identity, voucher=voucher)
+            if self._failed is not None:
+                self._events(self.name, "voucher_lost", int(voucher["amount"][0]), peer)
+                return
             amount = int(voucher["amount"][0])
+            try:
+                ack = self._service.accept_transfer(identity=self._identity, voucher=voucher)
+            except LETSError as exc:
+                self._peer_backoff_until[peer] = time.monotonic() + 2.0
+                self._events(self.name, "voucher_rejected", amount, f"{peer} {exc.code}")
+                return
             self._pool += amount
             self.transfers_in += 1
             self._events(self.name, "transfer_in", amount, peer)
@@ -788,6 +961,8 @@ class LetsSystem:
             raise ValueError("unknown transfer target")
         self.messages.add()
         with self._lock:
+            if self._failed is not None:
+                return {"voucher": None, "granted": 0}
             outstanding = self._outstanding.get(target)
             if outstanding is not None:
                 return {"voucher": outstanding, "granted": int(outstanding["amount"][0])}
@@ -822,18 +997,34 @@ class LetsSystem:
     def serve_finalize(self, source: str, ack: Mapping[str, Any]) -> dict[str, object]:
         self.messages.add()
         with self._lock:
+            if self._failed is not None:
+                return {"finalized": False}
             self._service.finalize_transfer(identity=self._identity, acknowledgement=ack)
             self._outstanding.pop(source, None)
         return {"finalized": True}
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
+            if self._failed is not None:
+                return {
+                    "system": self.name,
+                    "kind": self.kind,
+                    "share": self.share,
+                    "anchored": self.anchored,
+                    "restore_refused": self._failed,
+                    "healthy": False,
+                    "transfers_in": self.transfers_in,
+                    "transfers_out": self.transfers_out,
+                    "messages": self.messages.value,
+                }
             value = self._service.invariant_snapshot(identity=self._identity)
             replay = self._replay.status()
             return {
                 "system": self.name,
                 "kind": self.kind,
                 "share": self.share,
+                "anchored": self.anchored,
+                "restore_refused": None,
                 "initial_share": value.initial_share[0],
                 "transferred_in": value.transferred_in[0],
                 "transferred_out": value.transferred_out[0],
@@ -862,7 +1053,8 @@ class LetsSystem:
         self._stop.set()
         if self._seeker is not None:
             self._seeker.join(timeout=5)
-        self._store.close()
+        with self._lock:
+            self._close_storage()
 
 
 class EffectLog:

@@ -1,6 +1,7 @@
 """Tests for benchmarks/fair_baselines/systems.py: the durable counter, static quotas, the
 central counter's local and remote paths, the pysyncobj Raft counter, the LETS warden wrapper with
-its transfer handlers and its spawn/close delegation trees, and the actuator-side effect log.
+its transfer handlers, delegation trees, rollback anchors, and stale-snapshot restores, and the
+actuator-side effect log.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import pytest
 
 from benchmarks.fair_baselines.common import SITES
 from benchmarks.fair_baselines.systems import (
+    AnchorSettings,
     CentralCounterSystem,
     DurableCounter,
     EffectLog,
@@ -29,6 +31,7 @@ from benchmarks.fair_baselines.systems import (
     split_allocation,
 )
 from lets.crypto import Ed25519Signer
+from lets.errors import LETSError
 from tests.benchmarks.conftest import free_port
 
 
@@ -228,6 +231,7 @@ def _lets(  # type: ignore[no-untyped-def]
     depth: int = 0,
     fanout: int = 0,
     signers: dict[str, Ed25519Signer] | None = None,
+    anchor: AnchorSettings | None = None,
 ):
     signers = signers or {alias: Ed25519Signer.generate(alias) for alias in SITES}
     public_keys = {
@@ -247,6 +251,7 @@ def _lets(  # type: ignore[no-untyped-def]
         sink,  # type: ignore[arg-type]
         depth=depth,
         fanout=fanout,
+        anchor=anchor,
     ), signers
 
 
@@ -529,3 +534,111 @@ def test_lets_tree_transfer_out_can_empty_a_site(tmp_path: Path) -> None:
         assert operations == 3 and detail.startswith("out-s1-1 leases=0 leaves=0 us=")
     finally:
         source.close()
+
+
+def _anchor(tmp_path: Path) -> AnchorSettings:
+    root = tmp_path / "anchors"
+    root.mkdir(exist_ok=True)
+    return AnchorSettings(root)
+
+
+def test_anchored_lets_writes_anchors_and_authorizes(tmp_path: Path) -> None:
+    _log, sink = _events()
+    anchor = _anchor(tmp_path)
+    system, _ = _lets(
+        tmp_path, "s1", 2, sink, _unreachable_transport(), name="lets-anchored", anchor=anchor
+    )
+    try:
+        assert system.anchored is True
+        assert system.take("r1").authorized is True
+        snapshot = system.snapshot()
+        assert snapshot["anchored"] is True and snapshot["restore_refused"] is None
+        assert snapshot["consumed"] == 1 and snapshot["healthy"] is True
+        names = sorted(path.name for path in anchor.root.iterdir() if path.suffix == ".anchor")
+        assert [name.rsplit("-", 1)[1] for name in names] == ["executor.anchor", "warden.anchor"]
+    finally:
+        system.close()
+
+
+def test_anchored_lets_refuses_a_restored_stale_snapshot(tmp_path: Path) -> None:
+    log, sink = _events()
+    system, _ = _lets(
+        tmp_path,
+        "s1",
+        4,
+        sink,
+        _unreachable_transport(),
+        name="lets-anchored-restore@s1",
+        anchor=_anchor(tmp_path),
+    )
+    try:
+        with pytest.raises(RuntimeError, match="no snapshot"):
+            system.restore_snapshot()
+        assert system.take("r1").authorized is True
+        assert system.take_snapshot() == "usable=3 revision=2 outstanding=0 pending_acks=0"
+        assert system.take("r2").authorized is True
+        assert system.take("r3").authorized is True
+        accepted, detail = system.restore_snapshot()
+        assert accepted is False
+        assert detail.startswith(
+            "usable_before=1 revision_before=4 snapshot_revision=2 StorageError"
+        )
+        refused = system.take("r4")
+        assert (refused.authorized, refused.reason, refused.retryable, refused.remaining) == (
+            False,
+            "stale_state_refused",
+            False,
+            0,
+        )
+        assert system.usable_units() == 0
+        snapshot = system.snapshot()
+        assert snapshot["healthy"] is False and "StorageError" in str(snapshot["restore_refused"])
+        assert system.serve_request_transfer("s2", 2) == {"voucher": None, "granted": 0}
+        assert system.serve_finalize("s2", {}) == {"finalized": False}
+        system._accept("s2", {"amount": [2]})
+        assert log[-1] == ("lets-anchored-restore@s1", "voucher_lost", 2, "s2")
+        with pytest.raises(RuntimeError, match="refused its restored state"):
+            system.take_snapshot()
+        system.set_waiting(1)
+        system.start()
+        time.sleep(0.2)
+    finally:
+        system.close()
+
+
+def test_unanchored_restore_rewinds_the_budget_and_spends_it_again(tmp_path: Path) -> None:
+    log, sink = _events()
+    system, _ = _lets(
+        tmp_path, "s1", 3, sink, _unreachable_transport(), name="lets-restore@s1", depth=1, fanout=2
+    )
+    try:
+        assert system.anchored is False
+        assert system.take("r1").authorized is True
+        system.take_snapshot()
+        assert system.take("r2").authorized is True
+        assert system.take("r3").authorized is True
+        assert system.take("r4").reason == "exhausted_local"
+        accepted, detail = system.restore_snapshot()
+        assert accepted is True
+        assert detail.startswith("usable_before=0 revision_before=")
+        assert detail.endswith(" usable_after=2")
+        assert system.take("r5").authorized is True
+        assert system.take("r6").authorized is True
+        snapshot = system.snapshot()
+        assert snapshot["consumed"] == 3 and snapshot["healthy"] is True
+        assert snapshot["restore_refused"] is None and snapshot["live_leaves"] == 2
+        system._accept("s2", {"amount": [1]})
+        assert log[-1][:3] == ("lets-restore@s1", "voucher_rejected", 1)
+        assert system.usable_units() == 0
+    finally:
+        system.close()
+
+
+def test_anchored_lets_fails_closed_on_a_foreign_anchor(tmp_path: Path) -> None:
+    _log, sink = _events()
+    anchor = _anchor(tmp_path)
+    (anchor.root / f"{tmp_path.name}.s1.lets-anchored-warden.anchor").write_text("{}")
+    with pytest.raises(LETSError):
+        _lets(
+            tmp_path, "s1", 2, sink, _unreachable_transport(), name="lets-anchored", anchor=anchor
+        )
