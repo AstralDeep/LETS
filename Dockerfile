@@ -43,7 +43,7 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 # Pinned security backports only — never an unbounded apk upgrade
-RUN apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 libuuid=2.42.3-r1 \
+RUN apk add --no-cache --upgrade libcrypto3=3.5.9-r0 libssl3=3.5.9-r0 libuuid=2.42.3-r1 \
     && rm -rf \
         /usr/local/lib/python3.14/site-packages/pip \
         /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
@@ -74,7 +74,7 @@ CMD ["lets", "--help"]
 
 FROM runtime AS production-acceptance
 USER 0:0
-RUN apk add --no-cache openssl=3.5.8-r0
+RUN apk add --no-cache openssl=3.5.9-r0
 COPY --chown=0:0 deploy/production/acceptance /app/deploy/production/acceptance
 RUN chmod -R a-w /app/deploy/production/acceptance \
     && find /app/deploy/production/acceptance -type d -exec chmod a+rx {} +

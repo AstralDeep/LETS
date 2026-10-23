@@ -5,6 +5,23 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-23
+
+The `v1.1.1` tag was not published: its release run built and signed the image candidate but could
+not build the hardened production-acceptance image, because Alpine 3.24 replaced OpenSSL 3.5.8-r0
+with 3.5.9-r0 and the pinned version was no longer installable. 1.1.2 carries the same runtime.
+
+### Security
+
+- The runtime image installs libcrypto3 and libssl3 3.5.9-r0, and the production-acceptance image
+  installs openssl 3.5.9-r0, the current Alpine 3.24 security update.
+
+### Compatibility, migration, and rollback
+
+- The API, protocol, storage schema (version 3), and configuration are unchanged from 1.1.1 and
+  1.1.0; no migration is needed. The 1.1.1 notes on migrating from 1.0.x and on the rollback
+  boundary apply unchanged.
+
 ## [1.1.1] - 2026-10-23
 
 The first published release of the 1.1 line. The `v1.1.0` tag was created but never published,
