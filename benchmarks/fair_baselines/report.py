@@ -91,6 +91,7 @@ class GridReduction:
     max_authorized: int
     envelope: int
     all_safety_ok: bool
+    unsafe_controls: int
     all_effects_match: bool
     delegation: dict[str, dict[str, float | None]]
 
@@ -228,7 +229,15 @@ def reduce_grid(label: str, grid: GridData, load: float, theta: float) -> GridRe
         run_system_pairs=len(grid.runs),
         max_authorized=max(authorized, default=0),
         envelope=grid.envelope,
-        all_safety_ok=all(row["safety_ok"] == "True" for row in grid.runs),
+        all_safety_ok=all(
+            row["safety_ok"] == "True" or SystemSpec.parse(row["system"]).expected_unsafe
+            for row in grid.runs
+        ),
+        unsafe_controls=sum(
+            1
+            for row in grid.runs
+            if row["safety_ok"] != "True" and SystemSpec.parse(row["system"]).expected_unsafe
+        ),
         all_effects_match=all(row["effects"] == row["authorized"] for row in grid.runs),
         delegation=delegation_costs(grid, load, theta),
     )
@@ -321,14 +330,20 @@ def markdown(reductions: Sequence[GridReduction]) -> str:
                 )
             lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
+        verdict = "passed" if reduction.all_safety_ok else "FAILED"
+        safety = (
+            f"{reduction.unsafe_controls} unanchored stale-restore control pairs over the "
+            f"envelope by design and every other safety check {verdict}"
+            if reduction.unsafe_controls
+            else f"every safety check {verdict}"
+        )
         lines.append(
             f"Completion is authorized requests divided by all requests, pooled over the seeds of "
             f"each cell; the latency column is the median over authorized requests that arrived "
             f"in the first {reduction.pre_break_s:g} s of every run in the grid; stranded "
             f"unit-seconds are the mean over seeds. Safety: {reduction.run_system_pairs} "
             f"run-system pairs, maximum authorized {reduction.max_authorized} of "
-            f"{reduction.envelope} units, every safety check "
-            f"{'passed' if reduction.all_safety_ok else 'FAILED'}, effects "
+            f"{reduction.envelope} units, {safety}, effects "
             f"{'equal' if reduction.all_effects_match else 'DIFFER FROM'} authorized counts."
         )
         lines.append("")

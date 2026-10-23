@@ -354,3 +354,30 @@ def test_reduce_grid_reports_the_delegation_tree_row_and_costs(tmp_path: Path) -
     payload = report.payload([reduction])
     assert payload["grids"][0]["delegation"][TREE]["refresh_ops_mean"] == 14.0
     assert report._number(None, 1) == "n/a" and report._number(2.345, 2) == "2.35"
+
+
+def test_safety_sentence_separates_unanchored_restore_controls(tmp_path: Path) -> None:
+    systems = (*SYSTEMS, "lets-anchored-restore@s1", "lets-restore@s1")
+    _write_grid(tmp_path, systems)
+    grid = report.load_or_assemble(tmp_path)
+    for row in grid.runs:
+        if row["system"] == "lets-restore@s1":
+            row["safety_ok"] = "False"
+    reduction = report.reduce_grid("restore", grid, 0.7, 1.0)
+    assert reduction.all_safety_ok and reduction.unsafe_controls == 4
+    text = report.markdown([reduction])
+    assert (
+        "4 unanchored stale-restore control pairs over the envelope by design and every other "
+        "safety check passed, effects equal authorized counts" in text
+    )
+    assert report.payload([reduction])["grids"][0]["unsafe_controls"] == 4
+    next(row for row in grid.runs if row["system"] == "lets-anchored-restore@s1")["safety_ok"] = (
+        "False"
+    )
+    failed = report.reduce_grid("restore", grid, 0.7, 1.0)
+    assert not failed.all_safety_ok and failed.unsafe_controls == 4
+    assert "and every other safety check FAILED" in report.markdown([failed])
+    _write_grid(tmp_path / "plain")
+    plain = report.reduce_grid("plain", report.load_or_assemble(tmp_path / "plain"), 0.7, 1.0)
+    assert plain.unsafe_controls == 0
+    assert "every safety check passed, effects" in report.markdown([plain])
