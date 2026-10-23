@@ -219,7 +219,9 @@ def test_budget_split_prefix_survives_a_replacement_exporter(tmp_path: Path) -> 
             publish_budget_s=1e-9,
         )
         assert first.run_once() == 1
-        recovered = AuditExporter(store, sink, batch_size=64, retain_published=0)
+        recovered = AuditExporter(
+            store, sink, batch_size=64, retain_published=0, publish_budget_s=30.0
+        )
         assert recovered.run_once() == 4
         assert recovered.run_once() == 0
         assert sink.count() == 5
@@ -367,7 +369,9 @@ def test_export_failure_leaves_outbox_pending_for_retry(tmp_path: Path) -> None:
     archive = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
     try:
         _events(store, 2)
-        exporter = AuditExporter(store, FailOnceSink(archive), retain_published=0)
+        exporter = AuditExporter(
+            store, FailOnceSink(archive), retain_published=0, publish_budget_s=30.0
+        )
         assert exporter.run_once() == 0
         assert "injected archive outage" in str(exporter.status()["last_error"])
         with store.read() as transaction:
@@ -406,7 +410,7 @@ def test_exporter_repairs_crash_after_sink_commit_before_local_ack(tmp_path: Pat
             ).fetchone()[0]
         assert pending == 1
 
-        recovered = AuditExporter(store, archive, retain_published=0)
+        recovered = AuditExporter(store, archive, retain_published=0, publish_budget_s=30.0)
         assert recovered.run_once() == 0
         with store.read() as transaction:
             assert (
@@ -426,7 +430,9 @@ def test_archive_prefix_repair_is_bounded_and_converges(tmp_path: Path) -> None:
     archive = SQLiteAuditSink.initialize(tmp_path / "archive.sqlite3")
     try:
         _events(store, 10)
-        failed = LoseAllAcknowledgements(store, archive, batch_size=16, retain_published=0)
+        failed = LoseAllAcknowledgements(
+            store, archive, batch_size=16, retain_published=0, publish_budget_s=30.0
+        )
         assert failed.run_once() == 10
         assert archive.count() == 10
 
