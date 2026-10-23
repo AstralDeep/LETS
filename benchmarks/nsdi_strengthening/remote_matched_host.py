@@ -41,7 +41,7 @@ from .matched_host_path import (
     OUTPUT_JSON,
     OUTPUT_MARKDOWN,
 )
-from .remote_cluster import Credential, load_credentials
+from .remote_cluster import Credential, load_credentials, ssh_auth
 
 SCHEMA = "lets.remote-matched-host/v1"
 TARGET_ALIAS = "s1"
@@ -333,7 +333,7 @@ class RemoteSession:
             client.connect(
                 self.credential.host,
                 username=self.credential.username,
-                password=self.credential.password,
+                **ssh_auth(self.credential),  # type: ignore[arg-type]
                 look_for_keys=False,
                 allow_agent=False,
                 timeout=15,
