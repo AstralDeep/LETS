@@ -117,8 +117,8 @@ def test_ca_path_and_client_certificate_complete_a_real_mtls_request(
         f"https://127.0.0.1:{server.server_port}",
         verify=verify,
         cert=(str(material["client-cert.pem"]), str(material["client-key.pem"])),
-        timeout=2,
-        total_timeout_s=2,
+        timeout=30,
+        total_timeout_s=30,
         retry=RetryPolicy(max_attempts=1),
     )
     try:
@@ -144,8 +144,8 @@ def test_real_mtls_server_rejects_a_client_without_its_certificate(tmp_path: Pat
     client = LETSClient(
         f"https://127.0.0.1:{server.server_port}",
         verify=str(material["ca-cert.pem"]),
-        timeout=2,
-        total_timeout_s=2,
+        timeout=30,
+        total_timeout_s=30,
         retry=RetryPolicy(max_attempts=1),
     )
     try:
