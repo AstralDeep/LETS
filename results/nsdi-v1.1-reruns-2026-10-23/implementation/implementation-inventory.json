@@ -1,0 +1,800 @@
+{
+  "counting_method": {
+    "nonblank_lines": "physical lines whose Unicode-trimmed content is non-empty",
+    "physical_lines": "UTF-8 str.splitlines() count",
+    "scope_note": "These transparent source-line counts are not semantic SLOC and include comments and docstrings."
+  },
+  "facts": [
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 10,
+              "text": "requires-python = \">=3.11,<3.15\""
+            }
+          ],
+          "path": "pyproject.toml",
+          "pattern": "requires-python\\s*=\\s*\">=3\\.11,<3\\.15\""
+        }
+      ],
+      "id": "python-version-range",
+      "statement": "The released package supports Python >=3.11 and <3.15.",
+      "verified": true
+    },
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 287,
+              "text": "connection = sqlite3.connect(\":memory:\", isolation_level=None)"
+            },
+            {
+              "line": 1941,
+              "text": "isolation_level=None,"
+            }
+          ],
+          "path": "src/lets/storage/sqlite.py",
+          "pattern": "isolation_level=None"
+        },
+        {
+          "matches": [
+            {
+              "line": 1953,
+              "text": "connection.execute(\"PRAGMA synchronous = FULL\")"
+            }
+          ],
+          "path": "src/lets/storage/sqlite.py",
+          "pattern": "PRAGMA synchronous = FULL"
+        },
+        {
+          "matches": [
+            {
+              "line": 1958,
+              "text": "mode = cast(str, connection.execute(\"PRAGMA journal_mode = WAL\").fetchone()[0])"
+            }
+          ],
+          "path": "src/lets/storage/sqlite.py",
+          "pattern": "PRAGMA journal_mode = WAL"
+        },
+        {
+          "matches": [
+            {
+              "line": 1997,
+              "text": "connection.execute(\"BEGIN IMMEDIATE\")"
+            },
+            {
+              "line": 3051,
+              "text": "connection.execute(\"BEGIN IMMEDIATE\" if write else \"BEGIN\")"
+            }
+          ],
+          "path": "src/lets/storage/sqlite.py",
+          "pattern": "execute\\(\"BEGIN IMMEDIATE\""
+        },
+        {
+          "matches": [
+            {
+              "line": 272,
+              "text": "isolation_level=None,"
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "isolation_level=None"
+        },
+        {
+          "matches": [
+            {
+              "line": 279,
+              "text": "connection.execute(\"PRAGMA synchronous = FULL\")"
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "PRAGMA synchronous = FULL"
+        },
+        {
+          "matches": [
+            {
+              "line": 287,
+              "text": "mode = connection.execute(\"PRAGMA journal_mode = WAL\").fetchone()[0]"
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "PRAGMA journal_mode = WAL"
+        },
+        {
+          "matches": [
+            {
+              "line": 1012,
+              "text": "connection.execute(\"BEGIN IMMEDIATE\")"
+            },
+            {
+              "line": 1031,
+              "text": "connection.execute(\"BEGIN IMMEDIATE\")"
+            },
+            {
+              "line": 1037,
+              "text": "connection.execute(\"BEGIN IMMEDIATE\")"
+            },
+            {
+              "line": 1248,
+              "text": "connection.execute(\"BEGIN IMMEDIATE\")"
+            },
+            {
+              "line": 1270,
+              "text": "connection.execute(\"BEGIN IMMEDIATE\")"
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "execute\\(\"BEGIN IMMEDIATE\""
+        }
+      ],
+      "id": "sqlite-write-atomicity",
+      "statement": "Warden and executor stores use explicit-autocommit SQLite connections, WAL, synchronous=FULL, and BEGIN IMMEDIATE write transactions.",
+      "verified": true
+    },
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 17,
+              "text": "from nacl.signing import SigningKey, VerifyKey"
+            }
+          ],
+          "path": "src/lets/crypto.py",
+          "pattern": "from nacl\\.signing import SigningKey, VerifyKey"
+        },
+        {
+          "matches": [
+            {
+              "line": 39,
+              "text": "if not isinstance(seed, bytes) or len(seed) != 32:"
+            }
+          ],
+          "path": "src/lets/crypto.py",
+          "pattern": "len\\(seed\\) != 32"
+        },
+        {
+          "matches": [
+            {
+              "line": 30,
+              "text": "fingerprint = sha256(self.public_key_bytes).hexdigest()[:32]"
+            }
+          ],
+          "path": "src/lets/crypto.py",
+          "pattern": "sha256\\(self\\.public_key_bytes\\)\\.hexdigest\\(\\)\\[:32\\]"
+        },
+        {
+          "matches": [
+            {
+              "line": 31,
+              "text": "self.key_id = f\"{self.warden_id}/ed25519-{fingerprint}\""
+            }
+          ],
+          "path": "src/lets/crypto.py",
+          "pattern": "f\"\\{self\\.warden_id\\}/ed25519-\\{fingerprint\\}\""
+        }
+      ],
+      "id": "ed25519-key-format",
+      "statement": "Receipts use PyNaCl Ed25519 with 32-byte raw seeds and public keys; key IDs bind the warden name to a SHA-256 public-key fingerprint prefix.",
+      "verified": true
+    },
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 60,
+              "text": "separators=(\",\", \":\"),"
+            }
+          ],
+          "path": "src/lets/canonical.py",
+          "pattern": "separators=\\(\",\", \":\"\\)"
+        },
+        {
+          "matches": [
+            {
+              "line": 61,
+              "text": "sort_keys=True,"
+            }
+          ],
+          "path": "src/lets/canonical.py",
+          "pattern": "sort_keys=True"
+        },
+        {
+          "matches": [
+            {
+              "line": 84,
+              "text": "raise ValueError(f\"floating-point JSON number is forbidden: {number}\")"
+            }
+          ],
+          "path": "src/lets/canonical.py",
+          "pattern": "floating-point JSON number is forbidden"
+        },
+        {
+          "matches": [
+            {
+              "line": 76,
+              "text": "raise ValueError(f\"duplicate JSON object key: {key!r}\")"
+            }
+          ],
+          "path": "src/lets/canonical.py",
+          "pattern": "duplicate JSON object key"
+        }
+      ],
+      "id": "canonical-wire-format",
+      "statement": "Signed objects use compact, sorted UTF-8 canonical JSON over an integer-only subset; the strict decoder rejects duplicate keys and floating-point values.",
+      "verified": true
+    },
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 20,
+              "text": "return f\"{kind}_{uuid4().hex}\""
+            }
+          ],
+          "path": "src/lets/ids.py",
+          "pattern": "return f\"\\{kind\\}_\\{uuid4\\(\\)\\.hex\\}\""
+        }
+      ],
+      "id": "operation-identifiers",
+      "statement": "Opaque operation identifiers use a validated kind prefix and UUID4 hex.",
+      "verified": true
+    },
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 25,
+              "text": "declared_uncertainty_ns: int = 0"
+            },
+            {
+              "line": 29,
+              "text": "isinstance(self.declared_uncertainty_ns, bool)"
+            },
+            {
+              "line": 30,
+              "text": "or not isinstance(self.declared_uncertainty_ns, int)"
+            },
+            {
+              "line": 31,
+              "text": "or self.declared_uncertainty_ns < 0"
+            },
+            {
+              "line": 32,
+              "text": "or self.declared_uncertainty_ns > MAX_RESOURCE"
+            },
+            {
+              "line": 40,
+              "text": "return self.declared_uncertainty_ns"
+            },
+            {
+              "line": 46,
+              "text": "declared_uncertainty_ns: int = 0"
+            },
+            {
+              "line": 51,
+              "text": "(\"manual clock uncertainty\", self.declared_uncertainty_ns),"
+            },
+            {
+              "line": 65,
+              "text": "return self.declared_uncertainty_ns"
+            }
+          ],
+          "path": "src/lets/clock.py",
+          "pattern": "declared_uncertainty_ns"
+        },
+        {
+          "matches": [
+            {
+              "line": 37,
+              "text": "return time.time_ns()"
+            }
+          ],
+          "path": "src/lets/clock.py",
+          "pattern": "return time\\.time_ns\\(\\)"
+        },
+        {
+          "matches": [
+            {
+              "line": 1362,
+              "text": "or uncertainty > policy.max_clock_uncertainty_ns"
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "uncertainty > policy\\.max_clock_uncertainty_ns"
+        },
+        {
+          "matches": [
+            {
+              "line": 484,
+              "text": "maximum = int(_row_value(envelope, \"max_clock_uncertainty_ns\"))"
+            },
+            {
+              "line": 1860,
+              "text": "max_clock_uncertainty_ns: int = 0,"
+            },
+            {
+              "line": 1882,
+              "text": "(\"max_clock_uncertainty_ns\", max_clock_uncertainty_ns, True),"
+            },
+            {
+              "line": 1913,
+              "text": "\"max_clock_uncertainty_ns\": max_clock_uncertainty_ns,"
+            },
+            {
+              "line": 1938,
+              "text": "max_clock_uncertainty_ns, transfer_gap_window, config_json, created_at_ns"
+            },
+            {
+              "line": 1950,
+              "text": "max_clock_uncertainty_ns,"
+            },
+            {
+              "line": 2007,
+              "text": "\"max_clock_uncertainty_ns\","
+            },
+            {
+              "line": 2065,
+              "text": "(\"max_clock_uncertainty_ns\", \"max_clock_uncertainty_ns\"),"
+            }
+          ],
+          "path": "src/lets/service.py",
+          "pattern": "max_clock_uncertainty_ns"
+        }
+      ],
+      "id": "clock-and-uncertainty",
+      "statement": "Runtime time is time.time_ns(), and callers declare a non-negative uncertainty that is checked at authorization and receipt verification boundaries.",
+      "verified": true
+    },
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 148,
+              "text": "class SQLiteReceiptReplayStore:"
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "class SQLiteReceiptReplayStore"
+        },
+        {
+          "matches": [
+            {
+              "line": 344,
+              "text": "CREATE TABLE receipt_claims ("
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "CREATE TABLE receipt_claims"
+        },
+        {
+          "matches": [
+            {
+              "line": 359,
+              "text": "CREATE TABLE lease_watermarks ("
+            }
+          ],
+          "path": "src/lets/executor.py",
+          "pattern": "CREATE TABLE lease_watermarks"
+        }
+      ],
+      "id": "executor-claim-store",
+      "statement": "The concrete durable executor claim backend inventoried here is a local SQLite replay store with receipt-claim and per-lease watermark tables.",
+      "verified": true
+    },
+    {
+      "evidence": [
+        {
+          "matches": [
+            {
+              "line": 283,
+              "text": "class FileAuthorityAnchor:"
+            }
+          ],
+          "path": "src/lets/authority.py",
+          "pattern": "class FileAuthorityAnchor"
+        },
+        {
+          "matches": [
+            {
+              "line": 433,
+              "text": "class ProcessFileAuthorityAnchor:"
+            }
+          ],
+          "path": "src/lets/authority.py",
+          "pattern": "class ProcessFileAuthorityAnchor"
+        },
+        {
+          "matches": [
+            {
+              "line": 224,
+              "text": "class FileExecutorAuthorityAnchor:"
+            }
+          ],
+          "path": "src/lets/executor_authority.py",
+          "pattern": "class FileExecutorAuthorityAnchor"
+        },
+        {
+          "matches": [
+            {
+              "line": 277,
+              "text": "class ProcessFileExecutorAuthorityAnchor:"
+            }
+          ],
+          "path": "src/lets/executor_authority.py",
+          "pattern": "class ProcessFileExecutorAuthorityAnchor"
+        },
+        {
+          "matches": [
+            {
+              "line": 223,
+              "text": "# Must live in a failure/rollback domain independent from the replay database."
+            }
+          ],
+          "path": "src/lets/executor_authority.py",
+          "pattern": "failure/rollback domain independent"
+        }
+      ],
+      "id": "rollback-anchors",
+      "statement": "Warden and executor rollback anchors have file and process-isolated file implementations, and their documentation requires an independent rollback domain.",
+      "verified": true
+    }
+  ],
+  "generated_at": "2026-10-23T05:45:49.603848+00:00",
+  "git": {
+    "describe": "v1.1.2-1-gb248f29-dirty",
+    "dirty": true,
+    "revision": "b248f29012b4ff9231a041a6fc9eeea1565b3b85",
+    "status_sha256": "5c6b52159be02fb1aeca25b765c24e9a55b2dcd5065fa88d64d2666d5520c913",
+    "tree": "d96cc9bc7e088ca405b6de07f394cee3fa4b2e11"
+  },
+  "groups": {
+    "narrow_enforcement_core": {
+      "file_count": 18,
+      "files": [
+        {
+          "nonblank_lines": 998,
+          "path": "src/lets/authority.py",
+          "physical_lines": 1061,
+          "sha256": "128d5efe3ec521dcd57794ac331f620dd46ab5f3b92bc27957db2d59a29ad1f6"
+        },
+        {
+          "nonblank_lines": 157,
+          "path": "src/lets/authority_helper.py",
+          "physical_lines": 179,
+          "sha256": "d2cbba3b761118b0850e45ce8f7e12f9e8e49b6e8d243bb5d1767d859163cf79"
+        },
+        {
+          "nonblank_lines": 98,
+          "path": "src/lets/canonical.py",
+          "physical_lines": 115,
+          "sha256": "1da3c708044d9d141f297534f32d93addcf8429ce7ad4200486f26195a978ff5"
+        },
+        {
+          "nonblank_lines": 56,
+          "path": "src/lets/clock.py",
+          "physical_lines": 73,
+          "sha256": "cc27fa1293ea4dd25d3990e83a56910f4d271710e5f473c64f6198e88a1d7e28"
+        },
+        {
+          "nonblank_lines": 236,
+          "path": "src/lets/crypto.py",
+          "physical_lines": 263,
+          "sha256": "9ca214d5ed3cb1bf1764a2f08a3eb508a63a61de621a736c4692607324175ca7"
+        },
+        {
+          "nonblank_lines": 130,
+          "path": "src/lets/errors.py",
+          "physical_lines": 163,
+          "sha256": "010c58af9ba5b25c38b019e422283dd745ff66a24986d0149ae788e949af5139"
+        },
+        {
+          "nonblank_lines": 1379,
+          "path": "src/lets/executor.py",
+          "physical_lines": 1433,
+          "sha256": "b9084f6bab85d6a4d2981bae785e6f7d1c35fb2d64fbcbcc2aa43b0b1ceb4d04"
+        },
+        {
+          "nonblank_lines": 440,
+          "path": "src/lets/executor_authority.py",
+          "physical_lines": 489,
+          "sha256": "a946dca3e20cfe15153ebf85c8866b6af1c492fe6be2e9f9dd1fbb7194c96819"
+        },
+        {
+          "nonblank_lines": 39,
+          "path": "src/lets/ids.py",
+          "physical_lines": 53,
+          "sha256": "859bf2e0cf78bea55d4ff24fbd86faa4d5d0260f5ed9a4edfbac258e89ff732c"
+        },
+        {
+          "nonblank_lines": 53,
+          "path": "src/lets/invariants.py",
+          "physical_lines": 65,
+          "sha256": "8dbae9bcb076de7c05c650a80f0c00cee0dcbb80b3f719420cc739b87d4a07fa"
+        },
+        {
+          "nonblank_lines": 561,
+          "path": "src/lets/manifest.py",
+          "physical_lines": 605,
+          "sha256": "963f6a74810b9252368167b2e323805dca27f79134b5cacce6a701268056ad0d"
+        },
+        {
+          "nonblank_lines": 702,
+          "path": "src/lets/models.py",
+          "physical_lines": 779,
+          "sha256": "f53e444f856805c7a175c291d3903bd08ef29fff4ffa39cb4cabf0a4179f7ab5"
+        },
+        {
+          "nonblank_lines": 576,
+          "path": "src/lets/policy.py",
+          "physical_lines": 630,
+          "sha256": "79f9a22917b123b362502bcafa1b3c57b3549027440be843e1c5b1b371be93a5"
+        },
+        {
+          "nonblank_lines": 5661,
+          "path": "src/lets/service.py",
+          "physical_lines": 5790,
+          "sha256": "ada4912a0d325656677f2578ef211dd270580630ed551d8a5da339f94ba0bb8f"
+        },
+        {
+          "nonblank_lines": 32,
+          "path": "src/lets/storage/__init__.py",
+          "physical_lines": 34,
+          "sha256": "e6a4664444f39f7ac420abbfc92ac97407fea97747beebcfb63c70f70c49dbb9"
+        },
+        {
+          "nonblank_lines": 1395,
+          "path": "src/lets/storage/schema.py",
+          "physical_lines": 1411,
+          "sha256": "efdf4a934e3b6de0197d2453a19bbff0f40858386dd5ec2534fd9c083ad425d7"
+        },
+        {
+          "nonblank_lines": 3246,
+          "path": "src/lets/storage/sqlite.py",
+          "physical_lines": 3436,
+          "sha256": "f4082e09f346f64a17e7ac8dd627243c30cd6b8a4a314bd7b823a8ebd3d11585"
+        },
+        {
+          "nonblank_lines": 69,
+          "path": "src/lets/vector.py",
+          "physical_lines": 91,
+          "sha256": "937fb8c64189950a37de0ed2ca6121dc58949dbf72d20744853a104bd558ab70"
+        }
+      ],
+      "nonblank_lines": 15828,
+      "physical_lines": 16670
+    },
+    "whole_runtime": {
+      "file_count": 36,
+      "files": [
+        {
+          "nonblank_lines": 31,
+          "path": "src/lets/__init__.py",
+          "physical_lines": 34,
+          "sha256": "b5633c63491cb17f103c85ed932b98d5e162fc0961f2ada85acbdeaed45bd163"
+        },
+        {
+          "nonblank_lines": 1167,
+          "path": "src/lets/_response_contract.py",
+          "physical_lines": 1172,
+          "sha256": "18594e938e14f6761e099c58c8051ba5166361d674a371f9da01c426b9416873"
+        },
+        {
+          "nonblank_lines": 2486,
+          "path": "src/lets/api.py",
+          "physical_lines": 2569,
+          "sha256": "3407d11776d27a5131c0a9b38ecc67daf395acee0db77e2dec7419eb3d4cd6b1"
+        },
+        {
+          "nonblank_lines": 1020,
+          "path": "src/lets/audit.py",
+          "physical_lines": 1071,
+          "sha256": "d80884fa3a40d662925e9765c9b89c79fe47193b2952b1f26b28bdf756f2523e"
+        },
+        {
+          "nonblank_lines": 801,
+          "path": "src/lets/auth.py",
+          "physical_lines": 869,
+          "sha256": "e63dfb4522caa14616662d534fc975b54ddf1eac3f2b98ca042b39e1826be86d"
+        },
+        {
+          "nonblank_lines": 998,
+          "path": "src/lets/authority.py",
+          "physical_lines": 1061,
+          "sha256": "128d5efe3ec521dcd57794ac331f620dd46ab5f3b92bc27957db2d59a29ad1f6"
+        },
+        {
+          "nonblank_lines": 157,
+          "path": "src/lets/authority_helper.py",
+          "physical_lines": 179,
+          "sha256": "d2cbba3b761118b0850e45ce8f7e12f9e8e49b6e8d243bb5d1767d859163cf79"
+        },
+        {
+          "nonblank_lines": 98,
+          "path": "src/lets/canonical.py",
+          "physical_lines": 115,
+          "sha256": "1da3c708044d9d141f297534f32d93addcf8429ce7ad4200486f26195a978ff5"
+        },
+        {
+          "nonblank_lines": 3297,
+          "path": "src/lets/cli.py",
+          "physical_lines": 3500,
+          "sha256": "87ec6f1159a4b72ca1e31c788b5783f7b016a11da0ded9dcd324ef10f065e588"
+        },
+        {
+          "nonblank_lines": 816,
+          "path": "src/lets/client.py",
+          "physical_lines": 929,
+          "sha256": "f5f265668b858614cfbbfe208f6fe0a2fa3306311a8658dd1447e84deca3bcc2"
+        },
+        {
+          "nonblank_lines": 56,
+          "path": "src/lets/clock.py",
+          "physical_lines": 73,
+          "sha256": "cc27fa1293ea4dd25d3990e83a56910f4d271710e5f473c64f6198e88a1d7e28"
+        },
+        {
+          "nonblank_lines": 236,
+          "path": "src/lets/crypto.py",
+          "physical_lines": 263,
+          "sha256": "9ca214d5ed3cb1bf1764a2f08a3eb508a63a61de621a736c4692607324175ca7"
+        },
+        {
+          "nonblank_lines": 130,
+          "path": "src/lets/errors.py",
+          "physical_lines": 163,
+          "sha256": "010c58af9ba5b25c38b019e422283dd745ff66a24986d0149ae788e949af5139"
+        },
+        {
+          "nonblank_lines": 1379,
+          "path": "src/lets/executor.py",
+          "physical_lines": 1433,
+          "sha256": "b9084f6bab85d6a4d2981bae785e6f7d1c35fb2d64fbcbcc2aa43b0b1ceb4d04"
+        },
+        {
+          "nonblank_lines": 440,
+          "path": "src/lets/executor_authority.py",
+          "physical_lines": 489,
+          "sha256": "a946dca3e20cfe15153ebf85c8866b6af1c492fe6be2e9f9dd1fbb7194c96819"
+        },
+        {
+          "nonblank_lines": 39,
+          "path": "src/lets/ids.py",
+          "physical_lines": 53,
+          "sha256": "859bf2e0cf78bea55d4ff24fbd86faa4d5d0260f5ed9a4edfbac258e89ff732c"
+        },
+        {
+          "nonblank_lines": 17,
+          "path": "src/lets/integrations/__init__.py",
+          "physical_lines": 19,
+          "sha256": "822229cb31c92cc0aebcd7694cc19bbc917e4c4f48c963c1c6e60511ec823929"
+        },
+        {
+          "nonblank_lines": 457,
+          "path": "src/lets/integrations/a2a.py",
+          "physical_lines": 541,
+          "sha256": "b439fbad3d3a5367ad4183f059323782a6f65c72db6cbabf34e95b78e3671f42"
+        },
+        {
+          "nonblank_lines": 114,
+          "path": "src/lets/integrations/astraldeep.py",
+          "physical_lines": 127,
+          "sha256": "7010f3ffeee6e3e34c193dae003f36b0df857d085bf55e56b4d3e6578aa321ee"
+        },
+        {
+          "nonblank_lines": 208,
+          "path": "src/lets/integrations/ports.py",
+          "physical_lines": 237,
+          "sha256": "46e5aba1e77bc397162b6ee97205502659971e8f2f7ffb5eefce8d310299de7e"
+        },
+        {
+          "nonblank_lines": 53,
+          "path": "src/lets/invariants.py",
+          "physical_lines": 65,
+          "sha256": "8dbae9bcb076de7c05c650a80f0c00cee0dcbb80b3f719420cc739b87d4a07fa"
+        },
+        {
+          "nonblank_lines": 561,
+          "path": "src/lets/manifest.py",
+          "physical_lines": 605,
+          "sha256": "963f6a74810b9252368167b2e323805dca27f79134b5cacce6a701268056ad0d"
+        },
+        {
+          "nonblank_lines": 702,
+          "path": "src/lets/models.py",
+          "physical_lines": 779,
+          "sha256": "f53e444f856805c7a175c291d3903bd08ef29fff4ffa39cb4cabf0a4179f7ab5"
+        },
+        {
+          "nonblank_lines": 905,
+          "path": "src/lets/observation.py",
+          "physical_lines": 947,
+          "sha256": "5138a841c58e82dd3207ce53f8a2ce71414f1ad4581d15ce64e4216dc1d82179"
+        },
+        {
+          "nonblank_lines": 660,
+          "path": "src/lets/peer.py",
+          "physical_lines": 705,
+          "sha256": "4bb0296ba09247680327913e2c05dcda299e2276c8115d8112ddc6e4b6bcfba6"
+        },
+        {
+          "nonblank_lines": 576,
+          "path": "src/lets/policy.py",
+          "physical_lines": 630,
+          "sha256": "79f9a22917b123b362502bcafa1b3c57b3549027440be843e1c5b1b371be93a5"
+        },
+        {
+          "nonblank_lines": 5,
+          "path": "src/lets/providers/__init__.py",
+          "physical_lines": 7,
+          "sha256": "fea3f1f8323ac82334956c9a9e719c437daa541be69286a95ac4fb1cf32e3f8c"
+        },
+        {
+          "nonblank_lines": 440,
+          "path": "src/lets/providers/generic.py",
+          "physical_lines": 473,
+          "sha256": "98ce1fea9f17498efbc054697c9968ab3ca16d34ed776d66284c5b5a819f4ad0"
+        },
+        {
+          "nonblank_lines": 592,
+          "path": "src/lets/recovery.py",
+          "physical_lines": 649,
+          "sha256": "0ac35949a885fd3691a0194029b66a1c4b8d4f582adf0004e55117a48c653935"
+        },
+        {
+          "nonblank_lines": 323,
+          "path": "src/lets/runtime.py",
+          "physical_lines": 355,
+          "sha256": "715f1a156d6915b83f14e13cba3e4323dc1367aa84ba928d9253352100bb5f94"
+        },
+        {
+          "nonblank_lines": 5661,
+          "path": "src/lets/service.py",
+          "physical_lines": 5790,
+          "sha256": "ada4912a0d325656677f2578ef211dd270580630ed551d8a5da339f94ba0bb8f"
+        },
+        {
+          "nonblank_lines": 32,
+          "path": "src/lets/storage/__init__.py",
+          "physical_lines": 34,
+          "sha256": "e6a4664444f39f7ac420abbfc92ac97407fea97747beebcfb63c70f70c49dbb9"
+        },
+        {
+          "nonblank_lines": 1395,
+          "path": "src/lets/storage/schema.py",
+          "physical_lines": 1411,
+          "sha256": "efdf4a934e3b6de0197d2453a19bbff0f40858386dd5ec2534fd9c083ad425d7"
+        },
+        {
+          "nonblank_lines": 3246,
+          "path": "src/lets/storage/sqlite.py",
+          "physical_lines": 3436,
+          "sha256": "f4082e09f346f64a17e7ac8dd627243c30cd6b8a4a314bd7b823a8ebd3d11585"
+        },
+        {
+          "nonblank_lines": 11,
+          "path": "src/lets/timeouts.py",
+          "physical_lines": 13,
+          "sha256": "25cc815f81165989525fa7549bafb3b09dcac9b28a6871a9fe94670d7ab92850"
+        },
+        {
+          "nonblank_lines": 69,
+          "path": "src/lets/vector.py",
+          "physical_lines": 91,
+          "sha256": "937fb8c64189950a37de0ed2ca6121dc58949dbf72d20744853a104bd558ab70"
+        }
+      ],
+      "nonblank_lines": 29178,
+      "physical_lines": 30887
+    }
+  },
+  "repository_root": "$REPOSITORY",
+  "schema": "lets.nsdi-implementation-inventory/v1",
+  "tool_sha256": "6f9faa57f459a0a302329b9ce02cb87709949dd75fa629c776707e053893fc94"
+}
