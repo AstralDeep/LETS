@@ -1,0 +1,770 @@
+{
+  "assembled": {
+    "events": 25464,
+    "faults": 1320,
+    "messages": 480,
+    "requests": 6426,
+    "runs": 80
+  },
+  "command": [
+    "assemble"
+  ],
+  "environment": {
+    "logical_cpu_count": 32,
+    "machine": "AMD64",
+    "os_release": "10",
+    "os_system": "Windows",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "python_executable": "<python-executable>",
+    "python_implementation": "CPython",
+    "python_version": "3.11.15",
+    "sqlite_version": "3.53.1"
+  },
+  "files": [
+    {
+      "bytes": 1364,
+      "path": "delegation.csv",
+      "sha256": "ffa3eda8cdaa3cacfdc2419c0bcb3a4c2b550fb8725163cc3b4abbce65253ceb"
+    },
+    {
+      "bytes": 1891,
+      "path": "delegation.md",
+      "sha256": "93607c460a7bd063ddc17282c8a8058e1de3a279b465a47cece09026ffdf5d9e"
+    },
+    {
+      "bytes": 1916245,
+      "path": "events.csv",
+      "sha256": "68ec0b0d27bfabae3e53c5e5c66f8ddd0c0eddcad5462d3633273416bb3564c9"
+    },
+    {
+      "bytes": 157408,
+      "path": "faults.csv",
+      "sha256": "800a3badbc4365514d015321923c6c2c8b852e67ed2db6d77af1237a0c305095"
+    },
+    {
+      "bytes": 36105,
+      "path": "messages.csv",
+      "sha256": "0be1045ac0add9d092528b979b375333cf83b41aaf8a533ba67b4413bb5624f2"
+    },
+    {
+      "bytes": 4178,
+      "path": "per-site.csv",
+      "sha256": "d170ccf69386fc5958c3c5c86323c61419c1d08b080f718d678d3607ad65fe45"
+    },
+    {
+      "bytes": 3897,
+      "path": "per-site.md",
+      "sha256": "a889c6464c5c60528bbefade3399c34c77be6bc284d81d5a7aef0d38cb16cdf4"
+    },
+    {
+      "bytes": 2677,
+      "path": "report-2x.json",
+      "sha256": "647c9e87add0eae30c379fe49e50d45f01972e4a2578366595de5307d645d14e"
+    },
+    {
+      "bytes": 1686,
+      "path": "report-2x.md",
+      "sha256": "50116f139821b681689771de87820ec6080f86864af0fc92efe1291d9531db8a"
+    },
+    {
+      "bytes": 2409,
+      "path": "report.json",
+      "sha256": "8c4394449d779bdd577c9aba0e6d44caccb63bac165eb2d6e5b43765b262a863"
+    },
+    {
+      "bytes": 1696,
+      "path": "report.md",
+      "sha256": "7a0f255e77a31589fa4a13886064978f31af7944078df189e58443e6b0e6b7bb"
+    },
+    {
+      "bytes": 1012334,
+      "path": "requests.csv",
+      "sha256": "fc71ead9667773502b19eee8b8c78754f6fdfa4e5597660effc6dcaae9bdbe24"
+    },
+    {
+      "bytes": 6829,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S001.json.gz",
+      "sha256": "7c6290b39f82e4dd8c71802d8c2482c61ab5874cd41f41c6b2aeb85eaf34272b"
+    },
+    {
+      "bytes": 5473,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S002.json.gz",
+      "sha256": "f6cfb495299d4d5368e2328f247ff76127283218b51b39070bbd3cf10723ec40"
+    },
+    {
+      "bytes": 6253,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S003.json.gz",
+      "sha256": "1bac6138a587c0a5d9c68bf7d038d005f2d0d6c6d374d666591da1b3a6dbd349"
+    },
+    {
+      "bytes": 6157,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S004.json.gz",
+      "sha256": "2e07e261ae5e2032e6a623d6fbbb47490fd79da83d1205f2d5435c8e604a3e29"
+    },
+    {
+      "bytes": 5920,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S005.json.gz",
+      "sha256": "913d0e7bb9ac4de26e8e870fbe486665f884a1e2de2e64bb46d38f2db85f6aba"
+    },
+    {
+      "bytes": 5023,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S006.json.gz",
+      "sha256": "4b6e9779463ee7151634cb842ba68163144c1f47a34774b6665e57a3a3041bb9"
+    },
+    {
+      "bytes": 5725,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S007.json.gz",
+      "sha256": "373d4e518a1c4eb9fbb2b0fcebaf6607f20c3359221bf27ed9d64b2fc28c811c"
+    },
+    {
+      "bytes": 5169,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S008.json.gz",
+      "sha256": "b1cb99d1fdfaa5fa61bbab142ffe5111a3903fe993132679f43be5bb8726e491"
+    },
+    {
+      "bytes": 7514,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S009.json.gz",
+      "sha256": "72824cddffe83de38d966d377f9e92b2814026ea96e6b7422d9d17974e82fff5"
+    },
+    {
+      "bytes": 4954,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S010.json.gz",
+      "sha256": "af946eb02d1f2cb864690b165d18fddd54c4aeb528e0a039f1e8578891d1096a"
+    },
+    {
+      "bytes": 4824,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S011.json.gz",
+      "sha256": "f73cbf07e94d139d4727483e33051ab197dcd5bc346ccf46956b4811388c1348"
+    },
+    {
+      "bytes": 4799,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S012.json.gz",
+      "sha256": "53f222d27c859fac3a5f5a0327528bf3a81e1e9459b278c3f85b2c9a2334e996"
+    },
+    {
+      "bytes": 4821,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S013.json.gz",
+      "sha256": "82614c0c40d35c8ca0b6615a3b7966c5ce0edf940cf91ef87385043d6792122f"
+    },
+    {
+      "bytes": 5468,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S014.json.gz",
+      "sha256": "d6300a859d3dbd44fc7b4bbd3c0179608357fe6f9d2448f168080b11ca2c1944"
+    },
+    {
+      "bytes": 5008,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S015.json.gz",
+      "sha256": "089dac31fcfff81774c13c47ea20b200062a0754c4a092f83ee6ba909c9c7c22"
+    },
+    {
+      "bytes": 5885,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S016.json.gz",
+      "sha256": "5820ad7abdb5d38c38dc1500385907ac47f679646f5cc45fccd181ed623920d8"
+    },
+    {
+      "bytes": 5423,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S017.json.gz",
+      "sha256": "9ce26daf07b7379ece06f6bc8f3bb1e49abcb2bc2616352b06f7f928df4d6dbf"
+    },
+    {
+      "bytes": 5133,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S018.json.gz",
+      "sha256": "3128828465f141492d15112227c46a2150d2abf4aafa416390337a7a7e4f9897"
+    },
+    {
+      "bytes": 9079,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S019.json.gz",
+      "sha256": "a32d9788bc1f85d766b61f8c3c65808059bbbe6e20cc09b7dce5bb9c49eb49bb"
+    },
+    {
+      "bytes": 7163,
+      "path": "runs/bridge-s3-L0.7-T1-equal-S020.json.gz",
+      "sha256": "ed6468fd82e216d08380da2a5cb0ff81ebecd4193d98989afdd3c9593292a0fc"
+    },
+    {
+      "bytes": 11343,
+      "path": "runs/bridge-s3-L2-T1-equal-S001.json.gz",
+      "sha256": "e532ecc047bf72b9555672c1b4e6a22397c4e3bd04284802b578c29c24752da7"
+    },
+    {
+      "bytes": 11144,
+      "path": "runs/bridge-s3-L2-T1-equal-S002.json.gz",
+      "sha256": "954ede6628dae285cbc7a8cb2c62d3b8dd34ac598260a7df7e56d35c458cd61a"
+    },
+    {
+      "bytes": 12172,
+      "path": "runs/bridge-s3-L2-T1-equal-S003.json.gz",
+      "sha256": "6ab2fd5afee26d7519f57bcd25b0606d248452917723153a8e10aec84e026f13"
+    },
+    {
+      "bytes": 11511,
+      "path": "runs/bridge-s3-L2-T1-equal-S004.json.gz",
+      "sha256": "d0e65152c1126c486d5e4d5ae3c8c8db5cb4842881165f1b335301ef62327a85"
+    },
+    {
+      "bytes": 12526,
+      "path": "runs/bridge-s3-L2-T1-equal-S005.json.gz",
+      "sha256": "f11e70882979da15787159d1c95db57635bf605f1ffc39bd3c86b4dbfcbfa488"
+    },
+    {
+      "bytes": 11084,
+      "path": "runs/bridge-s3-L2-T1-equal-S006.json.gz",
+      "sha256": "63e03848c1077044c4f90e92b02792e4a9f2adc7fd6765696b7da63b13669017"
+    },
+    {
+      "bytes": 10933,
+      "path": "runs/bridge-s3-L2-T1-equal-S007.json.gz",
+      "sha256": "62f0c0cbc9c4c95a73ecbf62482c7aeee598450bd593c17a47a7e019da798486"
+    },
+    {
+      "bytes": 12224,
+      "path": "runs/bridge-s3-L2-T1-equal-S008.json.gz",
+      "sha256": "fb105e022cdc3fde5db47a31c9086b9d737c4fdb0f4ba76d6d5bbee016071dda"
+    },
+    {
+      "bytes": 13651,
+      "path": "runs/bridge-s3-L2-T1-equal-S009.json.gz",
+      "sha256": "ef7ccbabb02c67007e0c04d3539117fc7091192cd2b38b13839a70bdfea43f45"
+    },
+    {
+      "bytes": 13554,
+      "path": "runs/bridge-s3-L2-T1-equal-S010.json.gz",
+      "sha256": "c3abbedb33e36e9d1241e025dceebd566d00c945a8c9d3a2cf88ee878f24d03f"
+    },
+    {
+      "bytes": 10576,
+      "path": "runs/bridge-s3-L2-T1-equal-S011.json.gz",
+      "sha256": "484e812dc64216d67cbbc40e44bcbb317653baad92430f5bfffbb8bbf7902a21"
+    },
+    {
+      "bytes": 11331,
+      "path": "runs/bridge-s3-L2-T1-equal-S012.json.gz",
+      "sha256": "c1a3b26f7e8cd9640a258eff8574e108380b94e8ac02c0b1f11acf4d1c06fd11"
+    },
+    {
+      "bytes": 12350,
+      "path": "runs/bridge-s3-L2-T1-equal-S013.json.gz",
+      "sha256": "e0fd58fb4d7651068031fd958610757a61e041a869586123c08a5c4406f2d633"
+    },
+    {
+      "bytes": 11421,
+      "path": "runs/bridge-s3-L2-T1-equal-S014.json.gz",
+      "sha256": "c5bd945aa625f5501b8e6e5057ea7a7c2b311dde0d19418bfae8387de2513b50"
+    },
+    {
+      "bytes": 12733,
+      "path": "runs/bridge-s3-L2-T1-equal-S015.json.gz",
+      "sha256": "f6600ad5248490fcbe5bbdb9915f121ba95290346136b6e36204653804b9ddd0"
+    },
+    {
+      "bytes": 11875,
+      "path": "runs/bridge-s3-L2-T1-equal-S016.json.gz",
+      "sha256": "e6b3a2c577db04a53f66abc74ac2cdffb2d2d234eb8823ccdf9a362595a1e5a3"
+    },
+    {
+      "bytes": 10868,
+      "path": "runs/bridge-s3-L2-T1-equal-S017.json.gz",
+      "sha256": "8ffd5f489cd584fb45a6b45bb02eb11377394d59868bc72d282e15afd26f56e7"
+    },
+    {
+      "bytes": 12355,
+      "path": "runs/bridge-s3-L2-T1-equal-S018.json.gz",
+      "sha256": "69c425a63bef0eea72b217836b13f8fe2f21588535442ff8b27827989baf51aa"
+    },
+    {
+      "bytes": 11109,
+      "path": "runs/bridge-s3-L2-T1-equal-S019.json.gz",
+      "sha256": "eb64c7e70f30f84eb9db61dc41620baaa6d73077f272c9e150bb3cd15623b0d9"
+    },
+    {
+      "bytes": 10635,
+      "path": "runs/bridge-s3-L2-T1-equal-S020.json.gz",
+      "sha256": "457fbd82a5cf33e377a08e3b55ecc42097b39af7b82a475fb19a0bad6a8a966c"
+    },
+    {
+      "bytes": 5349,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S001.json.gz",
+      "sha256": "77beef9a2ff0c5d6808b8dc29d258f8c44f3bb72eb310bfededbd62a5b417158"
+    },
+    {
+      "bytes": 8308,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S002.json.gz",
+      "sha256": "d00f9bd1c2d9e888aef3ee3757f5deb2354d107f1bb4feca17bfaa1dbbf57c6e"
+    },
+    {
+      "bytes": 8022,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S003.json.gz",
+      "sha256": "45b741a07830c632f7b57508341065f5c2d242ae439bef6c219b8aec20456916"
+    },
+    {
+      "bytes": 5237,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S004.json.gz",
+      "sha256": "0cf2727eb33fb4f2beadd2b314da9bb745d478d551826ea96986d232f7971084"
+    },
+    {
+      "bytes": 5166,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S005.json.gz",
+      "sha256": "d852cd01a6bdf82b1cb09ce305688c9db0b27a2d719c7c3a5e7d6055d085cb3b"
+    },
+    {
+      "bytes": 6942,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S006.json.gz",
+      "sha256": "4e07051a2177a02c8a65dee279a6a53259f61068f9d8478234e39ecce7d8bb61"
+    },
+    {
+      "bytes": 5716,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S007.json.gz",
+      "sha256": "7d3e1bf0a6924860fa713acb63ecb3c08cb18cb5ecd531f121b8c9b87fc91693"
+    },
+    {
+      "bytes": 4895,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S008.json.gz",
+      "sha256": "d56bdfc432d73468baec5e955144bcab8f56b06ecb474adadc9d740e0e0151d8"
+    },
+    {
+      "bytes": 5558,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S009.json.gz",
+      "sha256": "2f232914b3e4080dd2ecd57db1b9b1945c14a9511cece1933a669872060ad0c8"
+    },
+    {
+      "bytes": 8493,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S010.json.gz",
+      "sha256": "2aa8f521e10f8704036f7e6ee92c7d54e6ffafe51656766f5782a22bf85a5f92"
+    },
+    {
+      "bytes": 6037,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S011.json.gz",
+      "sha256": "d99e7430f6f1c434f62715b4b5549c27db7228dc06d66ef9278087335b87cd7f"
+    },
+    {
+      "bytes": 5875,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S012.json.gz",
+      "sha256": "1c23a83b8c65e87fac5e682dfe090b0ae00fac27b69c6f77fd3d31ad98dd9ff0"
+    },
+    {
+      "bytes": 8149,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S013.json.gz",
+      "sha256": "7cf0670a27206c8aa719d5824b2dc602f4dd0a10bebdc9b2d338d4f2a60dd7eb"
+    },
+    {
+      "bytes": 5400,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S014.json.gz",
+      "sha256": "16bc48476a3fe18d0aba80978b6bd5b5d81f711971d89071b0bd11735c070be9"
+    },
+    {
+      "bytes": 8186,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S015.json.gz",
+      "sha256": "33c07de8299467611a5c4eced77cd2cf37ac8abb3182349c0a0855664bf71eaa"
+    },
+    {
+      "bytes": 7138,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S016.json.gz",
+      "sha256": "917dbda0804a80f0836c06005fd6e26fab35b8c921c1c3c253a4f2315658608a"
+    },
+    {
+      "bytes": 9009,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S017.json.gz",
+      "sha256": "75f8b796fb15c322930d714a37be20b354ebfe1364df80dd4a075d76cb59c705"
+    },
+    {
+      "bytes": 8006,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S018.json.gz",
+      "sha256": "b8c5c1fcb01486df569d11656fb6444dbf365ea014fb342662fa35d31e1076a1"
+    },
+    {
+      "bytes": 9507,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S019.json.gz",
+      "sha256": "3c13c0aec438b240f4049e5e9d647c58cc74d7220138fe9b2a7f40abaebf87ca"
+    },
+    {
+      "bytes": 5285,
+      "path": "runs/flapping-s1-s2-L0.7-T1-equal-S020.json.gz",
+      "sha256": "d73373078fe19c510a70add02db0e96bacc6b8ef2c0b97db5a34ed99edb7f41d"
+    },
+    {
+      "bytes": 10837,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S001.json.gz",
+      "sha256": "f2a51b51be644905b2500592bebfeef4855a63331173604e84612e2089854617"
+    },
+    {
+      "bytes": 13319,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S002.json.gz",
+      "sha256": "23a6e9a84d5d7c159060ac665798b7fd2fd69af24afffdf8cd39d195f4eb3efb"
+    },
+    {
+      "bytes": 11845,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S003.json.gz",
+      "sha256": "a71c21551a33a4f9741c8a4050dbeb1a023eb76a871be24237183d9ab187a928"
+    },
+    {
+      "bytes": 13073,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S004.json.gz",
+      "sha256": "ee3ede75539fd9abaa31ea5223ae66cf06d0124bdb98c96ea49c090c0285e7ff"
+    },
+    {
+      "bytes": 10906,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S005.json.gz",
+      "sha256": "7e73cedecdfe1767ef30b19d4641f52ecc4b70461e7c455bb4dee8c3e0d0c546"
+    },
+    {
+      "bytes": 12552,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S006.json.gz",
+      "sha256": "ec3f01ff240a51eb81fe9ee2a2ae00b82c9da942a89f2e68acee59e7f392ec56"
+    },
+    {
+      "bytes": 12436,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S007.json.gz",
+      "sha256": "791dc84006628e87dab7930cad3fc4ef63781d3da1278ce4a31a092a180869ab"
+    },
+    {
+      "bytes": 11434,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S008.json.gz",
+      "sha256": "95c27f1a0d05efcb05cb62a83c90a63db2245ef8951c295ff4f78f2e032ddb5c"
+    },
+    {
+      "bytes": 10804,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S009.json.gz",
+      "sha256": "c8aabfe77fce419eddbde18da4816f0ffa883a488be1e46297ac69cee1df5927"
+    },
+    {
+      "bytes": 11014,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S010.json.gz",
+      "sha256": "719843c4a7f3b6a97ab7eb17dd2c53a19e022c4adbf49dd34d9fe683ee0f5e95"
+    },
+    {
+      "bytes": 11910,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S011.json.gz",
+      "sha256": "a75264422ee95257c7de0228ec561dff080d3cb1458020611c7e0217ce1a653f"
+    },
+    {
+      "bytes": 12195,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S012.json.gz",
+      "sha256": "98a63600ff6272629de21b354bc6fbcb88e6c0b3c76c33a16bc53a9a8512a24e"
+    },
+    {
+      "bytes": 12067,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S013.json.gz",
+      "sha256": "541e0055423cc3f8f351b56f6b0a36a6097042c88e41804c4e8bb04cd8fcbbbc"
+    },
+    {
+      "bytes": 11985,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S014.json.gz",
+      "sha256": "a7f46460dec1f153506360570d5dc3a9d0717aca3a57cf39cedded478107b7ed"
+    },
+    {
+      "bytes": 11178,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S015.json.gz",
+      "sha256": "d8f869e5444d8a9b690359021ea6caed5c58af077e9d9d67918f0edc685ebb85"
+    },
+    {
+      "bytes": 13586,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S016.json.gz",
+      "sha256": "3437c268c23af67e297e96f6a6867fc05d2b14ef981cec547e131759fc86e332"
+    },
+    {
+      "bytes": 11242,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S017.json.gz",
+      "sha256": "44d584d228fb1b074728532908f66c000611f086a2b1f439f63522e7c850345a"
+    },
+    {
+      "bytes": 12407,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S018.json.gz",
+      "sha256": "ef9ceaecf987b1939a9c92741c15cac7b76c316afe775d8c96359d0f84c6051c"
+    },
+    {
+      "bytes": 11230,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S019.json.gz",
+      "sha256": "b45e25cf34e83456a8e695c2b760fee0108832c65c2593ae85cc9631142d0b45"
+    },
+    {
+      "bytes": 12704,
+      "path": "runs/flapping-s1-s2-L2-T1-equal-S020.json.gz",
+      "sha256": "60f9470b7a85de00ea7ffea4c4f12156a98e65011d0f9cd03ea1ee8b318d8ba8"
+    },
+    {
+      "bytes": 22064,
+      "path": "runs.csv",
+      "sha256": "7f8a2a84282d5371dc1b21465d95579c14436ca0dc5c346aa8fd5238d4f0870f"
+    },
+    {
+      "bytes": 872,
+      "path": "summary.csv",
+      "sha256": "856e652dd601a777587a29983e2f8f6320a7c016fb978eddcaa20eb4708b8b2f"
+    }
+  ],
+  "generated_at": "2026-10-23T01:32:52.461299Z",
+  "grid": {
+    "cells": 80,
+    "clusters": [
+      {
+        "name": "three-host",
+        "sites": {
+          "s1": {
+            "control_url": "http://127.0.0.1:9731",
+            "fault_exec": [],
+            "fault_exec_quote": false,
+            "fault_ssh": {
+              "host": "<s1-ip>",
+              "key_file": "<key-file>",
+              "port": 22,
+              "prefix": [
+                "sudo",
+                "-n"
+              ],
+              "user": "<user>"
+            },
+            "interface": "eno50",
+            "peer_ip": "<s1-ip>",
+            "peer_port": 9701,
+            "raft_port": 9801
+          },
+          "s2": {
+            "control_url": "http://127.0.0.1:9732",
+            "fault_exec": [],
+            "fault_exec_quote": false,
+            "fault_ssh": {
+              "host": "<s2-ip>",
+              "key_file": "<key-file>",
+              "port": 22,
+              "prefix": [
+                "sudo",
+                "-n"
+              ],
+              "user": "<user>"
+            },
+            "interface": "enp5s0np0",
+            "peer_ip": "<s2-ip>",
+            "peer_port": 9701,
+            "raft_port": 9801
+          },
+          "s3": {
+            "control_url": "http://127.0.0.1:9733",
+            "fault_exec": [],
+            "fault_exec_quote": false,
+            "fault_ssh": {
+              "host": "<s3-ip>",
+              "key_file": "<key-file>",
+              "port": 22,
+              "prefix": [
+                "sudo",
+                "-n"
+              ],
+              "user": "<user>"
+            },
+            "interface": "eth0",
+            "peer_ip": "<s3-ip>",
+            "peer_port": 9701,
+            "raft_port": 9801
+          }
+        }
+      }
+    ],
+    "options": {
+      "deadline_s": 20.0,
+      "envelope": 30,
+      "loss_pct": 0.0,
+      "partition_s": 30.0,
+      "peer_timeout_s": 2.0,
+      "post_s": 15.0,
+      "pre_s": 5.0,
+      "raft_timeout_s": 2.0,
+      "ready_timeout_s": 45.0,
+      "rtt_ms": 0.0,
+      "shares": null,
+      "sites": [
+        "s1",
+        "s2",
+        "s3"
+      ],
+      "systems": [
+        "lets",
+        "lets-anchored"
+      ]
+    },
+    "sites": [
+      "s1",
+      "s2",
+      "s3"
+    ],
+    "skipped": 44
+  },
+  "outcomes": {
+    "bridge-s3-L0.7-T1-equal-S001": "passed",
+    "bridge-s3-L0.7-T1-equal-S002": "passed",
+    "bridge-s3-L0.7-T1-equal-S003": "passed",
+    "bridge-s3-L0.7-T1-equal-S004": "passed",
+    "bridge-s3-L0.7-T1-equal-S005": "passed",
+    "bridge-s3-L0.7-T1-equal-S006": "passed",
+    "bridge-s3-L0.7-T1-equal-S007": "passed",
+    "bridge-s3-L0.7-T1-equal-S008": "passed",
+    "bridge-s3-L0.7-T1-equal-S009": "passed",
+    "bridge-s3-L0.7-T1-equal-S010": "passed",
+    "bridge-s3-L0.7-T1-equal-S011": "passed",
+    "bridge-s3-L0.7-T1-equal-S012": "passed",
+    "bridge-s3-L0.7-T1-equal-S013": "passed",
+    "bridge-s3-L0.7-T1-equal-S014": "passed",
+    "bridge-s3-L0.7-T1-equal-S015": "passed",
+    "bridge-s3-L0.7-T1-equal-S016": "passed",
+    "bridge-s3-L0.7-T1-equal-S017": "passed",
+    "bridge-s3-L0.7-T1-equal-S018": "passed",
+    "bridge-s3-L0.7-T1-equal-S019": "passed",
+    "bridge-s3-L0.7-T1-equal-S020": "passed",
+    "bridge-s3-L2-T1-equal-S001": "passed",
+    "bridge-s3-L2-T1-equal-S002": "passed",
+    "bridge-s3-L2-T1-equal-S003": "passed",
+    "bridge-s3-L2-T1-equal-S004": "passed",
+    "bridge-s3-L2-T1-equal-S005": "passed",
+    "bridge-s3-L2-T1-equal-S006": "passed",
+    "bridge-s3-L2-T1-equal-S007": "passed",
+    "bridge-s3-L2-T1-equal-S008": "passed",
+    "bridge-s3-L2-T1-equal-S009": "passed",
+    "bridge-s3-L2-T1-equal-S010": "passed",
+    "bridge-s3-L2-T1-equal-S011": "passed",
+    "bridge-s3-L2-T1-equal-S012": "passed",
+    "bridge-s3-L2-T1-equal-S013": "passed",
+    "bridge-s3-L2-T1-equal-S014": "passed",
+    "bridge-s3-L2-T1-equal-S015": "passed",
+    "bridge-s3-L2-T1-equal-S016": "passed",
+    "bridge-s3-L2-T1-equal-S017": "passed",
+    "bridge-s3-L2-T1-equal-S018": "passed",
+    "bridge-s3-L2-T1-equal-S019": "passed",
+    "bridge-s3-L2-T1-equal-S020": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S001": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S002": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S003": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S004": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S005": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S006": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S007": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S008": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S009": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S010": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S011": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S012": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S013": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S014": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S015": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S016": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S017": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S018": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S019": "passed",
+    "flapping-s1-s2-L0.7-T1-equal-S020": "passed",
+    "flapping-s1-s2-L2-T1-equal-S001": "passed",
+    "flapping-s1-s2-L2-T1-equal-S002": "passed",
+    "flapping-s1-s2-L2-T1-equal-S003": "passed",
+    "flapping-s1-s2-L2-T1-equal-S004": "passed",
+    "flapping-s1-s2-L2-T1-equal-S005": "passed",
+    "flapping-s1-s2-L2-T1-equal-S006": "passed",
+    "flapping-s1-s2-L2-T1-equal-S007": "passed",
+    "flapping-s1-s2-L2-T1-equal-S008": "passed",
+    "flapping-s1-s2-L2-T1-equal-S009": "passed",
+    "flapping-s1-s2-L2-T1-equal-S010": "passed",
+    "flapping-s1-s2-L2-T1-equal-S011": "passed",
+    "flapping-s1-s2-L2-T1-equal-S012": "passed",
+    "flapping-s1-s2-L2-T1-equal-S013": "passed",
+    "flapping-s1-s2-L2-T1-equal-S014": "passed",
+    "flapping-s1-s2-L2-T1-equal-S015": "passed",
+    "flapping-s1-s2-L2-T1-equal-S016": "passed",
+    "flapping-s1-s2-L2-T1-equal-S017": "passed",
+    "flapping-s1-s2-L2-T1-equal-S018": "passed",
+    "flapping-s1-s2-L2-T1-equal-S019": "passed",
+    "flapping-s1-s2-L2-T1-equal-S020": "passed"
+  },
+  "run_command": [
+    "run",
+    "--endpoints",
+    "<endpoints-file>",
+    "--thetas",
+    "1",
+    "--rtt-ms",
+    "0",
+    "--output",
+    "results\\fair-baselines-2026-10-15\\three-host-anchored",
+    "--topologies",
+    "bridge-s3",
+    "flapping-s1-s2",
+    "--loads",
+    "0.7",
+    "2.0",
+    "--seeds",
+    "20",
+    "--systems",
+    "lets",
+    "lets-anchored"
+  ],
+  "run_environment": {
+    "logical_cpu_count": 32,
+    "machine": "AMD64",
+    "os_release": "10",
+    "os_system": "Windows",
+    "platform": "Windows-10-10.0.19045-SP0",
+    "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+    "python_executable": "<python-executable>",
+    "python_implementation": "CPython",
+    "python_version": "3.11.15",
+    "sqlite_version": "3.53.1"
+  },
+  "run_history": [
+    {
+      "cells": 80,
+      "command": [
+        "run",
+        "--endpoints",
+        "<endpoints-file>",
+        "--thetas",
+        "1",
+        "--rtt-ms",
+        "0",
+        "--output",
+        "results\\fair-baselines-2026-10-15\\three-host-anchored",
+        "--topologies",
+        "bridge-s3",
+        "flapping-s1-s2",
+        "--loads",
+        "0.7",
+        "2.0",
+        "--seeds",
+        "20",
+        "--systems",
+        "lets",
+        "lets-anchored"
+      ],
+      "environment": {
+        "logical_cpu_count": 32,
+        "machine": "AMD64",
+        "os_release": "10",
+        "os_system": "Windows",
+        "platform": "Windows-10-10.0.19045-SP0",
+        "processor": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+        "python_executable": "<python-executable>",
+        "python_implementation": "CPython",
+        "python_version": "3.11.15",
+        "sqlite_version": "3.53.1"
+      },
+      "generated_at": "2026-10-22T23:24:11.125498Z",
+      "outcomes": {
+        "passed": 36
+      },
+      "source": {
+        "branch": "claude/e1-anchored-partition-20261022",
+        "commit": "b9f48d31a1a3154ec03885d9652d0e84b8e70608",
+        "dirty": true,
+        "tracked_diff": ""
+      }
+    }
+  ],
+  "run_source": {
+    "branch": "claude/e1-anchored-partition-20261022",
+    "commit": "b9f48d31a1a3154ec03885d9652d0e84b8e70608",
+    "dirty": true,
+    "tracked_diff": ""
+  },
+  "schema": "lets.fair-baselines-manifest/v1",
+  "source": {
+    "branch": "claude/e1-anchored-partition-20261022",
+    "commit": "c5d941b953993da631270beea25cfd9aec0ae127",
+    "dirty": true,
+    "tracked_diff": "results/fair-baselines-2026-10-15/RESULTS.md | 142 +++++++++++++++++++++++++++\n 1 file changed, 142 insertions(+)"
+  }
+}
