@@ -1,0 +1,1 @@
+{"category":"receipt-replay","expected_effect":"execute","expected_lets_behavior":"off","expected_lifecycle_state":null,"format":"lets.astraldeep-case-study-scenario/v1","lifecycle_event":null,"mode":"off","parallelism":1,"recursion_depth":0,"scenario_id":"off-receipt-replay","scope":"tools:execute"}

@@ -1,0 +1,1 @@
+{"category":"parallel-dispatch","expected_effect":"execute","expected_lets_behavior":"evaluate","expected_lifecycle_state":null,"format":"lets.astraldeep-case-study-scenario/v1","lifecycle_event":null,"mode":"shadow","parallelism":4,"recursion_depth":0,"scenario_id":"shadow-parallel-dispatch","scope":"tools:execute"}
