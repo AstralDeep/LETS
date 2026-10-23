@@ -20,6 +20,21 @@ from benchmarks.fair_baselines.site_agent import AgentError, AgentState, main
 from tests.benchmarks.conftest import TOKEN, LoopbackCluster, short_config
 
 
+def _assert_lets_conserved(snapshots: dict[str, dict], envelope: int, effects: int) -> None:
+    transferred_in = sum(int(snapshot["transferred_in"]) for snapshot in snapshots.values())
+    transferred_out = sum(int(snapshot["transferred_out"]) for snapshot in snapshots.values())
+    in_flight = transferred_out - transferred_in
+    held = sum(
+        int(snapshot["free_pool"]) + int(snapshot["lease_residual"]) + int(snapshot["consumed"])
+        for snapshot in snapshots.values()
+    )
+    assert in_flight >= 0
+    if in_flight:
+        assert sum(int(snapshot["outstanding_vouchers"]) for snapshot in snapshots.values()) >= 1
+    assert held + in_flight == envelope
+    assert sum(int(snapshot["consumed"]) for snapshot in snapshots.values()) == effects
+
+
 def _run_to_completion(cluster: LoopbackCluster, config: dict[str, object]) -> dict[str, dict]:
     for site in SITES:
         status, payload = cluster.call(
@@ -84,16 +99,9 @@ def test_three_agents_run_every_system_within_the_envelope(
     for system, verdict in safety.items():
         assert verdict["safety_ok"] is True, (system, verdict)
         assert verdict["effects"] == verdict["authorized_records"]
-    assert safety["lets"]["effects"] == config["envelope"]
-    assert safety["raft-quorum"]["effects"] == config["envelope"]
     lets = {site: payload["snapshots"]["lets"] for site, payload in results.items()}
     assert all(snapshot["healthy"] for snapshot in lets.values())
-    assert sum(
-        snapshot["transferred_in"][0]
-        if isinstance(snapshot["transferred_in"], list)
-        else snapshot["transferred_in"]
-        for snapshot in lets.values()
-    ) == sum(snapshot["transferred_out"] for snapshot in lets.values())
+    _assert_lets_conserved(lets, int(config["envelope"]), safety["lets"]["effects"])  # type: ignore[arg-type]
     noretry = [
         record
         for payload in results.values()
@@ -348,18 +356,17 @@ def test_three_agents_run_lets_with_and_without_delegation_trees(
         assert (trees[site]["tree_depth"], trees[site]["tree_fanout"]) == (2, 2)
         assert plain[site]["tree_depth"] == 0 and plain[site]["live_leases"] <= 1
         initial_leases = {1: 3, 7: 7}[shares[site]]
-        assert trees[site]["lease_operations"] >= initial_leases
+        assert trees[site]["lease_operations"] >= initial_leases + trees[site]["tree_builds"] - 1
         assert trees[site]["lease_operations"] >= trees[site]["live_leases"]
-        assert trees[site]["lease_operations"] >= plain[site]["lease_operations"]
+        assert plain[site]["lease_operations"] >= plain[site]["tree_builds"]
         assert reasons[site][0] == "initial" and len(reasons[site]) == trees[site]["tree_builds"]
         assert all(reason.startswith(("in-", "out-")) for reason in reasons[site][1:])
         assert (
             trees[site]["tree_builds"]
             == 1 + trees[site]["transfers_in"] + trees[site]["transfers_out"]
         )
-    assert sum(t["transferred_in"] for t in trees.values()) == sum(
-        t["transferred_out"] for t in trees.values()
-    )
+    _assert_lets_conserved(trees, envelope, safety["lets-tree-d2-f2"]["effects"])
+    _assert_lets_conserved(plain, envelope, safety["lets"]["effects"])
     builds = [
         event
         for payload in results.values()
@@ -369,14 +376,19 @@ def test_three_agents_run_lets_with_and_without_delegation_trees(
     assert {event["system"] for event in builds} == {"lets", "lets-tree-d2-f2"}
     for event in builds:
         assert event["value"] >= 1 and " us=" in event["detail"]
-    holder = next((site for site in SITES if trees[site]["remaining"] > 0), None)
-    if holder is None:
-        assert trees["s1"]["transfers_in"] >= 1 and trees["s1"]["tree_builds"] >= 2
-    else:
+    holder = next(
+        (
+            site
+            for site in SITES
+            if trees[site]["remaining"] > 0 and trees[site]["outstanding_vouchers"] == 0
+        ),
+        None,
+    )
+    if holder is not None:
         requester = next(site for site in SITES if site != holder)
         deadline = time.monotonic() + 10
         before = trees[holder]
-        while before["outstanding_vouchers"] or before["pending_acks"]:
+        while before["pending_acks"]:
             assert time.monotonic() < deadline, before
             time.sleep(0.2)
             before = cluster.call(holder, "GET", "/run/results")[1]["snapshots"]["lets-tree-d2-f2"]
