@@ -1,0 +1,1 @@
+{"category":"scope","expected_effect":"execute","expected_lets_behavior":"enforce","expected_lifecycle_state":null,"format":"lets.astraldeep-case-study-scenario/v1","lifecycle_event":null,"mode":"enforce","parallelism":1,"recursion_depth":0,"scenario_id":"enforce-scope-write","scope":"tools:write"}

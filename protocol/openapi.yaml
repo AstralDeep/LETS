@@ -2785,7 +2785,7 @@
   },
   "info": {
     "title": "LETS Warden API",
-    "version": "1.1.0"
+    "version": "1.1.2"
   },
   "openapi": "3.1.0",
   "paths": {

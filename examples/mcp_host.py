@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from lets.canonical import canonical_json, strict_json_loads
 from lets.errors import ValidationError
 from lets.executor import ReceiptVerifier
 from lets.integrations.mcp import MCPToolAuthorization, MCPToolProfile
@@ -60,9 +61,20 @@ class MCPToolHost:
     ) -> Any:
         if authorization is None:
             raise ValidationError("MCP tool effect requires a receipt")
-        receipt = self.profile.bind_receipt(authorization, authorization.receipt)
+        if not isinstance(arguments, Mapping):
+            raise ValidationError("MCP tool arguments must be an object")
+        try:
+            bound_arguments = strict_json_loads(canonical_json(dict(arguments)))
+        except (TypeError, ValueError) as error:
+            raise ValidationError("MCP tool arguments must be canonical JSON") from error
+        receipt = self.profile.bind_receipt(
+            authorization,
+            authorization.receipt,
+            identity=identity,
+            arguments=bound_arguments,
+        )
         self.verifier.verify_and_claim(receipt)
-        return self.effect(authorization.operation_id, authorization.tool_name, arguments)
+        return self.effect(authorization.operation_id, authorization.tool_name, bound_arguments)
 
     def call(
         self,

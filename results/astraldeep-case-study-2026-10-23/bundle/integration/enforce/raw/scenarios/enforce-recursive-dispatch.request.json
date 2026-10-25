@@ -1,0 +1,1 @@
+{"category":"recursive-dispatch","expected_effect":"execute","expected_lets_behavior":"enforce","expected_lifecycle_state":null,"format":"lets.astraldeep-case-study-scenario/v1","lifecycle_event":null,"mode":"enforce","parallelism":1,"recursion_depth":3,"scenario_id":"enforce-recursive-dispatch","scope":"tools:execute"}

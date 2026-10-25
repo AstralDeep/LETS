@@ -1,7 +1,7 @@
-"""One process per site for E1: hosts every configured authority system (systems.py), replays the
-site's slice of the seeded arrival plan (workload.py) against each of them with the per-system
-retry policy, actuates authorized requests into the independent effect log, and serves the control
-API controller.py drives plus the HMAC peer API other sites call.
+"""One process per site for E1: hosts every configured authority system (systems.py, including the
+LETS delegation-tree, anchored, and stale-restore variants), replays the site's slice of the seeded
+arrival plan (workload.py) with per-system retries into the independent effect log, and serves the
+control API controller.py drives plus the HMAC peer API other sites call.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import hmac
 import json
 import os
 import random
+import shlex
 import threading
 import time
 from collections.abc import Mapping
@@ -33,6 +34,7 @@ from benchmarks.fair_baselines.common import (
     string,
 )
 from benchmarks.fair_baselines.systems import (
+    AnchorSettings,
     CentralCounterSystem,
     Decision,
     EffectLog,
@@ -68,10 +70,12 @@ class Run:
         public_keys: Mapping[str, tuple[str, bytes]],
         raft_self: str | None,
         raft_peers: Mapping[str, str],
+        anchor: AnchorSettings | None = None,
     ) -> None:
         self.site = site
         self.config = config
         self.state_dir = state_dir
+        self.anchor = anchor
         self.plan: tuple[Arrival, ...] = arrival_plan(config)
         self.local_plan = tuple(arrival for arrival in self.plan if arrival.site == site)
         self.lock = threading.Lock()
@@ -140,7 +144,17 @@ class Run:
                     public_keys,
                     transport,
                     self.event,
+                    depth=spec.depth,
+                    fanout=spec.fanout,
+                    anchor=self._anchor_for(spec),
                 )
+
+    def _anchor_for(self, spec: SystemSpec) -> AnchorSettings | None:
+        if not spec.anchored:
+            return None
+        if self.anchor is None:
+            raise AgentError(f"{spec.name} needs an agent started with --anchor-root")
+        return self.anchor
 
     def event(self, system: str, kind: str, value: int, detail: str) -> None:
         with self.lock:
@@ -187,6 +201,36 @@ class Run:
             threading.Thread(
                 target=self._generate, args=(name,), name=f"gen-{name}", daemon=True
             ).start()
+        for name, spec in self.specs.items():
+            if spec.restore_site == self.site:
+                threading.Thread(
+                    target=self._restore, args=(name,), name=f"restore-{name}", daemon=True
+                ).start()
+
+    def _sleep_until(self, offset_s: float) -> None:
+        assert self.start_mono_ns is not None
+        wait = (self.start_mono_ns + int(offset_s * NS_PER_S) - time.monotonic_ns()) / NS_PER_S
+        if wait > 0:
+            time.sleep(wait)
+
+    def _restore(self, name: str) -> None:
+        system = self.systems[name]
+        if not isinstance(system, LetsSystem):
+            return
+        snapshot_s, restore_s = self.config.restore_schedule_s
+        try:
+            self._sleep_until(snapshot_s)
+            self.event(name, "restore_snapshot", system.usable_units(), system.take_snapshot())
+            self._sleep_until(restore_s)
+            accepted, detail = system.restore_snapshot()
+            self.event(
+                name,
+                "restore_accepted" if accepted else "restore_refused",
+                system.usable_units(),
+                detail,
+            )
+        except Exception as exc:
+            self.event(name, "restore_error", 0, f"{type(exc).__name__}: {exc}"[:240])
 
     def _generate(self, name: str) -> None:
         assert self.start_mono_ns is not None
@@ -335,13 +379,16 @@ class Run:
 
 
 class AgentState:
-    def __init__(self, site: str, token: str, state_root: Path) -> None:
+    def __init__(
+        self, site: str, token: str, state_root: Path, anchor: AnchorSettings | None = None
+    ) -> None:
         try:
             self.site = site_alias(site, "site")
         except ValueError as exc:
             raise AgentError(str(exc)) from None
         self.token = token
         self.state_root = state_root
+        self.anchor = anchor
         self.lock = threading.RLock()
         self.run: Run | None = None
         self.transport: PeerTransport | None = None
@@ -387,6 +434,7 @@ class AgentState:
                 public_keys,
                 None if raft_self is None else string(raft_self, "raft.self"),
                 raft_peers,
+                self.anchor,
             )
             return {
                 "configured": True,
@@ -606,8 +654,15 @@ class Handler(BaseHTTPRequestHandler):
             )
 
 
-def serve(site: str, bind: str, port: int, token: str, state_root: Path) -> AgentServer:
-    state = AgentState(site, token, state_root)
+def serve(
+    site: str,
+    bind: str,
+    port: int,
+    token: str,
+    state_root: Path,
+    anchor: AnchorSettings | None = None,
+) -> AgentServer:
+    state = AgentState(site, token, state_root, anchor)
     state.state_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     server = AgentServer((bind, port), Handler)
     server.state = state
@@ -632,7 +687,26 @@ def _arguments() -> argparse.Namespace:
         default="LETS_E1_TOKEN",
         help="environment variable holding the shared control/peer token",
     )
+    parser.add_argument(
+        "--anchor-root",
+        type=Path,
+        help="directory for the process-file rollback anchors of the lets-anchored systems",
+    )
+    parser.add_argument(
+        "--anchor-helper",
+        default="",
+        help="command that runs lets.authority_helper, e.g. under a separate account",
+    )
+    parser.add_argument("--anchor-timeout", type=float, default=5.0)
     return parser.parse_args()
+
+
+def anchor_settings(root: Path | None, helper: str, timeout_s: float) -> AnchorSettings | None:
+    if root is None:
+        if helper:
+            raise SystemExit("--anchor-helper requires --anchor-root")
+        return None
+    return AnchorSettings(root, tuple(shlex.split(helper)), timeout_s)
 
 
 def main() -> int:
@@ -640,9 +714,22 @@ def main() -> int:
     token = os.environ.get(arguments.token_env, "")
     if len(token) < 16:
         raise SystemExit(f"{arguments.token_env} must hold a token of at least 16 characters")
-    server = serve(arguments.site, arguments.bind, arguments.port, token, arguments.state_root)
+    anchor = anchor_settings(
+        arguments.anchor_root, arguments.anchor_helper, arguments.anchor_timeout
+    )
+    server = serve(
+        arguments.site, arguments.bind, arguments.port, token, arguments.state_root, anchor
+    )
     print(
-        json.dumps({"schema": SCHEMA, "site": arguments.site, "port": arguments.port}),
+        json.dumps(
+            {
+                "schema": SCHEMA,
+                "site": arguments.site,
+                "port": arguments.port,
+                "anchor_root": None if anchor is None else str(anchor.root),
+                "anchor_helper": None if anchor is None else list(anchor.helper),
+            }
+        ),
         flush=True,
     )
     try:

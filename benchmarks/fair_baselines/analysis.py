@@ -1,7 +1,8 @@
 """Offline metrics for E1 from the controller's CSVs: completion rates with seed-level bootstrap
 CIs, time-to-authorization distributions with censored timeouts, stranded capacity reconstructed
-from free-unit and waiting events against the fault timeline, message counts, and the per-site
-results table; report.py summarizes the same aggregates per grid.
+from free-unit and waiting events against the fault timeline, message counts, the per-site
+results table, and the delegation-tree build costs from tree_build events; report.py summarizes
+the same aggregates per grid.
 """
 
 from __future__ import annotations
@@ -453,6 +454,137 @@ def summary_rows(table: Sequence[Mapping[str, object]]) -> list[dict[str, object
     return summary
 
 
+@dataclass(frozen=True, slots=True)
+class TreeBuild:
+    run_id: str
+    system: str
+    site: str
+    offset_s: float
+    reason: str
+    operations: int
+    leases: int
+    leaves: int
+    seconds: float
+
+    @property
+    def refresh(self) -> bool:
+        return self.reason != "initial"
+
+
+def tree_builds(events: Iterable[Mapping[str, str]]) -> list[TreeBuild]:
+    builds = []
+    for event in events:
+        if event["kind"] != "tree_build":
+            continue
+        reason, _, rest = event["detail"].partition(" ")
+        fields = dict(token.split("=", 1) for token in rest.split())
+        builds.append(
+            TreeBuild(
+                event["run_id"],
+                event["system"],
+                event["site"],
+                int(event["offset_ns"]) / NS_PER_S,
+                reason,
+                int(event["value"]),
+                int(fields["leases"]),
+                int(fields["leaves"]),
+                int(fields["us"]) / 1_000_000,
+            )
+        )
+    return builds
+
+
+def _ms(builds: Sequence[TreeBuild], fraction: float) -> float | None:
+    return quantile([build.seconds * 1000 for build in builds], fraction)
+
+
+def delegation_rows(
+    events: Sequence[Mapping[str, str]], runs: Sequence[Mapping[str, str]]
+) -> list[dict[str, object]]:
+    run_meta = {row["run_id"]: row for row in runs}
+    grouped: dict[tuple[str, float, float, str, str], list[TreeBuild]] = defaultdict(list)
+    for build in tree_builds(events):
+        meta = run_meta.get(build.run_id)
+        if meta is None:
+            continue
+        key = (
+            meta["topology"],
+            float(meta["load"]),
+            float(meta["theta"]),
+            meta["placement"],
+            build.system,
+        )
+        grouped[key].append(build)
+    table = []
+    for key, builds in sorted(grouped.items()):
+        spec = SystemSpec.parse(key[4])
+        count_runs = len({build.run_id for build in builds})
+        initial = [build for build in builds if not build.refresh]
+        refresh = [build for build in builds if build.refresh]
+        table.append(
+            {
+                "topology": key[0],
+                "load": key[1],
+                "theta": key[2],
+                "placement": key[3],
+                "system": key[4],
+                "depth": spec.depth,
+                "fanout": spec.fanout,
+                "runs": count_runs,
+                "leases_per_tree": statistics.fmean(build.leases for build in initial)
+                if initial
+                else 0.0,
+                "leaves_per_tree": statistics.fmean(build.leaves for build in initial)
+                if initial
+                else 0.0,
+                "initial_ops_per_site": statistics.fmean(build.operations for build in initial)
+                if initial
+                else 0.0,
+                "initial_ms_p50": _ms(initial, 0.5),
+                "refreshes_per_run": len(refresh) / count_runs,
+                "refresh_ops_mean": statistics.fmean(build.operations for build in refresh)
+                if refresh
+                else None,
+                "refresh_ms_p50": _ms(refresh, 0.5),
+                "refresh_ms_p95": _ms(refresh, 0.95),
+                "refresh_ms_max": _ms(refresh, 1.0),
+                "lease_ops_per_run": sum(build.operations for build in builds) / count_runs,
+                "build_ms_per_run": sum(build.seconds for build in builds) * 1000 / count_runs,
+            }
+        )
+    return table
+
+
+def delegation_markdown(table: Sequence[Mapping[str, object]], title: str) -> str:
+    lines = [
+        f"# {title}",
+        "",
+        "Lease-tree build costs per cell and LETS system, from the `tree_build` events. A build "
+        "is the issue of a site's root lease plus the spawn of every child down to the leaves; a "
+        "refresh is the close of every live lease in the tree followed by a new build, which is "
+        "how an exhausted tree takes up transferred budget (`in-*`) or releases units for an "
+        "outgoing transfer (`out-*`). Lease operations count issue, spawn, and close calls to "
+        "the warden; times are wall-clock at the site. A depth of 0 is the one-lease system.",
+        "",
+        "| Topology | Load | θ | System | Depth | Fanout | Runs | Leases / tree | Leaves / tree "
+        "| Initial ops / site | Initial p50 (ms) | Refreshes / run | Ops / refresh "
+        "| Refresh p50 / p95 / max (ms) | Lease ops / run | Build ms / run |",
+        "|---|---:|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|",
+    ]
+    for row in table:
+        lines.append(
+            f"| {row['topology']} | {row['load']:g} | {row['theta']:g} | {row['system']} | "
+            f"{row['depth']} | {row['fanout']} | {row['runs']} | "
+            f"{_fmt(row['leases_per_tree'], 1)} | {_fmt(row['leaves_per_tree'], 1)} | "
+            f"{_fmt(row['initial_ops_per_site'], 1)} | {_fmt(row['initial_ms_p50'], 1)} | "
+            f"{_fmt(row['refreshes_per_run'], 2)} | {_fmt(row['refresh_ops_mean'], 1)} | "
+            f"{_fmt(row['refresh_ms_p50'], 1)} / {_fmt(row['refresh_ms_p95'], 1)} / "
+            f"{_fmt(row['refresh_ms_max'], 1)} | {_fmt(row['lease_ops_per_run'], 1)} | "
+            f"{_fmt(row['build_ms_per_run'], 1)} |"
+        )
+    return "\n".join(lines)
+
+
 def topology_description(name: str, sites: Sequence[str] = DEFAULT_SITES) -> str:
     topology = resolve_topology(name, sites)
     labels = sorted("-".join(sorted(link)) for link in topology.cut_links)
@@ -534,7 +666,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     write_text(output / "per-site.md", per_site_markdown(table, arguments.title), overwrite=True)
     write_text(output / "per-site.csv", per_site_csv(table), overwrite=True)
     write_text(output / "summary.csv", per_site_csv(summary_rows(table)), overwrite=True)
-    print(json.dumps({"rows": len(table)}))
+    delegation = delegation_rows(grid.events, grid.runs)
+    if delegation:
+        write_text(
+            output / "delegation.md",
+            delegation_markdown(delegation, f"{arguments.title}: lease-tree build costs"),
+            overwrite=True,
+        )
+        write_text(output / "delegation.csv", per_site_csv(delegation), overwrite=True)
+    print(json.dumps({"rows": len(table), "delegation_rows": len(delegation)}))
     return 0
 
 

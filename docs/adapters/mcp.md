@@ -12,10 +12,11 @@ sessions or arguments, and gains no MCP tables. The profile itself does not impo
 | Field | Value |
 | :-- | :-- |
 | Specification | MCP `2026-07-28` |
-| Specification source | `https://modelcontextprotocol.io/specification/2026-07-28` |
-| Authoritative schema | `https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/2026-07-28/schema.ts` |
-| Retrieved | 2026-07-29 |
-| Optional host SDK | `mcp==2.3.0` |
+| Specification source | [MCP 2026-07-28 specification](https://modelcontextprotocol.io/specification/2026-07-28) |
+| Authoritative schema | [2026-07-28 schema at commit 271ecc9](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/271ecc9accafdd9b83a3c869fa67c22953b2af80/schema/2026-07-28/schema.ts) |
+| Status | Published specification and released SDK; no SDK interoperability claim |
+| Retrieved | 2026-10-25 |
+| Optional host SDK | [`mcp==2.3.0`](https://pypi.org/project/mcp/2.3.0/) |
 | Constants | `lets.integrations.mcp.PINNED_REVISION`, `MAPPING_VERSION` |
 
 The SDK pin is an optional dependency of a host-side MCP server or client, not of
@@ -39,6 +40,12 @@ An MCP client's `_meta`, `clientInfo`, tool annotations, JSON-RPC request ID, or
 never establishes identity or authority. The host derives `IdentityContext` at its authenticated
 transport boundary and passes it separately. Credentials, access tokens, owner identity, session
 state, prompts, and opaque agent state are not adapter inputs or outputs.
+
+The host selects a caller-owned lease and a caller-bound `ReplicaAuthorizer` client before invoking
+authorization or revocation. A lease ID from MCP arguments does not establish that relationship.
+`IdentityContext` namespaces operation IDs but does not replace the warden client's authenticated
+identity. A host using management credentials across callers must enforce its own caller-to-lease
+ownership check before either profile call; a matching tenant alone is insufficient.
 
 ## Authority model
 
@@ -104,22 +111,30 @@ Consequences:
   caller's receipt.
 - **Lost warden reply** leaves the committed receipt or debit in place. Retry the same operation;
   never generate a fresh request ID.
-- **Receipt relabeling** is refused. `bind_receipt` checks request ID, nonce, lease, transition,
-  audience and evidence digest before the executor verifies the signature and burns the claim.
+- **Receipt relabeling** is refused. `bind_receipt` derives the operation key from the verified
+  caller, recomputes the actual arguments and effect digests, checks the configured tool mapping
+  against the signed evidence, and binds request ID, nonce, lease, transition and audience before
+  the executor verifies the signature and burns the claim.
 
 ## Protected execution
 
 ```python
+from lets.canonical import canonical_json, strict_json_loads
+
+arguments = {"path": "docs/report.md", "content": content}
+arguments = strict_json_loads(canonical_json(dict(arguments)))
 authorization = profile.authorize_tool(
     identity,
     operation_id=durable_operation_id,
     lease_id=lease_id,
     tool_name="repository.write",
-    arguments={"path": "docs/report.md", "content": content},
+    arguments=arguments,
     verified_executor_id=verified_workload_identity,
     expected_state="ready",
 )
-receipt = profile.bind_receipt(authorization, authorization.receipt)
+receipt = profile.bind_receipt(
+    authorization, authorization.receipt, identity=identity, arguments=arguments
+)
 verifier.verify_and_claim(receipt)
 effect(durable_operation_id, authorization.tool_name, arguments)
 ```
@@ -127,6 +142,12 @@ effect(durable_operation_id, authorization.tool_name, arguments)
 `examples/mcp_host.py` shows this seam as `MCPToolHost.call`. A missing receipt is refused before
 the effect, and a duplicate authorization still produces the same receipt, which the executor's
 durable claim rejects on the second invocation.
+
+`bind_receipt` requires the verified caller and the exact arguments that the effect will consume.
+Retain a private canonical snapshot through binding, claim and execution: the example makes this
+snapshot so mutation of the caller's nested objects cannot change the effect after validation.
+Arguments use LETS-CJ/1, so non-integer JSON numbers must be represented by a host-defined fixed-point
+encoding before authorization.
 
 `verify_and_claim` gives durable at-most-once **authorization**. It is not a promise that an
 arbitrary external tool effect happens exactly once. A crash after the claim and before the effect
@@ -167,6 +188,8 @@ effect that finishes after the host reports cancellation.
 - at-most-once authorization burns the claim before the effect and cannot promise effect exactly
   once
 - the example host verifies and claims immediately before the effect and refuses a missing receipt
+- final execution refuses changed arguments, caller/tenant substitution and relabelled operation or
+  tool metadata before burning the claim, and executes an independent snapshot of nested arguments
 
 ## Limits of this profile
 

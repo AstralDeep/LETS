@@ -1,6 +1,7 @@
 """Tests for benchmarks/fair_baselines/common.py and workload.py: the site roster and what derives
 from it (links, parametric topologies, Zipf placement, shares) for the default three sites and a
-seven-site roster, run configuration validation, and the deterministic arrival plan.
+seven-site roster, the system catalogue including the LETS delegation-tree names, run
+configuration validation, and the deterministic arrival plan.
 """
 
 from __future__ import annotations
@@ -365,3 +366,62 @@ def test_arrival_plan_splits_seven_sites_in_roster_order() -> None:
     assert totals["uk1"] > totals["uk2"] > totals["apse1"] > 0
     flat = site_demand(arrival_plan(_seven_config(theta=0.0, seed=9)), SEVEN)
     assert set(flat) == set(SEVEN)
+
+
+def test_lets_tree_system_specs_parse_depth_and_fanout() -> None:
+    tree = SystemSpec.parse("lets-tree-d2-f2")
+    assert (tree.kind, tree.retry, tree.host) == ("lets", True, None)
+    assert (tree.depth, tree.fanout, tree.delegates) == (2, 2, True)
+    plain = SystemSpec.parse("lets")
+    assert (plain.depth, plain.fanout, plain.delegates) == (0, 0, False)
+    assert SystemSpec.parse("lets-tree-d8-f8", SEVEN).depth == 8
+    for bad in (
+        "lets-tree",
+        "lets-tree-d0-f2",
+        "lets-tree-d2-f0",
+        "lets-tree-d2",
+        "lets-tree-d2-f2x",
+        "LETS-tree-d2-f2",
+        "lets-tree-d02-f2",
+    ):
+        with pytest.raises(ValueError, match="unknown system"):
+            SystemSpec.parse(bad)
+    for bad in ("lets-tree-d9-f2", "lets-tree-d2-f9", "lets-tree-d16-f16"):
+        with pytest.raises(ValueError, match="exceeds the tree limits"):
+            SystemSpec.parse(bad)
+    config = _config(systems=["lets", "lets-tree-d2-f2", "static-quota"])
+    assert RunConfig.from_dict(config.to_dict()).systems == config.systems
+    assert config.systems == ("lets", "lets-tree-d2-f2", "static-quota")
+    assert "lets-tree-d2-f2" not in default_systems()
+
+
+def test_anchored_and_restore_system_specs() -> None:
+    anchored = SystemSpec.parse("lets-anchored")
+    assert (anchored.kind, anchored.anchored, anchored.restore_site) == ("lets", True, None)
+    assert anchored.expected_unsafe is False and anchored.delegates is False
+    guarded = SystemSpec.parse("lets-anchored-restore@s1", DEFAULT_SITES)
+    assert (guarded.anchored, guarded.restore_site, guarded.expected_unsafe) == (True, "s1", False)
+    control = SystemSpec.parse("lets-restore@s2")
+    assert (control.anchored, control.restore_site, control.expected_unsafe) == (False, "s2", True)
+    assert SystemSpec.parse("lets").expected_unsafe is False
+    for bad in ("lets-restore@s9", "lets-anchored-restore", "lets-tree-anchored"):
+        with pytest.raises(ValueError, match="unknown system"):
+            SystemSpec.parse(bad, DEFAULT_SITES)
+
+
+def test_restore_schedule_follows_the_partition_window() -> None:
+    base = {
+        "run_id": "r",
+        "topology": "split-s1",
+        "load": 2.0,
+        "theta": 1.0,
+        "seed": 1,
+        "placement": "equal",
+        "envelope": 30,
+        "systems": ["lets-anchored-restore@s1"],
+        "deadline_s": 20.0,
+    }
+    paper = RunConfig.from_dict({**base, "pre_s": 5.0, "partition_s": 30.0, "post_s": 15.0})
+    assert paper.restore_schedule_s == (6.0, 20.0)
+    short = RunConfig.from_dict({**base, "pre_s": 0.5, "partition_s": 1.0, "post_s": 0.5})
+    assert short.restore_schedule_s == (0.75, 1.0)

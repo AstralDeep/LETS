@@ -1,0 +1,17 @@
+run_id,topology,load,theta,seed,placement,envelope,cluster,status,start_wall_ns,plan_size,system,authorized,denied,timeout,effects,safety_margin,safety_ok,messages,dropped_packets
+full-isolation-L0.7-T0-equal-S001,full-isolation,0.7,0.0,1,equal,30,local-0,passed,1792453873570027000,15,lets,15,0,0,15,15,True,0,12
+full-isolation-L0.7-T0-equal-S001,full-isolation,0.7,0.0,1,equal,30,local-0,passed,1792453873570027000,15,lets-tree-d2-f2,15,0,0,15,15,True,0,12
+full-isolation-L0.7-T0-equal-S002,full-isolation,0.7,0.0,2,equal,30,local-1,passed,1792453899051299100,12,lets,12,0,0,12,18,True,0,12
+full-isolation-L0.7-T0-equal-S002,full-isolation,0.7,0.0,2,equal,30,local-1,passed,1792453899051299100,12,lets-tree-d2-f2,12,0,0,12,18,True,0,12
+full-isolation-L0.7-T1-equal-S001,full-isolation,0.7,1.0,1,equal,30,local-0,passed,1792453926024644500,22,lets,22,0,0,22,8,True,4,12
+full-isolation-L0.7-T1-equal-S001,full-isolation,0.7,1.0,1,equal,30,local-0,passed,1792453926024644500,22,lets-tree-d2-f2,22,0,0,22,8,True,4,12
+full-isolation-L0.7-T1-equal-S002,full-isolation,0.7,1.0,2,equal,30,local-1,passed,1792453948032998200,19,lets,19,0,0,19,11,True,0,12
+full-isolation-L0.7-T1-equal-S002,full-isolation,0.7,1.0,2,equal,30,local-1,passed,1792453948032998200,19,lets-tree-d2-f2,19,0,0,19,11,True,0,12
+split-s1-L0.7-T0-equal-S001,split-s1,0.7,0.0,1,equal,30,local-0,passed,1792453769772761800,22,lets,22,0,0,22,8,True,0,8
+split-s1-L0.7-T0-equal-S001,split-s1,0.7,0.0,1,equal,30,local-0,passed,1792453769772761800,22,lets-tree-d2-f2,22,0,0,22,8,True,0,8
+split-s1-L0.7-T0-equal-S002,split-s1,0.7,0.0,2,equal,30,local-1,passed,1792453769773282400,25,lets,25,0,0,25,5,True,6,8
+split-s1-L0.7-T0-equal-S002,split-s1,0.7,0.0,2,equal,30,local-1,passed,1792453769773282400,25,lets-tree-d2-f2,25,0,0,25,5,True,6,8
+split-s1-L0.7-T1-equal-S001,split-s1,0.7,1.0,1,equal,30,local-0,passed,1792453821100089000,24,lets,24,0,0,24,6,True,0,8
+split-s1-L0.7-T1-equal-S001,split-s1,0.7,1.0,1,equal,30,local-0,passed,1792453821100089000,24,lets-tree-d2-f2,24,0,0,24,6,True,0,8
+split-s1-L0.7-T1-equal-S002,split-s1,0.7,1.0,2,equal,30,local-1,passed,1792453824587331800,34,lets,30,0,4,30,0,True,196,22
+split-s1-L0.7-T1-equal-S002,split-s1,0.7,1.0,2,equal,30,local-1,passed,1792453824587331800,34,lets-tree-d2-f2,30,0,4,30,0,True,200,22

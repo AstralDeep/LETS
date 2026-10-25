@@ -26,7 +26,7 @@ class MCPRevision:
     retrieved: str
 
 
-PINNED_REVISION = MCPRevision("2026-07-28", "mcp==2.3.0", "2026-07-29")
+PINNED_REVISION = MCPRevision("2026-07-28", "mcp==2.3.0", "2026-10-25")
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,11 +290,44 @@ class MCPToolProfile:
         self,
         authorization: MCPToolAuthorization,
         receipt: Mapping[str, Any] | Receipt | None,
+        *,
+        identity: IdentityContext,
+        arguments: Mapping[str, Any],
     ) -> Receipt:
         if not isinstance(authorization, MCPToolAuthorization):
             raise ValidationError("MCP receipt binding requires an MCPToolAuthorization")
         if receipt is None:
             raise ValidationError("MCP tool effect requires a receipt")
+        identity = self._verified(identity)
+        if not isinstance(arguments, Mapping):
+            raise ValidationError("MCP tool arguments must be an object")
+        scope, capability, transition = self._binding(authorization.tool_name)
+        key = MCPOperationKey(identity.tenant_id, identity.subject_id, authorization.operation_id)
+        bound_effect = effect_digest(authorization.tool_name, scope, arguments)
+        bound_arguments = canonical_digest(dict(arguments))
+        expected_evidence = {
+            "type": MAPPING_VERSION,
+            "mcp_revision": PINNED_REVISION.specification,
+            "tool": authorization.tool_name,
+            "scope": scope,
+            "capability": capability,
+            "arguments_digest": bound_arguments,
+            "effect_digest": bound_effect,
+        }
+        if (
+            authorization.request_id != derive_id("authorize", key)
+            or authorization.nonce != derive_id("nonce", key)
+            or authorization.scope != scope
+            or authorization.capability != capability
+            or authorization.transition != transition
+            or authorization.effect_digest != bound_effect
+            or authorization.arguments_digest != bound_arguments
+            or any(
+                authorization.evidence.get(name) != value
+                for name, value in expected_evidence.items()
+            )
+        ):
+            raise PolicyError("authorization does not bind this MCP caller and tool effect")
         parsed = receipt if isinstance(receipt, Receipt) else Receipt.from_dict(dict(receipt))
         if (
             parsed.request_id != authorization.request_id

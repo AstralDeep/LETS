@@ -1,0 +1,103 @@
+{
+  "grids": [
+    {
+      "all_effects_match": true,
+      "all_safety_ok": true,
+      "completion": {
+        "full-isolation": {
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 2,
+            "width_points": 0.0
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 2,
+            "width_points": 0.0
+          }
+        },
+        "split-s1": {
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 0.8823529411764706,
+            "completion": 0.9310344827586207,
+            "seeds": 2,
+            "width_points": 11.764705882352944
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 1.0,
+            "ci_low": 0.8823529411764706,
+            "completion": 0.9310344827586207,
+            "seeds": 2,
+            "width_points": 11.764705882352944
+          }
+        }
+      },
+      "delegation": {
+        "lets": {
+          "lease_ops_per_run": 8.5,
+          "leases_per_tree": 1.0,
+          "refresh_ms_p50": 8.572,
+          "refresh_ms_p95": 27.018,
+          "refresh_ops_mean": 1.8333333333333333,
+          "refreshes_per_run": 3.0
+        },
+        "lets-tree-d2-f2": {
+          "lease_ops_per_run": 51.5,
+          "leases_per_tree": 7.0,
+          "refresh_ms_p50": 49.844,
+          "refresh_ms_p95": 79.271,
+          "refresh_ops_mean": 10.166666666666666,
+          "refreshes_per_run": 3.0
+        }
+      },
+      "envelope": 30,
+      "label": "local-delegation",
+      "load": 0.7,
+      "max_authorized": 30,
+      "pre_break_p50_ms": {
+        "lets": 15.357622,
+        "lets-tree-d2-f2": 15.70304
+      },
+      "pre_break_s": 5.0,
+      "run_system_pairs": 16,
+      "stranded_peak_units": {
+        "lets": 17,
+        "lets-tree-d2-f2": 17
+      },
+      "stranded_topology": "split-s1",
+      "stranded_unit_seconds": {
+        "lets": 54.64999999999996,
+        "lets-tree-d2-f2": 54.64999999999996
+      },
+      "systems": [
+        "lets",
+        "lets-tree-d2-f2"
+      ],
+      "theta": 1.0,
+      "topologies": [
+        "split-s1",
+        "full-isolation"
+      ]
+    }
+  ],
+  "schema": "lets.fair-baselines-report/v1",
+  "widest_intervals": {
+    "lets": {
+      "grid": "local-delegation",
+      "system": "lets",
+      "topology": "split-s1",
+      "width_points": 11.764705882352944
+    },
+    "lets-tree": {
+      "grid": "local-delegation",
+      "system": "lets-tree-d2-f2",
+      "topology": "split-s1",
+      "width_points": 11.764705882352944
+    }
+  }
+}

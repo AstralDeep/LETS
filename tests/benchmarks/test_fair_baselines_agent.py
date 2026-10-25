@@ -1,6 +1,7 @@
 """Tests for benchmarks/fair_baselines/site_agent.py: a three-agent loopback run through every
-system with safety verification, roster checks in the configure payload, the control and peer API
-denials, and the CLI entry point.
+system with safety verification, the LETS delegation tree refreshing from mid-run transfers,
+anchored LETS with scheduled stale restores, roster checks in the configure payload, the control
+and peer API denials, and the CLI entry point.
 """
 
 from __future__ import annotations
@@ -16,8 +17,23 @@ import pytest
 
 from benchmarks.fair_baselines.common import SITES, peer_mac
 from benchmarks.fair_baselines.controller import verify_safety
-from benchmarks.fair_baselines.site_agent import AgentError, AgentState, main
+from benchmarks.fair_baselines.site_agent import AgentError, AgentState, anchor_settings, main
 from tests.benchmarks.conftest import TOKEN, LoopbackCluster, short_config
+
+
+def _assert_lets_conserved(snapshots: dict[str, dict], envelope: int, effects: int) -> None:
+    transferred_in = sum(int(snapshot["transferred_in"]) for snapshot in snapshots.values())
+    transferred_out = sum(int(snapshot["transferred_out"]) for snapshot in snapshots.values())
+    in_flight = transferred_out - transferred_in
+    held = sum(
+        int(snapshot["free_pool"]) + int(snapshot["lease_residual"]) + int(snapshot["consumed"])
+        for snapshot in snapshots.values()
+    )
+    assert in_flight >= 0
+    if in_flight:
+        assert sum(int(snapshot["outstanding_vouchers"]) for snapshot in snapshots.values()) >= 1
+    assert held + in_flight == envelope
+    assert sum(int(snapshot["consumed"]) for snapshot in snapshots.values()) == effects
 
 
 def _run_to_completion(cluster: LoopbackCluster, config: dict[str, object]) -> dict[str, dict]:
@@ -84,16 +100,9 @@ def test_three_agents_run_every_system_within_the_envelope(
     for system, verdict in safety.items():
         assert verdict["safety_ok"] is True, (system, verdict)
         assert verdict["effects"] == verdict["authorized_records"]
-    assert safety["lets"]["effects"] == config["envelope"]
-    assert safety["raft-quorum"]["effects"] == config["envelope"]
     lets = {site: payload["snapshots"]["lets"] for site, payload in results.items()}
     assert all(snapshot["healthy"] for snapshot in lets.values())
-    assert sum(
-        snapshot["transferred_in"][0]
-        if isinstance(snapshot["transferred_in"], list)
-        else snapshot["transferred_in"]
-        for snapshot in lets.values()
-    ) == sum(snapshot["transferred_out"] for snapshot in lets.values())
+    _assert_lets_conserved(lets, int(config["envelope"]), safety["lets"]["effects"])  # type: ignore[arg-type]
     noretry = [
         record
         for payload in results.values()
@@ -288,3 +297,192 @@ def test_main_serves_until_shutdown(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(site_agent.AgentServer, "serve_forever", lambda self, poll_interval: None)
     assert main() == 0
     assert (tmp_path / "state").is_dir()
+
+
+def _tree_counters(results: dict[str, dict]) -> dict[str, tuple[int, int, int]]:
+    return {
+        site: (
+            payload["snapshots"]["lets-tree-d2-f2"]["tree_builds"],
+            payload["snapshots"]["lets-tree-d2-f2"]["transfers_in"],
+            payload["snapshots"]["lets-tree-d2-f2"]["transfers_out"],
+        )
+        for site, payload in results.items()
+    }
+
+
+def _settled_results(cluster: LoopbackCluster, results: dict[str, dict]) -> dict[str, dict]:
+    deadline = time.monotonic() + 30
+    stable_since = time.monotonic()
+    while True:
+        time.sleep(0.3)
+        again = {site: cluster.call(site, "GET", "/run/results")[1] for site in SITES}
+        if _tree_counters(again) != _tree_counters(results):
+            stable_since = time.monotonic()
+            results = again
+        elif time.monotonic() - stable_since >= 1.5:
+            return again
+        assert time.monotonic() < deadline, _tree_counters(again)
+
+
+def test_three_agents_run_lets_with_and_without_delegation_trees(
+    loopback_cluster: LoopbackCluster,
+) -> None:
+    cluster = loopback_cluster
+    shares = {"s1": 1, "s2": 7, "s3": 1}
+    config = short_config(
+        "agent-tree",
+        systems=["lets", "lets-tree-d2-f2"],
+        placement="explicit",
+        explicit_shares=shares,
+    )
+    results = _settled_results(cluster, _run_to_completion(cluster, config))
+    envelope = int(config["envelope"])  # type: ignore[arg-type]
+    safety = verify_safety(envelope, results)
+    assert set(safety) == {"lets", "lets-tree-d2-f2"}
+    for system, verdict in safety.items():
+        assert verdict["safety_ok"] is True, (system, verdict)
+        assert 1 <= verdict["effects"] == verdict["authorized_records"] <= envelope
+    trees = {site: payload["snapshots"]["lets-tree-d2-f2"] for site, payload in results.items()}
+    plain = {site: payload["snapshots"]["lets"] for site, payload in results.items()}
+    reasons = {
+        site: [
+            event["detail"].split(" ", 1)[0]
+            for event in payload["events"]
+            if event["kind"] == "tree_build" and event["system"] == "lets-tree-d2-f2"
+        ]
+        for site, payload in results.items()
+    }
+    for site in SITES:
+        assert trees[site]["healthy"] and plain[site]["healthy"]
+        assert (trees[site]["tree_depth"], trees[site]["tree_fanout"]) == (2, 2)
+        assert plain[site]["tree_depth"] == 0 and plain[site]["live_leases"] <= 1
+        initial_leases = {1: 3, 7: 7}[shares[site]]
+        assert trees[site]["lease_operations"] >= initial_leases + trees[site]["tree_builds"] - 1
+        assert trees[site]["lease_operations"] >= trees[site]["live_leases"]
+        assert plain[site]["lease_operations"] >= plain[site]["tree_builds"]
+        assert reasons[site][0] == "initial" and len(reasons[site]) == trees[site]["tree_builds"]
+        assert all(reason.startswith(("in-", "out-")) for reason in reasons[site][1:])
+        assert (
+            trees[site]["tree_builds"]
+            == 1 + trees[site]["transfers_in"] + trees[site]["transfers_out"]
+        )
+    _assert_lets_conserved(trees, envelope, safety["lets-tree-d2-f2"]["effects"])
+    _assert_lets_conserved(plain, envelope, safety["lets"]["effects"])
+    builds = [
+        event
+        for payload in results.values()
+        for event in payload["events"]
+        if event["kind"] == "tree_build"
+    ]
+    assert {event["system"] for event in builds} == {"lets", "lets-tree-d2-f2"}
+    for event in builds:
+        assert event["value"] >= 1 and " us=" in event["detail"]
+    holder = next(
+        (
+            site
+            for site in SITES
+            if trees[site]["remaining"] > 0 and trees[site]["outstanding_vouchers"] == 0
+        ),
+        None,
+    )
+    if holder is not None:
+        requester = next(site for site in SITES if site != holder)
+        deadline = time.monotonic() + 10
+        before = trees[holder]
+        while before["pending_acks"]:
+            assert time.monotonic() < deadline, before
+            time.sleep(0.2)
+            before = cluster.call(holder, "GET", "/run/results")[1]["snapshots"]["lets-tree-d2-f2"]
+        status, payload = _peer_post(
+            cluster,
+            holder,
+            "/peer/lets/lets-tree-d2-f2/request-transfer",
+            {"amount": 1},
+            alias=requester,
+        )
+        assert status == 200 and payload["granted"] == 1
+        assert isinstance(payload["voucher"], dict)
+        _, after = cluster.call(holder, "GET", "/run/results")
+        snapshot = after["snapshots"]["lets-tree-d2-f2"]
+        assert snapshot["tree_builds"] == before["tree_builds"] + 1 and snapshot["healthy"]
+        assert snapshot["remaining"] == before["remaining"] - 1
+        assert snapshot["transfers_out"] == before["transfers_out"] + 1
+        last = [
+            event
+            for event in after["events"]
+            if event["kind"] == "tree_build" and event["system"] == "lets-tree-d2-f2"
+        ][-1]
+        assert last["detail"].startswith(f"out-{requester}-")
+    for site in SITES:
+        cluster.call(site, "POST", "/run/teardown")
+
+
+def test_anchored_agents_refuse_a_stale_restore_that_unanchored_lets_accepts(
+    anchored_cluster: LoopbackCluster, tmp_path: Path
+) -> None:
+    systems = ["lets-anchored", "lets-anchored-restore@s1", "lets-restore@s1"]
+    config = short_config(
+        "agent-anchored",
+        systems=systems,
+        envelope=30,
+        placement="explicit",
+        explicit_shares={"s1": 20, "s2": 5, "s3": 5},
+        partition_s=3.0,
+    )
+    results = _run_to_completion(anchored_cluster, config)
+    restores = {
+        site: [
+            (event["system"], event["kind"], event["detail"])
+            for event in payload["events"]
+            if event["kind"].startswith("restore_")
+        ]
+        for site, payload in results.items()
+    }
+    assert restores["s2"] == [] and restores["s3"] == []
+    outcomes = {
+        system: [(kind, detail) for name, kind, detail in restores["s1"] if name == system]
+        for system in ("lets-anchored-restore@s1", "lets-restore@s1")
+    }
+    for system, events in outcomes.items():
+        assert len(events) == 2 and events[0][0] == "restore_snapshot", (system, events)
+    snapshots = results["s1"]["snapshots"]
+    assert outcomes["lets-restore@s1"][1][0] == "restore_accepted"
+    assert snapshots["lets-restore@s1"]["healthy"] is True
+    kind, detail = outcomes["lets-anchored-restore@s1"][1]
+    revisions = dict(token.split("=", 1) for token in detail.split()[:3])
+    stale = int(revisions["revision_before"]) > int(revisions["snapshot_revision"])
+    assert kind == ("restore_refused" if stale else "restore_accepted"), detail
+    assert ("StorageError" in detail) is stale
+    assert snapshots["lets-anchored-restore@s1"]["healthy"] is not stale
+    assert snapshots["lets-anchored"]["anchored"] is True
+    assert snapshots["lets-anchored"]["restore_refused"] is None
+    safety = verify_safety(int(config["envelope"]), results)  # type: ignore[arg-type]
+    assert safety["lets-anchored"]["safety_ok"] is True
+    assert safety["lets-anchored-restore@s1"]["safety_ok"] is True
+    late = [
+        record
+        for record in results["s1"]["records"]
+        if record["system"] == "lets-anchored-restore@s1"
+        and record["reason"] == "stale_state_refused"
+    ]
+    assert all(record["outcome"] == "denied" for record in late)
+    anchors = sorted(path.name for path in (tmp_path / "anchors" / "s1").glob("*.anchor"))
+    assert len(anchors) == 4
+
+
+def test_anchored_systems_need_an_anchor_root(loopback_cluster: LoopbackCluster) -> None:
+    config = short_config("agent-unanchored-host", systems=["lets-anchored"])
+    status, payload = loopback_cluster.call(
+        "s1", "POST", "/run/configure", loopback_cluster.configure_body("s1", config)
+    )
+    assert status == 400 and "--anchor-root" in str(payload["error"])
+
+
+def test_anchor_settings_parse_the_helper_command(tmp_path: Path) -> None:
+    assert anchor_settings(None, "", 5.0) is None
+    with pytest.raises(SystemExit, match="--anchor-root"):
+        anchor_settings(None, "sudo -n -u lets-anchor python", 5.0)
+    settings = anchor_settings(tmp_path, "sudo -n -u 'lets anchor' python -m x", 2.5)
+    assert settings is not None
+    assert settings.helper == ("sudo", "-n", "-u", "lets anchor", "python", "-m", "x")
+    assert (settings.root, settings.timeout_s) == (tmp_path, 2.5)

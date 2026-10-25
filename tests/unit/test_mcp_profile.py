@@ -5,7 +5,7 @@ ManualClock and ReceiptVerifier. They also cover examples/mcp_host.py and the pi
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -479,12 +479,19 @@ def test_missing_or_mismatched_receipts_cannot_be_bound(rig: Rig) -> None:
     first = rig.authorize(operation_id="op-first", arguments={"text": "first"})
     second = rig.authorize(operation_id="op-second", arguments={"text": "second"})
     with pytest.raises(ValidationError, match="requires a receipt"):
-        rig.profile.bind_receipt(first, None)
+        rig.profile.bind_receipt(first, None, identity=CALLER, arguments={"text": "first"})
     with pytest.raises(ValidationError, match="MCPToolAuthorization"):
-        rig.profile.bind_receipt("not-authorization", first.receipt)
+        rig.profile.bind_receipt(
+            "not-authorization", first.receipt, identity=CALLER, arguments={"text": "first"}
+        )
     with pytest.raises(PolicyError, match="does not bind"):
-        rig.profile.bind_receipt(first, second.receipt)
-    assert rig.profile.bind_receipt(first, first.receipt).receipt_id == first.receipt["receipt_id"]
+        rig.profile.bind_receipt(
+            first, second.receipt, identity=CALLER, arguments={"text": "first"}
+        )
+    bound = rig.profile.bind_receipt(
+        first, first.receipt, identity=CALLER, arguments={"text": "first"}
+    )
+    assert bound.receipt_id == first.receipt["receipt_id"]
 
 
 def test_warden_receipt_must_bind_the_requested_effect(
@@ -538,7 +545,9 @@ def test_cancellation_revokes_new_authority_but_keeps_issued_receipts_claimable(
 def test_at_most_once_authorization_burns_the_claim_before_the_effect(rig: Rig) -> None:
     authorization = rig.authorize(operation_id="op-claimed")
     verifier = rig.verifier()
-    receipt = rig.profile.bind_receipt(authorization, authorization.receipt)
+    receipt = rig.profile.bind_receipt(
+        authorization, authorization.receipt, identity=CALLER, arguments={"text": "hello"}
+    )
     verifier.verify_and_claim(receipt)
     with pytest.raises(ReplayError):
         verifier.verify_and_claim(receipt)
@@ -640,3 +649,121 @@ def test_audience_and_approval_records_validate_their_inputs() -> None:
         MCPOperationKey(TENANT, "agent-1", "")
     with pytest.raises(ValidationError, match="kind"):
         derive_id("", MCPOperationKey(TENANT, "agent-1", "op"))
+
+
+def test_example_host_rejects_changed_arguments_before_burning_the_claim(rig: Rig) -> None:
+    from examples.mcp_host import MCPToolHost
+
+    effects: list[dict[str, Any]] = []
+    host = MCPToolHost(
+        rig.profile,
+        rig.verifier(),
+        lambda operation, tool, arguments: effects.append(dict(arguments)),
+    )
+    authorization = rig.authorize(arguments={"path": "safe", "options": {"overwrite": False}})
+    with pytest.raises(PolicyError):
+        host.execute(
+            CALLER,
+            {"path": "protected", "options": {"overwrite": True}},
+            authorization=authorization,
+        )
+    assert effects == []
+    host.execute(
+        CALLER,
+        {"path": "safe", "options": {"overwrite": False}},
+        authorization=authorization,
+    )
+    assert effects == [{"path": "safe", "options": {"overwrite": False}}]
+
+
+@pytest.mark.parametrize("tenant", [TENANT, "other-tenant"])
+def test_example_host_rejects_authorization_for_another_caller(rig: Rig, tenant: str) -> None:
+    from examples.mcp_host import MCPToolHost
+
+    effects: list[str] = []
+    host = MCPToolHost(
+        rig.profile, rig.verifier(), lambda operation, tool, arguments: effects.append(tool)
+    )
+    authorization = rig.authorize()
+    with pytest.raises(PolicyError):
+        host.execute(
+            IdentityContext("other-agent", tenant, frozenset()),
+            {"text": "hello"},
+            authorization=authorization,
+        )
+    assert effects == []
+    host.execute(CALLER, {"text": "hello"}, authorization=authorization)
+    assert effects == ["echo"]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"tool_name": "read"},
+        {"scope": "tools.read"},
+        {"capability": "worker.read"},
+        {"operation_id": "other-operation"},
+        {"arguments_digest": "sha256:" + "0" * 64},
+        {"effect_digest": "sha256:" + "0" * 64},
+    ],
+)
+def test_receipt_binding_rejects_relabelled_execution_metadata(
+    rig: Rig, changes: dict[str, Any]
+) -> None:
+    authorization = rig.authorize()
+    with pytest.raises(PolicyError):
+        rig.profile.bind_receipt(
+            replace(authorization, **changes),
+            authorization.receipt,
+            identity=CALLER,
+            arguments={"text": "hello"},
+        )
+
+
+def test_example_host_executes_a_snapshot_of_bound_arguments(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from examples.mcp_host import MCPToolHost
+
+    arguments = {"options": {"path": "safe"}}
+    effects: list[dict[str, Any]] = []
+    verifier = rig.verifier()
+    claim = verifier.verify_and_claim
+
+    def mutate_after_claim(receipt: Receipt) -> None:
+        claim(receipt)
+        arguments["options"]["path"] = "protected"
+
+    monkeypatch.setattr(verifier, "verify_and_claim", mutate_after_claim)
+    host = MCPToolHost(
+        rig.profile, verifier, lambda operation, tool, payload: effects.append(dict(payload))
+    )
+    host.call(
+        CALLER,
+        operation_id="op-snapshot",
+        lease_id=rig.root_lease_id,
+        tool_name="echo",
+        arguments=arguments,
+        verified_executor_id="spiffe://exec/a",
+    )
+    assert effects == [{"options": {"path": "safe"}}]
+
+
+@pytest.mark.parametrize("arguments", [[], {"value": 1.5}])
+def test_invalid_execution_arguments_do_not_burn_the_claim(rig: Rig, arguments: Any) -> None:
+    from examples.mcp_host import MCPToolHost
+
+    effects: list[str] = []
+    host = MCPToolHost(
+        rig.profile, rig.verifier(), lambda operation, tool, payload: effects.append(tool)
+    )
+    authorization = rig.authorize()
+    with pytest.raises(ValidationError):
+        host.execute(CALLER, arguments, authorization=authorization)
+    with pytest.raises(ValidationError):
+        rig.profile.bind_receipt(
+            authorization, authorization.receipt, identity=CALLER, arguments=arguments
+        )
+    assert effects == []
+    host.execute(CALLER, {"text": "hello"}, authorization=authorization)
+    assert effects == ["echo"]

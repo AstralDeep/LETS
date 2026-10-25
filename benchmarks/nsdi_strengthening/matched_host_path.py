@@ -39,12 +39,12 @@ OUTPUT_JSON = "matched-host-path.json"
 OUTPUT_CSV = "matched-host-path-samples.csv"
 OUTPUT_MARKDOWN = "matched-host-path.md"
 
-EXPECTED_ASTRALDEEP_COMMIT = "04f04ee93718d2ff681726e2a47a2550a837612d"
+EXPECTED_ASTRALDEEP_COMMIT = "3627625edb6ca461c0a847dc160b978496c39f72"
 EXPECTED_COMPONENTS = {
-    "astral-plane": "4a1d990387428436041dd70d9c417e9e86000b6c",
-    "lets": "6245189920c686353c4ced7a208d56ec266f745c",
+    "astral-plane": "5ecce4cc2bd97ea26e348f2f7c8809985b9713bf",
+    "lets": "ed5c1e4bd61a6b11625d265aeb77229b7c2c017b",
 }
-EXPECTED_LETS_REF = "v1.0.11"
+EXPECTED_LETS_REF = "v1.1.0"
 BENCHMARK_CLOCK_NS = 1_000_000_000_000_000
 AUTHORITY_HELPER_BOOTSTRAP = (
     "import runpy,sys;"
@@ -194,7 +194,7 @@ def _validate_composition_document(document: object) -> dict[str, object]:
     lets_value = components["lets"]
     assert isinstance(lets_value, dict)
     if lets_value.get("ref") != EXPECTED_LETS_REF:
-        raise BenchmarkRefusal("AstralDeep LETS release ref is not v1.0.11")
+        raise BenchmarkRefusal(f"AstralDeep LETS release ref is not {EXPECTED_LETS_REF}")
     return document
 
 

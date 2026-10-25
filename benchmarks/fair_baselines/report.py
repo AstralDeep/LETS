@@ -1,5 +1,6 @@
 """Summarizes one or more E1 grids into headline metrics: pooled completion with seed-bootstrap
-intervals, pre-break authorization latency, stranded budget, and the safety totals, read through
+intervals, pre-break authorization latency, stranded budget, the safety totals, and the lease-tree
+refresh costs of the LETS delegation variants, read through
 analysis.py from the controller's run files (regenerating the flat CSVs with controller.assemble
 when they are absent).
 """
@@ -21,7 +22,9 @@ from benchmarks.fair_baselines.analysis import (
     load_grid,
     per_site_rows,
     pooled_bootstrap_ci,
+    quantile,
     summary_rows,
+    tree_builds,
 )
 from benchmarks.fair_baselines.common import (
     SystemSpec,
@@ -32,14 +35,31 @@ from benchmarks.fair_baselines.common import (
 from benchmarks.fair_baselines.controller import assemble
 from benchmarks.nsdi_strengthening.common import write_json, write_text
 
-ROW_ORDER = ("lets", "static-quota", "central-noretry", "central-retry", "raft-quorum")
+ROW_ORDER = (
+    "lets",
+    "lets-tree",
+    "lets-anchored",
+    "lets-anchored-restore",
+    "lets-restore",
+    "static-quota",
+    "central-noretry",
+    "central-retry",
+    "raft-quorum",
+)
 ROW_LABELS = {
     "lets": "LETS",
+    "lets-tree": "LETS, delegation tree",
+    "lets-anchored": "LETS, rollback anchors",
+    "lets-anchored-restore": "LETS, rollback anchors, stale restore",
+    "lets-restore": "LETS, no anchors, stale restore",
     "static-quota": "Static per-site quotas",
     "central-noretry": "Central counter, no retry",
     "central-retry": "Central counter, retry",
     "raft-quorum": "Raft quorum counter",
 }
+LETS_GROUPS = frozenset(
+    {"lets", "lets-tree", "lets-anchored", "lets-anchored-restore", "lets-restore"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,14 +91,63 @@ class GridReduction:
     max_authorized: int
     envelope: int
     all_safety_ok: bool
+    unsafe_controls: int
     all_effects_match: bool
+    delegation: dict[str, dict[str, float | None]]
 
 
 def row_key(system: str) -> str:
     spec = SystemSpec.parse(system)
+    if spec.kind == "lets":
+        if spec.restore_site is not None:
+            return "lets-anchored-restore" if spec.anchored else "lets-restore"
+        if spec.anchored:
+            return "lets-anchored"
+        return "lets-tree" if spec.delegates else "lets"
     if spec.kind != "central":
         return spec.kind
     return "central-retry" if spec.retry else "central-noretry"
+
+
+def row_label(key: str, members: Sequence[str]) -> str:
+    label = ROW_LABELS[key]
+    if key != "lets-tree":
+        return label
+    shapes = sorted({(SystemSpec.parse(m).depth, SystemSpec.parse(m).fanout) for m in members})
+    if len(shapes) != 1:
+        return f"{label}s"
+    depth, fanout = shapes[0]
+    return f"{label} (depth {depth}, fanout {fanout})"
+
+
+def delegation_costs(
+    grid: GridData, load: float, theta: float
+) -> dict[str, dict[str, float | None]]:
+    meta = {row["run_id"]: row for row in grid.runs}
+    selected: dict[str, list[tuple[str, int, float, bool, int]]] = defaultdict(list)
+    for build in tree_builds(grid.events):
+        row = meta.get(build.run_id)
+        if row is None or float(row["load"]) != load or float(row["theta"]) != theta:
+            continue
+        selected[build.system].append(
+            (build.run_id, build.operations, build.seconds, build.refresh, build.leases)
+        )
+    costs: dict[str, dict[str, float | None]] = {}
+    for system, builds in sorted(selected.items()):
+        runs = len({run_id for run_id, *_ in builds})
+        refreshes = [(ops, seconds) for _, ops, seconds, refresh, _ in builds if refresh]
+        initial = [leases for _, _, _, refresh, leases in builds if not refresh]
+        costs[system] = {
+            "leases_per_tree": statistics.fmean(initial) if initial else 0.0,
+            "lease_ops_per_run": sum(ops for _, ops, *_ in builds) / runs,
+            "refreshes_per_run": len(refreshes) / runs,
+            "refresh_ops_mean": statistics.fmean(ops for ops, _ in refreshes)
+            if refreshes
+            else None,
+            "refresh_ms_p50": quantile([seconds * 1000 for _, seconds in refreshes], 0.5),
+            "refresh_ms_p95": quantile([seconds * 1000 for _, seconds in refreshes], 0.95),
+        }
+    return costs
 
 
 def pooled_completion(
@@ -160,8 +229,17 @@ def reduce_grid(label: str, grid: GridData, load: float, theta: float) -> GridRe
         run_system_pairs=len(grid.runs),
         max_authorized=max(authorized, default=0),
         envelope=grid.envelope,
-        all_safety_ok=all(row["safety_ok"] == "True" for row in grid.runs),
+        all_safety_ok=all(
+            row["safety_ok"] == "True" or SystemSpec.parse(row["system"]).expected_unsafe
+            for row in grid.runs
+        ),
+        unsafe_controls=sum(
+            1
+            for row in grid.runs
+            if row["safety_ok"] != "True" and SystemSpec.parse(row["system"]).expected_unsafe
+        ),
         all_effects_match=all(row["effects"] == row["authorized"] for row in grid.runs),
+        delegation=delegation_costs(grid, load, theta),
     )
 
 
@@ -185,12 +263,17 @@ def _latency(values: Sequence[float]) -> str:
     return _range(values, digits)
 
 
+def _number(value: float | None, digits: int) -> str:
+    return "n/a" if value is None else f"{value:.{digits}f}"
+
+
 def widest_intervals(reductions: Sequence[GridReduction]) -> dict[str, dict[str, object]]:
     widest: dict[str, tuple[float, str, str, str]] = {}
     for reduction in reductions:
         for topology, cells in reduction.completion.items():
             for system, cell in cells.items():
-                group = "lets" if system == "lets" else "baselines"
+                key = row_key(system)
+                group = key if key in LETS_GROUPS else "baselines"
                 candidate = (cell.width_points, reduction.label, topology, system)
                 if group not in widest or candidate > widest[group]:
                     widest[group] = candidate
@@ -217,7 +300,7 @@ def markdown(reductions: Sequence[GridReduction]) -> str:
             members = [system for system in reduction.systems if row_key(system) == key]
             if not members:
                 continue
-            cells = [ROW_LABELS[key]]
+            cells = [row_label(key, members)]
             for topology in reduction.topologies:
                 values = [
                     reduction.completion.get(topology, {})[system].completion
@@ -247,17 +330,46 @@ def markdown(reductions: Sequence[GridReduction]) -> str:
                 )
             lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
+        verdict = "passed" if reduction.all_safety_ok else "FAILED"
+        safety = (
+            f"{reduction.unsafe_controls} unanchored stale-restore control pairs over the "
+            f"envelope by design and every other safety check {verdict}"
+            if reduction.unsafe_controls
+            else f"every safety check {verdict}"
+        )
         lines.append(
             f"Completion is authorized requests divided by all requests, pooled over the seeds of "
             f"each cell; the latency column is the median over authorized requests that arrived "
             f"in the first {reduction.pre_break_s:g} s of every run in the grid; stranded "
             f"unit-seconds are the mean over seeds. Safety: {reduction.run_system_pairs} "
             f"run-system pairs, maximum authorized {reduction.max_authorized} of "
-            f"{reduction.envelope} units, every safety check "
-            f"{'passed' if reduction.all_safety_ok else 'FAILED'}, effects "
+            f"{reduction.envelope} units, {safety}, effects "
             f"{'equal' if reduction.all_effects_match else 'DIFFER FROM'} authorized counts."
         )
         lines.append("")
+        if reduction.delegation:
+            lines.append("### Lease-tree costs")
+            lines.append("")
+            lines.append(
+                "| System | Leases per site tree | Lease ops / run | Refreshes / run | "
+                "Ops / refresh | Refresh p50 / p95 (ms) |"
+            )
+            lines.append("|---|---:|---:|---:|---:|---|")
+            for system, cost in reduction.delegation.items():
+                lines.append(
+                    f"| {system} | {_number(cost['leases_per_tree'], 1)} | "
+                    f"{_number(cost['lease_ops_per_run'], 1)} | "
+                    f"{_number(cost['refreshes_per_run'], 2)} | "
+                    f"{_number(cost['refresh_ops_mean'], 1)} | "
+                    f"{_number(cost['refresh_ms_p50'], 1)} / {_number(cost['refresh_ms_p95'], 1)} |"
+                )
+            lines.append("")
+            lines.append(
+                "A refresh closes every live lease of a site's tree and rebuilds it from the "
+                "refreshed root; lease operations are issue, spawn, and close calls, and the "
+                "times are measured at the site over the runs at this load and skew."
+            )
+            lines.append("")
         lines.append("### 95% seed-bootstrap intervals")
         lines.append("")
         lines.append(

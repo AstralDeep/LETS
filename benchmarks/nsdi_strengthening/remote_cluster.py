@@ -1,6 +1,6 @@
 """Inventories authorized SSH hosts for the NSDI remote experiments without retaining
 addresses or credentials, feeding remote_matched_host.py and remote_three_host.py
-their host aliases.
+their host aliases; each host authenticates with a password or a private-key file.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ class Credential:
     host: str
     username: str
     password: str
+    key_file: str = ""
 
     def __repr__(self) -> str:
         return f"Credential(alias={self.alias!r}, host=<redacted>, username=<redacted>)"
@@ -48,27 +49,37 @@ def load_credentials(path: Path) -> tuple[Credential, ...]:
             raise ValueError(f"credential key {checked_key!r} is duplicated")
         values[checked_key] = checked_value
 
-    expected = {
+    required = {
         *(alias for alias in ALIASES),
         *(f"{alias}_USERNAME" for alias in ALIASES),
-        *(f"{alias}_PASS" for alias in ALIASES),
     }
-    missing = expected - values.keys()
-    unexpected = values.keys() - expected
+    secrets = {f"{alias}_{kind}" for alias in ALIASES for kind in ("PASS", "KEY")}
+    missing = required - values.keys()
+    unexpected = values.keys() - required - secrets
     if missing or unexpected:
         raise ValueError(
             f"credential keys differ from the required schema; "
             f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
         )
+    for alias in ALIASES:
+        if (f"{alias}_PASS" in values) == (f"{alias}_KEY" in values):
+            raise ValueError(f"{alias} needs exactly one of {alias}_PASS or {alias}_KEY")
     return tuple(
         Credential(
             alias=alias,
             host=values[alias],
             username=values[f"{alias}_USERNAME"],
-            password=values[f"{alias}_PASS"],
+            password=values.get(f"{alias}_PASS", ""),
+            key_file=values.get(f"{alias}_KEY", ""),
         )
         for alias in ALIASES
     )
+
+
+def ssh_auth(credential: Credential) -> dict[str, object]:
+    if credential.key_file:
+        return {"key_filename": credential.key_file}
+    return {"password": credential.password}
 
 
 def _sha256(value: str) -> str:
@@ -94,7 +105,7 @@ def _inventory(credential: Credential) -> dict[str, object]:
         client.connect(
             credential.host,
             username=credential.username,
-            password=credential.password,
+            **ssh_auth(credential),  # type: ignore[arg-type]
             look_for_keys=False,
             allow_agent=False,
             timeout=15,

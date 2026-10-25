@@ -16,6 +16,7 @@ import lets
 from benchmarks.nsdi_strengthening.matched_host_path import (
     EXPECTED_ASTRALDEEP_COMMIT,
     EXPECTED_COMPONENTS,
+    EXPECTED_LETS_REF,
     OUTPUT_CSV,
     OUTPUT_JSON,
     OUTPUT_MARKDOWN,
@@ -131,7 +132,7 @@ def test_composition_validation_requires_current_reference_pins() -> None:
             "astral-plane": {"commit": EXPECTED_COMPONENTS["astral-plane"]},
             "lets": {
                 "commit": EXPECTED_COMPONENTS["lets"],
-                "ref": "v1.0.11",
+                "ref": EXPECTED_LETS_REF,
             },
         }
     }

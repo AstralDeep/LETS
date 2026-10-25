@@ -1,7 +1,7 @@
 """Tests for benchmarks/fair_baselines/analysis.py and local_cluster.py on synthetic data:
 bootstrap intervals, censored CDFs, link-state reconstruction, stranded-capacity integration per
-system kind for three and seven sites, table rendering, and the compose/endpoints documents for
-any roster.
+system kind for three and seven sites, table rendering, the lease-tree build cost table, and the
+compose/endpoints documents for any roster.
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ from benchmarks.fair_baselines.analysis import (
     authorization_cdf,
     bootstrap_ci,
     completion_by_seed,
+    delegation_markdown,
+    delegation_rows,
     link_states,
     per_site_csv,
     per_site_markdown,
@@ -26,6 +28,7 @@ from benchmarks.fair_baselines.analysis import (
     stranded_capacity,
     summary_rows,
     topology_description,
+    tree_builds,
 )
 
 SEVEN = ("uk1", "uk2", "az1", "use2", "usw2", "euw2", "apse1")
@@ -381,3 +384,80 @@ def test_local_cluster_documents_and_main(tmp_path: Path, monkeypatch: pytest.Mo
     assert local_cluster.main(["down", "--work-dir", str(tmp_path / "missing")]) == 0
     with pytest.raises(SystemExit, match="between 1 and 20"):
         local_cluster.main(["up", "--work-dir", str(tmp_path), "--clusters", "0"])
+
+
+def _build_event(
+    run_id: str, system: str, site: str, offset_s: float, value: int, detail: str
+) -> dict[str, str]:
+    return {
+        "run_id": run_id,
+        "system": system,
+        "site": site,
+        "offset_ns": str(int(offset_s * 1e9)),
+        "kind": "tree_build",
+        "value": str(value),
+        "detail": detail,
+    }
+
+
+def test_tree_builds_and_delegation_rows() -> None:
+    tree = "lets-tree-d2-f2"
+    events = [
+        _build_event("r1", tree, "s1", 0.1, 7, "initial leases=7 leaves=4 us=45000"),
+        _build_event("r1", tree, "s2", 0.1, 7, "initial leases=7 leaves=4 us=40000"),
+        _build_event("r1", tree, "s3", 0.1, 7, "initial leases=7 leaves=4 us=41000"),
+        _build_event("r1", tree, "s1", 8.0, 14, "in-1 leases=7 leaves=4 us=90000"),
+        _build_event("r1", tree, "s2", 8.0, 14, "out-s1-1 leases=7 leaves=4 us=80000"),
+        _build_event("r2", tree, "s1", 0.1, 7, "initial leases=7 leaves=4 us=47000"),
+        _build_event("r2", tree, "s2", 0.1, 7, "initial leases=7 leaves=4 us=42000"),
+        _build_event("r2", tree, "s3", 0.1, 7, "initial leases=7 leaves=4 us=43000"),
+        _build_event("r2", tree, "s3", 9.0, 3, "out-s1-1 leases=0 leaves=0 us=20000"),
+        _build_event("r1", "lets", "s1", 0.1, 1, "initial leases=1 leaves=1 us=7000"),
+        _build_event("r1", "lets", "s1", 8.0, 2, "in-1 leases=1 leaves=1 us=14000"),
+        _build_event("r9", tree, "s1", 0.1, 7, "initial leases=7 leaves=4 us=45000"),
+        {**_build_event("r1", tree, "s1", 1.0, 1, "x"), "kind": "free"},
+    ]
+    parsed = tree_builds(events)
+    assert len(parsed) == 12
+    assert parsed[3].refresh and not parsed[0].refresh
+    assert parsed[3].operations == 14 and parsed[3].leaves == 4 and parsed[3].seconds == 0.09
+    assert parsed[3].offset_s == 8.0 and parsed[3].site == "s1"
+    assert tree_builds([]) == []
+    runs = [
+        {
+            "run_id": run_id,
+            "topology": "split-s1",
+            "load": "0.7",
+            "theta": "1",
+            "placement": "equal",
+        }
+        for run_id in ("r1", "r2")
+    ]
+    table = delegation_rows(events, runs)
+    assert [row["system"] for row in table] == ["lets", tree]
+    row = table[1]
+    assert (row["depth"], row["fanout"], row["runs"]) == (2, 2, 2)
+    assert row["leases_per_tree"] == 7.0 and row["leaves_per_tree"] == 4.0
+    assert row["initial_ops_per_site"] == 7.0
+    assert row["initial_ms_p50"] == 42.0
+    assert row["refreshes_per_run"] == 1.5
+    assert abs(row["refresh_ops_mean"] - 31 / 3) < 1e-9
+    assert row["refresh_ms_p50"] == 80.0 and row["refresh_ms_p95"] == 90.0
+    assert row["refresh_ms_max"] == 90.0
+    assert row["lease_ops_per_run"] == (7 * 6 + 14 + 14 + 3) / 2
+    assert abs(row["build_ms_per_run"] - 448 / 2) < 1e-9
+    plain = table[0]
+    assert (plain["depth"], plain["fanout"], plain["runs"]) == (0, 0, 1)
+    assert plain["leases_per_tree"] == 1.0 and plain["refreshes_per_run"] == 1.0
+    assert plain["refresh_ops_mean"] == 2.0 and plain["refresh_ms_p50"] == 14.0
+    markdown = delegation_markdown(table, "Trees")
+    assert markdown.startswith("# Trees")
+    assert "| split-s1 | 0.7 | 1 | lets-tree-d2-f2 | 2 | 2 | 2 |" in markdown
+    assert "| 80.0 / 90.0 / 90.0 |" in markdown
+    assert delegation_rows(events, []) == []
+    empty = delegation_rows(
+        [_build_event("r1", tree, "s1", 0.1, 7, "initial leases=7 leaves=4 us=45000")], runs
+    )
+    assert empty[0]["refresh_ops_mean"] is None and empty[0]["refresh_ms_p50"] is None
+    assert "| n/a |" not in delegation_markdown(empty, "T")
+    assert "| — / — / — |" in delegation_markdown(empty, "T")

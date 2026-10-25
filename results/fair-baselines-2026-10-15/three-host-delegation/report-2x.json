@@ -1,0 +1,335 @@
+{
+  "grids": [
+    {
+      "all_effects_match": true,
+      "all_safety_ok": true,
+      "completion": {
+        "bridge-s3": {
+          "central-noretry@s2": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "central-retry@s1": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "central-retry@s2": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "central-retry@s3": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "lets": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "raft-quorum": {
+            "ci_high": 0.5063291139240507,
+            "ci_low": 0.449438202247191,
+            "completion": 0.47619047619047616,
+            "seeds": 20,
+            "width_points": 5.689091167685967
+          },
+          "static-quota": {
+            "ci_high": 0.49915824915824913,
+            "ci_low": 0.4473684210526316,
+            "completion": 0.4722222222222222,
+            "seeds": 20,
+            "width_points": 5.178982810561755
+          }
+        },
+        "flapping-s1-s2": {
+          "central-noretry@s2": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "central-retry@s1": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "central-retry@s2": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "central-retry@s3": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "lets": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "raft-quorum": {
+            "ci_high": 0.546448087431694,
+            "ci_low": 0.4930156121610518,
+            "completion": 0.5190311418685121,
+            "seeds": 20,
+            "width_points": 5.343247527064227
+          },
+          "static-quota": {
+            "ci_high": 0.5267452402538532,
+            "ci_low": 0.4739454094292804,
+            "completion": 0.4991349480968858,
+            "seeds": 20,
+            "width_points": 5.279983082457279
+          }
+        },
+        "full-isolation": {
+          "central-noretry@s2": {
+            "ci_high": 0.5129533678756477,
+            "ci_low": 0.4671361502347418,
+            "completion": 0.48930921052631576,
+            "seeds": 20,
+            "width_points": 4.581721764090591
+          },
+          "central-retry@s1": {
+            "ci_high": 0.5190311418685121,
+            "ci_low": 0.468384074941452,
+            "completion": 0.4934210526315789,
+            "seeds": 20,
+            "width_points": 5.064706692706006
+          },
+          "central-retry@s2": {
+            "ci_high": 0.5190311418685121,
+            "ci_low": 0.468384074941452,
+            "completion": 0.4934210526315789,
+            "seeds": 20,
+            "width_points": 5.064706692706006
+          },
+          "central-retry@s3": {
+            "ci_high": 0.5185825410544511,
+            "ci_low": 0.4670846394984326,
+            "completion": 0.4925986842105263,
+            "seeds": 20,
+            "width_points": 5.149790155601853
+          },
+          "lets": {
+            "ci_high": 0.5190311418685121,
+            "ci_low": 0.468384074941452,
+            "completion": 0.4934210526315789,
+            "seeds": 20,
+            "width_points": 5.064706692706006
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 0.5190311418685121,
+            "ci_low": 0.468384074941452,
+            "completion": 0.4934210526315789,
+            "seeds": 20,
+            "width_points": 5.064706692706006
+          },
+          "raft-quorum": {
+            "ci_high": 0.29836629406706794,
+            "ci_low": 0.24201277955271566,
+            "completion": 0.2689144736842105,
+            "seeds": 20,
+            "width_points": 5.635351451435228
+          },
+          "static-quota": {
+            "ci_high": 0.5077452667814114,
+            "ci_low": 0.45546088303640586,
+            "completion": 0.4819078947368421,
+            "seeds": 20,
+            "width_points": 5.228438374500555
+          }
+        },
+        "split-s1": {
+          "central-noretry@s2": {
+            "ci_high": 0.5217391304347826,
+            "ci_low": 0.4750593824228028,
+            "completion": 0.4966887417218543,
+            "seeds": 20,
+            "width_points": 4.667974801197977
+          },
+          "central-retry@s1": {
+            "ci_high": 0.5217391304347826,
+            "ci_low": 0.4750593824228028,
+            "completion": 0.4966887417218543,
+            "seeds": 20,
+            "width_points": 4.667974801197977
+          },
+          "central-retry@s2": {
+            "ci_high": 0.5217391304347826,
+            "ci_low": 0.4750593824228028,
+            "completion": 0.4966887417218543,
+            "seeds": 20,
+            "width_points": 4.667974801197977
+          },
+          "central-retry@s3": {
+            "ci_high": 0.5217391304347826,
+            "ci_low": 0.4750593824228028,
+            "completion": 0.4966887417218543,
+            "seeds": 20,
+            "width_points": 4.667974801197977
+          },
+          "lets": {
+            "ci_high": 0.5217391304347826,
+            "ci_low": 0.4750593824228028,
+            "completion": 0.4966887417218543,
+            "seeds": 20,
+            "width_points": 4.667974801197977
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 0.5217391304347826,
+            "ci_low": 0.4750593824228028,
+            "completion": 0.4966887417218543,
+            "seeds": 20,
+            "width_points": 4.667974801197977
+          },
+          "raft-quorum": {
+            "ci_high": 0.4415156507413509,
+            "ci_low": 0.39133986928104575,
+            "completion": 0.4163907284768212,
+            "seeds": 20,
+            "width_points": 5.017578146030516
+          },
+          "static-quota": {
+            "ci_high": 0.5026086956521739,
+            "ci_low": 0.45806962025316456,
+            "completion": 0.4793046357615894,
+            "seeds": 20,
+            "width_points": 4.4539075399009365
+          }
+        }
+      },
+      "delegation": {
+        "lets": {
+          "lease_ops_per_run": 17.8125,
+          "leases_per_tree": 1.0,
+          "refresh_ms_p50": 22.721999999999998,
+          "refresh_ms_p95": 76.795,
+          "refresh_ops_mean": 1.8287037037037037,
+          "refreshes_per_run": 8.1
+        },
+        "lets-tree-d2-f2": {
+          "lease_ops_per_run": 88.1625,
+          "leases_per_tree": 7.0,
+          "refresh_ms_p50": 106.06599999999999,
+          "refresh_ms_p95": 346.29900000000004,
+          "refresh_ops_mean": 8.501582278481013,
+          "refreshes_per_run": 7.9
+        }
+      },
+      "envelope": 30,
+      "label": "three-host-delegation",
+      "load": 2.0,
+      "max_authorized": 30,
+      "pre_break_p50_ms": {
+        "central-noretry@s2": 6.00649,
+        "central-retry@s1": 5.589765,
+        "central-retry@s2": 5.9575925000000005,
+        "central-retry@s3": 46.763805500000004,
+        "lets": 28.398889,
+        "lets-tree-d2-f2": 28.614494,
+        "raft-quorum": 229.953505,
+        "static-quota": 5.070607
+      },
+      "pre_break_s": 5.0,
+      "run_system_pairs": 3840,
+      "stranded_peak_units": {
+        "central-noretry@s2": 28,
+        "central-retry@s1": 29,
+        "central-retry@s2": 28,
+        "central-retry@s3": 28,
+        "lets": 18,
+        "lets-tree-d2-f2": 18,
+        "raft-quorum": 28,
+        "static-quota": 19
+      },
+      "stranded_topology": "split-s1",
+      "stranded_unit_seconds": {
+        "central-noretry@s2": 341.24000000000007,
+        "central-retry@s1": 382.1800000000004,
+        "central-retry@s2": 419.44500000000016,
+        "central-retry@s3": 418.9900000000001,
+        "lets": 106.05500000000002,
+        "lets-tree-d2-f2": 105.34500000000003,
+        "raft-quorum": 389.51000000000016,
+        "static-quota": 2.6450000000000005
+      },
+      "systems": [
+        "lets",
+        "lets-tree-d2-f2",
+        "static-quota",
+        "central-noretry@s2",
+        "central-retry@s1",
+        "central-retry@s2",
+        "central-retry@s3",
+        "raft-quorum"
+      ],
+      "theta": 1.0,
+      "topologies": [
+        "split-s1",
+        "bridge-s3",
+        "full-isolation",
+        "flapping-s1-s2"
+      ]
+    }
+  ],
+  "schema": "lets.fair-baselines-report/v1",
+  "widest_intervals": {
+    "baselines": {
+      "grid": "three-host-delegation",
+      "system": "raft-quorum",
+      "topology": "bridge-s3",
+      "width_points": 5.689091167685967
+    },
+    "lets": {
+      "grid": "three-host-delegation",
+      "system": "lets",
+      "topology": "bridge-s3",
+      "width_points": 5.689091167685967
+    },
+    "lets-tree": {
+      "grid": "three-host-delegation",
+      "system": "lets-tree-d2-f2",
+      "topology": "bridge-s3",
+      "width_points": 5.689091167685967
+    }
+  }
+}

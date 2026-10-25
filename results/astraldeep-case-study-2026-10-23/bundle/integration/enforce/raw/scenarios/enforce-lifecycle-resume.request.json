@@ -1,0 +1,1 @@
+{"category":"lifecycle","expected_effect":"none","expected_lets_behavior":"enforce","expected_lifecycle_state":"active","format":"lets.astraldeep-case-study-scenario/v1","lifecycle_event":"resume","mode":"enforce","parallelism":1,"recursion_depth":0,"scenario_id":"enforce-lifecycle-resume","scope":null}

@@ -1,7 +1,7 @@
 """Tests for benchmarks/fair_baselines/controller.py plus analysis.py on real
 output: grid enumeration, endpoint loading for three- and seven-site rosters, safety verification,
-dry-fault grid runs against three and five loopback agents, CSV assembly, the per-site table, and
-figure rendering.
+dry-fault grid runs against three and five loopback agents with the LETS delegation tree, CSV
+assembly, the per-site table, and the lease-tree cost table.
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ from benchmarks.fair_baselines.controller import (
     run_path,
     run_record,
     summarize,
+    unexpected_safety_failures,
     verify_safety,
     write_manifest,
 )
@@ -197,7 +198,14 @@ def test_verify_safety_flags_duplicates_and_overflow() -> None:
 
 def _options() -> GridOptions:
     return GridOptions(
-        systems=("central-noretry@s2", "central-retry@s3", "static-quota", "raft-quorum", "lets"),
+        systems=(
+            "central-noretry@s2",
+            "central-retry@s3",
+            "static-quota",
+            "raft-quorum",
+            "lets",
+            "lets-tree-d2-f2",
+        ),
         envelope=9,
         pre_s=0.5,
         partition_s=1.0,
@@ -284,6 +292,16 @@ def test_grid_runs_on_loopback_agents_and_renders_everything(
         per_site = list(csv.DictReader(stream))
     assert len(per_site) == 2 * len(_options().systems) * 3
     assert all(float(row["messages_per_run"]) >= 0 for row in per_site)
+    with (output / "delegation.csv").open(encoding="utf-8") as stream:
+        delegation = list(csv.DictReader(stream))
+    assert {row["system"] for row in delegation} == {"lets", "lets-tree-d2-f2"}
+    assert {row["topology"] for row in delegation} == {"bridge-s3", "flapping-s1-s2"}
+    tree_rows = [row for row in delegation if row["system"] == "lets-tree-d2-f2"]
+    assert all(row["depth"] == "2" and float(row["leases_per_tree"]) >= 3 for row in tree_rows)
+    assert all(float(row["lease_ops_per_run"]) >= 9 for row in tree_rows)
+    assert "lease-tree build costs" in (output / "delegation.md").read_text(encoding="utf-8")
+    tree_safety = [row for row in runs_rows if row["system"] == "lets-tree-d2-f2"]
+    assert len(tree_safety) == 2 and all(row["safety_ok"] == "True" for row in tree_safety)
     assert main(["assemble", "--output", str(output)]) == 0
 
 
@@ -580,3 +598,12 @@ def test_main_run_with_explicit_shares(
     assert {fault["link"] for fault in payload["faults"]} == {"s2-s3"}
     manifest = json.loads((output / "MANIFEST.json").read_text(encoding="utf-8"))
     assert manifest["grid"]["sites"] == ["s1", "s2", "s3"]
+
+
+def test_only_unanchored_restore_controls_may_break_the_safety_bound() -> None:
+    broken = {"safety_ok": False}
+    safe = {"safety_ok": True}
+    assert unexpected_safety_failures({"lets-restore@s1": broken, "lets": safe}) == []
+    assert unexpected_safety_failures(
+        {"lets-anchored-restore@s1": broken, "lets-anchored": broken, "lets-restore@s1": broken}
+    ) == ["lets-anchored", "lets-anchored-restore@s1"]

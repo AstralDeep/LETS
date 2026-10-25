@@ -1,0 +1,335 @@
+{
+  "grids": [
+    {
+      "all_effects_match": true,
+      "all_safety_ok": true,
+      "completion": {
+        "bridge-s3": {
+          "central-noretry@s2": {
+            "ci_high": 0.7427821522309711,
+            "ci_low": 0.6518518518518519,
+            "completion": 0.6953125,
+            "seeds": 20,
+            "width_points": 9.09303003791192
+          },
+          "central-retry@s1": {
+            "ci_high": 0.9639423076923077,
+            "ci_low": 0.9266304347826086,
+            "completion": 0.9453125,
+            "seeds": 20,
+            "width_points": 3.731187290969906
+          },
+          "central-retry@s2": {
+            "ci_high": 0.9098591549295775,
+            "ci_low": 0.8498659517426274,
+            "completion": 0.8802083333333334,
+            "seeds": 20,
+            "width_points": 5.999320318695012
+          },
+          "central-retry@s3": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "raft-quorum": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "static-quota": {
+            "ci_high": 0.9726027397260274,
+            "ci_low": 0.8864734299516909,
+            "completion": 0.9322916666666666,
+            "seeds": 20,
+            "width_points": 8.612930977433653
+          }
+        },
+        "flapping-s1-s2": {
+          "central-noretry@s2": {
+            "ci_high": 0.9097744360902256,
+            "ci_low": 0.8426395939086294,
+            "completion": 0.8765133171912833,
+            "seeds": 20,
+            "width_points": 6.713484218159616
+          },
+          "central-retry@s1": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "central-retry@s2": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "central-retry@s3": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "raft-quorum": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "static-quota": {
+            "ci_high": 0.926509186351706,
+            "ci_low": 0.8152866242038217,
+            "completion": 0.8692493946731235,
+            "seeds": 20,
+            "width_points": 11.122256214788429
+          }
+        },
+        "full-isolation": {
+          "central-noretry@s2": {
+            "ci_high": 0.6211031175059952,
+            "ci_low": 0.5026315789473684,
+            "completion": 0.5640394088669951,
+            "seeds": 20,
+            "width_points": 11.847153855862679
+          },
+          "central-retry@s1": {
+            "ci_high": 0.9503722084367245,
+            "ci_low": 0.9005376344086021,
+            "completion": 0.9261083743842364,
+            "seeds": 20,
+            "width_points": 4.983457402812242
+          },
+          "central-retry@s2": {
+            "ci_high": 0.8927613941018767,
+            "ci_low": 0.8302325581395349,
+            "completion": 0.8620689655172413,
+            "seeds": 20,
+            "width_points": 6.252883596234183
+          },
+          "central-retry@s3": {
+            "ci_high": 0.8934624697336562,
+            "ci_low": 0.8248175182481752,
+            "completion": 0.8620689655172413,
+            "seeds": 20,
+            "width_points": 6.8644951485481
+          },
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 1.0,
+            "ci_low": 1.0,
+            "completion": 1.0,
+            "seeds": 20,
+            "width_points": 0.0
+          },
+          "raft-quorum": {
+            "ci_high": 0.7202797202797203,
+            "ci_low": 0.6280193236714976,
+            "completion": 0.6748768472906403,
+            "seeds": 20,
+            "width_points": 9.226039660822272
+          },
+          "static-quota": {
+            "ci_high": 0.946078431372549,
+            "ci_low": 0.8558139534883721,
+            "completion": 0.9039408866995073,
+            "seeds": 20,
+            "width_points": 9.026447788417691
+          }
+        },
+        "split-s1": {
+          "central-noretry@s2": {
+            "ci_high": 0.7461538461538462,
+            "ci_low": 0.6535626535626535,
+            "completion": 0.7026378896882494,
+            "seeds": 20,
+            "width_points": 9.259119259119263
+          },
+          "central-retry@s1": {
+            "ci_high": 0.9269521410579346,
+            "ci_low": 0.8668280871670703,
+            "completion": 0.8968824940047961,
+            "seeds": 20,
+            "width_points": 6.012405389086428
+          },
+          "central-retry@s2": {
+            "ci_high": 0.9197080291970803,
+            "ci_low": 0.8656036446469249,
+            "completion": 0.894484412470024,
+            "seeds": 20,
+            "width_points": 5.410438455015543
+          },
+          "central-retry@s3": {
+            "ci_high": 0.916256157635468,
+            "ci_low": 0.8634361233480177,
+            "completion": 0.8920863309352518,
+            "seeds": 20,
+            "width_points": 5.28200342874503
+          },
+          "lets": {
+            "ci_high": 1.0,
+            "ci_low": 0.9722863741339491,
+            "completion": 0.9904076738609112,
+            "seeds": 20,
+            "width_points": 2.771362586605086
+          },
+          "lets-tree-d2-f2": {
+            "ci_high": 1.0,
+            "ci_low": 0.9722863741339491,
+            "completion": 0.9904076738609112,
+            "seeds": 20,
+            "width_points": 2.771362586605086
+          },
+          "raft-quorum": {
+            "ci_high": 0.8529411764705882,
+            "ci_low": 0.7711111111111111,
+            "completion": 0.8129496402877698,
+            "seeds": 20,
+            "width_points": 8.183006535947712
+          },
+          "static-quota": {
+            "ci_high": 0.9551451187335093,
+            "ci_low": 0.8509174311926605,
+            "completion": 0.9040767386091128,
+            "seeds": 20,
+            "width_points": 10.422768754084878
+          }
+        }
+      },
+      "delegation": {
+        "lets": {
+          "lease_ops_per_run": 10.1875,
+          "leases_per_tree": 1.0,
+          "refresh_ms_p50": 22.307000000000002,
+          "refresh_ms_p95": 67.655,
+          "refresh_ops_mean": 1.9557823129251701,
+          "refreshes_per_run": 3.675
+        },
+        "lets-tree-d2-f2": {
+          "lease_ops_per_run": 57.9875,
+          "leases_per_tree": 7.0,
+          "refresh_ms_p50": 113.758,
+          "refresh_ms_p95": 340.13599999999997,
+          "refresh_ops_mean": 9.929530201342281,
+          "refreshes_per_run": 3.725
+        }
+      },
+      "envelope": 30,
+      "label": "three-host-delegation",
+      "load": 0.7,
+      "max_authorized": 30,
+      "pre_break_p50_ms": {
+        "central-noretry@s2": 6.00649,
+        "central-retry@s1": 5.589765,
+        "central-retry@s2": 5.9575925000000005,
+        "central-retry@s3": 46.763805500000004,
+        "lets": 28.398889,
+        "lets-tree-d2-f2": 28.614494,
+        "raft-quorum": 229.953505,
+        "static-quota": 5.070607
+      },
+      "pre_break_s": 5.0,
+      "run_system_pairs": 3840,
+      "stranded_peak_units": {
+        "central-noretry@s2": 30,
+        "central-retry@s1": 30,
+        "central-retry@s2": 30,
+        "central-retry@s3": 30,
+        "lets": 20,
+        "lets-tree-d2-f2": 20,
+        "raft-quorum": 30,
+        "static-quota": 20
+      },
+      "stranded_topology": "split-s1",
+      "stranded_unit_seconds": {
+        "central-noretry@s2": 263.78500000000014,
+        "central-retry@s1": 612.0050000000005,
+        "central-retry@s2": 651.8649999999996,
+        "central-retry@s3": 651.2099999999995,
+        "lets": 15.734999999999996,
+        "lets-tree-d2-f2": 15.479999999999995,
+        "raft-quorum": 631.7799999999995,
+        "static-quota": 2.865
+      },
+      "systems": [
+        "lets",
+        "lets-tree-d2-f2",
+        "static-quota",
+        "central-noretry@s2",
+        "central-retry@s1",
+        "central-retry@s2",
+        "central-retry@s3",
+        "raft-quorum"
+      ],
+      "theta": 1.0,
+      "topologies": [
+        "split-s1",
+        "bridge-s3",
+        "full-isolation",
+        "flapping-s1-s2"
+      ]
+    }
+  ],
+  "schema": "lets.fair-baselines-report/v1",
+  "widest_intervals": {
+    "baselines": {
+      "grid": "three-host-delegation",
+      "system": "central-noretry@s2",
+      "topology": "full-isolation",
+      "width_points": 11.847153855862679
+    },
+    "lets": {
+      "grid": "three-host-delegation",
+      "system": "lets",
+      "topology": "split-s1",
+      "width_points": 2.771362586605086
+    },
+    "lets-tree": {
+      "grid": "three-host-delegation",
+      "system": "lets-tree-d2-f2",
+      "topology": "split-s1",
+      "width_points": 2.771362586605086
+    }
+  }
+}
