@@ -7,6 +7,15 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Added
 
+- MCP tool-execution profile: the optional `lets.integrations.mcp` adapter maps host-verified MCP
+  `2026-07-28` tool calls to stable LETS request IDs, digest-bound effect evidence, executor
+  audiences and claimable receipts, with a host permission/confirmation gate. It keeps the MCP
+  server, transport and user IAM in the host and adds no core runtime dependency. Final receipt
+  binding checks the verified caller, configured tool mapping and exact execution arguments before
+  the executor claims the receipt; the example executes an independent canonical snapshot.
+  `examples/mcp_host.py` and `docs/adapters/mcp.md` document at-most-once authorization separately
+  from effect idempotency, with conformance fixtures for retries, failures, cancellation and
+  adversarial effect relabeling.
 - `results/nsdi-v1.1-reruns-2026-10-23/`: the 2026-09-02 same-host, formal, Docker, and native-Linux
   host-path experiments rerun on the LETS 1.1 runtime from a clean checkout, with a README giving
   every command.
