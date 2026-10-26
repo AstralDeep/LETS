@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,10 @@ def test_weighted_schedule_is_deterministic_and_exact() -> None:
     assert skewed == _schedule(300, (70, 15, 15))
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="the Linux lane covers this storage-bound matrix; Windows covers durability directly",
+)
 def test_real_partition_matrix_preserves_scope_and_expected_tradeoff(
     tmp_path: Path,
 ) -> None:

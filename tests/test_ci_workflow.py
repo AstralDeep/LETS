@@ -44,6 +44,7 @@ EXPECTED_MATRIX = {
     ("windows-latest", "3.14"),
 }
 REQUIRED_NEEDS = {"quality", "test", "distributed-acceptance"}
+JOB_TIMEOUT_MINUTES = {"quality": 10, "test": 20, "distributed-acceptance": 30}
 CI_TOOL_INSTALL = (
     "uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt"
 )
@@ -141,11 +142,11 @@ def _assert_ci_contract(text: str) -> None:
 
     jobs = _job_blocks(text)
     assert set(jobs) == EXPECTED_JOBS
-    for job_name in ("quality", "test", "distributed-acceptance"):
+    for job_name, timeout_minutes in JOB_TIMEOUT_MINUTES.items():
         block = jobs[job_name]
         assert block.count(CHECKOUT_ACTION) == 1
         assert block.count("fetch-depth: 0") == 1
-        assert "timeout-minutes: 30" in block
+        assert re.findall(r"(?m)^    timeout-minutes: (\d+)$", block) == [str(timeout_minutes)]
 
     anchor_command = (
         "python -m benchmarks.astraldeep.check_version_disposition verify-anchor --repository ."
@@ -155,6 +156,9 @@ def _assert_ci_contract(text: str) -> None:
         assert block.count(anchor_command) == 1
         assert block.index(anchor_command) < block.index("uv sync --all-extras --frozen")
         assert block.index(anchor_command) < block.index('pytest -m "not e2e"')
+
+    assert "cache-dependency-glob: uv.lock" in jobs["test"]
+    assert 'pytest -m "not e2e" --durations=25' in jobs["test"]
 
     matrix = set(re.findall(r'(?m)^ {10}- os: ([^\s]+)\n {12}python: "([0-9.]+)"$', jobs["test"]))
     assert matrix == EXPECTED_MATRIX
@@ -286,6 +290,10 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         ('exit "$diff_cover_status"', "exit 0"),
         ("needs.test.result", "needs.quality.result"),
         ("timeout-minutes: 30", "timeout-minutes: 45"),
+        ("timeout-minutes: 20", "timeout-minutes: 30"),
+        ("timeout-minutes: 10", "timeout-minutes: 30"),
+        ("cache-dependency-glob: uv.lock", "cache-dependency-glob: pyproject.toml"),
+        (' "not e2e" --durations=25', ' "not e2e"'),
         ("timeout-minutes: 5", "timeout-minutes: 15"),
         ("scripts/check_public_contract_mutations.py", "scripts/generate_openapi.py"),
         ("--output results/generated/ci/public-contract-mutations.json", "--output /dev/null"),
@@ -317,6 +325,10 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         "changed-coverage-gate-status",
         "aggregate-dependency",
         "job-timeout-budget",
+        "test-timeout-budget",
+        "quality-timeout-budget",
+        "test-cache-key",
+        "test-duration-report",
         "required-timeout-budget",
         "public-contract-mutation-gate",
         "public-contract-mutation-evidence",
