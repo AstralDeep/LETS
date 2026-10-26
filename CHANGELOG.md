@@ -25,6 +25,13 @@ image together; the Git tag is the package version prefixed with `v`.
 - The remote evidence runners accept a private-key file per host (`sN_KEY`) as an alternative to a
   password (`sN_PASS`), and the matched-host benchmark pins the current AstralDeep composition
   (AstralDeep `3627625e`, AstralPlane `5ecce4cc`, LETS `ed5c1e4`).
+- The hosted Windows CI lanes (Python 3.11 and 3.14) skip the Linux-targeted fair-baselines
+  loopback harness suites, the partition benchmark matrix and the git-bound validation cases of
+  the evidence-campaign packager. In the slowest recorded Windows lane those tests took about
+  seven of fourteen minutes through process spawns and per-commit fsyncs. All four Linux lanes
+  still run them, and the packager's golden, command-line, path and drive-letter cases stay on
+  Windows. The `test` and `quality` jobs declare 20- and 10-minute timeouts, and the `test` job
+  keys its uv cache on `uv.lock` and reports its 25 slowest tests.
 
 ## [1.1.2] - 2026-10-23
 

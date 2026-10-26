@@ -95,4 +95,7 @@ credentials.
 ## Supported Python versions
 
 The package floor is Python 3.11 because that is the AstralDeep integration runtime. CI covers
-Python 3.11 through 3.14. The local development environment currently uses Python 3.14.
+Python 3.11 through 3.14 on Linux and the two ends, 3.11 and 3.14, on Windows. The Windows lanes
+skip the Linux-targeted benchmark-harness tests that carry a `skipif(os.name == "nt")` mark in
+`tests/benchmarks/`; every Linux lane runs them. The local development environment currently uses
+Python 3.14.

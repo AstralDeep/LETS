@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import secrets
 import time
 import urllib.request
@@ -19,6 +20,11 @@ from benchmarks.fair_baselines.common import SITES, peer_mac
 from benchmarks.fair_baselines.controller import verify_safety
 from benchmarks.fair_baselines.site_agent import AgentError, AgentState, anchor_settings, main
 from tests.benchmarks.conftest import TOKEN, LoopbackCluster, short_config
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="the Linux lane covers this loopback multi-agent harness, which targets Linux hosts",
+)
 
 
 def _assert_lets_conserved(snapshots: dict[str, dict], envelope: int, effects: int) -> None:

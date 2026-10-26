@@ -7,6 +7,7 @@ actuator-side effect log.
 from __future__ import annotations
 
 import base64
+import os
 import socket
 import time
 from pathlib import Path
@@ -33,6 +34,11 @@ from benchmarks.fair_baselines.systems import (
 from lets.crypto import Ed25519Signer
 from lets.errors import LETSError
 from tests.benchmarks.conftest import free_port
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="the Linux lane covers this loopback multi-agent harness, which targets Linux hosts",
+)
 
 
 def _events() -> tuple[list[tuple[str, str, int, str]], object]:
