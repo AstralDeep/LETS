@@ -44,7 +44,7 @@ EXPECTED_MATRIX = {
     ("windows-latest", "3.14"),
 }
 REQUIRED_NEEDS = {"quality", "test", "distributed-acceptance"}
-JOB_TIMEOUT_MINUTES = {"quality": 10, "test": 20, "distributed-acceptance": 30}
+JOB_TIMEOUT_MINUTES = {"quality": 10, "test": 12, "distributed-acceptance": 30}
 CI_TOOL_INSTALL = (
     "uv pip install --python .ci-tools --require-hashes -r tooling/python-ci/requirements.lock.txt"
 )
@@ -290,7 +290,7 @@ def test_ci_rejects_valid_shape_unapproved_action_commit() -> None:
         ('exit "$diff_cover_status"', "exit 0"),
         ("needs.test.result", "needs.quality.result"),
         ("timeout-minutes: 30", "timeout-minutes: 45"),
-        ("timeout-minutes: 20", "timeout-minutes: 30"),
+        ("timeout-minutes: 12", "timeout-minutes: 30"),
         ("timeout-minutes: 10", "timeout-minutes: 30"),
         ("cache-dependency-glob: uv.lock", "cache-dependency-glob: pyproject.toml"),
         (' "not e2e" --durations=25', ' "not e2e"'),
