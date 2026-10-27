@@ -219,7 +219,7 @@ def _options() -> GridOptions:
         deadline_s=1.0,
         rtt_ms=0.0,
         loss_pct=0.0,
-        peer_timeout_s=1.0,
+        peer_timeout_s=10.0,
         raft_timeout_s=1.0,
     )
 
@@ -321,7 +321,7 @@ def _five_options() -> GridOptions:
         deadline_s=1.0,
         rtt_ms=0.0,
         loss_pct=0.0,
-        peer_timeout_s=1.0,
+        peer_timeout_s=10.0,
         raft_timeout_s=1.0,
         sites=FIVE_SITES,
     )

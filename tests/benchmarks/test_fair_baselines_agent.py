@@ -1,7 +1,7 @@
 """Tests for benchmarks/fair_baselines/site_agent.py: a three-agent loopback run through every
 system with safety verification, the LETS delegation tree refreshing from mid-run transfers,
 anchored LETS with scheduled stale restores, roster checks in the configure payload, the control
-and peer API denials, and the CLI entry point.
+and peer API denials, the listen backlog under a connection burst, and the CLI entry point.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ import hashlib
 import json
 import os
 import secrets
+import select
+import socket
 import time
 import urllib.request
 from pathlib import Path
@@ -18,7 +20,13 @@ import pytest
 
 from benchmarks.fair_baselines.common import SITES, peer_mac
 from benchmarks.fair_baselines.controller import verify_safety
-from benchmarks.fair_baselines.site_agent import AgentError, AgentState, anchor_settings, main
+from benchmarks.fair_baselines.site_agent import (
+    AgentError,
+    AgentState,
+    anchor_settings,
+    main,
+    serve,
+)
 from tests.benchmarks.conftest import TOKEN, LoopbackCluster, short_config
 
 pytestmark = pytest.mark.skipif(
@@ -492,3 +500,27 @@ def test_anchor_settings_parse_the_helper_command(tmp_path: Path) -> None:
     assert settings is not None
     assert settings.helper == ("sudo", "-n", "-u", "lets anchor", "python", "-m", "x")
     assert (settings.root, settings.timeout_s) == (tmp_path, 2.5)
+
+
+def test_agent_server_queues_a_connection_burst_while_its_accept_loop_is_busy(
+    tmp_path: Path,
+) -> None:
+    server = serve("s1", "127.0.0.1", 0, TOKEN, tmp_path / "agent")
+    address = ("127.0.0.1", server.server_address[1])
+    clients = [socket.socket() for _ in range(48)]
+    try:
+        for client in clients:
+            client.setblocking(False)
+            client.connect_ex(address)
+        pending = set(clients)
+        deadline = time.monotonic() + 0.5
+        while pending and time.monotonic() < deadline:
+            pending -= set(select.select([], list(pending), [], 0.05)[1])
+        pending -= set(select.select([], list(pending), [], 0)[1])
+        assert not pending
+        assert [c.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR) for c in clients] == [0] * 48
+    finally:
+        for client in clients:
+            client.close()
+        server.server_close()
+        server.state.teardown()
