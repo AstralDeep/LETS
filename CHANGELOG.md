@@ -32,6 +32,13 @@ image together; the Git tag is the package version prefixed with `v`.
   still run them, and the packager's golden, command-line, path and drive-letter cases stay on
   Windows. The `test` and `quality` jobs declare 20- and 10-minute timeouts, and the `test` job
   keys its uv cache on `uv.lock` and reports its 25 slowest tests.
+- The E1 fair-baselines site agent listens with a backlog of 128 instead of the 5 it inherited from
+  `socketserver`. A burst of simultaneous cross-site probes could overflow that queue whenever the
+  accept loop stalled, so connections were reset (macOS) or lost until the one-second retransmit
+  (Linux) and a probe reported its peer unreachable. The loopback test cluster now binds its
+  agents to port 0, joins their serve threads on teardown, draws distinct raft ports, and runs its
+  dry-run grids with a ten-second peer timeout, so the required Linux gate no longer depends on
+  accept-loop scheduling or a one-second wall-clock bound.
 
 ## [1.1.2] - 2026-10-23
 
