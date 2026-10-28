@@ -52,6 +52,7 @@ from benchmarks.fair_baselines.workload import NS_PER_S, Arrival, arrival_plan, 
 MAX_BODY_BYTES = 4_000_000
 PEER_CLOCK_SKEW_SECONDS = 30
 PEER_NONCE_CACHE_LIMIT = 8192
+LISTEN_BACKLOG = 128
 AuthoritySystem = CentralCounterSystem | StaticQuotaSystem | RaftCounterSystem | LetsSystem
 
 
@@ -551,6 +552,7 @@ class AgentState:
 class AgentServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
+    request_queue_size = LISTEN_BACKLOG
     state: AgentState
 
 

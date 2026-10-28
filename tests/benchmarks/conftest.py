@@ -1,10 +1,12 @@
 """Shared fixtures for the E1 fair-baseline tests: free loopback ports, in-process site agents
-wired as a cluster over any site roster, and the endpoint description controller.py expects.
+wired as a cluster over any site roster, and the endpoint description controller.py expects. The
+agents bind port 0 and publish the port the kernel gave them, so no control port is ever guessed.
 """
 
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import socket
 import threading
@@ -24,10 +26,16 @@ TOKEN = "test-token-not-a-secret-0123456789"
 FIVE_SITES = ("uk1", "uk2", "az1", "use2", "apse1")
 
 
+def free_ports(count: int) -> list[int]:
+    with contextlib.ExitStack() as stack:
+        sockets = [stack.enter_context(socket.socket()) for _ in range(count)]
+        for sock in sockets:
+            sock.bind(("127.0.0.1", 0))
+        return [int(sock.getsockname()[1]) for sock in sockets]
+
+
 def free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+    return free_ports(1)[0]
 
 
 class LoopbackCluster:
@@ -36,19 +44,27 @@ class LoopbackCluster:
     ) -> None:
         self.token = TOKEN
         self.sites = tuple(sites)
-        self.ports = {site: free_port() for site in self.sites}
-        self.raft_ports = {site: free_port() for site in self.sites}
+        self.ports: dict[str, int] = {}
         self.servers: dict[str, AgentServer] = {}
-        for site in self.sites:
-            anchor = None
-            if anchor_root is not None:
-                (anchor_root / site).mkdir(parents=True, exist_ok=True)
-                anchor = AnchorSettings(anchor_root / site)
-            server = serve(site, "127.0.0.1", self.ports[site], TOKEN, root / site, anchor)
-            threading.Thread(
-                target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
-            ).start()
-            self.servers[site] = server
+        self._threads: dict[str, threading.Thread] = {}
+        try:
+            for site in self.sites:
+                anchor = None
+                if anchor_root is not None:
+                    (anchor_root / site).mkdir(parents=True, exist_ok=True)
+                    anchor = AnchorSettings(anchor_root / site)
+                server = serve(site, "127.0.0.1", 0, TOKEN, root / site, anchor)
+                self.servers[site] = server
+                self.ports[site] = int(server.server_address[1])
+                thread = threading.Thread(
+                    target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+                )
+                thread.start()
+                self._threads[site] = thread
+        except BaseException:
+            self.close()
+            raise
+        self.raft_ports = dict(zip(self.sites, free_ports(len(self.sites)), strict=True))
         signers = {site: Ed25519Signer.generate(site) for site in self.sites}
         self.seeds = {
             site: base64.b64encode(signer.seed_bytes).decode() for site, signer in signers.items()
@@ -129,8 +145,16 @@ class LoopbackCluster:
         }
 
     def close(self) -> None:
-        for server in self.servers.values():
-            server.shutdown()
+        with contextlib.ExitStack() as stack:
+            for site, server in self.servers.items():
+                stack.callback(self._close_server, site, server)
+
+    def _close_server(self, site: str, server: AgentServer) -> None:
+        try:
+            if site in self._threads:
+                server.shutdown()
+                self._threads[site].join()
+        finally:
             server.server_close()
             server.state.teardown()
 
