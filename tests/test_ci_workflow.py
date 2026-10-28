@@ -18,7 +18,7 @@ CI_TOOL_INPUT_PATH = ROOT / "tooling" / "python-ci" / "requirements.in"
 CI_TOOL_LOCK_PATH = ROOT / "tooling" / "python-ci" / "requirements.lock.txt"
 
 CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-SETUP_UV_ACTION = "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884"
+SETUP_UV_ACTION = "astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e"
 UPLOAD_ACTION = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
 APPROVED_ACTIONS = {
     "AstralDeep/astraldeep.github.io/actions/pr-triage": "9c83bac26fe9c5d594388afb70b30ed9076c90f1",
