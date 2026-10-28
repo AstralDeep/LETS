@@ -167,6 +167,11 @@ negotiation](https://modelcontextprotocol.io/specification/2026-07-28),
 artifacts](https://github.com/opencontainers/image-spec/blob/main/manifest.md), and
 [CloudEvents](https://github.com/cloudevents/spec).
 
+The optional `lets.integrations.a2a` and `lets.integrations.mcp` profiles implement executable
+mappings for their pinned revisions without adding either protocol to the core runtime. Both keep
+discovery, transport, host IAM and protocol state outside LETS and require executor receipt
+verification for protected effects.
+
 ## AstralDeep extension
 
 The optional AstralDeep adapter is a separate consumer of the public LETS client/executor

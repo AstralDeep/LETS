@@ -9,6 +9,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -31,6 +32,11 @@ from benchmarks.nsdi_strengthening.remote_three_host import (
     phase_end_markdown,
     report_markdown,
     timeline_csv,
+)
+
+LINUX_LANE_ONLY = pytest.mark.skipif(
+    os.name == "nt",
+    reason="the Linux lane covers this case; it spawns dozens of git processes on Windows",
 )
 
 REAL_RESULT_TEMPLATE = (
@@ -414,6 +420,7 @@ def test_preflight_and_finalize_create_deterministic_manifests(tmp_path: Path) -
     assert _git(repository, "status", "--porcelain=v1", "--untracked-files=all") == ""
 
 
+@LINUX_LANE_ONLY
 def test_preflight_requires_a_clean_worktree_without_creating_staging(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     _write(repository / "untracked.txt", "not clean\n")
@@ -429,6 +436,7 @@ def test_preflight_requires_a_clean_worktree_without_creating_staging(tmp_path: 
     assert not staging.exists()
 
 
+@LINUX_LANE_ONLY
 def test_preflight_requires_a_full_exact_commit(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
 
@@ -446,6 +454,7 @@ def test_preflight_requires_a_full_exact_commit(tmp_path: Path) -> None:
         )
 
 
+@LINUX_LANE_ONLY
 def test_preflight_rejects_a_real_commit_that_is_not_head(tmp_path: Path) -> None:
     repository, prior_commit = _clean_repository(tmp_path)
     _write(repository / "benchmarks/nsdi_strengthening/harness.py", "VALUE = 4\n")
@@ -469,6 +478,7 @@ def test_preflight_rejects_a_real_commit_that_is_not_head(tmp_path: Path) -> Non
         )
 
 
+@LINUX_LANE_ONLY
 def test_preflight_preserves_an_existing_campaign_root(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/prior"
@@ -484,6 +494,7 @@ def test_preflight_preserves_an_existing_campaign_root(tmp_path: Path) -> None:
     assert (staging / "sentinel.json").read_text(encoding="utf-8") == "{}\n"
 
 
+@LINUX_LANE_ONLY
 def test_preflight_rejects_an_unignored_in_repository_root(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "not-ignored/campaign"
@@ -525,6 +536,7 @@ def test_matched_host_compression_is_deterministic_and_lossless(tmp_path: Path) 
     assert compressed_payloads[0] == compressed_payloads[1]
 
 
+@LINUX_LANE_ONLY
 def test_finalize_rechecks_clean_checkout_and_writes_nothing(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"
@@ -543,6 +555,7 @@ def test_finalize_rechecks_clean_checkout_and_writes_nothing(tmp_path: Path) -> 
     assert not (staging / MANIFEST_NAME).exists()
 
 
+@LINUX_LANE_ONLY
 def test_finalize_requires_the_exact_campaign_artifact_set(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"
@@ -586,6 +599,7 @@ def test_finalize_requires_the_exact_campaign_artifact_set(tmp_path: Path) -> No
         ),
     ],
 )
+@LINUX_LANE_ONLY
 def test_finalize_rejects_failed_required_success_contracts(
     tmp_path: Path, relative: str, mutation: object, error: str
 ) -> None:
@@ -607,6 +621,7 @@ def test_finalize_rejects_failed_required_success_contracts(
 
 
 @pytest.mark.parametrize("field", ["orchestrator_sha256", "benchmark_sha256"])
+@LINUX_LANE_ONLY
 def test_finalize_rejects_uncommitted_matched_host_harness(tmp_path: Path, field: str) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"
@@ -625,6 +640,7 @@ def test_finalize_rejects_uncommitted_matched_host_harness(tmp_path: Path, field
         )
 
 
+@LINUX_LANE_ONLY
 def test_finalize_rejects_dirty_provenance_inside_matched_host_archive(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"
@@ -660,6 +676,7 @@ def test_finalize_rejects_dirty_provenance_inside_matched_host_archive(tmp_path:
         ({"raw_addresses_retained": True}, "unsafe privacy flag"),
     ],
 )
+@LINUX_LANE_ONLY
 def test_finalize_rejects_unsafe_or_mismatched_json_provenance(
     tmp_path: Path, document: dict[str, object], error: str
 ) -> None:
@@ -679,6 +696,7 @@ def test_finalize_rejects_unsafe_or_mismatched_json_provenance(
     assert not (staging / MANIFEST_NAME).exists()
 
 
+@LINUX_LANE_ONLY
 def test_finalize_rejects_credential_file_without_manifesting_it(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"
@@ -778,6 +796,7 @@ def test_finalize_allows_drive_and_model_labels_without_absolute_paths(tmp_path:
     assert (staging / MANIFEST_NAME).is_file()
 
 
+@LINUX_LANE_ONLY
 def test_finalize_never_overwrites_an_existing_manifest(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"
@@ -835,6 +854,7 @@ def _break_recovery_transfer(document: dict[str, object]) -> None:
         (_break_recovery_transfer, "transfer does not match"),
     ],
 )
+@LINUX_LANE_ONLY
 def test_finalize_rejects_false_three_host_claims(
     tmp_path: Path, mutation: object, error: str
 ) -> None:
@@ -857,6 +877,7 @@ def test_finalize_rejects_false_three_host_claims(
     assert not (staging / MANIFEST_NAME).exists()
 
 
+@LINUX_LANE_ONLY
 def test_finalize_rejects_noncanonical_q1_derived_output(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging = repository / "staging/campaign"
@@ -872,6 +893,7 @@ def test_finalize_rejects_noncanonical_q1_derived_output(tmp_path: Path) -> None
         )
 
 
+@LINUX_LANE_ONLY
 def test_finalize_removes_the_seal_if_inputs_change_after_publication(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -901,6 +923,7 @@ def test_finalize_removes_the_seal_if_inputs_change_after_publication(
     assert not (staging / MANIFEST_NAME).exists()
 
 
+@LINUX_LANE_ONLY
 def test_finalize_rejects_a_staging_root_that_is_not_a_directory(tmp_path: Path) -> None:
     repository, commit = _clean_repository(tmp_path)
     staging_file = repository / "staging/campaign.json"
@@ -948,6 +971,7 @@ def test_command_line_prepares_compresses_and_finalizes_a_campaign(
     assert _git(repository, "status", "--porcelain=v1", "--untracked-files=all") == ""
 
 
+@LINUX_LANE_ONLY
 def test_command_line_reports_a_rejected_finalize_without_sealing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

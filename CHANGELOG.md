@@ -7,6 +7,15 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Added
 
+- MCP tool-execution profile: the optional `lets.integrations.mcp` adapter maps host-verified MCP
+  `2026-07-28` tool calls to stable LETS request IDs, digest-bound effect evidence, executor
+  audiences and claimable receipts, with a host permission/confirmation gate. It keeps the MCP
+  server, transport and user IAM in the host and adds no core runtime dependency. Final receipt
+  binding checks the verified caller, configured tool mapping and exact execution arguments before
+  the executor claims the receipt; the example executes an independent canonical snapshot.
+  `examples/mcp_host.py` and `docs/adapters/mcp.md` document at-most-once authorization separately
+  from effect idempotency, with conformance fixtures for retries, failures, cancellation and
+  adversarial effect relabeling.
 - `results/nsdi-v1.1-reruns-2026-10-23/`: the 2026-09-02 same-host, formal, Docker, and native-Linux
   host-path experiments rerun on the LETS 1.1 runtime from a clean checkout, with a README giving
   every command.
@@ -16,6 +25,20 @@ image together; the Git tag is the package version prefixed with `v`.
 - The remote evidence runners accept a private-key file per host (`sN_KEY`) as an alternative to a
   password (`sN_PASS`), and the matched-host benchmark pins the current AstralDeep composition
   (AstralDeep `3627625e`, AstralPlane `5ecce4cc`, LETS `ed5c1e4`).
+- The hosted Windows CI lanes (Python 3.11 and 3.14) skip the Linux-targeted fair-baselines
+  loopback harness suites, the partition benchmark matrix and the git-bound validation cases of
+  the evidence-campaign packager. In the slowest recorded Windows lane those tests took about
+  seven of fourteen minutes through process spawns and per-commit fsyncs. All four Linux lanes
+  still run them, and the packager's golden, command-line, path and drive-letter cases stay on
+  Windows. The `test` and `quality` jobs declare 20- and 10-minute timeouts, and the `test` job
+  keys its uv cache on `uv.lock` and reports its 25 slowest tests.
+- The E1 fair-baselines site agent listens with a backlog of 128 instead of the 5 it inherited from
+  `socketserver`. A burst of simultaneous cross-site probes could overflow that queue whenever the
+  accept loop stalled, so connections were reset (macOS) or lost until the one-second retransmit
+  (Linux) and a probe reported its peer unreachable. The loopback test cluster now binds its
+  agents to port 0, joins their serve threads on teardown, draws distinct raft ports, and runs its
+  dry-run grids with a ten-second peer timeout, so the required Linux gate no longer depends on
+  accept-loop scheduling or a one-second wall-clock bound.
 
 ## [1.1.2] - 2026-10-23
 
