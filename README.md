@@ -196,6 +196,12 @@ The optional `AstralDeepAuthorizer` maps AstralDeep's six declared tool scopes t
 capabilities/transitions while preserving AstralDeep's Keycloak/RFC 8693, owner, permission, PHI,
 egress, confirmation, and audit gates. Details: `docs/adapters/astraldeep.md`.
 
+The optional `MCPToolProfile` maps a host-owned MCP `tools/call` to a stable LETS request ID,
+digest-bound effect evidence, an executor audience, and a receipt the executor must verify and
+claim immediately before the tool effect. The MCP server, transport, user IAM, tool gate, and tool
+implementation stay in the host, and discovery grants no authority. Details:
+`docs/adapters/mcp.md`; example: `examples/mcp_host.py`.
+
 Recommended standards composition:
 
 - A2A Agent Cards, OASF, Agent Spec, or ARD for discovery;
@@ -212,7 +218,7 @@ lease's capability/residual/state, evidence rules, and the executor's receipt po
 | Path | Purpose |
 |---|---|
 | `src/lets/` | domain, policy, crypto, durable storage, warden service, API, clients, executor |
-| `src/lets/integrations/` | standalone host adapter contracts and AstralDeep profile |
+| `src/lets/integrations/` | standalone host adapter contracts, AstralDeep, A2A and MCP profiles |
 | `protocol/` | cluster-manifest schema and OpenAPI contract |
 | `tests/` | unit, property, security, integration, fault, and real-node e2e tests |
 | `deploy/` | Docker topology and bootstrap assets |

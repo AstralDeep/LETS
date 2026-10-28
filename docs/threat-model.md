@@ -84,3 +84,12 @@ An adapter translates identities and lifecycle operations but never becomes an a
 must preserve tenant/subject/audience binding, pass the host system's already verified identity
 context, keep secrets out of manifests, reject unknown capability mappings, and leave destructive
 confirmation and domain policy gates in place. Adapter failure cannot turn a denial into an allow.
+
+The optional MCP profile relies on the host's verified caller, caller-to-lease selection, tool
+permission and confirmation gate, and verified executor identity. Discovery metadata and tool
+arguments cannot select authority. A privileged warden client does not establish caller ownership
+of a supplied lease; the host must establish that binding before authorization or revocation.
+Before execution the profile binds the actual caller, tool and argument digests to the receipt's
+signed evidence, and the executor verifies and durably claims it. Hosts must execute the same
+private argument snapshot they bound, so later mutation cannot substitute another effect. Receipt
+claims remain at-most-once authorization, and branch cancellation cannot retract issued receipts.

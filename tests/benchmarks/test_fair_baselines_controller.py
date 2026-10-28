@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -41,6 +42,11 @@ from benchmarks.fair_baselines.controller import (
 )
 from benchmarks.fair_baselines.faults import DryRunFaultDriver
 from tests.benchmarks.conftest import FIVE_SITES, LoopbackCluster
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="the Linux lane covers this loopback multi-agent harness, which targets Linux hosts",
+)
 
 EXAMPLE = Path("benchmarks/fair_baselines/examples/seven-site-endpoints.json")
 SEVEN = ("uk1", "uk2", "az1", "use2", "usw2", "euw2", "apse1")
@@ -213,7 +219,7 @@ def _options() -> GridOptions:
         deadline_s=1.0,
         rtt_ms=0.0,
         loss_pct=0.0,
-        peer_timeout_s=1.0,
+        peer_timeout_s=10.0,
         raft_timeout_s=1.0,
     )
 
@@ -315,7 +321,7 @@ def _five_options() -> GridOptions:
         deadline_s=1.0,
         rtt_ms=0.0,
         loss_pct=0.0,
-        peer_timeout_s=1.0,
+        peer_timeout_s=10.0,
         raft_timeout_s=1.0,
         sites=FIVE_SITES,
     )

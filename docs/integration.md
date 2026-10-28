@@ -229,3 +229,9 @@ surface, host policy, LETS lease capability/residual, receipt audience policy, a
 For A2A, the optional `lets.integrations.a2a` adapter supplies an executable task and delegation
 profile (admission, delegated child leases, retries, cancellation) pinned to A2A v1.0.1. It keeps
 task storage in the host, not in LETS. See [A2A task and delegation profile](adapters/a2a.md).
+
+For MCP, the optional `lets.integrations.mcp` adapter supplies a tool-execution profile pinned to
+MCP `2026-07-28`. It maps host-verified tool calls to stable LETS request IDs and digest-bound
+evidence while leaving the MCP server, transport, user IAM, tool schemas and confirmation UX in
+the host. Discovery through this profile grants no authority. See
+[MCP tool-execution profile](adapters/mcp.md).
