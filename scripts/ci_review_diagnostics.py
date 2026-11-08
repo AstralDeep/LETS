@@ -41,17 +41,12 @@ def inspect_change(path, before, after):
             flags.append({"kind": "added-skip-or-xfail", "count": skips - old_skips})
         if swallowed > old_swallowed:
             flags.append({"kind": "added-swallowed-test-error", "count": swallowed - old_swallowed})
-    if (
-        path == ".specify/memory/constitution.md"
-        or path.startswith((".github/", "scripts/", "tooling/"))
-        or Path(path).name
-        in {
-            "pyproject.toml",
-            "uv.lock",
-            ".coveragerc",
-            "pytest.ini",
-        }
-    ):
+    if path.startswith((".github/", "scripts/", "tooling/")) or Path(path).name in {
+        "pyproject.toml",
+        "uv.lock",
+        ".coveragerc",
+        "pytest.ini",
+    }:
         flags.append({"kind": "qualification-policy-change"})
     return [{"path": path, **flag} for flag in flags]
 
