@@ -1,0 +1,28 @@
+{
+  "derivation": "seed = SHA-256(\"lets-vectors/key/\" + name), Ed25519",
+  "format": "lets.vector-keys/v1",
+  "keys": [
+    {
+      "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+      "name": "warden-a",
+      "public_key": "pfU2x606nK61PZ9zOv_239pB4tX_t0MuvmDyTx5Ryxc",
+      "seed": "QQBnS_y5tvA7CiOJZ6VB0_gu5qmWjbxzp-EO14--jHM",
+      "warden_id": "warden-a"
+    },
+    {
+      "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+      "name": "warden-b",
+      "public_key": "oFn5pIxBMw0ypAsvQjVdjdF5dSVEwCL0IpbP3qBEzaE",
+      "seed": "CNp5fcbLLd3kQU91Ni6EByCOYu4RarOI1JbAbVSZCDQ",
+      "warden_id": "warden-b"
+    },
+    {
+      "key_id": "mallory/ed25519-9645c0cf725461f18aba8f7af1144328",
+      "name": "mallory",
+      "public_key": "LK4IvuyASZTyzjAzjFib9aV85tIRRpAUFz8cpSrYTxw",
+      "seed": "XWaTlcsuO8EkFyCo6FqYFSO5RQsXvkOLNBEDfqcfRgg",
+      "warden_id": "mallory"
+    }
+  ],
+  "warning": "Test keys derived from public labels. Never use them for anything real."
+}
