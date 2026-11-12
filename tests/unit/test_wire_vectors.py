@@ -1,4 +1,5 @@
-"""Runs the reference verifier against every committed wire vector and proves the vector files still match what scripts/generate_vectors.py emits.
+"""Runs the reference verifier against every committed wire vector and proves the vector files
+still match what scripts/generate_vectors.py emits.
 """
 
 from __future__ import annotations
@@ -13,8 +14,9 @@ import pytest
 
 from lets.canonical import b64url_decode, canonical_json
 from lets.crypto import Ed25519Signer
+from lets.errors import ClockUncertainError, ConflictError
 from lets.models import LeaseGrant, Receipt, TransferAck, TransferVoucher
-from lets.wire_verify import REASONS, VALID, VectorRunner, WireRejection
+from lets.wire_verify import REASONS, VALID, VectorRunner, WireRejectedError, _classify
 
 ROOT = Path(__file__).resolve().parents[2]
 VECTORS = ROOT / "protocol" / "vectors"
@@ -128,4 +130,21 @@ def test_published_keys_reproduce_from_their_seeds() -> None:
 
 def test_wire_rejection_refuses_an_unknown_reason() -> None:
     with pytest.raises(ValueError, match="unknown rejection reason"):
-        WireRejection("nonsense", "x")
+        WireRejectedError("nonsense", "x")
+
+
+def test_unclassified_errors_are_not_swallowed(tmp_path: Path) -> None:
+    assert _classify(ClockUncertainError("late")) == "clock"
+    with pytest.raises(ConflictError):
+        _classify(ConflictError("other"))
+    with pytest.raises(ValueError, match="unknown wire type"):
+        VectorRunner(tmp_path).run("lets.unknown/v1", {"verifier": {}, "steps": [{"wire": {}}]}, [])
+
+
+def test_a_malformed_signature_is_reported_as_a_signature_failure(tmp_path: Path) -> None:
+    document = _load("lease-grant.json")
+    case = next(item for item in document["cases"] if item["name"] == "valid-root")
+    step = case["steps"][0]
+    broken = {**case, "steps": [{**step, "wire": {**step["wire"], "signature": "***"}}]}
+    outcomes = VectorRunner(tmp_path).run(document["wire_type"], broken, document["trusted_keys"])
+    assert outcomes == ["signature"]

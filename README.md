@@ -219,7 +219,7 @@ lease's capability/residual/state, evidence rules, and the executor's receipt po
 |---|---|
 | `src/lets/` | domain, policy, crypto, durable storage, warden service, API, clients, executor |
 | `src/lets/integrations/` | standalone host adapter contracts, AstralDeep, A2A and MCP profiles |
-| `protocol/` | cluster-manifest schema and OpenAPI contract |
+| `protocol/` | cluster-manifest schema, OpenAPI contract and signed conformance vectors |
 | `tests/` | unit, property, security, integration, fault, and real-node e2e tests |
 | `deploy/` | Docker topology and bootstrap assets |
 | `formal/` | bounded model and trace-conformance tooling |

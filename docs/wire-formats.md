@@ -135,6 +135,28 @@ The target warden's signed acceptance of a voucher.
 
 An ack without a child omits `child_lease_id` and `child_outcome` from the signed form. Source checks in `lets.wire_verify.verify_transfer_ack`: the source is the verifying warden, `voucher_digest` equals the record digest of the voucher it answers, and the signature verifies under the target.
 
+## `lets.period-policy/v1` and `lets.period-budget/v1`
+
+These two types are newer than the four above and follow the same freeze from their first release. The policy is signed. The budget is derived and never signed. The design is in [ADR 0004](adr/0004-period-budgets-and-device-holder.md).
+
+The policy signature covers the canonical form of the policy without `sig`. The signature scheme belongs to the caller. LETS hands the issuer, the canonical bytes and `sig` to a verifier the caller supplies. The vectors use Ed25519 with the key in `period.json`. A mesh uses its own key type and adds its own domain prefix inside its verifier.
+
+| Policy field | Type | Rule |
+|---|---|---|
+| `type` | string | Exactly `lets.period-policy/v1`. |
+| `policy_id` | identifier | |
+| `version` | integer | At least 1. A newer version replaces an older one. |
+| `issuer` | identifier | |
+| `epoch_ns` | time | Periods count from here. |
+| `period_ns` | integer | At least 1. |
+| `totals` | object | Dimension name to integer. The keys are the dimensions. |
+| `shares` | object | Member kind to an object from dimension name to integer. Same keys as `totals`. |
+| `solo` | object | Same shape as `shares`. Each value at most the matching share. |
+| `reduction_permille` | object | Exactly `attested` and `unattested`, each from 0 to 1000. |
+| `sig` | string | Opaque to LETS. |
+
+The budget is `type` (`lets.period-budget/v1`), `period_index`, `starts_at_ns`, `ends_at_ns`, `policy_digest`, `membership_digest`, `total`, `reserve` and `shares`, a list sorted by member id of `member_id`, `fresh` and `solo`. The membership digest is the digest of `{"type":"lets.period-membership/v1","members":[...]}` with members sorted by id, each as `member_id`, `kind` and `attested`. A policy digest is the digest of the canonical form without `sig`.
+
 ## Rejection reasons
 
 The vectors name each refusal with a stable reason so implementations in other languages can compare verdicts.
@@ -163,5 +185,7 @@ The vectors name each refusal with a stable reason so implementations in other l
 | `protocol/vectors/lease-grant.json` | Lease grant cases. |
 | `protocol/vectors/transfer-voucher.json` | Voucher cases, including a conflicting sequence. |
 | `protocol/vectors/transfer-ack.json` | Acknowledgement cases. |
+| `protocol/vectors/period.json` | Period derivation with the expected budgets and digests, period arithmetic, policy classification and adoption. |
+| `protocol/vectors/device.json` | Device holder scenarios with expected allowances and refusals. |
 
-Each file has `wire_type`, `trusted_keys` and `cases`. A case has a `verifier` context and ordered `steps`. A step has the `wire` record, the clock `now_ns` where one applies, and the `expect` verdict, either `valid` or a reason. Steps run in order against one verifier state, so a replay case shows `valid` then `replay`. `signing_input` is the exact canonical text that was signed.
+The four record files each have `wire_type`, `trusted_keys` and `cases`. `period.json` and `device.json` have their own sections, described by the `arithmetic` and `ops` fields inside them. A case has a `verifier` context and ordered `steps`. A step has the `wire` record, the clock `now_ns` where one applies, and the `expect` verdict, either `valid` or a reason. Steps run in order against one verifier state, so a replay case shows `valid` then `replay`. `signing_input` is the exact canonical text that was signed.

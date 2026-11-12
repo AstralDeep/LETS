@@ -1,4 +1,7 @@
-"""Offline reference checks for the frozen signed wire records: lease grants, transfer vouchers and acknowledgements, and receipts. Each check returns or raises a stable reason code so a second implementation can be run against protocol/vectors. Receipt checks delegate to executor.py's ReceiptVerifier and replay store.
+"""Offline reference checks for the frozen signed wire records: lease grants, transfer vouchers
+and acknowledgements, and receipts. Each check raises a stable reason code so a second
+implementation can be run against protocol/vectors. Receipt checks delegate to
+executor.py's ReceiptVerifier and replay store.
 """
 
 from __future__ import annotations
@@ -42,7 +45,7 @@ REASONS = frozenset(
 )
 
 
-class WireRejection(PolicyError):
+class WireRejectedError(PolicyError):
     def __init__(self, reason: str, message: str) -> None:
         if reason not in REASONS:
             raise ValueError(f"unknown rejection reason {reason!r}")
@@ -54,18 +57,18 @@ def _check_signature(record: Any, registry: PublicKeyRegistry, warden_id: str) -
     try:
         signature = b64url_decode(record.signature)
     except Exception as exc:
-        raise WireRejection("signature", "signature is malformed") from exc
+        raise WireRejectedError("signature", "signature is malformed") from exc
     if not registry.verify(
         warden_id, record.key_id, canonical_json(record.unsigned_payload()), signature
     ):
-        raise WireRejection("signature", "signature is invalid or untrusted")
+        raise WireRejectedError("signature", "signature is invalid or untrusted")
 
 
 def _check_window(issued_at_ns: int, expires_at_ns: int, now_ns: int, uncertainty_ns: int) -> None:
     if issued_at_ns > now_ns + uncertainty_ns:
-        raise WireRejection("not_yet_valid", "issuance is in the future")
+        raise WireRejectedError("not_yet_valid", "issuance is in the future")
     if now_ns + uncertainty_ns >= expires_at_ns:
-        raise WireRejection("expired", "record is expired or cannot be proven fresh")
+        raise WireRejectedError("expired", "record is expired or cannot be proven fresh")
 
 
 def verify_lease_grant(
@@ -78,9 +81,9 @@ def verify_lease_grant(
     uncertainty_ns: int = 0,
 ) -> None:
     if grant.warden_id != holder_warden:
-        raise WireRejection("audience", "lease grant names another holder")
+        raise WireRejectedError("audience", "lease grant names another holder")
     if grant.policy_digest != expected_policy_digest:
-        raise WireRejection("policy_digest", "lease grant policy digest is not accepted")
+        raise WireRejectedError("policy_digest", "lease grant policy digest is not accepted")
     _check_window(grant.issued_at_ns, grant.expires_at_ns, now_ns, uncertainty_ns)
     _check_signature(grant, registry, grant.warden_id)
 
@@ -99,16 +102,18 @@ def verify_transfer_voucher(
     ledger: TransferStreamLedger | None = None,
 ) -> str:
     if voucher.target_warden != receiver_warden:
-        raise WireRejection("audience", "voucher target is another warden")
+        raise WireRejectedError("audience", "voucher target is another warden")
     if voucher.policy_digest != expected_policy_digest:
-        raise WireRejection("policy_digest", "voucher policy digest is not accepted")
+        raise WireRejectedError("policy_digest", "voucher policy digest is not accepted")
     _check_signature(voucher, registry, voucher.source_warden)
     digest = canonical_digest(voucher.to_dict())
     if ledger is not None:
         key = (voucher.source_warden, voucher.sequence)
         bound = ledger.digests.setdefault(key, digest)
         if bound != digest:
-            raise WireRejection("sequence_conflict", "transfer sequence is bound to another voucher")
+            raise WireRejectedError(
+                "sequence_conflict", "transfer sequence is bound to another voucher"
+            )
     return digest
 
 
@@ -120,14 +125,14 @@ def verify_transfer_ack(
     source_warden: str,
 ) -> None:
     if ack.source_warden != source_warden:
-        raise WireRejection("audience", "acknowledgement source is another warden")
+        raise WireRejectedError("audience", "acknowledgement source is another warden")
     if ack.voucher_digest != canonical_digest(voucher.to_dict()):
-        raise WireRejection("voucher_digest", "acknowledgement does not match the voucher")
+        raise WireRejectedError("voucher_digest", "acknowledgement does not match the voucher")
     _check_signature(ack, registry, ack.target_warden)
 
 
 def _classify(error: Exception) -> str:
-    if isinstance(error, WireRejection):
+    if isinstance(error, WireRejectedError):
         return error.reason
     if isinstance(error, ValidationError):
         return "malformed"
@@ -163,7 +168,9 @@ class VectorRunner:
     def __init__(self, workdir: Path) -> None:
         self._workdir = workdir
 
-    def run(self, wire_type: str, case: Mapping[str, Any], keys: list[Mapping[str, Any]]) -> list[str]:
+    def run(
+        self, wire_type: str, case: Mapping[str, Any], keys: list[Mapping[str, Any]]
+    ) -> list[str]:
         context = case["verifier"]
         registry = _registry(list(case.get("trusted_keys", keys)))
         if wire_type == Receipt.WIRE_TYPE:

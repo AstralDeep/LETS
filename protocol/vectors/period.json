@@ -1,0 +1,2984 @@
+{
+  "adopt": [
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "consent": null,
+      "current": null,
+      "expect": "adopted",
+      "name": "first-policy"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "nvHjKqKBr4cOUqsXeDK0_CY2A2yb7NEWQKiR0cIqdrS3W-su0RfH6oi3eMRCFu1NvviXx32Ej3jvecqK4uNbAA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 500,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "consent": null,
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "adopted",
+      "name": "narrowing-needs-no-consent"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "consent": null,
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "unchanged",
+      "name": "same-version-same-digest"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "yV6JlAIdj4b5T_aQRDncqe56vETQgeV1W0JwxYqoDspsISN58xXbZ_YfNAOwlMTMQFMrurXoqYyk51gDzQF6CQ",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 2000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 3
+      },
+      "consent": null,
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "nvHjKqKBr4cOUqsXeDK0_CY2A2yb7NEWQKiR0cIqdrS3W-su0RfH6oi3eMRCFu1NvviXx32Ej3jvecqK4uNbAA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 500,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "expect": "consent_required",
+      "name": "widening-without-consent"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "yV6JlAIdj4b5T_aQRDncqe56vETQgeV1W0JwxYqoDspsISN58xXbZ_YfNAOwlMTMQFMrurXoqYyk51gDzQF6CQ",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 2000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 3
+      },
+      "consent": {
+        "evidence": "presence-signature-1",
+        "given_by": "owner",
+        "policy_digest": "sha256:0b1e2c4661df3c9fd5d98217358285bb4df31b4e61970509927267de95766045"
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "nvHjKqKBr4cOUqsXeDK0_CY2A2yb7NEWQKiR0cIqdrS3W-su0RfH6oi3eMRCFu1NvviXx32Ej3jvecqK4uNbAA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 500,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "expect": "consent_required",
+      "name": "widening-with-consent-for-another-digest"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "yV6JlAIdj4b5T_aQRDncqe56vETQgeV1W0JwxYqoDspsISN58xXbZ_YfNAOwlMTMQFMrurXoqYyk51gDzQF6CQ",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 2000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 3
+      },
+      "consent": {
+        "evidence": "presence-signature-1",
+        "given_by": "owner",
+        "policy_digest": "sha256:bf55656f048534fceeadde488d985c2f871ff267ef4f929fbfb34d62a18daa29"
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "nvHjKqKBr4cOUqsXeDK0_CY2A2yb7NEWQKiR0cIqdrS3W-su0RfH6oi3eMRCFu1NvviXx32Ej3jvecqK4uNbAA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 500,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "expect": "adopted",
+      "name": "widening-with-consent"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "TE8StnHxLR-Od1J7eZSwW2UpFU7Wx0UxpSF-bUxL1CPUy16ddD1_P8-lSMf-J1y0weJNFTPWX7yrr2Vcbfx2Dw",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1,
+          "notes_write": 1,
+          "outside_effect": 1
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "consent": null,
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "nvHjKqKBr4cOUqsXeDK0_CY2A2yb7NEWQKiR0cIqdrS3W-su0RfH6oi3eMRCFu1NvviXx32Ej3jvecqK4uNbAA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 500,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "expect": "stale_version",
+      "name": "stale-version"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "TE8StnHxLR-Od1J7eZSwW2UpFU7Wx0UxpSF-bUxL1CPUy16ddD1_P8-lSMf-J1y0weJNFTPWX7yrr2Vcbfx2Dw",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1,
+          "notes_write": 1,
+          "outside_effect": 1
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "consent": null,
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "stale_version",
+      "name": "same-version-other-content"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "other",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "O-IPMU8Mis64BG-B1LFq3lIo9Xw7c7wJaw95PyVkhHGv7KbmIvZG_mQSoP8eOi7Pl8JPSByakZY8Kbqt5AT0Ag",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "consent": null,
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "policy_id",
+      "name": "another-policy-id"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "consent": null,
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "signature",
+      "name": "bad-signature"
+    }
+  ],
+  "arithmetic": "scaled = share * (1000 - reduction) // 1000. If the sum of scaled shares for a dimension is at most the total, fresh = scaled.Otherwise fresh = scaled * total // sum. solo = min(scaled solo cap, fresh). reserve = total - sum(fresh). Use 128-bit intermediates.",
+  "classify": [
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "cxrUGenawB3v2QVmf_W6tq90q32EXLPdzCudolm7179rD0wSnRurKodtvF0XYsN9nr3BvWHGkpBkHAg3XJ7IDA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "unchanged",
+      "name": "same-terms-new-version"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "wOc3mqAnm605vcen7fiTAzBiSG0WWe2WHr9MLs65YUCG1AHclwsk67zXSwiUlEcvWvtpFuDUaOoJtDhzuagDAw",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 900,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "narrowed",
+      "name": "smaller-total"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 600
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "Bg_f2iLOa3FBpFNkC459Z8jkEADX5856I1ER1_hCtbz3ZjXoNyvnkvKK5xhAHQfxiGc6ZgUMZjk8vs4ZVg7FBg",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "narrowed",
+      "name": "bigger-unattested-reduction"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "GLnNNAG4aTSpiX_URdONtfXggOU9q4tcAqmRQSHueVMBP2iudonM1wx9Yno6i-rSyOUCdEvFAFlng-rIXNUOBw",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1001,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "widened",
+      "name": "bigger-total"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 400
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "VwS0PcWSlsR1wlNU9KAn_dZ9nN5-a6SrO_z7LkA4l7seyJ8EVxiru9uoLCgVZr6hWRnFU_15M7KwNw_QhLDkDg",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "widened",
+      "name": "smaller-reduction"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "aiwK3Td_omxG09ZI22r4NSQ1OSamCC6TWfQtonLXgwcqOccaBE6S2MGZR2ukBhJ8Sq7VaIaGSAMxEo9ETenjCw",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 900,
+          "notes_write": 101,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "widened",
+      "name": "one-up-one-down"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "pCigZ6je8mZuJbkVPeOEWQP6jDi-Rc_EfOXgieVZtgQJEFywT4YLBa50ctl_yzykwBcjuums96TZ_uVg64-hBQ",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 110,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "widened",
+      "name": "bigger-solo-cap"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 43200000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "u_EVqUu2XpyRjFRMgE5rPXbWoP_wcgBr6CkZx60ifGWhAmnJh1VLDQ_8xPA3DlJtYgs22qbDPiBswy_Ex2DqCg",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "widened",
+      "name": "shorter-period"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 0,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "18OUCnycPXpZOuCWwiq3fTPdI90TrCZ_pHdhZDHty3rXc6BEuJBh2yQ2oeuiqCEYPPswOKEQcU9qrFXLOqH6Ag",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "widened",
+      "name": "moved-epoch"
+    },
+    {
+      "candidate": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "FapgsK9UUssTkeQH4Dm2z-A0ndWa6_XDVpFRuwVo1e3Fgv3SQ75qJp7l96WuUK40wlBXb6OhrWUTxzovfURUBA",
+        "solo": {
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 2
+      },
+      "current": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "expect": "widened",
+      "name": "fewer-kinds"
+    }
+  ],
+  "derive": [
+    {
+      "description": "Two attested members under the totals.",
+      "expect": {
+        "budget": {
+          "ends_at_ns": 950400000000000,
+          "membership_digest": "sha256:64d2da88958c7a780791a8a1518acb6504b3df1c1a86bc95ac148219a564c196",
+          "period_index": 0,
+          "policy_digest": "sha256:0b1e2c4661df3c9fd5d98217358285bb4df31b4e61970509927267de95766045",
+          "reserve": {
+            "model_tokens": 0,
+            "notes_write": 0,
+            "outside_effect": 0
+          },
+          "shares": [
+            {
+              "fresh": {
+                "model_tokens": 600,
+                "notes_write": 80,
+                "outside_effect": 6
+              },
+              "member_id": "laptop",
+              "solo": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 400,
+                "notes_write": 20,
+                "outside_effect": 4
+              },
+              "member_id": "phone",
+              "solo": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            }
+          ],
+          "starts_at_ns": 864000000000000,
+          "total": {
+            "model_tokens": 1000,
+            "notes_write": 100,
+            "outside_effect": 10
+          },
+          "type": "lets.period-budget/v1"
+        },
+        "digest": "sha256:c1524df54cb0a2cbdf59e1de5217d3f7901cfc00a3c8aedc303327e3afaaf415"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "two-members",
+      "period_index": 0,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "An unattested member gets half of its kind's share, rounded down.",
+      "expect": {
+        "budget": {
+          "ends_at_ns": 950400000000000,
+          "membership_digest": "sha256:78a310e5a2973004a9591df1d9640d88f47fa2d1c01153a10750da87c5048345",
+          "period_index": 0,
+          "policy_digest": "sha256:0b1e2c4661df3c9fd5d98217358285bb4df31b4e61970509927267de95766045",
+          "reserve": {
+            "model_tokens": 1,
+            "notes_write": 1,
+            "outside_effect": 1
+          },
+          "shares": [
+            {
+              "fresh": {
+                "model_tokens": 500,
+                "notes_write": 72,
+                "outside_effect": 5
+              },
+              "member_id": "laptop",
+              "solo": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 166,
+                "notes_write": 9,
+                "outside_effect": 1
+              },
+              "member_id": "old-phone",
+              "solo": {
+                "model_tokens": 50,
+                "notes_write": 2,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 333,
+                "notes_write": 18,
+                "outside_effect": 3
+              },
+              "member_id": "phone",
+              "solo": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            }
+          ],
+          "starts_at_ns": 864000000000000,
+          "total": {
+            "model_tokens": 1000,
+            "notes_write": 100,
+            "outside_effect": 10
+          },
+          "type": "lets.period-budget/v1"
+        },
+        "digest": "sha256:a64c14f602cb285ad5e3fb2b98aefe73393620b45164947d9ed2ebd30c5980af"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        },
+        {
+          "attested": false,
+          "kind": "pocket",
+          "member_id": "old-phone"
+        }
+      ],
+      "name": "unattested-reduction",
+      "period_index": 0,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "The same members in another order give the identical budget.",
+      "expect": {
+        "budget": {
+          "ends_at_ns": 950400000000000,
+          "membership_digest": "sha256:78a310e5a2973004a9591df1d9640d88f47fa2d1c01153a10750da87c5048345",
+          "period_index": 0,
+          "policy_digest": "sha256:0b1e2c4661df3c9fd5d98217358285bb4df31b4e61970509927267de95766045",
+          "reserve": {
+            "model_tokens": 1,
+            "notes_write": 1,
+            "outside_effect": 1
+          },
+          "shares": [
+            {
+              "fresh": {
+                "model_tokens": 500,
+                "notes_write": 72,
+                "outside_effect": 5
+              },
+              "member_id": "laptop",
+              "solo": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 166,
+                "notes_write": 9,
+                "outside_effect": 1
+              },
+              "member_id": "old-phone",
+              "solo": {
+                "model_tokens": 50,
+                "notes_write": 2,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 333,
+                "notes_write": 18,
+                "outside_effect": 3
+              },
+              "member_id": "phone",
+              "solo": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            }
+          ],
+          "starts_at_ns": 864000000000000,
+          "total": {
+            "model_tokens": 1000,
+            "notes_write": 100,
+            "outside_effect": 10
+          },
+          "type": "lets.period-budget/v1"
+        },
+        "digest": "sha256:a64c14f602cb285ad5e3fb2b98aefe73393620b45164947d9ed2ebd30c5980af"
+      },
+      "members": [
+        {
+          "attested": false,
+          "kind": "pocket",
+          "member_id": "old-phone"
+        },
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "input-order-does-not-matter",
+      "period_index": 0,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "Demand above the total scales every share by total over demand, rounding down.",
+      "expect": {
+        "budget": {
+          "ends_at_ns": 950400000000000,
+          "membership_digest": "sha256:78a310e5a2973004a9591df1d9640d88f47fa2d1c01153a10750da87c5048345",
+          "period_index": 0,
+          "policy_digest": "sha256:f101b69e3cfa3616783f4eb47e551f75c62bc1c20c70f73ae790c864e3197a10",
+          "reserve": {
+            "model_tokens": 0,
+            "notes_write": 1,
+            "outside_effect": 1
+          },
+          "shares": [
+            {
+              "fresh": {
+                "model_tokens": 150,
+                "notes_write": 72,
+                "outside_effect": 5
+              },
+              "member_id": "laptop",
+              "solo": {
+                "model_tokens": 150,
+                "notes_write": 10,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 50,
+                "notes_write": 9,
+                "outside_effect": 1
+              },
+              "member_id": "old-phone",
+              "solo": {
+                "model_tokens": 50,
+                "notes_write": 2,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 100,
+                "notes_write": 18,
+                "outside_effect": 3
+              },
+              "member_id": "phone",
+              "solo": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            }
+          ],
+          "starts_at_ns": 864000000000000,
+          "total": {
+            "model_tokens": 300,
+            "notes_write": 100,
+            "outside_effect": 10
+          },
+          "type": "lets.period-budget/v1"
+        },
+        "digest": "sha256:3353c83447e56745564ba2213ef5db4dc2707dd8c6b660dde5ac466c4ee4592c"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        },
+        {
+          "attested": false,
+          "kind": "pocket",
+          "member_id": "old-phone"
+        }
+      ],
+      "name": "oversubscribed-scales-down",
+      "period_index": 0,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "JguaYUHExwRHhE5EO9q_fMpeBcL4b8HQL5kwopVH1FUZWuBNBMB_a6YMI2Io0hvqVQYjThJM7KK-M0lrgOoxDg",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 300,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "Period 400 starts 400 periods after the epoch.",
+      "expect": {
+        "budget": {
+          "ends_at_ns": 35510400000000000,
+          "membership_digest": "sha256:78a310e5a2973004a9591df1d9640d88f47fa2d1c01153a10750da87c5048345",
+          "period_index": 400,
+          "policy_digest": "sha256:0b1e2c4661df3c9fd5d98217358285bb4df31b4e61970509927267de95766045",
+          "reserve": {
+            "model_tokens": 1,
+            "notes_write": 1,
+            "outside_effect": 1
+          },
+          "shares": [
+            {
+              "fresh": {
+                "model_tokens": 500,
+                "notes_write": 72,
+                "outside_effect": 5
+              },
+              "member_id": "laptop",
+              "solo": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 166,
+                "notes_write": 9,
+                "outside_effect": 1
+              },
+              "member_id": "old-phone",
+              "solo": {
+                "model_tokens": 50,
+                "notes_write": 2,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 333,
+                "notes_write": 18,
+                "outside_effect": 3
+              },
+              "member_id": "phone",
+              "solo": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            }
+          ],
+          "starts_at_ns": 35424000000000000,
+          "total": {
+            "model_tokens": 1000,
+            "notes_write": 100,
+            "outside_effect": 10
+          },
+          "type": "lets.period-budget/v1"
+        },
+        "digest": "sha256:ef4767798111134b18d69a86aa067843a5754224b91fbbf971fe1443d37a36c5"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        },
+        {
+          "attested": false,
+          "kind": "pocket",
+          "member_id": "old-phone"
+        }
+      ],
+      "name": "later-period",
+      "period_index": 400,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "A share that does not divide evenly rounds down and leaves a reserve.",
+      "expect": {
+        "budget": {
+          "ends_at_ns": 1036800000000000,
+          "membership_digest": "sha256:64d2da88958c7a780791a8a1518acb6504b3df1c1a86bc95ac148219a564c196",
+          "period_index": 1,
+          "policy_digest": "sha256:de415f98d3fed84b393640ca3c83aea78e98008cfc9643363a6f8d2ec464ae25",
+          "reserve": {
+            "model_tokens": 0,
+            "notes_write": 0,
+            "outside_effect": 1
+          },
+          "shares": [
+            {
+              "fresh": {
+                "model_tokens": 600,
+                "notes_write": 80,
+                "outside_effect": 4
+              },
+              "member_id": "laptop",
+              "solo": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              }
+            },
+            {
+              "fresh": {
+                "model_tokens": 400,
+                "notes_write": 20,
+                "outside_effect": 2
+              },
+              "member_id": "phone",
+              "solo": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            }
+          ],
+          "starts_at_ns": 950400000000000,
+          "total": {
+            "model_tokens": 1000,
+            "notes_write": 100,
+            "outside_effect": 7
+          },
+          "type": "lets.period-budget/v1"
+        },
+        "digest": "sha256:6f13e41aa9d67a0b3e453e0cebf23736a91ea73b5616ca3150c4b06421db3af8"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "odd-division-rounds-down",
+      "period_index": 1,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "kvKypO7VDM55L8mC9tbZG7QDIVnmW4gUPtENdQDGobQ_Ts4OX8CWLJu227x8QSmnkJM6B_GX6vaiAcm4OFiPAw",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 7
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "One member alone keeps its full share.",
+      "expect": {
+        "budget": {
+          "ends_at_ns": 1209600000000000,
+          "membership_digest": "sha256:26c61f14f11aedc04d92a4ce633fbf1a39f420a29ede1c2ccd0b85a8c7525c3f",
+          "period_index": 3,
+          "policy_digest": "sha256:0b1e2c4661df3c9fd5d98217358285bb4df31b4e61970509927267de95766045",
+          "reserve": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "shares": [
+            {
+              "fresh": {
+                "model_tokens": 400,
+                "notes_write": 20,
+                "outside_effect": 4
+              },
+              "member_id": "phone",
+              "solo": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            }
+          ],
+          "starts_at_ns": 1123200000000000,
+          "total": {
+            "model_tokens": 1000,
+            "notes_write": 100,
+            "outside_effect": 10
+          },
+          "type": "lets.period-budget/v1"
+        },
+        "digest": "sha256:caeed65036412a91b5fb39e9ec0291728566867952c0e6cf3e839506e346a630"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        }
+      ],
+      "name": "single-member",
+      "period_index": 3,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "A period needs at least one member.",
+      "expect": {
+        "refuse": "membership"
+      },
+      "members": [],
+      "name": "no-members",
+      "period_index": 0,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "A member id listed twice is refused.",
+      "expect": {
+        "refuse": "membership"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        }
+      ],
+      "name": "duplicate-member",
+      "period_index": 0,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "A member kind the policy does not price is refused.",
+      "expect": {
+        "refuse": "no_share"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "wrist",
+          "member_id": "watch"
+        }
+      ],
+      "name": "unknown-kind",
+      "period_index": 0,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "description": "A period whose end passes signed 64-bit time is refused.",
+      "expect": {
+        "refuse": "bounds"
+      },
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        }
+      ],
+      "name": "period-bounds-overflow",
+      "period_index": 106751,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    }
+  ],
+  "format": "lets.vectors/v1",
+  "period_index": [
+    {
+      "expect": {
+        "index": 0
+      },
+      "name": "at-the-epoch",
+      "now_ns": 864000000000000,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "expect": {
+        "index": 0
+      },
+      "name": "last-nanosecond-of-period-0",
+      "now_ns": 950399999999999,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "expect": {
+        "index": 1
+      },
+      "name": "first-nanosecond-of-period-1",
+      "now_ns": 950400000000000,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    },
+    {
+      "expect": {
+        "refuse": "before_epoch"
+      },
+      "name": "before-the-epoch",
+      "now_ns": 863999999999999,
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      }
+    }
+  ],
+  "summary": "Period budget derivation, period arithmetic and policy adoption.",
+  "verifier": {
+    "algorithm": "Ed25519 over the canonical unsigned policy, signature base64url in sig",
+    "issuer": "owner",
+    "key": {
+      "key_id": "owner/ed25519-336f85c651b854aed58fd8e40bfd8110",
+      "name": "owner",
+      "public_key": "k-IoruUTrWWrwL5rYq9jCwnuiTZiP-rrES0RRm3TA5U",
+      "warden_id": "owner"
+    }
+  },
+  "wire_type": "lets.period-policy/v1"
+}

@@ -22,6 +22,13 @@
       "public_key": "LK4IvuyASZTyzjAzjFib9aV85tIRRpAUFz8cpSrYTxw",
       "seed": "XWaTlcsuO8EkFyCo6FqYFSO5RQsXvkOLNBEDfqcfRgg",
       "warden_id": "mallory"
+    },
+    {
+      "key_id": "owner/ed25519-336f85c651b854aed58fd8e40bfd8110",
+      "name": "owner",
+      "public_key": "k-IoruUTrWWrwL5rYq9jCwnuiTZiP-rrES0RRm3TA5U",
+      "seed": "P32cuHLrRZ6h8gYWGUSqeN7zOvbGYiEUUgbYR7IOu_Y",
+      "warden_id": "owner"
     }
   ],
   "warning": "Test keys derived from public labels. Never use them for anything real."
