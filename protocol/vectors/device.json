@@ -1,0 +1,1310 @@
+{
+  "config_defaults": {
+    "freshness_window_ns": 86400000000000,
+    "max_clock_uncertainty_ns": 0,
+    "receipt_ttl_ns": 300000000000
+  },
+  "devices": [
+    "laptop",
+    "phone",
+    "phone2"
+  ],
+  "format": "lets.vectors/v1",
+  "ops": {
+    "allowance": "Compare the named fields of the holder's allowance.",
+    "clock": "Set the device clock with set_ns or move it with advance_ns.",
+    "contact": "Record contact with another member now.",
+    "retire": "Mark the holder retired for its current period.",
+    "set_policy": "Adopt a candidate policy. consent is null or a marker.",
+    "spend": "Spend units of one dimension. expect is ok or a refusal reason.",
+    "start": "Create the holder. seed_floor_from names a device whose backup seeds it.",
+    "transfer": "from offers amounts to to, to accepts, from settles."
+  },
+  "scenarios": [
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {},
+      "description": "A device with no contact spends its solo cap, then is refused.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "solo-share-and-edge",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            },
+            "consumed": {
+              "model_tokens": 0,
+              "notes_write": 0,
+              "outside_effect": 0
+            },
+            "mode": "solo",
+            "period_index": 0,
+            "remaining": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 5
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "solo_cap_reached",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "device": "phone",
+          "dimension": "outside_effect",
+          "expect": "solo_cap_reached",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "device": "phone",
+          "dimension": "teleport",
+          "expect": "unknown_dimension",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "invalid_amount",
+          "op": "spend",
+          "units": 0
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "consumed": {
+              "model_tokens": 0,
+              "notes_write": 5,
+              "outside_effect": 0
+            },
+            "remaining": {
+              "model_tokens": 100,
+              "notes_write": 0,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        }
+      ]
+    },
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {
+        "freshness_window_ns": 3600000000000
+      },
+      "description": "Contact unlocks the full share for exactly the freshness window.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "freshness-window",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "op": "contact"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 400,
+              "notes_write": 20,
+              "outside_effect": 4
+            },
+            "mode": "fresh"
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 20
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "share_spent",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "advance_ns": 3600000000000,
+          "device": "phone",
+          "op": "clock"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "mode": "fresh"
+          },
+          "op": "allowance"
+        },
+        {
+          "advance_ns": 1,
+          "device": "phone",
+          "op": "clock"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            },
+            "consumed": {
+              "model_tokens": 0,
+              "notes_write": 20,
+              "outside_effect": 0
+            },
+            "mode": "solo",
+            "remaining": {
+              "model_tokens": 100,
+              "notes_write": 0,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        }
+      ]
+    },
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {},
+      "description": "A device that is the only member is never fresh.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        }
+      ],
+      "name": "alone-in-the-mesh",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "op": "contact"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            },
+            "mode": "solo"
+          },
+          "op": "allowance"
+        }
+      ]
+    },
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {},
+      "description": "A later period gives a new share. A clock set back earns no period and spending stays bounded.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "new-period-and-clock-floor",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "op": "contact"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 5
+        },
+        {
+          "advance_ns": 172800000000000,
+          "device": "phone",
+          "op": "clock"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "consumed": {
+              "model_tokens": 0,
+              "notes_write": 0,
+              "outside_effect": 0
+            },
+            "mode": "solo",
+            "period_index": 2,
+            "remaining": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 3
+        },
+        {
+          "device": "phone",
+          "op": "clock",
+          "set_ns": 864000000001000
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "clock_regressed": true,
+            "consumed": {
+              "model_tokens": 0,
+              "notes_write": 3,
+              "outside_effect": 0
+            },
+            "period_index": 2,
+            "remaining": {
+              "model_tokens": 100,
+              "notes_write": 2,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "solo_cap_reached",
+          "op": "spend",
+          "units": 3
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 2
+        }
+      ]
+    },
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {},
+      "description": "A transfer moves unspent rights between devices and the total holds.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "transfer-restores-headroom",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "laptop",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "op": "contact"
+        },
+        {
+          "device": "laptop",
+          "op": "contact"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 20
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "share_spent",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "amounts": {
+            "model_tokens": 0,
+            "notes_write": 81,
+            "outside_effect": 0
+          },
+          "expect": "share_spent",
+          "from": "laptop",
+          "op": "transfer",
+          "to": "phone"
+        },
+        {
+          "amounts": {
+            "model_tokens": 0,
+            "notes_write": 30,
+            "outside_effect": 0
+          },
+          "expect": "ok",
+          "from": "laptop",
+          "op": "transfer",
+          "to": "phone"
+        },
+        {
+          "device": "laptop",
+          "expect": {
+            "cap": {
+              "model_tokens": 600,
+              "notes_write": 50,
+              "outside_effect": 6
+            },
+            "remaining": {
+              "model_tokens": 600,
+              "notes_write": 50,
+              "outside_effect": 6
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 400,
+              "notes_write": 50,
+              "outside_effect": 4
+            },
+            "consumed": {
+              "model_tokens": 0,
+              "notes_write": 20,
+              "outside_effect": 0
+            },
+            "remaining": {
+              "model_tokens": 400,
+              "notes_write": 30,
+              "outside_effect": 4
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 30
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "share_spent",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "device": "laptop",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 50
+        },
+        {
+          "device": "laptop",
+          "dimension": "notes_write",
+          "expect": "share_spent",
+          "op": "spend",
+          "units": 1
+        }
+      ]
+    },
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {},
+      "description": "A restored device is a new holder with a fresh share, and the old holder's share lapses with its period.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        },
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone2"
+        }
+      ],
+      "name": "restore-as-a-new-holder",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "op": "contact"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 5
+        },
+        {
+          "device": "phone",
+          "expect": "new_member_id_required",
+          "op": "start",
+          "seed_floor_from": "phone"
+        },
+        {
+          "device": "phone2",
+          "op": "start",
+          "seed_floor_from": "phone"
+        },
+        {
+          "device": "phone2",
+          "expect": {
+            "consumed": {
+              "model_tokens": 0,
+              "notes_write": 0,
+              "outside_effect": 0
+            },
+            "mode": "solo",
+            "remaining": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone2",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "device": "phone",
+          "op": "retire"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "retired": true
+          },
+          "op": "allowance"
+        },
+        {
+          "advance_ns": 86400000000000,
+          "device": "phone",
+          "op": "clock"
+        },
+        {
+          "advance_ns": 86400000000000,
+          "device": "phone2",
+          "op": "clock"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "lapsed",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "device": "phone2",
+          "expect": {
+            "period_index": 1,
+            "remaining": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        }
+      ]
+    },
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {},
+      "description": "A device the roster did not list at period start holds no share.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "not-in-the-period-membership",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "laptop",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "remaining": {
+              "model_tokens": 0,
+              "notes_write": 0,
+              "outside_effect": 0
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "not_a_member",
+          "op": "spend",
+          "units": 1
+        },
+        {
+          "amounts": {
+            "model_tokens": 0,
+            "notes_write": 1,
+            "outside_effect": 0
+          },
+          "expect": "not_a_member",
+          "from": "phone",
+          "op": "transfer",
+          "to": "laptop"
+        }
+      ]
+    },
+    {
+      "clock_start_ns": 864000000001000,
+      "config": {},
+      "description": "Narrowing applies at once. Widening needs consent bound to its digest and starts with the next period.",
+      "members": [
+        {
+          "attested": true,
+          "kind": "pocket",
+          "member_id": "phone"
+        },
+        {
+          "attested": true,
+          "kind": "desktop",
+          "member_id": "laptop"
+        }
+      ],
+      "name": "policy-narrowing-and-widening",
+      "policy": {
+        "epoch_ns": 864000000000000,
+        "issuer": "owner",
+        "period_ns": 86400000000000,
+        "policy_id": "mesh-budget",
+        "reduction_permille": {
+          "attested": 0,
+          "unattested": 500
+        },
+        "shares": {
+          "desktop": {
+            "model_tokens": 600,
+            "notes_write": 80,
+            "outside_effect": 6
+          },
+          "pocket": {
+            "model_tokens": 400,
+            "notes_write": 20,
+            "outside_effect": 4
+          }
+        },
+        "sig": "BMyiFfTHv8HqdxU2vM9FsKNNT2Xl4J-WJirHjA7MtgBUHRRzZAtN-i4iNQZwoCCoRl8ef6hpHDZjT6tZehrTCA",
+        "solo": {
+          "desktop": {
+            "model_tokens": 200,
+            "notes_write": 10,
+            "outside_effect": 0
+          },
+          "pocket": {
+            "model_tokens": 100,
+            "notes_write": 5,
+            "outside_effect": 0
+          }
+        },
+        "totals": {
+          "model_tokens": 1000,
+          "notes_write": 100,
+          "outside_effect": 10
+        },
+        "type": "lets.period-policy/v1",
+        "version": 1
+      },
+      "steps": [
+        {
+          "device": "phone",
+          "op": "start"
+        },
+        {
+          "device": "phone",
+          "op": "contact"
+        },
+        {
+          "device": "phone",
+          "dimension": "notes_write",
+          "expect": "ok",
+          "op": "spend",
+          "units": 4
+        },
+        {
+          "consent": null,
+          "device": "phone",
+          "expect": "ok",
+          "op": "set_policy",
+          "policy": {
+            "epoch_ns": 864000000000000,
+            "issuer": "owner",
+            "period_ns": 86400000000000,
+            "policy_id": "mesh-budget",
+            "reduction_permille": {
+              "attested": 0,
+              "unattested": 500
+            },
+            "shares": {
+              "desktop": {
+                "model_tokens": 600,
+                "notes_write": 80,
+                "outside_effect": 6
+              },
+              "pocket": {
+                "model_tokens": 400,
+                "notes_write": 10,
+                "outside_effect": 4
+              }
+            },
+            "sig": "thXve_og9czKSCyW15DDZGabNkIGOqRSD0UuVCzn0U-H7hjRsilgChFGg1htBkK_q_4dEYPhfBNuI2K4Ear-Aw",
+            "solo": {
+              "desktop": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              },
+              "pocket": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            },
+            "totals": {
+              "model_tokens": 1000,
+              "notes_write": 100,
+              "outside_effect": 10
+            },
+            "type": "lets.period-policy/v1",
+            "version": 2
+          }
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 400,
+              "notes_write": 10,
+              "outside_effect": 4
+            },
+            "remaining": {
+              "model_tokens": 400,
+              "notes_write": 6,
+              "outside_effect": 4
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "consent": null,
+          "device": "phone",
+          "expect": "consent_required",
+          "op": "set_policy",
+          "policy": {
+            "epoch_ns": 864000000000000,
+            "issuer": "owner",
+            "period_ns": 86400000000000,
+            "policy_id": "mesh-budget",
+            "reduction_permille": {
+              "attested": 0,
+              "unattested": 500
+            },
+            "shares": {
+              "desktop": {
+                "model_tokens": 600,
+                "notes_write": 60,
+                "outside_effect": 6
+              },
+              "pocket": {
+                "model_tokens": 400,
+                "notes_write": 40,
+                "outside_effect": 4
+              }
+            },
+            "sig": "uCoraC2OxbxhV4W0Ifieirg9OWzedMZIOUSji8O84t55sJ-Yysc95wZSbnrh4GWVeFVDKz8iBGsNRonSgLybDQ",
+            "solo": {
+              "desktop": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              },
+              "pocket": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            },
+            "totals": {
+              "model_tokens": 1000,
+              "notes_write": 100,
+              "outside_effect": 10
+            },
+            "type": "lets.period-policy/v1",
+            "version": 3
+          }
+        },
+        {
+          "consent": {
+            "evidence": "presence-signature-1",
+            "given_by": "owner",
+            "policy_digest": "sha256:97499151ff4ab39c69641fca1ca621a818289c91798b313ce824403f6acaf304"
+          },
+          "device": "phone",
+          "expect": "consent_required",
+          "op": "set_policy",
+          "policy": {
+            "epoch_ns": 864000000000000,
+            "issuer": "owner",
+            "period_ns": 86400000000000,
+            "policy_id": "mesh-budget",
+            "reduction_permille": {
+              "attested": 0,
+              "unattested": 500
+            },
+            "shares": {
+              "desktop": {
+                "model_tokens": 600,
+                "notes_write": 60,
+                "outside_effect": 6
+              },
+              "pocket": {
+                "model_tokens": 400,
+                "notes_write": 40,
+                "outside_effect": 4
+              }
+            },
+            "sig": "uCoraC2OxbxhV4W0Ifieirg9OWzedMZIOUSji8O84t55sJ-Yysc95wZSbnrh4GWVeFVDKz8iBGsNRonSgLybDQ",
+            "solo": {
+              "desktop": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              },
+              "pocket": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            },
+            "totals": {
+              "model_tokens": 1000,
+              "notes_write": 100,
+              "outside_effect": 10
+            },
+            "type": "lets.period-policy/v1",
+            "version": 3
+          }
+        },
+        {
+          "consent": {
+            "evidence": "presence-signature-1",
+            "given_by": "owner",
+            "policy_digest": "sha256:7f5ef6678c039ad376fbc85a38a773f34a5aacecba274d12cd41bad9fb5ae8f8"
+          },
+          "device": "phone",
+          "expect": "ok",
+          "op": "set_policy",
+          "policy": {
+            "epoch_ns": 864000000000000,
+            "issuer": "owner",
+            "period_ns": 86400000000000,
+            "policy_id": "mesh-budget",
+            "reduction_permille": {
+              "attested": 0,
+              "unattested": 500
+            },
+            "shares": {
+              "desktop": {
+                "model_tokens": 600,
+                "notes_write": 60,
+                "outside_effect": 6
+              },
+              "pocket": {
+                "model_tokens": 400,
+                "notes_write": 40,
+                "outside_effect": 4
+              }
+            },
+            "sig": "uCoraC2OxbxhV4W0Ifieirg9OWzedMZIOUSji8O84t55sJ-Yysc95wZSbnrh4GWVeFVDKz8iBGsNRonSgLybDQ",
+            "solo": {
+              "desktop": {
+                "model_tokens": 200,
+                "notes_write": 10,
+                "outside_effect": 0
+              },
+              "pocket": {
+                "model_tokens": 100,
+                "notes_write": 5,
+                "outside_effect": 0
+              }
+            },
+            "totals": {
+              "model_tokens": 1000,
+              "notes_write": 100,
+              "outside_effect": 10
+            },
+            "type": "lets.period-policy/v1",
+            "version": 3
+          }
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "remaining": {
+              "model_tokens": 400,
+              "notes_write": 6,
+              "outside_effect": 4
+            }
+          },
+          "op": "allowance"
+        },
+        {
+          "advance_ns": 86400000000001,
+          "device": "phone",
+          "op": "clock"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 100,
+              "notes_write": 5,
+              "outside_effect": 0
+            },
+            "mode": "solo",
+            "period_index": 1
+          },
+          "op": "allowance"
+        },
+        {
+          "device": "phone",
+          "op": "contact"
+        },
+        {
+          "device": "phone",
+          "expect": {
+            "cap": {
+              "model_tokens": 400,
+              "notes_write": 40,
+              "outside_effect": 4
+            },
+            "mode": "fresh"
+          },
+          "op": "allowance"
+        }
+      ]
+    }
+  ],
+  "summary": "Device holder scenarios: shares, freshness, clock floor, transfers, restore.",
+  "verifier": {
+    "algorithm": "Ed25519 over the canonical unsigned policy, signature base64url in sig",
+    "issuer": "owner",
+    "key": {
+      "key_id": "owner/ed25519-336f85c651b854aed58fd8e40bfd8110",
+      "name": "owner",
+      "public_key": "k-IoruUTrWWrwL5rYq9jCwnuiTZiP-rrES0RRm3TA5U",
+      "warden_id": "owner"
+    }
+  },
+  "wire_type": "lets.device-profile/v1"
+}

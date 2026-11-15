@@ -1,0 +1,332 @@
+{
+  "cases": [
+    {
+      "description": "An acknowledgement of a pool transfer.",
+      "name": "valid-pool",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"accepted_at_ns\":1800000000000000000,\"config_epoch\":1,\"contiguous_watermark\":1,\"envelope_id\":\"envelope-1\",\"key_id\":\"warden-b/ed25519-ab481b52feb850429591bf293bb61eb1\",\"sequence\":1,\"source_warden\":\"warden-a\",\"target_warden\":\"warden-b\",\"tenant_id\":\"tenant-1\",\"transfer_id\":\"transfer-0001\",\"type\":\"lets.transfer-ack/v1\",\"voucher_digest\":\"sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1\"}",
+          "signing_input_sha256": "0cd6a6c9e9a80f8b5ac2cc136074eb03089ef1dc5aa233c3b6cd45e807a59675",
+          "wire": {
+            "accepted_at_ns": 1800000000000000000,
+            "config_epoch": 1,
+            "contiguous_watermark": 1,
+            "envelope_id": "envelope-1",
+            "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+            "sequence": 1,
+            "signature": "7UnFLzEw8lyo7p8LF4I5yD_DIZxENdhbVpqO0jRY0C8g3PsIzm7Upf6Bwu7nJiUJDpZsI9dsmqt79uouQF9aDQ",
+            "source_warden": "warden-a",
+            "target_warden": "warden-b",
+            "tenant_id": "tenant-1",
+            "transfer_id": "transfer-0001",
+            "type": "lets.transfer-ack/v1",
+            "voucher_digest": "sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1"
+          }
+        }
+      ],
+      "verifier": {
+        "source_warden": "warden-a",
+        "voucher": {
+          "amount": [
+            5,
+            1
+          ],
+          "config_epoch": 1,
+          "envelope_id": "envelope-1",
+          "issued_at_ns": 1799999999000000000,
+          "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+          "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+          "policy_id": "vector-policy",
+          "policy_version": "v1",
+          "sequence": 1,
+          "signature": "mEGNMnuPelSUL4ZUiwpOIrpA3nwkSsoKn1FAnQOUAKE5CV9odjMGaNFh2jyKcCeOItwSVq-W1ZE7f-moYX0XCw",
+          "source_warden": "warden-a",
+          "target_warden": "warden-b",
+          "tenant_id": "tenant-1",
+          "transfer_id": "transfer-0001",
+          "type": "lets.transfer-voucher/v1"
+        }
+      }
+    },
+    {
+      "description": "An acknowledgement that reports the child lease outcome.",
+      "name": "valid-lease",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"accepted_at_ns\":1800000000000000000,\"child_lease_id\":\"lease-remote-child\",\"child_outcome\":\"ISSUED\",\"config_epoch\":1,\"contiguous_watermark\":2,\"envelope_id\":\"envelope-1\",\"key_id\":\"warden-b/ed25519-ab481b52feb850429591bf293bb61eb1\",\"sequence\":2,\"source_warden\":\"warden-a\",\"target_warden\":\"warden-b\",\"tenant_id\":\"tenant-1\",\"transfer_id\":\"transfer-0002\",\"type\":\"lets.transfer-ack/v1\",\"voucher_digest\":\"sha256:7e46b50275e80f3699cd847e8f44cde094faec667e4d4e46635bfdc242af4554\"}",
+          "signing_input_sha256": "90ca0c6cdea09d33060f19296246c1088b71e171b0a55156a9335cbf612cebe3",
+          "wire": {
+            "accepted_at_ns": 1800000000000000000,
+            "child_lease_id": "lease-remote-child",
+            "child_outcome": "ISSUED",
+            "config_epoch": 1,
+            "contiguous_watermark": 2,
+            "envelope_id": "envelope-1",
+            "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+            "sequence": 2,
+            "signature": "GKkciXbiJUB3ouDvfyEnDMWhAS6gogOiP5E0U1oDXLHxUwLszzuSPbnM-HtkFGGAblFvX5XgzEpzS2bZBTKvAg",
+            "source_warden": "warden-a",
+            "target_warden": "warden-b",
+            "tenant_id": "tenant-1",
+            "transfer_id": "transfer-0002",
+            "type": "lets.transfer-ack/v1",
+            "voucher_digest": "sha256:7e46b50275e80f3699cd847e8f44cde094faec667e4d4e46635bfdc242af4554"
+          }
+        }
+      ],
+      "verifier": {
+        "source_warden": "warden-a",
+        "voucher": {
+          "amount": [
+            5,
+            1
+          ],
+          "config_epoch": 1,
+          "envelope_id": "envelope-1",
+          "issued_at_ns": 1799999999000000000,
+          "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+          "kind": "lease",
+          "lease_request": {
+            "ancestor_path": [
+              "lease-root"
+            ],
+            "branch_epoch": 1,
+            "capabilities": [
+              "tool.notes.write"
+            ],
+            "child_lease_id": "lease-remote-child",
+            "expires_at_ns": 1800003600000000000,
+            "lineage_id": "lineage-1",
+            "parent_id": "lease-root",
+            "subject_id": "agent-1"
+          },
+          "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+          "policy_id": "vector-policy",
+          "policy_version": "v1",
+          "sequence": 2,
+          "signature": "oNaH6AuIaKlZcgOfFJME06COiznS8q31hyBfRUs-_nudunecGNdaxV51HUns--6Da1JuUUnxgssU8CBvq37SBg",
+          "source_warden": "warden-a",
+          "target_warden": "warden-b",
+          "tenant_id": "tenant-1",
+          "transfer_id": "transfer-0002",
+          "type": "lets.transfer-voucher/v1"
+        }
+      }
+    },
+    {
+      "description": "Signed by another key but naming the trusted key id.",
+      "name": "bad-signature",
+      "steps": [
+        {
+          "expect": "signature",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"accepted_at_ns\":1800000000000000000,\"config_epoch\":1,\"contiguous_watermark\":1,\"envelope_id\":\"envelope-1\",\"key_id\":\"warden-b/ed25519-ab481b52feb850429591bf293bb61eb1\",\"sequence\":1,\"source_warden\":\"warden-a\",\"target_warden\":\"warden-b\",\"tenant_id\":\"tenant-1\",\"transfer_id\":\"transfer-0001\",\"type\":\"lets.transfer-ack/v1\",\"voucher_digest\":\"sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1\"}",
+          "signing_input_sha256": "0cd6a6c9e9a80f8b5ac2cc136074eb03089ef1dc5aa233c3b6cd45e807a59675",
+          "wire": {
+            "accepted_at_ns": 1800000000000000000,
+            "config_epoch": 1,
+            "contiguous_watermark": 1,
+            "envelope_id": "envelope-1",
+            "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+            "sequence": 1,
+            "signature": "gAsgszpiy7wqQBDAkNrrWNm6ZqckVvBmdEgswU8nYUXaFRsRJO2WqTsUqieUPLFOSAxmxsbQrIeTY4j2PUn_Bg",
+            "source_warden": "warden-a",
+            "target_warden": "warden-b",
+            "tenant_id": "tenant-1",
+            "transfer_id": "transfer-0001",
+            "type": "lets.transfer-ack/v1",
+            "voucher_digest": "sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1"
+          }
+        }
+      ],
+      "verifier": {
+        "source_warden": "warden-a",
+        "voucher": {
+          "amount": [
+            5,
+            1
+          ],
+          "config_epoch": 1,
+          "envelope_id": "envelope-1",
+          "issued_at_ns": 1799999999000000000,
+          "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+          "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+          "policy_id": "vector-policy",
+          "policy_version": "v1",
+          "sequence": 1,
+          "signature": "mEGNMnuPelSUL4ZUiwpOIrpA3nwkSsoKn1FAnQOUAKE5CV9odjMGaNFh2jyKcCeOItwSVq-W1ZE7f-moYX0XCw",
+          "source_warden": "warden-a",
+          "target_warden": "warden-b",
+          "tenant_id": "tenant-1",
+          "transfer_id": "transfer-0001",
+          "type": "lets.transfer-voucher/v1"
+        }
+      }
+    },
+    {
+      "description": "The warden verifying the acknowledgement is not its source.",
+      "name": "wrong-audience",
+      "steps": [
+        {
+          "expect": "audience",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"accepted_at_ns\":1800000000000000000,\"config_epoch\":1,\"contiguous_watermark\":1,\"envelope_id\":\"envelope-1\",\"key_id\":\"warden-b/ed25519-ab481b52feb850429591bf293bb61eb1\",\"sequence\":1,\"source_warden\":\"warden-a\",\"target_warden\":\"warden-b\",\"tenant_id\":\"tenant-1\",\"transfer_id\":\"transfer-0001\",\"type\":\"lets.transfer-ack/v1\",\"voucher_digest\":\"sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1\"}",
+          "signing_input_sha256": "0cd6a6c9e9a80f8b5ac2cc136074eb03089ef1dc5aa233c3b6cd45e807a59675",
+          "wire": {
+            "accepted_at_ns": 1800000000000000000,
+            "config_epoch": 1,
+            "contiguous_watermark": 1,
+            "envelope_id": "envelope-1",
+            "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+            "sequence": 1,
+            "signature": "7UnFLzEw8lyo7p8LF4I5yD_DIZxENdhbVpqO0jRY0C8g3PsIzm7Upf6Bwu7nJiUJDpZsI9dsmqt79uouQF9aDQ",
+            "source_warden": "warden-a",
+            "target_warden": "warden-b",
+            "tenant_id": "tenant-1",
+            "transfer_id": "transfer-0001",
+            "type": "lets.transfer-ack/v1",
+            "voucher_digest": "sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1"
+          }
+        }
+      ],
+      "verifier": {
+        "source_warden": "warden-c",
+        "voucher": {
+          "amount": [
+            5,
+            1
+          ],
+          "config_epoch": 1,
+          "envelope_id": "envelope-1",
+          "issued_at_ns": 1799999999000000000,
+          "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+          "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+          "policy_id": "vector-policy",
+          "policy_version": "v1",
+          "sequence": 1,
+          "signature": "mEGNMnuPelSUL4ZUiwpOIrpA3nwkSsoKn1FAnQOUAKE5CV9odjMGaNFh2jyKcCeOItwSVq-W1ZE7f-moYX0XCw",
+          "source_warden": "warden-a",
+          "target_warden": "warden-b",
+          "tenant_id": "tenant-1",
+          "transfer_id": "transfer-0001",
+          "type": "lets.transfer-voucher/v1"
+        }
+      }
+    },
+    {
+      "description": "The acknowledgement answers a different voucher.",
+      "name": "voucher-digest-mismatch",
+      "steps": [
+        {
+          "expect": "voucher_digest",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"accepted_at_ns\":1800000000000000000,\"config_epoch\":1,\"contiguous_watermark\":1,\"envelope_id\":\"envelope-1\",\"key_id\":\"warden-b/ed25519-ab481b52feb850429591bf293bb61eb1\",\"sequence\":1,\"source_warden\":\"warden-a\",\"target_warden\":\"warden-b\",\"tenant_id\":\"tenant-1\",\"transfer_id\":\"transfer-0001\",\"type\":\"lets.transfer-ack/v1\",\"voucher_digest\":\"sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1\"}",
+          "signing_input_sha256": "0cd6a6c9e9a80f8b5ac2cc136074eb03089ef1dc5aa233c3b6cd45e807a59675",
+          "wire": {
+            "accepted_at_ns": 1800000000000000000,
+            "config_epoch": 1,
+            "contiguous_watermark": 1,
+            "envelope_id": "envelope-1",
+            "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+            "sequence": 1,
+            "signature": "7UnFLzEw8lyo7p8LF4I5yD_DIZxENdhbVpqO0jRY0C8g3PsIzm7Upf6Bwu7nJiUJDpZsI9dsmqt79uouQF9aDQ",
+            "source_warden": "warden-a",
+            "target_warden": "warden-b",
+            "tenant_id": "tenant-1",
+            "transfer_id": "transfer-0001",
+            "type": "lets.transfer-ack/v1",
+            "voucher_digest": "sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1"
+          }
+        }
+      ],
+      "verifier": {
+        "source_warden": "warden-a",
+        "voucher": {
+          "amount": [
+            6,
+            1
+          ],
+          "config_epoch": 1,
+          "envelope_id": "envelope-1",
+          "issued_at_ns": 1799999999000000000,
+          "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+          "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+          "policy_id": "vector-policy",
+          "policy_version": "v1",
+          "sequence": 1,
+          "signature": "K3Kmx9ofCOab8YioNYWvVlM8qSnvJ0ft2Wkotx-2IsYl2WkGRFgvT8A8VxjPisdlycAYAQA4-744UgVemzhWAQ",
+          "source_warden": "warden-a",
+          "target_warden": "warden-b",
+          "tenant_id": "tenant-1",
+          "transfer_id": "transfer-0003",
+          "type": "lets.transfer-voucher/v1"
+        }
+      }
+    },
+    {
+      "description": "A field outside the frozen set is refused.",
+      "name": "malformed-unknown-field",
+      "steps": [
+        {
+          "expect": "malformed",
+          "now_ns": 1800000000000000000,
+          "wire": {
+            "accepted_at_ns": 1800000000000000000,
+            "config_epoch": 1,
+            "contiguous_watermark": 1,
+            "envelope_id": "envelope-1",
+            "extra": 1,
+            "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+            "sequence": 1,
+            "signature": "7UnFLzEw8lyo7p8LF4I5yD_DIZxENdhbVpqO0jRY0C8g3PsIzm7Upf6Bwu7nJiUJDpZsI9dsmqt79uouQF9aDQ",
+            "source_warden": "warden-a",
+            "target_warden": "warden-b",
+            "tenant_id": "tenant-1",
+            "transfer_id": "transfer-0001",
+            "type": "lets.transfer-ack/v1",
+            "voucher_digest": "sha256:0c87cdc7bfe71d5339cc0de805b3231171c55a81ec3102ced9af81bf22ec77b1"
+          }
+        }
+      ],
+      "verifier": {
+        "source_warden": "warden-a",
+        "voucher": {
+          "amount": [
+            5,
+            1
+          ],
+          "config_epoch": 1,
+          "envelope_id": "envelope-1",
+          "issued_at_ns": 1799999999000000000,
+          "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+          "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+          "policy_id": "vector-policy",
+          "policy_version": "v1",
+          "sequence": 1,
+          "signature": "mEGNMnuPelSUL4ZUiwpOIrpA3nwkSsoKn1FAnQOUAKE5CV9odjMGaNFh2jyKcCeOItwSVq-W1ZE7f-moYX0XCw",
+          "source_warden": "warden-a",
+          "target_warden": "warden-b",
+          "tenant_id": "tenant-1",
+          "transfer_id": "transfer-0001",
+          "type": "lets.transfer-voucher/v1"
+        }
+      }
+    }
+  ],
+  "clock_ns": 1800000000000000000,
+  "format": "lets.vectors/v1",
+  "summary": "Signed transfer acknowledgement.",
+  "trusted_keys": [
+    {
+      "key_id": "warden-b/ed25519-ab481b52feb850429591bf293bb61eb1",
+      "name": "warden-b",
+      "public_key": "oFn5pIxBMw0ypAsvQjVdjdF5dSVEwCL0IpbP3qBEzaE",
+      "warden_id": "warden-b"
+    }
+  ],
+  "wire_type": "lets.transfer-ack/v1"
+}

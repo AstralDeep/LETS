@@ -1,0 +1,376 @@
+{
+  "cases": [
+    {
+      "description": "A root lease inside its window.",
+      "name": "valid-root",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"allocation\":[100,20],\"ancestor_path\":[],\"branch_epoch\":0,\"capabilities\":[\"tool.notes.write\",\"tool.web.send\"],\"config_epoch\":1,\"envelope_id\":\"envelope-1\",\"expires_at_ns\":1800003600000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"parent_id\":null,\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"subject_id\":\"agent-1\",\"tenant_id\":\"tenant-1\",\"type\":\"lets.lease-grant/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "ff78060be95af423cc103f2e8a519c4cc1435a6103e357364f9a4ccee85f911a",
+          "wire": {
+            "allocation": [
+              100,
+              20
+            ],
+            "ancestor_path": [],
+            "branch_epoch": 0,
+            "capabilities": [
+              "tool.notes.write",
+              "tool.web.send"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": null,
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "5sqnPwjvcOdLpAoOfCIUNfhCfsNwDK3sW3we40Xbw0iP-Y10g5dda0N1QWLzosy6B6aY60dlC0CAUbblkpX7AQ",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-a",
+        "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+      }
+    },
+    {
+      "description": "A child lease with a one-entry ancestor path.",
+      "name": "valid-child",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"allocation\":[10,0],\"ancestor_path\":[\"lease-root\"],\"branch_epoch\":2,\"capabilities\":[\"tool.notes.write\"],\"config_epoch\":1,\"envelope_id\":\"envelope-1\",\"expires_at_ns\":1800003600000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-child\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"parent_id\":\"lease-root\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"subject_id\":\"agent-1\",\"tenant_id\":\"tenant-1\",\"type\":\"lets.lease-grant/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "2e3f6d93db63b8d73d44b096218f8543eb168a10d8e34fcd70b08daf477abab5",
+          "wire": {
+            "allocation": [
+              10,
+              0
+            ],
+            "ancestor_path": [
+              "lease-root"
+            ],
+            "branch_epoch": 2,
+            "capabilities": [
+              "tool.notes.write"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-child",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": "lease-root",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "t7foQNw4Mnj7y2opcZP_6hJzaKm7uV-UH5QRZQsjxcFshp5R2xVcpANuWZelIQ4QaB8_F8YqbnHfbSTcaPGFBQ",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-a",
+        "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+      }
+    },
+    {
+      "description": "Signed by another key but naming the trusted key id.",
+      "name": "bad-signature",
+      "steps": [
+        {
+          "expect": "signature",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"allocation\":[100,20],\"ancestor_path\":[],\"branch_epoch\":0,\"capabilities\":[\"tool.notes.write\",\"tool.web.send\"],\"config_epoch\":1,\"envelope_id\":\"envelope-1\",\"expires_at_ns\":1800003600000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"parent_id\":null,\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"subject_id\":\"agent-1\",\"tenant_id\":\"tenant-1\",\"type\":\"lets.lease-grant/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "ff78060be95af423cc103f2e8a519c4cc1435a6103e357364f9a4ccee85f911a",
+          "wire": {
+            "allocation": [
+              100,
+              20
+            ],
+            "ancestor_path": [],
+            "branch_epoch": 0,
+            "capabilities": [
+              "tool.notes.write",
+              "tool.web.send"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": null,
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "AL3vZEhQDm0CGf0oUWAPPVVKI24q4zbOzT9Yp8N0imXZnLQx5_5dhJkFraFb3sYGWX6WA45TAsvmD40xJRffBw",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-a",
+        "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+      }
+    },
+    {
+      "description": "The holder verifying the grant is not the warden it names.",
+      "name": "wrong-audience",
+      "steps": [
+        {
+          "expect": "audience",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"allocation\":[100,20],\"ancestor_path\":[],\"branch_epoch\":0,\"capabilities\":[\"tool.notes.write\",\"tool.web.send\"],\"config_epoch\":1,\"envelope_id\":\"envelope-1\",\"expires_at_ns\":1800003600000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"parent_id\":null,\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"subject_id\":\"agent-1\",\"tenant_id\":\"tenant-1\",\"type\":\"lets.lease-grant/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "ff78060be95af423cc103f2e8a519c4cc1435a6103e357364f9a4ccee85f911a",
+          "wire": {
+            "allocation": [
+              100,
+              20
+            ],
+            "ancestor_path": [],
+            "branch_epoch": 0,
+            "capabilities": [
+              "tool.notes.write",
+              "tool.web.send"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": null,
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "5sqnPwjvcOdLpAoOfCIUNfhCfsNwDK3sW3we40Xbw0iP-Y10g5dda0N1QWLzosy6B6aY60dlC0CAUbblkpX7AQ",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-b",
+        "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+      }
+    },
+    {
+      "description": "The clock is at the exact expiry instant.",
+      "name": "expired",
+      "steps": [
+        {
+          "expect": "expired",
+          "now_ns": 1800003600000000000,
+          "signing_input": "{\"allocation\":[100,20],\"ancestor_path\":[],\"branch_epoch\":0,\"capabilities\":[\"tool.notes.write\",\"tool.web.send\"],\"config_epoch\":1,\"envelope_id\":\"envelope-1\",\"expires_at_ns\":1800003600000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"parent_id\":null,\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"subject_id\":\"agent-1\",\"tenant_id\":\"tenant-1\",\"type\":\"lets.lease-grant/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "ff78060be95af423cc103f2e8a519c4cc1435a6103e357364f9a4ccee85f911a",
+          "wire": {
+            "allocation": [
+              100,
+              20
+            ],
+            "ancestor_path": [],
+            "branch_epoch": 0,
+            "capabilities": [
+              "tool.notes.write",
+              "tool.web.send"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": null,
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "5sqnPwjvcOdLpAoOfCIUNfhCfsNwDK3sW3we40Xbw0iP-Y10g5dda0N1QWLzosy6B6aY60dlC0CAUbblkpX7AQ",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-a",
+        "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+      }
+    },
+    {
+      "description": "The clock is before issuance.",
+      "name": "not-yet-valid",
+      "steps": [
+        {
+          "expect": "not_yet_valid",
+          "now_ns": 1799999989999999999,
+          "signing_input": "{\"allocation\":[100,20],\"ancestor_path\":[],\"branch_epoch\":0,\"capabilities\":[\"tool.notes.write\",\"tool.web.send\"],\"config_epoch\":1,\"envelope_id\":\"envelope-1\",\"expires_at_ns\":1800003600000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"parent_id\":null,\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"subject_id\":\"agent-1\",\"tenant_id\":\"tenant-1\",\"type\":\"lets.lease-grant/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "ff78060be95af423cc103f2e8a519c4cc1435a6103e357364f9a4ccee85f911a",
+          "wire": {
+            "allocation": [
+              100,
+              20
+            ],
+            "ancestor_path": [],
+            "branch_epoch": 0,
+            "capabilities": [
+              "tool.notes.write",
+              "tool.web.send"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": null,
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "5sqnPwjvcOdLpAoOfCIUNfhCfsNwDK3sW3we40Xbw0iP-Y10g5dda0N1QWLzosy6B6aY60dlC0CAUbblkpX7AQ",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-a",
+        "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+      }
+    },
+    {
+      "description": "The grant policy digest is not the one the holder expects.",
+      "name": "policy-digest-mismatch",
+      "steps": [
+        {
+          "expect": "policy_digest",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"allocation\":[100,20],\"ancestor_path\":[],\"branch_epoch\":0,\"capabilities\":[\"tool.notes.write\",\"tool.web.send\"],\"config_epoch\":1,\"envelope_id\":\"envelope-1\",\"expires_at_ns\":1800003600000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"parent_id\":null,\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"subject_id\":\"agent-1\",\"tenant_id\":\"tenant-1\",\"type\":\"lets.lease-grant/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "ff78060be95af423cc103f2e8a519c4cc1435a6103e357364f9a4ccee85f911a",
+          "wire": {
+            "allocation": [
+              100,
+              20
+            ],
+            "ancestor_path": [],
+            "branch_epoch": 0,
+            "capabilities": [
+              "tool.notes.write",
+              "tool.web.send"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": null,
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "5sqnPwjvcOdLpAoOfCIUNfhCfsNwDK3sW3we40Xbw0iP-Y10g5dda0N1QWLzosy6B6aY60dlC0CAUbblkpX7AQ",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-a",
+        "policy_digest": "sha256:cfe843d387bc27bfd047656b44990eca402577df7239a61ad79ddd7a21347890"
+      }
+    },
+    {
+      "description": "A field outside the frozen set is refused.",
+      "name": "malformed-unknown-field",
+      "steps": [
+        {
+          "expect": "malformed",
+          "now_ns": 1800000000000000000,
+          "wire": {
+            "allocation": [
+              100,
+              20
+            ],
+            "ancestor_path": [],
+            "branch_epoch": 0,
+            "capabilities": [
+              "tool.notes.write",
+              "tool.web.send"
+            ],
+            "config_epoch": 1,
+            "envelope_id": "envelope-1",
+            "expires_at_ns": 1800003600000000000,
+            "extra": 1,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "parent_id": null,
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "signature": "5sqnPwjvcOdLpAoOfCIUNfhCfsNwDK3sW3we40Xbw0iP-Y10g5dda0N1QWLzosy6B6aY60dlC0CAUbblkpX7AQ",
+            "subject_id": "agent-1",
+            "tenant_id": "tenant-1",
+            "type": "lets.lease-grant/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "holder_warden": "warden-a",
+        "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+      }
+    }
+  ],
+  "clock_ns": 1800000000000000000,
+  "format": "lets.vectors/v1",
+  "summary": "Signed lease grant.",
+  "trusted_keys": [
+    {
+      "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+      "name": "warden-a",
+      "public_key": "pfU2x606nK61PZ9zOv_239pB4tX_t0MuvmDyTx5Ryxc",
+      "warden_id": "warden-a"
+    }
+  ],
+  "wire_type": "lets.lease-grant/v1"
+}

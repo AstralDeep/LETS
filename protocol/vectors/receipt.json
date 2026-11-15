@@ -1,0 +1,726 @@
+{
+  "cases": [
+    {
+      "description": "A fresh receipt with a one-unit cost.",
+      "name": "valid-minimal",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "A receipt that carries an evidence digest and a multi-dimension cost.",
+      "name": "valid-with-evidence",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[3,7],\"envelope_id\":\"envelope-1\",\"evidence_digest\":\"sha256:2ceefd9a3bb0868a205c1f9f07a357de26933402651e3a6ab547ed6650f23ae4\",\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "9cbf0b6580c4699a31abcf5776253ce101fe0bf23ec23e18f6dfed9fb7707689",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              3,
+              7
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": "sha256:2ceefd9a3bb0868a205c1f9f07a357de26933402651e3a6ab547ed6650f23ae4",
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "Z-LdxWL3If8wY007MW2aIZG4FYXy_QpdC5uhVlHU3pO3MuPgYS7MRzIiuxVT8q9evkwEGfXtuOEsg80ReeHGCg",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "The receipt is still fresh one nanosecond before its expiry.",
+      "name": "valid-last-nanosecond",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000289999999999,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "The receipt is accepted at the exact instant of issuance.",
+      "name": "valid-first-nanosecond",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1799999990000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "Signed by another key but naming the trusted key id.",
+      "name": "bad-signature",
+      "steps": [
+        {
+          "expect": "signature",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "8Q_Cc_JkzojDwEOxOOzBHBRTw6pOiFIfAr5EpzLaeaae_2sOceYQQpcp50_Uyh9TKJ1Rh9Z8viRJqcueHND1CA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "The receipt names a different executor.",
+      "name": "wrong-audience",
+      "steps": [
+        {
+          "expect": "audience",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-b\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "968a68f2b4ae8599b891626188aa0f4955f63f7c16290f90b118f05213587075",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-b",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "olOYgD6PyTwERGVjPbtHY1H9W-C-f0hSdTksqEwaQhWP7XOx9xJkQU-dn9L-tZ10ltIFymDH4bi-994s6UIvBA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "The executor clock is at the exact expiry instant.",
+      "name": "expired",
+      "steps": [
+        {
+          "expect": "expired",
+          "now_ns": 1800000290000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "The executor clock is before issuance.",
+      "name": "not-yet-valid",
+      "steps": [
+        {
+          "expect": "not_yet_valid",
+          "now_ns": 1799999989999999999,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "The receipt policy digest is not in the executor allow list.",
+      "name": "policy-digest-mismatch",
+      "steps": [
+        {
+          "expect": "policy_digest",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:cfe843d387bc27bfd047656b44990eca402577df7239a61ad79ddd7a21347890\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "67c4c968171e074b4ba90895563d034acb84c418803ee463c500b84e406de062",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:cfe843d387bc27bfd047656b44990eca402577df7239a61ad79ddd7a21347890",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "FQP_wrKshaFUaEDn5vAwDMHLDmPWQQftApPKaSbnJKqn8A05fRC6MqQjR9kLuByWiVuOW2CX5dx5oR0G4YyjAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "The issuing warden is not in the executor trusted set.",
+      "name": "untrusted-issuer",
+      "steps": [
+        {
+          "expect": "issuer",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-b"
+        ]
+      }
+    },
+    {
+      "description": "The same receipt is claimed twice. The second claim is refused.",
+      "name": "replayed-claim",
+      "steps": [
+        {
+          "expect": "valid",
+          "now_ns": 1800000000000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        },
+        {
+          "expect": "replay",
+          "now_ns": 1800000001000000000,
+          "signing_input": "{\"config_epoch\":1,\"cost\":[1,0],\"envelope_id\":\"envelope-1\",\"evidence_digest\":null,\"executor_audience\":\"executor-a\",\"expires_at_ns\":1800000290000000000,\"issued_at_ns\":1799999990000000000,\"key_id\":\"warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5\",\"lease_id\":\"lease-root\",\"lineage_id\":\"lineage-1\",\"machine_digest\":\"sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38\",\"nonce\":\"nonce-0000000000000001\",\"policy_digest\":\"sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419\",\"policy_id\":\"vector-policy\",\"policy_version\":\"v1\",\"receipt_id\":\"receipt-0001\",\"request_id\":\"request-0001\",\"resulting_sequence\":1,\"source_state\":\"ready\",\"subject_id\":\"agent-1\",\"target_state\":\"ready\",\"tenant_id\":\"tenant-1\",\"transition\":\"act\",\"type\":\"lets.receipt/v1\",\"warden_id\":\"warden-a\"}",
+          "signing_input_sha256": "b7ea08f8d0df959f51a695b9705cd0d46e87527db5c750a3dad4f4ddcc04c299",
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "A field outside the frozen set is refused before any signature check.",
+      "name": "malformed-unknown-field",
+      "steps": [
+        {
+          "expect": "malformed",
+          "now_ns": 1800000000000000000,
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "extra": 1,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v1",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    },
+    {
+      "description": "A different wire type is refused.",
+      "name": "malformed-wire-type",
+      "steps": [
+        {
+          "expect": "malformed",
+          "now_ns": 1800000000000000000,
+          "wire": {
+            "config_epoch": 1,
+            "cost": [
+              1,
+              0
+            ],
+            "envelope_id": "envelope-1",
+            "evidence_digest": null,
+            "executor_audience": "executor-a",
+            "expires_at_ns": 1800000290000000000,
+            "issued_at_ns": 1799999990000000000,
+            "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+            "lease_id": "lease-root",
+            "lineage_id": "lineage-1",
+            "machine_digest": "sha256:747813afa14f7460ee25354fa57ca6e804c823b1578b9fcce9ac8092ef0cef38",
+            "nonce": "nonce-0000000000000001",
+            "policy_digest": "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419",
+            "policy_id": "vector-policy",
+            "policy_version": "v1",
+            "receipt_id": "receipt-0001",
+            "request_id": "request-0001",
+            "resulting_sequence": 1,
+            "signature": "d_UztCswyd4bvyamzP2JR26YIphIJnTQ2JqVI5iLpDRT2ZnN6JvKOIhF1HnZuqIseRufr3sXq-OjTr5_PIcaAA",
+            "source_state": "ready",
+            "subject_id": "agent-1",
+            "target_state": "ready",
+            "tenant_id": "tenant-1",
+            "transition": "act",
+            "type": "lets.receipt/v2",
+            "warden_id": "warden-a"
+          }
+        }
+      ],
+      "verifier": {
+        "allowed_policy_digests": [
+          "sha256:bb628c2773ba35fa024cfa613918f5f8debcab84596445df5d858ac70ec73419"
+        ],
+        "audience": "executor-a",
+        "trusted_wardens": [
+          "warden-a"
+        ]
+      }
+    }
+  ],
+  "clock_ns": 1800000000000000000,
+  "format": "lets.vectors/v1",
+  "summary": "Signed receipt and executor claim.",
+  "trusted_keys": [
+    {
+      "key_id": "warden-a/ed25519-667abeb94ba0cd31ce46386f9d5de4c5",
+      "name": "warden-a",
+      "public_key": "pfU2x606nK61PZ9zOv_239pB4tX_t0MuvmDyTx5Ryxc",
+      "warden_id": "warden-a"
+    }
+  ],
+  "wire_type": "lets.receipt/v1"
+}

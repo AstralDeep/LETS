@@ -7,6 +7,17 @@ image together; the Git tag is the package version prefixed with `v`.
 
 ### Added
 
+- Frozen v1 wire formats for the receipt, lease grant, transfer voucher and transfer acknowledgement,
+  written field by field in `docs/wire-formats.md`, with signed deterministic conformance vectors in
+  `protocol/vectors/`. `scripts/generate_vectors.py --check` proves the vectors still match the
+  reference, and `lets.wire_verify` runs the reference verifier over them (issue 157).
+- Period budgets (`lets.period`): a signed budget policy and a membership list give every holder the
+  same budget and disjoint shares for each period, with narrowing applied at once and widening
+  held for a caller-supplied consent marker. ADR 0004 records the design.
+- Device holder (`lets.device`): spends a period share through the existing warden service, stops
+  at the edge with a named refusal, falls back to a solo cap without recent contact, keeps a clock
+  floor, restores headroom with prepare, accept and finalize, and treats a restored device as a new
+  holder. Vectors for derivation and for device scenarios are in `protocol/vectors/`.
 - MCP tool-execution profile: the optional `lets.integrations.mcp` adapter maps host-verified MCP
   `2026-07-28` tool calls to stable LETS request IDs, digest-bound effect evidence, executor
   audiences and claimable receipts, with a host permission/confirmation gate. It keeps the MCP
