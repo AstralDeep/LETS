@@ -1,0 +1,522 @@
+/* Shared by the register and the docs page.
+   Continuous-form greenbar printout: tractor-feed margins, banded rows,
+   ledger red for refusals. Everything is system-font only, so the page has
+   no external requests. */
+
+:root{
+  --paper:#F2F0E6;
+  --band:#DCE6D2;
+  --ink:#1A1E18;
+  --ink-soft:#5F665A;
+  --rule:#A9B29B;
+  --rule-soft:#C8CFBF;
+  --red:#A62B1F;
+  --red-wash:#F0DCD8;
+  --green:#1F5C3A;
+  --green-wash:#D6E6D9;
+  --blue:#2B4570;
+  --display:"Franklin Gothic Medium","Franklin Gothic","Arial Narrow",Haettenschweiler,sans-serif;
+  --mono:Consolas,"Cascadia Mono",ui-monospace,"DejaVu Sans Mono",monospace;
+  --serif:Constantia,Georgia,"Times New Roman",serif;
+}
+
+*{box-sizing:border-box}
+
+html{background:#3E4438}
+
+body{
+  margin:0;
+  padding:24px 12px 64px;
+  background:repeating-linear-gradient(180deg,#3E4438 0 2px,#454B3E 2px 4px);
+  color:var(--ink);
+  font-family:var(--mono);
+  font-size:13px;
+  line-height:1.5;
+  font-variant-numeric:tabular-nums;
+}
+
+/* ---- the sheet: continuous-form paper with tractor-feed margins ---- */
+.sheet{
+  position:relative;
+  max-width:1080px;
+  margin:0 auto;
+  background:var(--paper);
+  padding:0 34px;
+  box-shadow:0 2px 0 rgba(0,0,0,.35), 0 18px 40px rgba(0,0,0,.35);
+}
+.sheet::before,.sheet::after{
+  content:"";
+  position:absolute;
+  top:0;bottom:0;
+  width:26px;
+  background-image:radial-gradient(circle at 13px 12px,
+    #3E4438 0 4.2px, var(--rule) 4.2px 5.2px, transparent 5.2px);
+  background-size:26px 24px;
+  background-repeat:repeat-y;
+  pointer-events:none;
+}
+.sheet::before{left:0;border-right:1px dashed var(--rule)}
+.sheet::after{right:0;border-left:1px dashed var(--rule)}
+
+/* ---- masthead ---- */
+.masthead{
+  display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:flex-end;
+  padding:22px 0 12px;
+  border-bottom:2px solid var(--ink);
+}
+.title{
+  font-family:var(--display);
+  font-size:30px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  line-height:1;
+  margin:0;
+}
+.subtitle{
+  font-family:var(--serif);
+  font-style:italic;
+  font-size:13px;
+  color:var(--ink-soft);
+  margin:6px 0 0;
+  max-width:52ch;
+}
+.ident{text-align:right;font-size:11.5px;color:var(--ink-soft);white-space:nowrap}
+.ident b{color:var(--ink);font-weight:normal}
+.ident .digest{color:var(--blue)}
+
+a{color:var(--blue)}
+a:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.navlink{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;
+  font-size:11px;color:var(--ink);text-decoration:none;
+  border:1px solid var(--ink);padding:5px 10px;box-shadow:2px 2px 0 var(--rule);
+  display:inline-block;white-space:nowrap;
+}
+.navlink:hover{background:var(--band)}
+
+/* ---- section headers, stamped like a form ---- */
+.section{padding:20px 0 4px}
+.section + .section{border-top:1px solid var(--rule)}
+.shead{
+  display:flex;align-items:baseline;gap:12px;
+  font-family:var(--display);
+  text-transform:uppercase;
+  letter-spacing:.18em;
+  font-size:12px;
+}
+.shead .num{color:var(--ink-soft);font-size:11px}
+.shead .note{
+  margin-left:auto;
+  font-family:var(--serif);font-style:italic;text-transform:none;
+  letter-spacing:0;font-size:12px;color:var(--ink-soft);
+}
+
+/* ---- controls ---- */
+.controls{display:flex;flex-wrap:wrap;gap:6px;padding:12px 0 16px}
+button{
+  font-family:var(--display);
+  text-transform:uppercase;
+  letter-spacing:.09em;
+  font-size:11px;
+  padding:7px 11px;
+  background:var(--paper);
+  color:var(--ink);
+  border:1px solid var(--ink);
+  border-radius:0;
+  cursor:pointer;
+  box-shadow:2px 2px 0 var(--rule);
+}
+button:hover:not(:disabled){background:var(--band)}
+button:active:not(:disabled){box-shadow:0 0 0 var(--rule);transform:translate(2px,2px)}
+button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+button:disabled{opacity:.35;cursor:not-allowed;box-shadow:none}
+button.deny{border-color:var(--red);color:var(--red)}
+button.deny:hover:not(:disabled){background:var(--red-wash)}
+
+/* ---- conservation ledger, with the commentary pinned in the margin ---- */
+.conserve{display:grid;grid-template-columns:1fr 330px;gap:26px;align-items:start}
+
+.equation{
+  font-size:13.5px;
+  padding:4px 0;
+  display:grid;
+  grid-template-columns:76px 1fr;
+  gap:4px 14px;
+  align-items:center;
+}
+.eqlabel{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;
+  font-size:11px;color:var(--ink-soft);
+}
+.eqrow{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;white-space:nowrap}
+.eqrow .op{color:var(--ink-soft)}
+.eqrow .term{position:relative;padding-bottom:2px}
+.eqrow .term::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:3px}
+.t-free::after{background:var(--rule)}
+.t-res::after{background:var(--green)}
+.t-con::after{background:var(--red)}
+.eqrow .eq{color:var(--ink-soft);padding:0 2px}
+.eqrow .rhs{border-bottom:3px double var(--ink);padding-bottom:1px}
+.verdict{font-family:var(--display);letter-spacing:.1em;font-size:11px;padding-left:6px}
+.verdict.ok{color:var(--green)}
+.verdict.bad{color:var(--red)}
+
+/* The auditor's margin note. Serif italic is this design's editorial voice,
+   set apart from the monospace data it comments on. */
+.commentary{
+  border-left:3px double var(--ink);
+  padding:2px 0 6px 16px;
+  font-family:var(--serif);
+  font-size:13.5px;
+  line-height:1.62;
+  color:var(--ink);
+}
+.commentary h3{
+  font-family:var(--display);
+  text-transform:uppercase;letter-spacing:.14em;font-size:10.5px;
+  color:var(--ink-soft);margin:0 0 8px;font-weight:normal;
+}
+.commentary p{margin:0 0 10px}
+.commentary p:last-child{margin-bottom:0}
+.commentary b{font-weight:normal;background:var(--band);padding:0 3px}
+.commentary .num{font-family:var(--mono);font-size:12px;font-style:normal}
+.commentary .look{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;
+  font-size:10px;color:var(--ink-soft);
+  display:block;margin-top:12px;padding-top:8px;border-top:1px solid var(--rule);
+}
+.commentary.deny{border-left-color:var(--red)}
+.commentary.deny h3{color:var(--red)}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--ink-soft);padding:10px 0 2px}
+.legend i{display:inline-block;width:16px;height:7px;margin-right:5px;vertical-align:middle}
+.sw-free{background:var(--rule)} .sw-res{background:var(--green)}
+.sw-con{background:var(--red)}  .sw-deleg{background:var(--blue)}
+
+.genesis-bar{display:flex;height:16px;border:1px solid var(--ink);margin:8px 0 2px}
+.genesis-bar span{display:block;height:100%}
+.g-free{background:var(--rule)} .g-res{background:var(--green)} .g-con{background:var(--red)}
+
+.discrepancy{
+  margin:12px 0;padding:10px 14px;
+  border:2px solid var(--red);background:var(--red-wash);
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.14em;color:var(--red);
+}
+
+/* ---- lineage register (greenbar banding) ---- */
+table{width:100%;border-collapse:collapse}
+thead th{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.12em;
+  font-size:10.5px;color:var(--ink-soft);text-align:left;font-weight:normal;
+  padding:6px 8px;border-bottom:1px solid var(--ink);
+}
+thead th.r{text-align:right}
+tbody tr{border-bottom:1px solid var(--rule-soft);cursor:pointer}
+tbody tr:nth-child(odd){background:var(--band)}
+tbody tr:hover{outline:1px solid var(--blue);outline-offset:-1px}
+tbody tr[aria-selected="true"]{background:#CBDCC0;box-shadow:inset 3px 0 0 var(--ink)}
+tbody tr:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+td{padding:7px 8px;vertical-align:middle}
+td.r{text-align:right;white-space:nowrap}
+.subject{font-weight:bold}
+.lineage-mark{color:var(--ink-soft);white-space:pre}
+.caps{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.cap{
+  font-size:10px;letter-spacing:.04em;padding:1px 5px;
+  border:1px solid var(--rule);background:var(--paper);color:var(--ink-soft);
+}
+.status{font-family:var(--display);letter-spacing:.1em;font-size:10.5px}
+.status.ACTIVE{color:var(--green)}
+.status.CLOSED,.status.REVOKED,.status.EXPIRED{color:var(--red)}
+
+.meter{display:flex;height:7px;border:1px solid var(--rule);margin-bottom:3px;min-width:120px}
+/* Budget moving between agents is the one thing worth animating here: the
+   segments slide rather than jump, so a delegation reads as a transfer. */
+.meter span{display:block;height:100%;transition:width .55s cubic-bezier(.32,.72,.3,1)}
+.m-spent{background:var(--red)}
+.m-deleg{background:var(--blue)}
+.m-avail{background:var(--green)}
+.meterlab{font-size:10px;color:var(--ink-soft);white-space:nowrap}
+
+.empty{
+  padding:26px 8px;text-align:center;color:var(--ink-soft);
+  font-family:var(--serif);font-style:italic;font-size:14px;
+}
+
+/* ---- journal ---- */
+.journal{list-style:none;margin:0;padding:0}
+.journal li{
+  display:grid;
+  grid-template-columns:46px 62px 1fr auto;
+  gap:10px;
+  padding:8px;
+  border-bottom:1px solid var(--rule-soft);
+  align-items:start;
+}
+.journal li:nth-child(odd){background:var(--band)}
+.jseq{color:var(--ink-soft);font-size:11px}
+.jverd{font-family:var(--display);letter-spacing:.1em;font-size:11px}
+.jverd.allow{color:var(--green)}
+.jverd.deny{color:var(--red)}
+.jlabel{word-break:break-word}
+.jdetail{color:var(--red);font-size:11.5px;margin-top:3px;word-break:break-word}
+.jdetail code{background:var(--red-wash);padding:0 4px;border:1px solid var(--red);font-size:11px}
+.jnote{color:var(--ink-soft);font-size:11.5px;margin-top:3px}
+.jcost{color:var(--ink-soft);font-size:11px;white-space:nowrap}
+.stamp{
+  justify-self:end;
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.12em;font-size:9.5px;
+  color:var(--red);border:1.5px solid var(--red);padding:2px 6px;
+  transform:rotate(-3deg);white-space:nowrap;
+}
+.journal li.fresh{animation:feed .28s ease-out}
+@keyframes feed{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+
+/* A refusal jolts the register and every figure lands back where it was --
+   the visual form of "the ledger did not move". */
+tbody.nudge{animation:nudge .38s ease-in-out}
+@keyframes nudge{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-4px)}
+  60%{transform:translateX(3px)}
+}
+/* An allowed delegation did move something, so the escrowed band says so. */
+tbody.flowing .m-deleg{animation:escrowed .9s ease-out}
+@keyframes escrowed{
+  0%{filter:brightness(2.1)}
+  100%{filter:none}
+}
+
+.colophon{
+  padding:16px 0 24px;border-top:2px solid var(--ink);margin-top:8px;
+  font-size:11px;color:var(--ink-soft);display:flex;flex-wrap:wrap;gap:14px;justify-content:space-between;
+}
+.colophon > span{min-width:0;overflow-wrap:anywhere}
+
+.busy{position:fixed;top:0;left:0;right:0;height:3px;background:var(--blue);
+  transform:scaleX(0);transform-origin:left;transition:transform .2s}
+.busy.on{transform:scaleX(1);transition:transform 6s cubic-bezier(.1,.8,.3,1)}
+
+/* ================= docs page ================= */
+.prose{max-width:74ch;padding:4px 0 8px}
+.prose p{margin:0 0 13px}
+.prose h3{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.13em;
+  font-size:11.5px;margin:22px 0 8px;font-weight:normal;
+}
+.prose ul{margin:0 0 13px;padding-left:20px}
+.prose li{margin-bottom:6px}
+.prose code{background:var(--band);padding:0 4px;font-size:12px}
+.prose em{font-family:var(--serif);font-size:14px}
+.lede{
+  font-family:var(--serif);font-size:15.5px;line-height:1.6;
+  max-width:62ch;margin:0 0 16px;
+}
+
+/* Term definitions, set as a ruled two-column register. */
+.terms{display:grid;grid-template-columns:170px 1fr;gap:0;margin:6px 0 4px}
+.terms dt{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.09em;font-size:10.5px;
+  padding:9px 10px 9px 0;border-top:1px solid var(--rule-soft);
+}
+.terms dd{
+  margin:0;padding:9px 0 9px 10px;border-top:1px solid var(--rule-soft);
+  border-left:1px solid var(--rule-soft);
+}
+.terms dd .lit{font-size:12px;color:var(--ink-soft)}
+
+figure{margin:14px 0 18px}
+figure pre{
+  margin:0;padding:16px;overflow-x:auto;
+  background:var(--band);border:1px solid var(--rule);
+  font-size:12px;line-height:1.45;
+}
+figcaption{
+  font-family:var(--serif);font-style:italic;font-size:12px;
+  color:var(--ink-soft);margin-top:7px;
+}
+
+.callout{
+  border:1px solid var(--ink);border-left:5px solid var(--ink);
+  padding:12px 15px;margin:16px 0;background:var(--paper);
+}
+.callout.warn{border-color:var(--red);border-left-color:var(--red)}
+.callout h4{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.12em;
+  font-size:10.5px;margin:0 0 6px;font-weight:normal;
+}
+.callout.warn h4{color:var(--red)}
+.callout p{margin:0 0 8px}
+.callout p:last-child{margin:0}
+
+.seams{counter-reset:seam;list-style:none;padding:0;margin:6px 0 14px}
+.seams li{
+  counter-increment:seam;position:relative;
+  padding:10px 0 10px 46px;border-top:1px solid var(--rule-soft);
+}
+.seams li::before{
+  content:counter(seam,decimal-leading-zero);
+  position:absolute;left:0;top:10px;
+  font-family:var(--display);font-size:15px;color:var(--rule);letter-spacing:.06em;
+}
+.seams b{font-weight:normal;background:var(--band);padding:0 4px}
+
+@media (max-width:900px){
+  .conserve{grid-template-columns:1fr;gap:16px}
+  .commentary{border-left:none;border-top:3px double var(--ink);padding:12px 0 0}
+  .commentary.deny{border-top-color:var(--red)}
+}
+@media (max-width:720px){
+  .sheet{padding:0 30px}
+  .journal li{grid-template-columns:38px 54px 1fr;gap:7px}
+  .stamp{grid-column:1/-1;justify-self:start;margin-top:4px}
+  /* the label already carries the cost, so drop the duplicate chip */
+  .jcost{display:none}
+  .hide-sm{display:none}
+  .equation{grid-template-columns:1fr;gap:2px}
+  .eqrow{white-space:normal}
+  .terms{grid-template-columns:1fr}
+  .terms dd{border-left:none;padding-left:0;padding-top:0;border-top:none}
+  .terms dt{padding-bottom:4px}
+}
+/* ================= delegation walkthrough ================= */
+/* The register shows the arithmetic; this shows the movement. Same colour
+   grammar throughout: rule = unallocated, green = held, blue = escrowed into a
+   child, red = spent or refused. Every frame is a complete, correct picture on
+   its own -- the motion is what happened between two frames, never the only
+   place a fact is stated. */
+
+.dg-stage{
+  position:relative;
+  padding:18px 0 6px;
+  min-height:290px;
+}
+
+.dg-agent{
+  position:relative;
+  border:1px solid var(--ink);
+  background:var(--paper);
+  padding:9px 12px 10px;
+  margin:0 0 9px;
+  box-shadow:2px 2px 0 var(--rule);
+}
+.dg-agent.enter{animation:feed .34s ease-out}
+/* Indentation is drawn, not implied: a child sits under its parent's rule. */
+.dg-agent[data-depth="1"]{margin-left:34px}
+.dg-agent[data-depth="2"]{margin-left:68px}
+.dg-agent[data-depth="1"]::before,
+.dg-agent[data-depth="2"]::before{
+  content:"";position:absolute;left:-22px;top:-10px;bottom:50%;
+  border-left:1px solid var(--rule);border-bottom:1px solid var(--rule);
+  width:20px;
+}
+.dg-agent.ghost{
+  border-style:dashed;border-color:var(--red);color:var(--red);
+  background:var(--red-wash);box-shadow:none;
+}
+/* Left deliberately empty: a refused request was granted nothing, and green
+   here would claim the opposite. */
+.dg-agent.ghost .dg-bar{border-color:var(--red);border-style:dashed;background:transparent}
+.dg-agent.ghost.shake{animation:refuse .42s ease-in-out}
+@keyframes refuse{
+  0%,100%{transform:translateX(0)}
+  20%{transform:translateX(-6px)}
+  45%{transform:translateX(5px)}
+  70%{transform:translateX(-3px)}
+}
+.dg-agent.drained{opacity:.62}
+
+.dg-head{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;margin-bottom:7px}
+.dg-name{font-weight:bold}
+.dg-role{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;
+  font-size:9.5px;color:var(--ink-soft);
+}
+.dg-halt{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.1em;
+  font-size:9.5px;color:var(--red);
+}
+.dg-head .caps{margin:0 0 0 auto}
+
+/* The right-hand column has to hold the widest thing any row prints, which is
+   a refused request's "226,000 asked / 112,500 free" comparison. */
+.dg-dim{
+  display:grid;grid-template-columns:54px 1fr 200px;gap:10px;
+  align-items:center;margin-top:4px;
+}
+.dg-dimlab{font-size:10px;color:var(--ink-soft)}
+.dg-bar{display:flex;height:10px;border:1px solid var(--rule);background:var(--paper)}
+.dg-bar span{display:block;height:100%;transition:width .62s cubic-bezier(.32,.72,.3,1)}
+.dg-num{font-size:11px;color:var(--ink-soft);text-align:right;white-space:nowrap}
+.dg-num b{color:var(--ink);font-weight:normal}
+
+/* The escrow slip: what physically moves from parent to child. */
+.dg-slip{
+  position:absolute;left:34px;z-index:2;
+  font-size:10.5px;color:var(--blue);
+  border:1px solid var(--blue);background:var(--paper);
+  padding:1px 7px;white-space:nowrap;
+  animation:slip .78s cubic-bezier(.36,.68,.3,1) forwards;
+}
+@keyframes slip{
+  0%{opacity:0;transform:translateY(-26px) scale(.94)}
+  22%{opacity:1}
+  78%{opacity:1;transform:translateY(6px) scale(1)}
+  100%{opacity:0;transform:translateY(10px) scale(1)}
+}
+
+/* ---- narration and transport ---- */
+.dg-layout{display:grid;grid-template-columns:1fr 330px;gap:26px;align-items:start}
+
+.dg-caption{
+  border-left:3px double var(--ink);
+  padding:2px 0 6px 16px;
+  font-family:var(--serif);font-size:13.5px;line-height:1.62;
+}
+.dg-caption.deny{border-left-color:var(--red)}
+.dg-caption h3{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.14em;
+  font-size:10.5px;color:var(--ink-soft);margin:0 0 8px;font-weight:normal;
+}
+.dg-caption.deny h3{color:var(--red)}
+.dg-caption p{margin:0 0 10px}
+.dg-caption p:last-child{margin-bottom:0}
+.dg-caption b{font-weight:normal;background:var(--band);padding:0 3px}
+.dg-caption .num{font-family:var(--mono);font-size:12px;font-style:normal}
+.dg-caption .deny-num{font-family:var(--mono);font-size:12px;color:var(--red)}
+
+.dg-transport{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:12px 0 4px}
+.dg-steps{display:flex;gap:5px;margin-left:auto;list-style:none;padding:0}
+.dg-steps button{
+  width:22px;height:22px;padding:0;font-size:10px;
+  box-shadow:1px 1px 0 var(--rule);
+}
+.dg-steps button[aria-current="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+
+/* ---- the conservation strip, always closing ---- */
+.dg-eq{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;
+  border-top:1px solid var(--rule);margin-top:10px;padding-top:10px;
+  font-size:12.5px;
+}
+.dg-eq .op,.dg-eq .eq{color:var(--ink-soft)}
+.dg-eq .term{position:relative;padding-bottom:3px}
+.dg-eq .term::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px}
+.dg-eq .rhs{border-bottom:3px double var(--ink);padding-bottom:1px}
+.dg-eq .verdict{margin-left:auto}
+
+@media (max-width:900px){
+  .dg-layout{grid-template-columns:1fr;gap:16px}
+  .dg-caption{border-left:none;border-top:3px double var(--ink);padding:12px 0 0}
+  .dg-caption.deny{border-top-color:var(--red)}
+}
+@media (max-width:720px){
+  .dg-dim{grid-template-columns:46px 1fr;gap:7px}
+  .dg-num{grid-column:1/-1;text-align:left}
+  .dg-agent[data-depth="2"]{margin-left:34px}
+  .dg-steps{margin-left:0;width:100%}
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
