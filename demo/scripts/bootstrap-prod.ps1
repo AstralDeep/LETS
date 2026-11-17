@@ -12,8 +12,6 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
-$WheelName = "lets_agent-1.0.10-py3-none-any.whl"
-$Base      = "https://github.com/AstralDeep/LETS/releases/download/v1.0.10"
 
 if (Test-Path ".lets\prod\config.json") {
     Write-Host "A production node already exists at .lets\prod\." -ForegroundColor Yellow
@@ -72,28 +70,12 @@ quickest) and re-run this script.
 
 & $python -m pip install --upgrade pip --quiet
 
-# --- wheel -------------------------------------------------------------------
-New-Item -ItemType Directory -Force wheels | Out-Null
-if (-not (Test-Path "wheels\$WheelName")) {
-    Write-Host "Downloading $WheelName ..."
-    Invoke-WebRequest "$Base/$WheelName"         -OutFile "wheels\$WheelName"
-    Invoke-WebRequest "$Base/RELEASE_SHA256SUMS" -OutFile "wheels\RELEASE_SHA256SUMS"
-}
-
-$line = Get-Content "wheels\RELEASE_SHA256SUMS" | Where-Object { $_ -match [regex]::Escape($WheelName) }
-if (-not $line) { throw "RELEASE_SHA256SUMS has no entry for $WheelName" }
-$expected = ($line -split '\s+')[0].ToLower()
-$actual   = (Get-FileHash -Algorithm SHA256 "wheels\$WheelName").Hash.ToLower()
-if ($expected -ne $actual) {
-    Remove-Item "wheels\$WheelName" -Force
-    throw "SHA256 mismatch for $WheelName`n  expected $expected`n  actual   $actual"
-}
-Write-Host "SHA256 verified: $actual" -ForegroundColor Green
-
-& $python -m pip install "wheels\$WheelName[server]" --quiet
+# --- lets-agent --------------------------------------------------------------
+# Installed from this repository's tree, one directory above the demo.
+& $python -m pip install "..[server]" --quiet
 # Only used to mint the X.509 material below; LETS itself does not need it.
 & $python -m pip install cryptography --quiet
-Write-Host "Installed lets-agent 1.0.10 into .venv-prod" -ForegroundColor Green
+Write-Host "Installed lets-agent from this tree into .venv-prod" -ForegroundColor Green
 
 # --- key material ------------------------------------------------------------
 Write-Host ""

@@ -1,5 +1,5 @@
 # Sets up the demo from a clean checkout:
-#   venv -> verified release wheel -> `lets init` -> capture the bootstrap token.
+#   venv -> lets-agent from this tree -> `lets init` -> capture the bootstrap token.
 #
 # `lets init` prints the bootstrap token exactly once and stores only its SHA-256
 # digest, so this script captures it into .lets-demo.json. There is no way to
@@ -8,8 +8,6 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
-$WheelName = "lets_agent-1.0.10-py3-none-any.whl"
-$Base      = "https://github.com/AstralDeep/LETS/releases/download/v1.0.10"
 
 if (Test-Path ".lets\a\config.json") {
     Write-Host "A node already exists at .lets\a\. Run scripts\reset.ps1 to start over." -ForegroundColor Yellow
@@ -41,30 +39,11 @@ $pyver = & $python -c "import sys;print('%d.%d.%d' % sys.version_info[:3])"
 Write-Host "Using Python $pyver (.venv)"
 & $python -m pip install --upgrade pip --quiet
 
-# --- wheel -------------------------------------------------------------------
-# lets-agent is not published to PyPI, so the wheel comes from the GitHub
-# release and is checked against the signed-off checksum file beside it.
-New-Item -ItemType Directory -Force wheels | Out-Null
-if (-not (Test-Path "wheels\$WheelName")) {
-    Write-Host "Downloading $WheelName ..."
-    Invoke-WebRequest "$Base/$WheelName"       -OutFile "wheels\$WheelName"
-    Invoke-WebRequest "$Base/RELEASE_SHA256SUMS" -OutFile "wheels\RELEASE_SHA256SUMS"
-}
-
-$line = Get-Content "wheels\RELEASE_SHA256SUMS" | Where-Object { $_ -match [regex]::Escape($WheelName) }
-if (-not $line) { throw "RELEASE_SHA256SUMS has no entry for $WheelName" }
-$expected = ($line -split '\s+')[0].ToLower()
-$actual   = (Get-FileHash -Algorithm SHA256 "wheels\$WheelName").Hash.ToLower()
-if ($expected -ne $actual) {
-    Remove-Item "wheels\$WheelName" -Force
-    throw "SHA256 mismatch for $WheelName`n  expected $expected`n  actual   $actual"
-}
-Write-Host "SHA256 verified: $actual" -ForegroundColor Green
-
-# The `server` extra pulls fastapi/uvicorn/httpx, which `lets serve` requires
-# and the demo app reuses.
-& $python -m pip install "wheels\$WheelName[server]" --quiet
-Write-Host "Installed lets-agent 1.0.10 with the server extra" -ForegroundColor Green
+# --- lets-agent --------------------------------------------------------------
+# Installed from this repository's tree, one directory above the demo. The `server`
+# extra pulls fastapi/uvicorn/httpx, which `lets serve` requires and the demo reuses.
+& $python -m pip install "..[server]" --quiet
+Write-Host "Installed lets-agent from this tree with the server extra" -ForegroundColor Green
 
 # --- node --------------------------------------------------------------------
 # --budget / --local-share are positional vectors: index 0 is `actions`,

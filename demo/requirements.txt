@@ -1,15 +1,5 @@
-# lets-agent is not published to PyPI. scripts\bootstrap.ps1 downloads this
-# wheel from the GitHub release and verifies it against RELEASE_SHA256SUMS
-# before installing, which pip cannot do from a URL alone.
-#
-#   https://github.com/AstralDeep/LETS/releases/download/v1.0.10/lets_agent-1.0.10-py3-none-any.whl
-#   sha256 292e98eb33d1203f8da6242c8cecdd38a0dbccdef6efeab7c60332eb58fc77d4
-#
-# The [server] extra brings fastapi, uvicorn[standard], and httpx, which
-# `lets serve` requires and the demo app reuses. Installing without it makes
-# `lets serve` fail with "install the project-local 'server' extra".
-#
-# To install manually, from the project root:
-#   .\.venv\Scripts\python.exe -m pip install "wheels\lets_agent-1.0.10-py3-none-any.whl[server]"
-
-lets-agent[server] == 1.0.10
+# The demo installs LETS from this repository's tree, one directory up. For a manual install,
+# from the demo directory:
+#   python -m pip install "..[server]"
+# or use `uv run --project demo pytest demo/tests` from the repository root.
+..[server]

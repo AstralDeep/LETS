@@ -1,7 +1,6 @@
 # LETS demo — Warden Register
 
-A working demo application built on [LETS 1.0.10](https://github.com/AstralDeep/LETS/releases/tag/v1.0.10)
-(Lineage Escrow Transition Systems), a distributed authorization runtime for populations of
+A working demo application built on this repository's [LETS](..) (Lineage Escrow Transition Systems), a distributed authorization runtime for populations of
 autonomous agents.
 
 LETS is not an agent framework. It is the accounting and authorization layer underneath one.
@@ -14,7 +13,7 @@ against it, and puts the runtime's own answers on screen.
 ## Quickstart
 
 ```powershell
-.\scripts\bootstrap.ps1   # venv, verified release wheel, `lets init`
+.\scripts\bootstrap.ps1   # venv, lets-agent from this tree, `lets init`
 .\scripts\run.ps1         # starts the warden + dashboard, opens the browser
 ```
 
@@ -52,7 +51,14 @@ Four claims, each visible in the interface and each verifiable headlessly:
 | 3 | **The conservation equation never breaks** — across every operation, allowed or denied. | The Conservation panel, which re-derives the arithmetic client-side rather than trusting the warden's own health flag. |
 | 4 | **Work debits the residual, and a drained agent simply stops.** | *Run research* costs `[1, 500]`; *Run until refused* works an agent to exhaustion and ends in `policy_denied — lease residual does not cover transition cost`. |
 
-Run the same checks without a browser:
+Run the same checks without a browser. On any platform, from the repository root, the demo's own
+test target starts a throwaway warden on a loopback port and asserts all four claims:
+
+```sh
+uv run --project demo pytest demo/tests -q
+```
+
+On Windows, against the node `bootstrap.ps1` created:
 
 ```powershell
 .\.venv\Scripts\python.exe verify_core_four.py
@@ -199,22 +205,22 @@ is the feature.
 reports `bootstrap_identity: external-runtime-provider` instead. The dashboard mints its own
 short-lived JWTs from the issuer seed, so there is nothing to leak from a config file.
 
-### Working around a defect in lets-agent 1.0.10
+### A single-warden defect fixed after 1.0.10
 
-A single-warden manifest cluster cannot start as shipped. `lets init` writes `peer_endpoints`
+Through lets-agent 1.0.10, a single-warden manifest cluster cannot start as shipped. `lets init` writes `peer_endpoints`
 only when it is non-empty ([cli.py:629]), and a lone warden has no peers — but the serve-time
 manifest check reads it with no default and demands a mapping ([cli.py:1275]), so it fails
 with *"configured peer endpoints do not exactly match the signed manifest"* against the empty
 set it just computed. Every other reader in the runtime already defaults it to `{}`.
 `prod/init_node.py` writes the empty object explicitly after init; the field is not one of the
 ten diffed against the manifest, and an empty map is falsy, so production peer-TLS admission
-is unaffected.
+is unaffected. LETS 1.1.2 defaults the field, so the explicit write is now redundant and harmless.
 
 ## Notes
 
-- **`lets-agent` is not on PyPI.** `bootstrap.ps1` fetches the wheel from the GitHub release and
-  verifies it against `RELEASE_SHA256SUMS` before installing. The distribution is `lets-agent`;
-  the import package is `lets`.
+- **LETS comes from this tree.** `bootstrap.ps1` installs `lets-agent[server]` from the repository
+  one directory up, so the demo always runs against the LETS it ships beside. The distribution is
+  `lets-agent`; the import package is `lets`. The demo is not part of the published package.
 - **The bootstrap token is printed once.** `lets init` stores only its SHA-256 digest, so
   `bootstrap.ps1` captures the token into `.lets-demo.json`. That file and `.lets/` (which holds
   the raw Ed25519 signing seed) are gitignored.
