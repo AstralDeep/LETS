@@ -176,7 +176,7 @@ verification for protected effects.
 
 The optional AstralDeep adapter is a separate consumer of the public LETS client/executor
 interfaces. It maps mediated agent creation and `AgentHopRequest` delegation into LETS commands
-while preserving AstralDeep's Keycloak identity, RFC 8693 token attenuation, owner isolation,
+while preserving AstralDeep's mesh identity, attenuated delegation tickets, owner isolation,
 tool-policy, PHI/egress, confirmation, and hash-chained audit gates. LETS core never imports
 AstralDeep modules or writes AstralDeep tables.
 

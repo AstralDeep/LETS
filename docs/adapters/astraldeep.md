@@ -86,8 +86,8 @@ Astral-owned integration layer.
 
 ## Preserve AstralDeep's authority path
 
-LETS adds quantitative and state-machine mediation. It does not replace AstralDeep's Keycloak
-identity, RFC 8693 delegation, owner isolation, permission, taint, PHI, egress, confirmation, or
+LETS adds quantitative and state-machine mediation. It does not replace AstralDeep's mesh
+identity, attenuated delegation, owner isolation, permission, taint, PHI, egress, confirmation, or
 hash-chained audit gates. Call LETS only after those gates accept the operation, and pass the
 orchestrator's durable operation ID. Recursive agent calls continue through the orchestrator's
 `AgentHopRequest`; a replica must never forward Astral credentials or mint peer authority.

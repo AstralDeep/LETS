@@ -193,7 +193,7 @@ only lifecycle IDs, rights vectors, capabilities, TTLs, evidence, and policy ref
 credentials, process memory, owner identity, open sockets, or opaque agent state.
 
 The optional `AstralDeepAuthorizer` maps AstralDeep's six declared tool scopes to explicit LETS
-capabilities/transitions while preserving AstralDeep's Keycloak/RFC 8693, owner, permission, PHI,
+capabilities/transitions while preserving AstralDeep's mesh identity, attenuated delegation, owner, permission, PHI,
 egress, confirmation, and audit gates. Details: `docs/adapters/astraldeep.md`.
 
 The optional `MCPToolProfile` maps a host-owned MCP `tools/call` to a stable LETS request ID,

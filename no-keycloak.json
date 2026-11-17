@@ -1,0 +1,9 @@
+{
+  "exclude": [
+    "tests/**",
+    "**/tests/**",
+    "docs/superpowers/**",
+    "no-keycloak.json"
+  ],
+  "pending": []
+}
