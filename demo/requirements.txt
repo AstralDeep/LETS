@@ -1,0 +1,5 @@
+# The demo installs LETS from this repository's tree, one directory up. For a manual install,
+# from the demo directory:
+#   python -m pip install "..[server]"
+# or use `uv run --project demo pytest demo/tests` from the repository root.
+..[server]

@@ -1,0 +1,109 @@
+{
+  "api_version": "lets.manifest/v1",
+  "tenant_id": "example",
+  "envelope_id": "agents",
+  "config_epoch": 1,
+  "created_at": "2026-08-12T02:39:33Z",
+  "resources": [
+    {
+      "id": "actions",
+      "unit": "count",
+      "description": "protected tool invocations"
+    },
+    {
+      "id": "tokens",
+      "unit": "token",
+      "description": "model tokens"
+    }
+  ],
+  "initial_budget": [
+    10000,
+    1000000
+  ],
+  "wardens": [
+    {
+      "warden_id": "warden-prod",
+      "peer_endpoint": "https://127.0.0.1:8444",
+      "client_endpoint": "https://127.0.0.1:8443",
+      "initial_share": [
+        10000,
+        1000000
+      ],
+      "keys": [
+        {
+          "key_id": "warden-prod/ed25519-693be0a1371a5222abd26e228afd4e36",
+          "algorithm": "Ed25519",
+          "public_key": "QcciIQVAlqAIbKa1BoDIrtB8FfUu-jpsTw6jKf5jNhU"
+        }
+      ]
+    }
+  ],
+  "policies": [
+    {
+      "policy_id": "agent-fleet",
+      "policy_version": "v1",
+      "resources": [
+        {
+          "id": "actions",
+          "unit": "count",
+          "description": "protected tool invocations"
+        },
+        {
+          "id": "tokens",
+          "unit": "token",
+          "description": "model tokens"
+        }
+      ],
+      "machine": {
+        "machine_id": "worker",
+        "initial_state": "ready",
+        "transitions": [
+          {
+            "name": "research",
+            "source": "ready",
+            "target": "ready",
+            "cost": [
+              1,
+              500
+            ],
+            "capability": "agent.research"
+          },
+          {
+            "name": "summarize",
+            "source": "ready",
+            "target": "ready",
+            "cost": [
+              1,
+              200
+            ],
+            "capability": "agent.summarize"
+          },
+          {
+            "name": "publish",
+            "source": "ready",
+            "target": "ready",
+            "cost": [
+              5,
+              100
+            ],
+            "capability": "agent.publish"
+          }
+        ],
+        "machine_digest": "sha256:c2e695c6cddded89fcb23b60a91225288e6fb8bb77d876130135c2d09a33a5b8"
+      },
+      "machine_digest": "sha256:c2e695c6cddded89fcb23b60a91225288e6fb8bb77d876130135c2d09a33a5b8",
+      "max_lease_ttl_ns": 3600000000000,
+      "receipt_ttl_ns": 1000000000,
+      "max_clock_uncertainty_ns": 50000000,
+      "transfer_gap_window": 64,
+      "policy_digest": "sha256:9a2c72cf21528b90b98456ee30386d1e913822e95ad900421382a79538ed14f5"
+    }
+  ],
+  "signatures": [
+    {
+      "key_id": "ops-1",
+      "algorithm": "Ed25519",
+      "signature": "Mccc-ExbLPI4O_xRWYu_GAUIV35EHHat0qyf9j5ghBcumDssXXKWwAGemGW_BrIDvUHL6L3wxhbdz8oD7SPZAA"
+    }
+  ]
+}

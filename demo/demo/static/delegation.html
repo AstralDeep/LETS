@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Delegation</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="sheet">
+  <header class="masthead">
+    <div>
+      <h1 class="title">Agent Delegation</h1>
+      <p class="subtitle">What happens to an LLM agent's authority when it spawns another
+        agent &mdash; watched one movement at a time. Every number here is the demo's real
+        policy.</p>
+    </div>
+    <div class="ident">
+      <a class="navlink" href="/">&larr; The register</a>
+    </div>
+  </header>
+
+  <section class="section">
+    <div class="shead">
+      <span>The movement</span>
+      <span class="note" id="scenenote">&nbsp;</span>
+    </div>
+
+    <div class="dg-transport">
+      <button id="b-play">Pause</button>
+      <button id="b-prev">&larr; Back</button>
+      <button id="b-next">Next &rarr;</button>
+      <button id="b-replay">Replay from start</button>
+      <ul class="dg-steps" id="steps"></ul>
+    </div>
+
+    <div class="dg-layout">
+      <div>
+        <div class="dg-stage" id="stage"></div>
+        <div class="dg-eq" id="equation"></div>
+      </div>
+      <aside class="dg-caption" id="caption" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shead"><span>Why this is the whole idea</span></div>
+    <div class="prose">
+      <p class="lede">A permission is a flag, and a flag copies for free. Ten agents each
+        holding <code>can_search: true</code> can search forever, and the eleventh agent
+        they spawn can too. Nothing in that model can answer &ldquo;how much&rdquo;.</p>
+
+      <p>LETS makes authority a <em>quantity</em>. An agent holds a lease on a slice of a
+        finite envelope, and spawning a child is an atomic escrow out of that slice &mdash;
+        the parent's residual falls by exactly what the child receives, in the same
+        instant. That is why the bars above always move in opposite directions and never
+        both grow. A tree of a thousand agents cannot hold more than the root was given,
+        because there is no operation that adds.</p>
+
+      <p>The second half is that a child's capabilities can only ever be a subset of its
+        parent's. Attenuation is one-way. An agent cannot hand its child a power it was
+        never given, so no amount of delegation depth can launder a capability into
+        existence.</p>
+
+      <p>Both refusals above are the runtime's own, not this page's invention. You can
+        reproduce them against a live warden on <a href="/">the register</a>, where the
+        red text comes straight off the wire, and the conservation panel re-derives the
+        arithmetic rather than trusting the warden's own health flag.</p>
+    </div>
+  </section>
+
+  <div class="colophon">
+    <span>LETS 1.0.10 &middot; lineage escrow transition systems &middot; Apache-2.0</span>
+    <span><a href="/docs">How LETS works &rarr;</a></span>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => n.toLocaleString("en-US");
+const esc = (s) => String(s).replace(/[&<>"']/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+// The genesis envelope this walkthrough divides, and the dimensions it is
+// counted in. Two positional resources, exactly as in demo/policy.py: index 0
+// is actions, index 1 is tokens. LETS does no unit maths -- the order is the
+// only thing that binds a number to a meaning.
+const GENESIS = [2000, 200000];
+const DIMS = [
+  {label: "actions", index: 0},
+  {label: "tokens",  index: 1}
+];
+const RESEARCH_COST = [1, 500];
+
+const RESEARCH = "agent.research";
+const SUMMARIZE = "agent.summarize";
+const PUBLISH = "agent.publish";
+
+// Each agent carries what it was allocated, what it has spent, and what it has
+// escrowed into children. Residual is always the remainder -- never stored, so
+// it cannot drift out of agreement with the parts.
+const agent = (name, role, depth, caps, alloc, spent, delegated, flags) => Object.assign({
+  name, role, depth, caps, alloc, spent: spent || [0, 0], delegated: delegated || [0, 0]
+}, flags || {});
+
+const residual = (a) => a.alloc.map((v, i) => v - a.spent[i] - a.delegated[i]);
+
+const SUPERVISOR_CAPS = [RESEARCH, SUMMARIZE];
+
+// Every scene is a complete state, not a diff, so any frame can be rendered on
+// its own -- which is what makes the walkthrough correct with animation
+// disabled.
+const SCENES = [
+  {
+    note: "one agent, one envelope",
+    title: "Authority as a quantity",
+    deny: false,
+    slip: null,
+    body: `<p>A supervisor agent holds a lease on <b>2,000 actions</b> and
+      <b>200,000 tokens</b>. Not a permission &mdash; an amount.</p>
+      <p>It also holds two capabilities. Notice what is <em>not</em> there:
+      <span class="num">agent.publish</span> exists in the policy, but this agent was
+      never granted it.</p>`,
+    agents: () => [agent("supervisor", "root", 0, SUPERVISOR_CAPS, GENESIS.slice())]
+  },
+  {
+    note: "delegation moves budget, it does not mint it",
+    title: "Spawning is subtraction",
+    deny: false,
+    slip: "escrow 500 actions / 50,000 tokens",
+    body: `<p>The supervisor spawns a researcher and gives it a quarter of what it
+      holds. Watch the two bars move in opposite directions.</p>
+      <p>The blue band is budget the supervisor still owns but can no longer spend:
+      it is <b>escrowed</b> in the child. The parent's own residual fell by exactly
+      what the child received, atomically.</p>`,
+    agents: () => [
+      agent("supervisor", "root", 0, SUPERVISOR_CAPS, GENESIS.slice(), null, [500, 50000]),
+      agent("researcher", "worker", 1, SUPERVISOR_CAPS, [500, 50000])
+    ]
+  },
+  {
+    note: "a second child comes out of the same envelope",
+    title: "The envelope does not grow",
+    deny: false,
+    slip: "escrow 375 actions / 37,500 tokens",
+    body: `<p>A second agent, carved out of what is <em>left</em> &mdash; a quarter of
+      1,500, not a quarter of 2,000.</p>
+      <p>This is the part a flag-based model cannot express. Two agents now exist that
+      did not before, and the total authority in the system is still exactly 2,000
+      actions. Delegation divided it; nothing created any.</p>`,
+    agents: () => [
+      agent("supervisor", "root", 0, SUPERVISOR_CAPS, GENESIS.slice(), null, [875, 87500]),
+      agent("researcher", "worker", 1, SUPERVISOR_CAPS, [500, 50000]),
+      agent("writer", "worker", 1, SUPERVISOR_CAPS, [375, 37500])
+    ]
+  },
+  {
+    note: "refused — the ledger does not move",
+    title: "A child cannot outspend its parent",
+    deny: true,
+    slip: null,
+    body: `<p>The supervisor asks for a child holding <span class="deny-num">3,250
+      actions</span> &mdash; more than the <span class="num">1,125</span> it still has.</p>
+      <p>Refused: <span class="deny-num">policy_denied &mdash; parent residual does not
+      cover the child allocation</span>.</p>
+      <p>The important part is what did <em>not</em> happen. No bar above moved. A
+      refusal that still leaked budget would be worse than no check at all, so the
+      absence of an effect is the thing being demonstrated.</p>`,
+    agents: () => [
+      agent("supervisor", "root", 0, SUPERVISOR_CAPS, GENESIS.slice(), null, [875, 87500]),
+      agent("researcher", "worker", 1, SUPERVISOR_CAPS, [500, 50000]),
+      agent("writer", "worker", 1, SUPERVISOR_CAPS, [375, 37500]),
+      agent("greedy", "requested", 1, SUPERVISOR_CAPS, [3250, 226000], null, null,
+            {ghost: true, reason: "asks for more than the parent holds"})
+    ]
+  },
+  {
+    note: "refused — capabilities only ever narrow",
+    title: "Attenuation is one-way",
+    deny: true,
+    slip: null,
+    body: `<p>Now a modest request &mdash; well within budget &mdash; but it asks for
+      <span class="deny-num">agent.publish</span>, which the supervisor never held.</p>
+      <p>Refused: <span class="deny-num">policy_denied &mdash; child capability set is
+      not attenuated from its parent</span>.</p>
+      <p>The allocation was deliberately affordable, so the only thing wrong with this
+      request is the capability. An agent cannot grant what it was not given, at any
+      depth.</p>`,
+    agents: () => [
+      agent("supervisor", "root", 0, SUPERVISOR_CAPS, GENESIS.slice(), null, [875, 87500]),
+      agent("researcher", "worker", 1, SUPERVISOR_CAPS, [500, 50000]),
+      agent("writer", "worker", 1, SUPERVISOR_CAPS, [375, 37500]),
+      agent("escalator", "requested", 1, [RESEARCH, SUMMARIZE, PUBLISH], [140, 14062],
+            null, null, {ghost: true, reason: "asks for a capability the parent lacks"})
+    ]
+  },
+  {
+    note: "work debits the residual",
+    title: "Doing the job costs the budget",
+    deny: false,
+    slip: null,
+    body: `<p>The researcher runs its <span class="num">research</span> transition three
+      times. Each one costs <span class="num">[1 action, 500 tokens]</span> and returns a
+      signed receipt.</p>
+      <p>Red is budget that is gone for good. Closing a lease returns its
+      <em>residual</em> to the pool, but spent is spent &mdash; which is exactly what you
+      want from a system that is counting real work.</p>`,
+    agents: () => [
+      agent("supervisor", "root", 0, SUPERVISOR_CAPS, GENESIS.slice(), null, [875, 87500]),
+      agent("researcher", "worker", 1, SUPERVISOR_CAPS, [500, 50000], [3, 1500]),
+      agent("writer", "worker", 1, SUPERVISOR_CAPS, [375, 37500])
+    ]
+  },
+  {
+    note: "the agent stops, and nothing had to stop it",
+    title: "A drained agent simply halts",
+    deny: false,
+    slip: null,
+    body: `<p>Left running, the researcher works until the warden refuses:
+      <span class="deny-num">lease residual does not cover transition cost</span>.</p>
+      <p>Look closely at where it stopped. It still holds <b>400 actions</b> &mdash; but
+      <b>zero tokens</b>. A budget is a vector, and an agent halts at whichever dimension
+      runs out first.</p>
+      <p>No supervisor intervened and no kill switch fired. It ran out, so it stopped.</p>`,
+    agents: () => [
+      agent("supervisor", "root", 0, SUPERVISOR_CAPS, GENESIS.slice(), null, [875, 87500]),
+      agent("researcher", "worker", 1, SUPERVISOR_CAPS, [500, 50000], [100, 50000],
+            null, {halted: true}),
+      agent("writer", "worker", 1, SUPERVISOR_CAPS, [375, 37500])
+    ]
+  }
+];
+
+let index = 0;
+let playing = true;
+let timer = null;
+let previous = new Map();   // name -> rendered widths, so a change can animate
+
+const DWELL_MS = 5200;
+
+function bar(a, dim) {
+  const total = a.alloc[dim.index];
+  const spent = a.spent[dim.index];
+  const deleg = a.delegated[dim.index];
+  const avail = total - spent - deleg;
+  const pct = (v) => total > 0 ? (100 * v / total).toFixed(3) + "%" : "0%";
+  return {
+    spent: pct(spent), deleg: pct(deleg), avail: pct(avail),
+    label: `${fmt(avail)} of ${fmt(total)} ${dim.label} available`
+  };
+}
+
+function renderAgents(scene) {
+  const stage = $("stage");
+  const seen = new Set();
+  const html = scene.agents().map((a) => {
+    seen.add(a.name);
+    const fresh = !previous.has(a.name);
+    const classes = ["dg-agent"];
+    if (a.ghost) classes.push("ghost", "shake");
+    if (a.halted) classes.push("drained");
+    if (fresh && !a.ghost) classes.push("enter");
+
+    const dims = DIMS.map((dim) => {
+      const total = a.alloc[dim.index];
+      const avail = total - a.spent[dim.index] - a.delegated[dim.index];
+
+      // A refused request holds nothing, so its bar stays empty. Filling it
+      // green would say the opposite of what happened -- green is held budget
+      // everywhere else in this design, and the whole point of the scene is
+      // that this agent never came into existence.
+      if (a.ghost) {
+        const parentAvail = scene.agents()
+          .filter((p) => !p.ghost && p.depth === a.depth - 1)
+          .reduce((v, p) => v + residual(p)[dim.index], 0);
+        return `<div class="dg-dim">
+            <span class="dg-dimlab">${esc(dim.label)}</span>
+            <span class="dg-bar" role="img"
+                  aria-label="${fmt(total)} ${esc(dim.label)} requested, none granted">
+            </span>
+            <span class="dg-num" style="color:var(--red)">
+              <b style="color:var(--red)">${fmt(total)}</b> asked
+              <span style="color:var(--ink-soft)">/ ${fmt(parentAvail)} free</span>
+            </span>
+          </div>`;
+      }
+
+      const b = bar(a, dim);
+      const start = previous.get(a.name);
+      const from = start && start[dim.label];
+      // Paint the previous widths first, then swap to the new ones on the next
+      // frame. Without this the element is brand new every render and a CSS
+      // transition has nothing to move from.
+      const w = from || b;
+      return `<div class="dg-dim">
+          <span class="dg-dimlab">${esc(dim.label)}</span>
+          <span class="dg-bar" role="img" aria-label="${esc(b.label)}"
+                data-name="${esc(a.name)}" data-dim="${esc(dim.label)}">
+            <span class="m-spent" style="width:${w.spent}"></span
+            ><span class="m-deleg" style="width:${w.deleg}"></span
+            ><span class="m-avail" style="width:${w.avail}"></span>
+          </span>
+          <span class="dg-num"><b>${fmt(avail)}</b> / ${fmt(total)}</span>
+        </div>`;
+    }).join("");
+
+    const caps = a.caps.map((c) =>
+      `<span class="cap"${c === PUBLISH ? ' style="border-color:var(--red);color:var(--red)"' : ""}>${esc(c)}</span>`
+    ).join("");
+
+    const mark = a.ghost
+      ? `<span class="stamp">refused</span>`
+      : (a.halted ? `<span class="dg-halt">halted &mdash; out of tokens</span>` : "");
+
+    return `<div class="${classes.join(" ")}" data-depth="${a.depth}">
+        <div class="dg-head">
+          <span class="dg-name">${esc(a.name)}</span>
+          <span class="dg-role">${esc(a.role)}</span>
+          ${mark}
+          <span class="caps">${caps}</span>
+        </div>
+        ${a.ghost ? `<div class="jnote" style="color:var(--red)">${esc(a.reason)}</div>` : ""}
+        ${dims}
+      </div>`;
+  }).join("");
+
+  stage.innerHTML = html + (scene.slip
+    ? `<span class="dg-slip">${esc(scene.slip)}</span>` : "");
+
+  // Now that the DOM carries the old widths, move them to the new ones.
+  const next = new Map();
+  scene.agents().forEach((a) => {
+    const widths = {};
+    DIMS.forEach((dim) => { widths[dim.label] = bar(a, dim); });
+    next.set(a.name, widths);
+  });
+  requestAnimationFrame(() => {
+    stage.querySelectorAll(".dg-bar").forEach((el) => {
+      const widths = next.get(el.dataset.name);
+      if (!widths) return;
+      const b = widths[el.dataset.dim];
+      const parts = el.children;
+      parts[0].style.width = b.spent;
+      parts[1].style.width = b.deleg;
+      parts[2].style.width = b.avail;
+    });
+  });
+  previous = next;
+  // Agents that left the stage should animate in again if they return.
+  Array.from(previous.keys()).forEach((name) => {
+    if (!seen.has(name)) previous.delete(name);
+  });
+}
+
+function renderEquation(scene) {
+  const live = scene.agents().filter((a) => !a.ghost);
+  const root = live.find((a) => a.depth === 0);
+  const children = live.filter((a) => a.depth > 0);
+
+  const held = residual(root)[0];
+  const childHeld = children.reduce((sum, a) => sum + residual(a)[0], 0);
+  const spent = live.reduce((sum, a) => sum + a.spent[0], 0);
+  const total = held + childHeld + spent;
+  const ok = total === GENESIS[0];
+
+  $("equation").innerHTML =
+    `<span class="dg-dimlab">actions</span>
+     <span class="term t-res">${fmt(held)} held</span>
+     <span class="op">+</span>
+     <span class="term t-res" style="opacity:.75">${fmt(childHeld)} in children</span>
+     <span class="op">+</span>
+     <span class="term t-con">${fmt(spent)} spent</span>
+     <span class="eq">=</span>
+     <span class="rhs">${fmt(total)}</span>
+     <span class="verdict ${ok ? "ok" : "bad"}">${ok ? "balanced" : "BROKEN"}</span>`;
+}
+
+function renderSteps() {
+  $("steps").innerHTML = SCENES.map((s, i) =>
+    `<li><button data-step="${i}" aria-current="${i === index}"
+        title="${esc(s.title)}">${i + 1}</button></li>`).join("");
+  $("steps").querySelectorAll("button").forEach((b) => {
+    b.onclick = () => { stop(); go(Number(b.dataset.step)); };
+  });
+}
+
+function render() {
+  const scene = SCENES[index];
+  $("scenenote").textContent = `${index + 1} of ${SCENES.length} — ${scene.note}`;
+  const caption = $("caption");
+  caption.className = "dg-caption" + (scene.deny ? " deny" : "");
+  caption.innerHTML = `<h3>${esc(scene.title)}</h3>${scene.body}`;
+  renderAgents(scene);
+  renderEquation(scene);
+  renderSteps();
+  $("b-prev").disabled = index === 0;
+  $("b-next").disabled = index === SCENES.length - 1;
+}
+
+function go(next) {
+  index = Math.max(0, Math.min(SCENES.length - 1, next));
+  render();
+  if (playing) schedule();
+}
+
+function schedule() {
+  window.clearTimeout(timer);
+  if (index >= SCENES.length - 1) { stop(); return; }
+  timer = window.setTimeout(() => go(index + 1), DWELL_MS);
+}
+
+function stop() {
+  playing = false;
+  window.clearTimeout(timer);
+  $("b-play").textContent = "Play";
+}
+
+function start() {
+  playing = true;
+  $("b-play").textContent = "Pause";
+  schedule();
+}
+
+$("b-play").onclick = () => { playing ? stop() : start(); };
+$("b-prev").onclick = () => { stop(); go(index - 1); };
+$("b-next").onclick = () => { stop(); go(index + 1); };
+$("b-replay").onclick = () => { previous = new Map(); go(0); start(); };
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowRight") { stop(); go(index + 1); }
+  if (event.key === "ArrowLeft") { stop(); go(index - 1); }
+});
+
+// Someone who has asked for reduced motion almost certainly does not want a
+// slideshow advancing under them either; leave them on frame one, in control.
+const still = window.matchMedia("(prefers-reduced-motion: reduce)");
+render();
+if (still.matches) { stop(); } else { start(); }
+</script>
+</body>
+</html>

@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LETS Warden Register</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="busy" id="busy"></div>
+
+<div class="sheet">
+  <header class="masthead">
+    <div>
+      <h1 class="title">Warden Register</h1>
+      <p class="subtitle">Every agent below holds a budget carved out of the one above it.
+        Nothing here can create authority &mdash; only divide it. The arithmetic must close.</p>
+    </div>
+    <div class="ident" id="ident">connecting&hellip;</div>
+  </header>
+
+  <section class="section">
+    <div class="shead">
+      <span>Controls</span>
+      <span class="note" id="selnote">&nbsp;</span>
+    </div>
+    <div class="controls">
+      <button id="b-root">Provision root agent</button>
+      <button id="b-child">Delegate to new agent</button>
+      <button id="b-work">Run research</button>
+      <button id="b-sum">Run summarize</button>
+      <button id="b-drain">Run until refused</button>
+      <button id="b-over" class="deny">Ask for more than parent holds</button>
+      <button id="b-esc" class="deny">Ask for withheld capability</button>
+      <button id="b-reset">Close all and reset</button>
+      <a class="navlink" href="/delegation">Watch delegation &rarr;</a>
+      <a class="navlink" href="/docs">How LETS works &rarr;</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shead">
+      <span>Conservation</span>
+      <span class="note">free pool + lease residuals + consumed + sent transfers = genesis share + accepted transfers</span>
+    </div>
+    <div id="discrepancy"></div>
+    <div class="conserve">
+      <div>
+        <div id="ledger"></div>
+        <div class="legend">
+          <span><i class="sw-free"></i>free pool</span>
+          <span><i class="sw-res"></i>held by live leases</span>
+          <span><i class="sw-con"></i>consumed by authorized work</span>
+        </div>
+      </div>
+      <aside class="commentary" id="commentary" aria-live="polite"></aside>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="shead">
+      <span>Lineage register</span>
+      <span class="note" id="lineagenote">select a row to act on that agent</span>
+    </div>
+    <div class="legend">
+      <span><i class="sw-con"></i>spent on its own work</span>
+      <span><i class="sw-deleg"></i>escrowed into its children</span>
+      <span><i class="sw-res"></i>left to spend</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Subject</th>
+          <th class="hide-sm">Status</th>
+          <th class="r">Actions <span style="font-weight:normal">(spent / delegated / left)</span></th>
+          <th class="r hide-sm">Tokens</th>
+          <th class="r">Seq</th>
+        </tr>
+      </thead>
+      <tbody id="tree"></tbody>
+    </table>
+    <div id="treeempty"></div>
+  </section>
+
+  <section class="section">
+    <div class="shead">
+      <span>Journal</span>
+      <span class="note">codes and messages below are the warden&rsquo;s own, quoted verbatim</span>
+    </div>
+    <ul class="journal" id="journal" aria-live="polite"></ul>
+  </section>
+
+  <div class="colophon">
+    <span id="policyline">&nbsp;</span>
+    <span>LETS 1.0.10 &middot; lineage escrow transition systems</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let state = null;
+let selectedId = null;
+let lastSeq = 0;
+let busy = false;
+// Meter widths from the previous render, so a change has something to animate
+// from rather than appearing already finished.
+let meterWidths = new Map();
+let nextMeters = new Map();
+
+const fmt = (n) => n.toLocaleString("en-US");
+
+async function call(path, body){
+  if (busy) return;
+  busy = true;
+  $("busy").classList.add("on");
+  setButtons();
+  try{
+    const res = await fetch(path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {"content-type":"application/json"},
+      body: body === undefined ? undefined : JSON.stringify(body || {})
+    });
+    if(!res.ok) throw new Error(await res.text());
+    state = await res.json();
+    render();
+  }catch(err){
+    $("journal").insertAdjacentHTML("afterbegin",
+      `<li><span class="jseq">--</span><span class="jverd deny">ERROR</span>
+       <span class="jlabel">The demo server did not answer<div class="jdetail">${esc(String(err))}</div></span></li>`);
+  }finally{
+    busy = false;
+    $("busy").classList.remove("on");
+    setButtons();
+  }
+}
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function selected(){
+  if(!state) return null;
+  return state.leases.find(l => l.lease_id === selectedId) || state.leases[0] || null;
+}
+
+function setButtons(){
+  const has = !!selected();
+  const hasRoot = !!(state && state.leases.some(l => l.depth === 0));
+  const dis = (id, cond) => { $(id).disabled = busy || cond; };
+  dis("b-root", hasRoot);
+  dis("b-child", !has);
+  dis("b-work", !has);
+  dis("b-sum", !has);
+  dis("b-drain", !has);
+  dis("b-over", !has);
+  dis("b-esc", !has);
+  dis("b-reset", !state || state.leases.length === 0);
+}
+
+function render(){
+  if(!state) return;
+  const e = state.envelope;
+  $("ident").innerHTML =
+    `warden <b>${esc(e.warden_id)}</b> &middot; protocol <b>${esc(e.protocol)}</b><br>` +
+    `envelope <b>${esc(e.tenant_id)}/${esc(e.envelope_id)}</b> &middot; epoch <b>${e.config_epoch}</b>`;
+  $("policyline").innerHTML =
+    `policy <b>${esc(state.policy.policy_id)}</b> <span class="digest">${esc(state.policy.digest)}</span>`;
+
+  // Captured before renderJournal(), which advances lastSeq.
+  const newest = state.events.length ? state.events[0] : null;
+  const isNew = newest && newest.seq > lastSeq;
+
+  nextMeters = new Map();
+  renderLedger();
+  renderCommentary();
+  renderTree();
+  renderJournal();
+  applyMeters();
+  if(isNew) signal(newest);
+
+  const sel = selected();
+  $("selnote").textContent = sel ? `acting on ${sel.subject_id}` : "no agents yet";
+  setButtons();
+}
+
+/* ---------- conservation ---------- */
+function renderLedger(){
+  const L = state.ledger, dims = state.dimensions;
+  $("discrepancy").innerHTML = L.balanced ? "" :
+    `<div class="discrepancy">Discrepancy &mdash; the conservation equation does not close.
+     Rights have been created or destroyed.</div>`;
+
+  let html = "";
+  L.rows.forEach((r, i) => {
+    const dim = dims[i] || {id:"dim"+i, unit:""};
+    html += `<div class="equation">
+      <div class="eqlabel">${esc(dim.id)}</div>
+      <div>
+        <div class="eqrow">
+          <span class="term t-free">${fmt(r.free_pool)}</span><span class="op">+</span>
+          <span class="term t-res">${fmt(r.lease_residual)}</span><span class="op">+</span>
+          <span class="term t-con">${fmt(r.consumed)}</span>
+          ${r.transferred_out ? `<span class="op">+</span><span class="term">${fmt(r.transferred_out)}</span>` : ``}
+          <span class="eq">=</span><span>${fmt(r.lhs)}</span>
+          <span class="eq">vs</span><span class="rhs">${fmt(r.rhs)}</span>
+          <span class="verdict ${r.balanced?"ok":"bad"}">${r.balanced?"balances":"DISCREPANCY"}</span>
+        </div>
+        ${bar(r)}
+      </div>
+    </div>`;
+  });
+  $("ledger").innerHTML = html;
+}
+
+function bar(r){
+  const total = r.rhs || 1;
+  const pc = (v) => (100 * v / total).toFixed(3) + "%";
+  return `<div class="genesis-bar" role="img"
+    aria-label="free pool ${r.free_pool}, held ${r.lease_residual}, consumed ${r.consumed} of ${r.rhs}">
+    <span class="g-free" style="width:${pc(r.free_pool)}"></span>
+    <span class="g-res"  style="width:${pc(r.lease_residual)}"></span>
+    <span class="g-con"  style="width:${pc(r.consumed)}"></span>
+  </div>`;
+}
+
+/* ---------- the auditor's margin note ----------
+   Explains the ledger as it stands, keyed on whatever the warden was last
+   asked to do. Every number quoted here is read back out of the state the
+   warden just returned, not remembered from the click that caused it. */
+function renderCommentary(){
+  const L = state.ledger;
+  const ev = state.events[0];
+  const n = (v) => `<span class="num">${fmt(v)}</span>`;
+  const a = L.rows[0];                      // actions, the dimension used in prose
+  const dim = (state.dimensions[0] || {}).id || "units";
+
+  let cls = "commentary";
+  let head = "Where things stand";
+  let body = "";
+  let look = "";
+
+  if(!L.balanced){
+    cls += " deny";
+    head = "The equation does not close";
+    body = `<p>Rights have been created or destroyed. On a healthy warden this is
+      unreachable &mdash; every operation is one durable transaction that debits and
+      credits in the same commit.</p>`;
+  } else if(!ev){
+    body = `<p>The warden holds the entire genesis share of ${n(a.rhs)} ${esc(dim)}
+      in its <b>free pool</b>. No agent exists yet, so nothing is held or spent.</p>
+      <p>Everything any agent will ever be allowed to do has to come out of this
+      one number. There is no other source.</p>`;
+    look = "Provision the root agent to draw from the pool";
+  } else if(ev.action === "provision_root" && ev.ok){
+    body = `<p>A root lease was cut out of the free pool. The pool fell to ${n(a.free_pool)}
+      and ${n(a.lease_residual)} is now <b>held by the lease</b>.</p>
+      <p>Nothing was created. The middle column is the same ${esc(dim)} the left column
+      used to hold &mdash; the total is still ${n(a.rhs)}.</p>`;
+    look = "Watch the total, not the parts";
+  } else if(ev.action === "spawn_child" && ev.ok){
+    body = `<p>The child's budget came out of its <b>parent's remaining balance</b>,
+      not out of the free pool &mdash; which is why the pool is unchanged at ${n(a.free_pool)}
+      and the held column did not move either.</p>
+      <p>Budget moved sideways within the tree. The warden did this as one atomic
+      transaction, so a parent cannot be over-drawn by two children racing.</p>`;
+    look = "Free pool unchanged — this was an internal transfer";
+  } else if(ev.action === "spawn_oversized"){
+    cls += " deny";
+    head = "Refused, and it cost nothing";
+    body = `<p>The child asked for more than its parent had left, so the warden refused
+      with <b>${esc(ev.code||"")}</b>.</p>
+      <p>All three columns are exactly where they were. That is the part worth checking:
+      a permission system that rejected the request but still moved budget would be
+      worse than one that allowed it.</p>`;
+    look = "Compare the numbers to the previous step — identical";
+  } else if(ev.action === "spawn_escalated"){
+    cls += " deny";
+    head = "Refused, and it cost nothing";
+    body = `<p>The child asked for a capability its parent does not hold. Attenuation
+      only ever narrows, so the warden refused with <b>${esc(ev.code||"")}</b>.</p>
+      <p>The capability is real &mdash; it is declared by this policy's state machine and
+      it has a cost. It was simply never granted to the root, and nothing in the tree
+      can grant upward.</p>`;
+    look = "The ledger is untouched";
+  } else if(ev.action === "do_work" && ev.ok){
+    body = `<p>The agent was issued a signed receipt for one protected effect, and the
+      cost moved from <b>held</b> into <b>consumed</b> &mdash; now ${n(a.consumed)} ${esc(dim)}.</p>
+      <p>This is the only irreversible direction on the page. Closing a lease returns
+      what it still holds, but spent budget never comes back.</p>`;
+    look = "Consumed only ever grows";
+  } else if(ev.action === "do_work" && !ev.ok){
+    cls += " deny";
+    head = "Refused";
+    body = `<p>The warden declined with <b>${esc(ev.code||"")}</b>. The agent is still
+      alive and still holds its lease; it simply cannot afford this transition.</p>`;
+    look = "Running out of budget is a refusal, not a crash";
+  } else if(ev.action === "drain"){
+    cls += " deny";
+    head = "The budget is a real floor";
+    body = `<p>The agent repeated one transition until the warden stopped issuing receipts.
+      No countdown in the agent, no cooperation required &mdash; it was refused by the
+      thing holding the ledger.</p>
+      <p>Its share is now sitting in <b>consumed</b>, and the total is still ${n(a.rhs)}.</p>`;
+    look = "An exhausted agent stops without being asked to";
+  } else if(ev.action === "reset"){
+    body = `<p>Every lease was closed. What each one still <b>held</b> went back to the
+      free pool, now ${n(a.free_pool)}.</p>
+      <p>What was already <b>consumed</b> &mdash; ${n(a.consumed)} ${esc(dim)} &mdash; stayed
+      consumed. That is the design: closing an agent reclaims its unspent budget, never
+      its spending.</p>`;
+    look = "Free pool + consumed still equals the genesis share";
+  } else {
+    body = `<p>Free pool ${n(a.free_pool)}, held by live leases ${n(a.lease_residual)},
+      consumed ${n(a.consumed)} &mdash; totalling the genesis share of ${n(a.rhs)}.</p>`;
+  }
+
+  $("commentary").className = cls;
+  $("commentary").innerHTML =
+    `<h3>${esc(head)}</h3>${body}` +
+    (look ? `<span class="look">${esc(look)}</span>` : "");
+}
+
+/* ---------- lineage ---------- */
+function renderTree(){
+  const tb = $("tree");
+  if(!state.leases.length){
+    tb.innerHTML = "";
+    $("treeempty").innerHTML =
+      `<div class="empty">No agents yet. Provision the root agent to draw rights from the free pool.</div>`;
+    return;
+  }
+  $("treeempty").innerHTML = "";
+
+  // delegated[i] = what this lease has escrowed into its children
+  const deleg = {};
+  state.leases.forEach(l => {
+    if(!l.parent_id) return;
+    const d = deleg[l.parent_id] || (deleg[l.parent_id] = l.allocation.map(()=>0));
+    l.allocation.forEach((v,i) => d[i] += v);
+  });
+
+  const sel = selected();
+  const ordered = order(state.leases);
+  tb.innerHTML = ordered.map(l => {
+    const d = deleg[l.lease_id] || l.allocation.map(()=>0);
+    const isSel = sel && sel.lease_id === l.lease_id;
+    const indent = l.depth === 0 ? "" : " ".repeat((l.depth-1)*3) + "└─ ";
+    return `<tr tabindex="0" role="row" aria-selected="${isSel}" data-id="${esc(l.lease_id)}">
+      <td>
+        <span class="lineage-mark">${indent}</span><span class="subject">${esc(l.subject_id)}</span>
+        <div class="caps">${l.capabilities.map(c=>`<span class="cap">${esc(c)}</span>`).join("")}</div>
+      </td>
+      <td class="hide-sm"><span class="status ${esc(l.status)}">${esc(l.status)}</span>
+        <div class="meterlab">${esc(l.current_state)}</div></td>
+      <td class="r">${meter(l, d, 0)}</td>
+      <td class="r hide-sm">${meter(l, d, 1)}</td>
+      <td class="r">${l.sequence}</td>
+    </tr>`;
+  }).join("");
+
+  tb.querySelectorAll("tr").forEach(tr => {
+    const pick = () => { selectedId = tr.dataset.id; render(); };
+    tr.addEventListener("click", pick);
+    tr.addEventListener("keydown", ev => {
+      if(ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); pick(); }
+    });
+  });
+}
+
+function order(leases){
+  // depth-first so children print directly beneath their parent
+  const byParent = new Map();
+  leases.forEach(l => {
+    const k = l.parent_id || "__root__";
+    if(!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k).push(l);
+  });
+  const out = [];
+  (function walk(key){
+    (byParent.get(key) || []).forEach(l => { out.push(l); walk(l.lease_id); });
+  })("__root__");
+  return out.length === leases.length ? out : leases;
+}
+
+function meter(l, deleg, i){
+  const alloc = l.allocation[i] || 0;
+  const avail = l.residual[i] || 0;
+  const dele  = Math.min(deleg[i] || 0, Math.max(0, alloc - avail));
+  const spent = Math.max(0, alloc - avail - dele);
+  const pc = (v) => (100 * v / (alloc || 1)).toFixed(3) + "%";
+  const to = {spent: pc(spent), deleg: pc(dele), avail: pc(avail)};
+
+  // The tree is rebuilt wholesale on every render, so a CSS transition would
+  // have nothing to move from: the elements it would animate did not exist a
+  // frame ago. Paint the widths this lease had last time, remember the new
+  // ones, and let applyMeters() swap them in once the browser has the old
+  // frame -- that gives the budget somewhere to visibly travel from.
+  const key = l.lease_id + ":" + i;
+  const from = meterWidths.get(key) || to;
+  nextMeters.set(key, to);
+
+  return `<div class="meter" role="img" data-meter="${esc(key)}"
+      aria-label="spent ${spent}, delegated ${dele}, available ${avail} of ${alloc}">
+      <span class="m-spent" style="width:${from.spent}"></span>
+      <span class="m-deleg" style="width:${from.deleg}"></span>
+      <span class="m-avail" style="width:${from.avail}"></span>
+    </div>
+    <div class="meterlab">${fmt(spent)} / ${fmt(dele)} / <b>${fmt(avail)}</b></div>`;
+}
+
+function applyMeters(){
+  requestAnimationFrame(() => {
+    document.querySelectorAll("[data-meter]").forEach(el => {
+      const to = nextMeters.get(el.dataset.meter);
+      if(!to) return;
+      el.children[0].style.width = to.spent;
+      el.children[1].style.width = to.deleg;
+      el.children[2].style.width = to.avail;
+    });
+    meterWidths = nextMeters;
+  });
+}
+
+// A refusal has to look like nothing happening, because that is the claim: the
+// table jolts and settles back with every number where it was. An allowed
+// delegation gets the opposite treatment -- the escrowed band pulses, because
+// something really did move.
+function signal(ev){
+  const body = $("tree");
+  if(!body) return;
+  const cls = ev.ok ? (ev.action === "spawn_child" ? "flowing" : null) : "nudge";
+  if(!cls) return;
+  body.classList.remove("nudge", "flowing");
+  void body.offsetWidth;   // restart the animation if the same class repeats
+  body.classList.add(cls);
+  window.setTimeout(() => body.classList.remove(cls), 1200);
+}
+
+/* ---------- journal ---------- */
+function renderJournal(){
+  const top = state.events.length ? state.events[0].seq : 0;
+  $("journal").innerHTML = state.events.map(ev => {
+    const fresh = ev.seq > lastSeq ? " fresh" : "";
+    const cost = ev.cost ? `<span class="jcost">cost ${ev.cost.map(fmt).join(" / ")}</span>` : "<span></span>";
+    const detail = ev.ok ? "" :
+      `<div class="jdetail"><code>${esc(ev.code || "error")}</code> ${esc(ev.detail || "")}</div>`;
+    const note = ev.ok && ev.note ? `<div class="jnote">${esc(ev.note)}</div>` : "";
+    const unchanged = (!ev.ok && ev.ledger_unchanged)
+      ? `<div class="jnote">ledger unchanged &mdash; the refusal moved nothing</div>` : "";
+    const stamp = ev.ok ? cost : `<span class="stamp">refused</span>`;
+    return `<li class="${fresh.trim()}">
+      <span class="jseq">${String(ev.seq).padStart(4,"0")}</span>
+      <span class="jverd ${ev.ok?"allow":"deny"}">${ev.ok?"allow":"deny"}</span>
+      <span class="jlabel">${esc(ev.label)}${detail}${note}${unchanged}</span>
+      ${stamp}
+    </li>`;
+  }).join("");
+  lastSeq = top;
+}
+
+/* ---------- wiring ---------- */
+const withLease = (path, extra) => () => {
+  const s = selected();
+  if(!s) return;
+  call(path, Object.assign({lease_id: s.lease_id}, extra || {}));
+};
+
+$("b-root").onclick  = () => call("/api/provision-root", {});
+$("b-child").onclick = withLease("/api/spawn-child");
+$("b-over").onclick  = withLease("/api/spawn-oversized");
+$("b-esc").onclick   = withLease("/api/spawn-escalated");
+$("b-work").onclick  = withLease("/api/work", {transition:"research"});
+$("b-sum").onclick   = withLease("/api/work", {transition:"summarize"});
+$("b-drain").onclick = withLease("/api/drain", {transition:"research"});
+$("b-reset").onclick = () => { selectedId = null; call("/api/reset", {}); };
+
+call("/api/state");
+</script>
+</body>
+</html>

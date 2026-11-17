@@ -1,0 +1,29 @@
+# The warden's SQLite database and its raw Ed25519 signing seed.
+.lets/
+
+# Holds the live bootstrap token in cleartext.
+.lets-demo.json
+
+# Which leases this host created, so a restart can re-adopt rather than orphan them.
+.lets-demo-fleet.json
+.lets-demo-verify.json
+.lets-demo-fleet-prod.json
+.lets-demo-verify-prod.json
+
+# Production key material. secrets/ holds three raw Ed25519 seeds (the warden
+# signing key, the manifest operator key, and the JWT issuer key); pki/ holds
+# the certificate authorities and their private keys. Nothing here should ever
+# be committed, and none of it is recoverable -- scripts\bootstrap-prod.ps1
+# regenerates it from scratch.
+secrets/
+pki/
+
+# The authority anchor and the independent audit archive. They model separately
+# mounted volumes and are rebuilt with the node.
+state/
+
+.venv/
+.venv-prod/
+wheels/
+__pycache__/
+*.pyc
