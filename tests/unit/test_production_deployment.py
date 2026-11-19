@@ -79,10 +79,10 @@ def test_runtime_image_is_pinned_nonroot_and_root_owned() -> None:
     assert "USER 10001:10001" in dockerfile
     assert "python:3.14-alpine@sha256:" in dockerfile
     assert (
-        "apk add --no-cache --upgrade libcrypto3=3.5.9-r0 libssl3=3.5.9-r0 libuuid=2.42.3-r1"
-        in dockerfile
+        "apk add --no-cache --upgrade libcrypto3=3.5.9-r1 libssl3=3.5.9-r1 libuuid=2.42.3-r1 \\\n"
+        "        musl=1.2.6-r3 musl-utils=1.2.6-r3 zlib=1.4-r0" in dockerfile
     )
-    assert "apk add --no-cache openssl=3.5.9-r0" in dockerfile
+    assert "apk add --no-cache openssl=3.5.9-r1" in dockerfile
     assert "/usr/local/lib/python3.14/site-packages/pip" in dockerfile
     assert "/sbin/nologin" in dockerfile
     assert "org.opencontainers.image.revision" in dockerfile

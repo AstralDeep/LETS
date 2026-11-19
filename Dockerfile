@@ -5,7 +5,7 @@
 
 ARG SOURCE_DATE_EPOCH=0
 
-FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
 
 FROM python:3.14-alpine@sha256:c6ead215bfd31f1e433d968853b7a769989117115b728874824e6c0a27cb96fc AS builder
 ARG SOURCE_DATE_EPOCH
@@ -43,7 +43,8 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 # Pinned security backports only — never an unbounded apk upgrade
-RUN apk add --no-cache --upgrade libcrypto3=3.5.9-r0 libssl3=3.5.9-r0 libuuid=2.42.3-r1 \
+RUN apk add --no-cache --upgrade libcrypto3=3.5.9-r1 libssl3=3.5.9-r1 libuuid=2.42.3-r1 \
+        musl=1.2.6-r3 musl-utils=1.2.6-r3 zlib=1.4-r0 \
     && rm -rf \
         /usr/local/lib/python3.14/site-packages/pip \
         /usr/local/lib/python3.14/site-packages/pip-*.dist-info \
@@ -74,7 +75,7 @@ CMD ["lets", "--help"]
 
 FROM runtime AS production-acceptance
 USER 0:0
-RUN apk add --no-cache openssl=3.5.9-r0
+RUN apk add --no-cache openssl=3.5.9-r1
 COPY --chown=0:0 deploy/production/acceptance /app/deploy/production/acceptance
 RUN chmod -R a-w /app/deploy/production/acceptance \
     && find /app/deploy/production/acceptance -type d -exec chmod a+rx {} +
