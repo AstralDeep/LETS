@@ -51,6 +51,13 @@ image together; the Git tag is the package version prefixed with `v`.
   dry-run grids with a ten-second peer timeout, so the required Linux gate no longer depends on
   accept-loop scheduling or a one-second wall-clock bound.
 
+### Security
+
+- The runtime image installs musl and musl-utils 1.2.6-r3 and zlib 1.4-r0, the Alpine 3.24 fixes
+  for CVE-2026-107891 and CVE-2026-85091, and moves libcrypto3 and libssl3 to 3.5.9-r1. The
+  production-acceptance image installs openssl 3.5.9-r1. Alpine 3.24 no longer serves 3.5.9-r0, so
+  the earlier pins could not be installed.
+
 ## [1.1.2] - 2026-10-23
 
 The `v1.1.1` tag was not published: its release run built and signed the image candidate but could
